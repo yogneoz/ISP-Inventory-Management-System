@@ -10,6 +10,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  password?: string;
   branchId?: string;
   allowedBranchIds?: string[];
   avatarUrl?: string;

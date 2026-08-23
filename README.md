@@ -1,11 +1,12 @@
 # Enterprise ERP & Multi-Branch Inventory Management System
 
-A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL / Django REST Framework**.
+A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL / Django REST Framework**.
 
 ---
 
 ## 🌟 Key Features
 
+- **Clean Production Readiness**: Zero hardcoded mock operational data on first run. Starts with pristine, empty inventory registers while maintaining master branches and fiscal periods.
 - **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking, reorder levels, and inter-branch shipments.
 - **Physical Stock Count & Reconciliation Audit**:
   - Perform stock counting across branches with variance calculation (shortage/excess).
@@ -25,7 +26,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
 - **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting.
 - **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 17 relational database tables.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 19 relational database tables.
 
 ---
 
@@ -33,96 +34,174 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ```
 .
-├── src/                          # React + TypeScript Frontend
+├── src/                          # React 19 + TypeScript Frontend
 │   ├── components/               # UI Views and Modals
 │   │   ├── Header.tsx            # Header with Profile Switching & Notifications
 │   │   ├── Sidebar.tsx           # Multi-level Rail Navigation & Submenus
+│   │   ├── LoginModal.tsx        # Super Admin First-Launch Setup & Login
 │   │   ├── PhysicalStockAudit.tsx# Physical Stock Count & Reconciliation Audit View
 │   │   ├── FiscalYearClosingWizard.tsx # 5-Step Fiscal Closing & Lock Wizard
 │   │   ├── StockOperations.tsx   # Stock Out, Consumable Issue, Pullouts & Adjustments
-      ├── CustomerDeviceManagement.tsx # ONU / Router Serial & Customer Assignment
+│   │   ├── CustomerDeviceManagement.tsx # ONU / Router Serial & Customer Assignment
 │   │   ├── ApprovalWorkflowCenter.tsx   # Multi-tier Device Return & Refund Approvals
 │   │   ├── FixedAssetRegister.tsx# Fixed Assets & Depreciation Register
 │   │   ├── NepaliFiscalManagement.tsx # BS Fiscal Calendar & Year Settings
 │   │   └── ...
-│   ├── types/                    # Shared TypeScript Interfaces
+│   ├── types/                    # Shared TypeScript Interfaces (index.ts)
 │   ├── utils/                    # BS/AD Calendar Utilities & Permissions
 │   └── App.tsx                   # Main React Application shell
 │
 ├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql                # Full 17-Table PostgreSQL Schema with Indexes & FKs
+│   ├── schema.sql                # Full 19-Table PostgreSQL Schema with Indexes & FKs
 │   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
 │   └── setup_db.js               # Node.js runner for database setup & migration
 │
 ├── server.ts                     # Full-stack Node.js Express server with Vite middleware
 ├── ecosystem.config.js           # PM2 Process Manager Configuration for Production
 ├── Dockerfile                    # Production Docker Multi-Stage Build
-│
-├── backend_django/               # Django REST Framework Backend (Alternative option)
-│   ├── config/                   # Django Settings, URLs & WSGI
-│   ├── inventory/                # Primary Inventory Application Models & Views
-│   ├── requirements.txt          # Python Dependencies
-│   └── docker-compose.yml        # Multi-Container Compose Setup
-│
+├── .data_store.json              # Local persistent JSON state store
+├── .env.example                  # Environment configuration template
 └── package.json                  # Frontend Vite / React & Server Dependencies
 ```
 
 ---
 
-## 🚀 Local Development Quick Start
+## 🚀 Complete Installation & Setup Guide
 
-### 1. Application Startup (Express + React + Vite)
+### 📋 Prerequisites
+- **Node.js**: `v20.x` or `v22.x` LTS recommended ([Download Node.js](https://nodejs.org/))
+- **npm**: `v10.x+` (comes bundled with Node.js)
+- **Git**: Installed and configured
+- **PostgreSQL** *(Optional, recommended for production)*: `v14+` or `v15+` (can be auto-installed via `npm run setup:pg`)
+
+---
+
+### Step 1: Clone the Repository & Install Dependencies
 
 ```bash
-# Install dependencies
+# Clone the repository
+git clone https://github.com/your-organization/izone-enterprise-erp.git
+cd izone-enterprise-erp
+
+# Install all npm dependencies
 npm install
-
-# (Optional) Run automated PostgreSQL setup
-npm run setup:pg
-
-# Start full-stack development server
-npm run dev
-```
-
-The application will be accessible at `http://localhost:3000`.
-
-### 2. Database Initialization
-To automatically detect, install, and configure PostgreSQL on port 5432:
-
-```bash
-npm run setup:pg
 ```
 
 ---
 
-## 🏭 Production Deployment Guide (On Your Own Server)
+### Step 2: Configure Environment Variables
 
-This step-by-step process guides you through hosting and launching the system on your own Ubuntu/Debian Linux VPS or Dedicated Server.
+Copy `.env.example` to create your local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Review or adjust `.env` parameters as needed:
+
+```env
+# Server Port
+PORT=3000
+NODE_ENV=development
+
+# PostgreSQL Connection Settings
+DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
+POSTGRES_HOST="localhost"
+POSTGRES_PORT="5432"
+POSTGRES_DB="inventory_db"
+POSTGRES_USER="inventory_user"
+POSTGRES_PASSWORD="securepassword"
+
+# Optional: Set to "true" only if you want sample demo data seeded on first launch
+SEED_DUMMY_DATA=false
+```
+
+---
+
+### Step 3: Database Setup & Migration (PostgreSQL)
+
+You can run the built-in automatic database setup engine:
+
+```bash
+npm run setup:pg
+```
+
+**What this script does:**
+1. Detects your OS (Ubuntu, Debian, CentOS, macOS, Docker) and installs/starts PostgreSQL if not running.
+2. Creates the database `inventory_db` and user `inventory_user`.
+3. Migrates all 19 relational tables, constraints, foreign keys, and indexes from `scripts/schema.sql`.
+4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
+
+*(Note: The system also includes resilient local file storage `.data_store.json`, so the app operates seamlessly even if PostgreSQL is offline or starting up).*
+
+---
+
+### Step 4: Run Development Server
+
+```bash
+npm run dev
+```
+
+Open your browser and navigate to:
+```
+http://localhost:3000
+```
+
+---
+
+## 🔑 Initial Super Admin Login Credentials
+
+On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-configured root administrator:
+
+| Field | Default Value |
+| :--- | :--- |
+| **Email** | `admin@izone.net.np` |
+| **Password** | `admin123` |
+| **Role** | `SUPER_ADMIN` |
+| **Branch** | Head Office (Urlabari) |
+
+> **Security Note**: You can change your password anytime under **User Management** or through the profile menu in the header.
+
+---
+
+## 🧹 Managing Demo vs. Clean Operational Data
+
+### Default Clean Mode
+By default, the application starts with **0 products, 0 stock records, 0 customer devices, 0 POs, and 0 transaction logs**. Master branches (19 actual telecom branches) and Fiscal Years are preserved so you can immediately begin importing your real products or entering stock.
+
+### Clearing Demo Data
+If demo data was previously loaded or tested, you can clear all operational demo records at any time:
+1. Navigate to **System Settings** -> **Maintenance & Data Management**.
+2. Click **"Clear Demo Data"**.
+3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
+4. The system writes `isDemoDataCleared: true` to `.data_store.json`, guaranteeing that demo data will never reload on server restarts.
+
+---
+
+## 🏭 Production Deployment Guide (Ubuntu / Debian VPS)
 
 ### 📋 Recommended Server Specifications
 - **OS**: Ubuntu 22.04 LTS / 24.04 LTS or Debian 12
-- **CPU**: 2 vCPUs minimum (4 vCPUs recommended for multi-branch workloads)
+- **CPU**: 2 vCPUs minimum (4 vCPUs recommended)
 - **RAM**: 4 GB minimum (8 GB recommended)
 - **Disk**: 20 GB SSD / NVMe minimum
 
 ---
 
-### Step 1: Install Server Prerequisites
-
-Connect to your server via SSH and install Node.js, PostgreSQL, Nginx, PM2, and Certbot:
+### Step 1: Install Server Packages
 
 ```bash
 # Update System Packages
 sudo apt update && sudo apt upgrade -y
 
-# Install Node.js 20 LTS
+# Install Node.js 20 LTS & Build Tools
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs build-essential git nginx postgresql postgresql-contrib
 
 # Install PM2 Process Manager globally
 sudo npm install -g pm2
 
-# Install Certbot for Free SSL Certificates
+# Install Certbot for SSL Certificates
 sudo apt install -y certbot python3-certbot-nginx
 ```
 
@@ -130,12 +209,12 @@ sudo apt install -y certbot python3-certbot-nginx
 
 ### Step 2: Configure PostgreSQL Database
 
-1. Switch to the `postgres` user and enter PostgreSQL prompt:
 ```bash
+# Switch to postgres user and open PostgreSQL prompt
 sudo -u postgres psql
 ```
 
-2. Create database, user, and grant privileges:
+Execute SQL commands:
 ```sql
 CREATE DATABASE inventory_db;
 CREATE USER inventory_user WITH PASSWORD 'YourVeryStrongProductionPassword123!';
@@ -145,111 +224,65 @@ GRANT ALL ON SCHEMA public TO inventory_user;
 \q
 ```
 
-3. Import the 17-Table Schema:
+Import the database schema:
 ```bash
-# Clone or copy your project repository to /var/www/enterprise-erp
-cd /var/www/enterprise-erp
-
-# Import database schema directly into PostgreSQL
+cd /var/www/izone-enterprise-erp
 PGPASSWORD='YourVeryStrongProductionPassword123!' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
 ```
 
 ---
 
-### Step 3: Configure Production Environment Variables
-
-Create a `.env` file in the project root:
+### Step 3: Production Build
 
 ```bash
-nano /var/www/enterprise-erp/.env
-```
+cd /var/www/izone-enterprise-erp
 
-Add your production parameters:
+# Install dependencies (including dev tools for building)
+npm install
 
-```env
-NODE_ENV=production
-PORT=3000
-
-# PostgreSQL Database Connection String
-DATABASE_URL="postgres://inventory_user:YourVeryStrongProductionPassword123!@localhost:5432/inventory_db"
-POSTGRES_HOST="localhost"
-POSTGRES_PORT="5432"
-POSTGRES_DB="inventory_db"
-POSTGRES_USER="inventory_user"
-POSTGRES_PASSWORD="YourVeryStrongProductionPassword123!"
-
-# Secret Key for Sessions / Tokens
-JWT_SECRET="e9a8f7c6b5a43210123456789abcdef0123456789abcdef0123456789abcdef"
-
-# Gemini AI API Key (Optional: For AI Assistant integration)
-GEMINI_API_KEY="your-production-gemini-api-key"
-
-# Domain URL
-APP_URL="https://erp.yourdomain.com"
-```
-
----
-
-### Step 4: Build Application for Production
-
-Run the production build script to compile Vite assets to `dist/` and bundle `server.ts` into a standalone CJS binary `dist/server.cjs`:
-
-```bash
-cd /var/www/enterprise-erp
-npm install --production=false
+# Build static Vite bundle and standalone server binary
 npm run build
 ```
 
+This generates:
+- `dist/`: Optimized frontend static assets.
+- `dist/server.cjs`: Standalone bundled Node.js backend server with embedded source maps.
+
 ---
 
-### Step 5: Start & Manage Application with PM2
-
-Start the application with PM2 cluster mode and configure auto-restart on system boot:
+### Step 4: Start & Manage with PM2
 
 ```bash
-# Start using the PM2 configuration file
+# Start the application using PM2 ecosystem file
 pm2 start ecosystem.config.js
 
-# Save PM2 state and enable startup hook
+# Save PM2 state and configure systemd auto-start on reboot
 pm2 save
 sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u $USER --hp /home/$USER
 ```
 
-To monitor your app:
-```bash
-pm2 status
-pm2 logs enterprise-erp
-pm2 monit
-```
-
 ---
 
-### Step 6: Configure Nginx Reverse Proxy & HTTPS
+### Step 5: Configure Nginx Reverse Proxy & SSL
 
-1. Create a new Nginx site configuration:
+1. Create Nginx site configuration:
 ```bash
 sudo nano /etc/nginx/sites-available/enterprise-erp
 ```
 
-2. Paste the following configuration (replace `erp.yourdomain.com` with your actual domain or IP address):
-
+2. Add the reverse proxy configuration (replace `erp.yourdomain.com` with your actual domain):
 ```nginx
 server {
     listen 80;
     server_name erp.yourdomain.com;
 
-    # Client body size limit for file uploads (Invoices, Documents)
-    client_max_body_size 20M;
+    client_max_body_size 25M;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        
-        # WebSockets support
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        
-        # Headers
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -259,64 +292,34 @@ server {
 }
 ```
 
-3. Enable the site and test Nginx configuration:
+3. Enable site and test configuration:
 ```bash
 sudo ln -s /etc/nginx/sites-available/enterprise-erp /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-4. Enable HTTPS / SSL with Let's Encrypt:
+4. Enable free Let's Encrypt SSL:
 ```bash
 sudo certbot --nginx -d erp.yourdomain.com
 ```
 
 ---
 
-### 🐳 Alternative Deployment Option: Docker & Docker Compose
+### 🐳 Alternative: Docker Deployment
 
-If you prefer containerized deployment using Docker:
-
-1. Build and run using Docker Compose:
 ```bash
-# Build the production multi-stage container image
-docker build -t enterprise-erp:latest .
+# Build multi-stage Docker image
+docker build -t izone-erp:latest .
 
-# Run the container
+# Run container
 docker run -d \
-  --name enterprise-erp \
+  --name izone-erp-app \
   --restart always \
   -p 3000:3000 \
   --env-file .env \
-  enterprise-erp:latest
+  izone-erp:latest
 ```
-
----
-
-## 🔒 Production Security & Pre-Flight Checklist
-
-Before making the application live for users:
-
-- [ ] **Change Passwords**: Ensure PostgreSQL passwords and Super Admin default passwords (`admin123`) are updated immediately in the app database.
-- [ ] **Firewall Setup (UFW)**: Allow only ports 80, 443, and 22:
-  ```bash
-  sudo ufw default deny incoming
-  sudo ufw default allow outgoing
-  sudo ufw allow 22/tcp
-  sudo ufw allow 80/tcp
-  sudo ufw allow 443/tcp
-  sudo ufw enable
-  ```
-- [ ] **Database Backup Schedule**: Setup a daily cron job for PostgreSQL backup:
-  ```bash
-  crontab -e
-  # Add daily backup at 2:00 AM:
-  0 2 * * * pg_dump -U inventory_user -h localhost inventory_db | gzip > /var/backups/inventory_db_$(date +\%Y\%m\%d).sql.gz
-  ```
-- [ ] **Log Rotation**: Configure PM2 logrotate:
-  ```bash
-  pm2 install pm2-logrotate
-  ```
 
 ---
 
@@ -324,17 +327,18 @@ Before making the application live for users:
 
 | Action | Command |
 | :--- | :--- |
-| **Check App Status** | `pm2 status` |
-| **View Live Logs** | `pm2 logs enterprise-erp` |
-| **Restart App** | `pm2 restart enterprise-erp` |
-| **Rebuild Production Assets** | `npm run build && pm2 restart enterprise-erp` |
-| **Check Nginx Logs** | `sudo tail -f /var/log/nginx/error.log` |
-| **Manual DB Backup** | `pg_dump -U inventory_user inventory_db > backup.sql` |
+| **Development Server** | `npm run dev` |
+| **Type Check & Lint** | `npm run lint` |
+| **Production Build** | `npm run build` |
+| **Start Production Server** | `npm start` |
+| **Automated DB Setup** | `npm run setup:pg` |
+| **PM2 Process Status** | `pm2 status` |
+| **View Server Logs** | `pm2 logs enterprise-erp` |
+| **Restart Application** | `pm2 restart enterprise-erp` |
+| **PostgreSQL Backup** | `pg_dump -U inventory_user -h localhost inventory_db > backup_$(date +%Y%m%d).sql` |
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License.
-
-
