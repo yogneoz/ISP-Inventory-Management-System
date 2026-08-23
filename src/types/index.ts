@@ -476,3 +476,25 @@ export interface ApprovalRequest {
   rejectionReason?: string;
 }
 
+export interface BootstrapState {
+  branches: Branch[];
+  products: Product[];
+  stock: InventoryStock[];
+  assets: Asset[];
+  customerDevices: CustomerDeviceRecord[];
+  customers: CustomerRecord[];
+  purchaseOrders: PurchaseOrder[];
+  purchaseInvoices: PurchaseInvoice[];
+  shipments: Shipment[];
+  stockOperations: StockOperation[];
+  fiscalYears: FiscalYear[];
+  auditLogs: AuditLog[];
+  transactionLogs: TransactionLog[];
+  financialSummary: FinancialSummary;
+  suppliers: Supplier[];
+  users: Omit<User, 'password'>[];
+  approvalRequests: ApprovalRequest[];
+  serverTime: string;
+  dataVersion: number;
+}
+

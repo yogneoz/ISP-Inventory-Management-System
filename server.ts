@@ -1089,6 +1089,13 @@ function logAuditEvent(
 
   auditTrail.unshift(auditItem);
 
+  // Broadcast event to all active real-time SSE client connections
+  broadcastChange({
+    type: action,
+    entity: module,
+    branchId: auditItem.branchId,
+  });
+
   // Async persist to Postgres if available
   pgPool
     .query(
@@ -1110,6 +1117,139 @@ function logAuditEvent(
 
   return auditItem;
 }
+
+// ==========================================
+// REAL-TIME SYNC & BROADCAST ENGINE (SSE)
+// ==========================================
+let dataVersion = Date.now();
+const sseClients = new Set<express.Response>();
+
+export function broadcastChange(event: { type: string; entity?: string; branchId?: string }) {
+  dataVersion = Date.now();
+  const payload = JSON.stringify({ ...event, dataVersion, timestamp: new Date().toISOString() });
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${payload}\n\n`);
+    } catch (_err) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// SSE Live Event Stream Endpoint
+app.get('/api/sync/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  sseClients.add(res);
+
+  // Send initial handshake with current server state version
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', dataVersion, timestamp: new Date().toISOString() })}\n\n`);
+
+  const keepAliveTimer = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (_e) {
+      clearInterval(keepAliveTimer);
+      sseClients.delete(res);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAliveTimer);
+    sseClients.delete(res);
+  });
+});
+
+app.get('/api/sync/version', (req, res) => {
+  res.json({ dataVersion, timestamp: new Date().toISOString() });
+});
+
+// ==========================================
+// UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
+// ==========================================
+app.get('/api/bootstrap', (req, res) => {
+  const { branchId } = req.query;
+  const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+
+  let targetStock = inventoryStock;
+  let targetAssets = assetRegister;
+  let targetDevices = customerDeviceRecords;
+  let targetCustomers = customerMasterRecords;
+  let targetPOs = purchaseOrders;
+  let targetInvoices = purchaseInvoices;
+  let targetShipments = shipments;
+  let targetOps = stockOperations;
+  let targetApprovals = approvalRequests;
+
+  if (bId) {
+    targetAssets = assetRegister.filter((a) => a.branchId === bId);
+    targetDevices = customerDeviceRecords.filter((d) => d.branchId === bId);
+    targetCustomers = customerMasterRecords.filter((c) => c.branchId === bId);
+    targetPOs = purchaseOrders.filter((p) => p.branchId === bId);
+    targetInvoices = purchaseInvoices.filter((i) => i.branchId === bId);
+    targetShipments = shipments.filter((s) => s.sourceBranchId === bId || s.destinationBranchId === bId);
+    targetOps = stockOperations.filter((o) => o.branchId === bId);
+    targetApprovals = approvalRequests.filter((a) => a.branchId === bId);
+  }
+
+  const finTargetStock = bId ? inventoryStock.filter((s) => s.branchId === bId) : inventoryStock;
+  const finTargetAssets = targetAssets;
+  const finTargetInvoices = targetInvoices;
+  const finTargetOps = targetOps;
+
+  const totalInventoryAssetValue = finTargetStock.reduce((sum, item) => {
+    const prod = products.find((p) => p.id === item.productId);
+    return sum + (prod ? prod.costPrice * item.quantityOnHand : 0);
+  }, 0);
+
+  const totalFixedAssetValue = finTargetAssets.reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
+  const totalAccountsPayable = finTargetInvoices.reduce(
+    (sum, inv) => sum + Math.max(0, (inv.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
+    0
+  );
+  const totalDamageLossValue = finTargetOps.reduce((sum, op) => sum + (op.totalValue ?? 0), 0);
+  const totalVatInputTax = finTargetInvoices.reduce((sum, inv) => sum + (inv.vatAmount ?? 0), 0);
+  const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
+
+  const financialSummary = {
+    totalInventoryAssetValue,
+    totalFixedAssetValue,
+    totalAccountsPayable,
+    totalCostOfGoodsSold: 450000,
+    totalDamageLossValue,
+    totalVatInputTax,
+    currentFiscalYear: currentFy,
+  };
+
+  const safeUsers = users.map(({ password: _, ...u }) => u);
+
+  res.setHeader('Cache-Control', 'private, no-cache');
+  res.json({
+    branches,
+    products,
+    stock: targetStock,
+    assets: targetAssets,
+    customerDevices: targetDevices,
+    customers: targetCustomers,
+    purchaseOrders: targetPOs,
+    purchaseInvoices: targetInvoices,
+    shipments: targetShipments,
+    stockOperations: targetOps,
+    fiscalYears,
+    auditLogs: auditTrail.slice(0, 200),
+    transactionLogs: transactionLogs.slice(0, 300),
+    financialSummary,
+    suppliers,
+    users: safeUsers,
+    approvalRequests: targetApprovals,
+    serverTime: new Date().toISOString(),
+    dataVersion,
+  });
+});
 
 // ==========================================
 // API REST ENDPOINTS
@@ -3686,132 +3826,397 @@ app.post('/api/ai/analytics', async (req, res) => {
 async function syncDatabaseAndIndexes() {
   try {
     const client = await pgPool.connect();
-    console.log('PostgreSQL Pool connected successfully. Syncing database schema & creating performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+      -- 1. Branches
+      CREATE TABLE IF NOT EXISTS branches (
+        id VARCHAR(50) PRIMARY KEY,
+        code VARCHAR(20) UNIQUE NOT NULL,
+        name VARCHAR(150) NOT NULL,
+        location VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        is_headquarters BOOLEAN DEFAULT FALSE,
+        active BOOLEAN DEFAULT TRUE,
+        allow_procurement BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 2. Users
       CREATE TABLE IF NOT EXISTS users (
         id VARCHAR(50) PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
+        email VARCHAR(150) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        name VARCHAR(255) NOT NULL,
+        name VARCHAR(150) NOT NULL,
         role VARCHAR(50) NOT NULL,
-        branch_id VARCHAR(50) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
         allowed_branch_ids TEXT[],
-        can_switch_user BOOLEAN DEFAULT FALSE
+        can_switch_user BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 3. Suppliers
       CREATE TABLE IF NOT EXISTS suppliers (
         id VARCHAR(50) PRIMARY KEY,
-        supplier_code VARCHAR(50) UNIQUE NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        contact_person VARCHAR(255),
+        supplier_code VARCHAR(50),
+        name VARCHAR(200) NOT NULL,
+        contact_person VARCHAR(150),
         phone VARCHAR(50),
-        email VARCHAR(255),
+        email VARCHAR(150),
         address TEXT,
         pan_vat_number VARCHAR(50),
-        status VARCHAR(20) DEFAULT 'ACTIVE'
+        rating NUMERIC(3, 1) DEFAULT 5.0,
+        status VARCHAR(20) DEFAULT 'ACTIVE',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 4. Categories
+      CREATE TABLE IF NOT EXISTS categories (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(150) UNIQUE NOT NULL,
+        code VARCHAR(30) UNIQUE NOT NULL,
+        description TEXT
+      );
+
+      -- 5. Products
       CREATE TABLE IF NOT EXISTS products (
         id VARCHAR(50) PRIMARY KEY,
-        sku VARCHAR(50) UNIQUE NOT NULL,
+        sku VARCHAR(100) UNIQUE NOT NULL,
+        barcode VARCHAR(100),
         name VARCHAR(255) NOT NULL,
-        category VARCHAR(100),
-        unit VARCHAR(20),
-        cost_price NUMERIC(12,2) DEFAULT 0,
-        selling_price NUMERIC(12,2) DEFAULT 0,
-        min_reorder_level INT DEFAULT 0,
+        category VARCHAR(100) NOT NULL,
+        product_group VARCHAR(50) DEFAULT 'Product Item',
+        unit VARCHAR(30) DEFAULT 'Pcs',
+        cost_price NUMERIC(12, 2) DEFAULT 0.00,
+        selling_price NUMERIC(12, 2) DEFAULT 0.00,
+        tax_rate NUMERIC(5, 2) DEFAULT 13.00,
+        min_reorder_level INT DEFAULT 5,
         requires_serial_tracking BOOLEAN DEFAULT FALSE,
-        is_consumable BOOLEAN DEFAULT FALSE,
-        status VARCHAR(20) DEFAULT 'ACTIVE'
+        tracking_type VARCHAR(50) DEFAULT 'QUANTITY_ONLY',
+        description TEXT,
+        depreciation_method VARCHAR(50),
+        depreciation_rate NUMERIC(5, 2),
+        useful_life_years INT,
+        salvage_value_percent NUMERIC(5, 2),
+        status VARCHAR(20) DEFAULT 'ACTIVE',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 6. Inventory Stock
       CREATE TABLE IF NOT EXISTS inventory_stock (
-        id VARCHAR(50) PRIMARY KEY,
-        product_id VARCHAR(50) NOT NULL,
-        branch_id VARCHAR(50) NOT NULL,
+        id VARCHAR(100) PRIMARY KEY,
+        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
         quantity_on_hand INT DEFAULT 0,
-        quantity_reserved INT DEFAULT 0,
         damaged_qty INT DEFAULT 0,
-        reorder_level INT DEFAULT 5,
-        CONSTRAINT unq_product_branch UNIQUE(product_id, branch_id)
+        reserved_qty INT DEFAULT 0,
+        incoming_qty INT DEFAULT 0,
+        min_reorder_level INT DEFAULT 5,
+        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
       );
 
-      CREATE TABLE IF NOT EXISTS purchase_invoices (
+      -- 7. Fixed Assets
+      CREATE TABLE IF NOT EXISTS fixed_assets (
         id VARCHAR(50) PRIMARY KEY,
-        invoice_number VARCHAR(100) NOT NULL,
-        supplier_id VARCHAR(50) NOT NULL,
-        supplier_name VARCHAR(255),
-        branch_id VARCHAR(50) NOT NULL,
-        invoice_date_ad DATE,
-        invoice_date_bs VARCHAR(50),
-        taxable_amount NUMERIC(12,2) DEFAULT 0,
-        vat_amount NUMERIC(12,2) DEFAULT 0,
-        grand_total NUMERIC(12,2) DEFAULT 0,
-        amount_paid NUMERIC(12,2) DEFAULT 0,
-        payment_status VARCHAR(50)
+        tag_number VARCHAR(100) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        acquisition_date_ad DATE NOT NULL,
+        acquisition_date_bs VARCHAR(20) NOT NULL,
+        acquisition_cost NUMERIC(12, 2) NOT NULL,
+        depreciation_method VARCHAR(50) DEFAULT 'STRAIGHT_LINE',
+        depreciation_rate_percent NUMERIC(5, 2) DEFAULT 15.00,
+        accumulated_depreciation NUMERIC(12, 2) DEFAULT 0.00,
+        net_book_value NUMERIC(12, 2) NOT NULL,
+        status VARCHAR(30) DEFAULT 'ACTIVE',
+        supplier_name VARCHAR(200),
+        invoice_no VARCHAR(100),
+        purchase_invoice_id VARCHAR(50),
+        product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 8. Purchase Orders
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id VARCHAR(50) PRIMARY KEY,
-        order_number VARCHAR(100) NOT NULL,
-        supplier_id VARCHAR(50) NOT NULL,
-        supplier_name VARCHAR(255),
-        branch_id VARCHAR(50) NOT NULL,
-        order_date_ad DATE,
-        status VARCHAR(50),
-        total_amount NUMERIC(12,2) DEFAULT 0
+        po_number VARCHAR(100) UNIQUE NOT NULL,
+        supplier_name VARCHAR(200) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        order_date_ad DATE NOT NULL,
+        order_date_bs VARCHAR(20) NOT NULL,
+        expected_delivery_date_ad DATE,
+        status VARCHAR(30) DEFAULT 'DRAFT',
+        subtotal_amount NUMERIC(14, 2) DEFAULT 0.00,
+        tax_amount NUMERIC(14, 2) DEFAULT 0.00,
+        total_amount NUMERIC(14, 2) DEFAULT 0.00,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 9. Purchase Invoices
+      CREATE TABLE IF NOT EXISTS purchase_invoices (
+        id VARCHAR(50) PRIMARY KEY,
+        invoice_number VARCHAR(100) UNIQUE NOT NULL,
+        po_reference_id VARCHAR(50),
+        supplier_name VARCHAR(200) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        invoice_date_ad DATE NOT NULL,
+        invoice_date_bs VARCHAR(20) NOT NULL,
+        due_date_ad DATE,
+        due_date_bs VARCHAR(20),
+        taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+        vat_amount NUMERIC(14, 2) DEFAULT 0.00,
+        non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+        grand_total NUMERIC(14, 2) DEFAULT 0.00,
+        payment_status VARCHAR(30) DEFAULT 'UNPAID',
+        amount_paid NUMERIC(14, 2) DEFAULT 0.00,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 10. Shipments
+      CREATE TABLE IF NOT EXISTS shipments (
+        id VARCHAR(50) PRIMARY KEY,
+        tracking_code VARCHAR(100) UNIQUE NOT NULL,
+        type VARCHAR(50) DEFAULT 'INTER_BRANCH',
+        source_branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+        source_branch_name VARCHAR(150),
+        destination_branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        destination_branch_name VARCHAR(150),
+        dispatch_date_ad DATE NOT NULL,
+        dispatch_date_bs VARCHAR(20) NOT NULL,
+        estimated_arrival_ad DATE,
+        status VARCHAR(30) DEFAULT 'IN_TRANSIT',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 11. Stock Operations
+      CREATE TABLE IF NOT EXISTS stock_operations (
+        id VARCHAR(50) PRIMARY KEY,
+        reference_number VARCHAR(100) UNIQUE NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        technician_name VARCHAR(150),
+        work_order_ref VARCHAR(100),
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        branch_name VARCHAR(150),
+        destination_warehouse_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+        destination_warehouse_name VARCHAR(150),
+        product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+        quantity_changed INT DEFAULT 0,
+        cost_per_unit NUMERIC(12, 2) DEFAULT 0.00,
+        total_value NUMERIC(12, 2) DEFAULT 0.00,
+        reason TEXT NOT NULL,
+        inspector_name VARCHAR(150),
+        date_ad DATE NOT NULL,
+        date_bs VARCHAR(20) NOT NULL,
+        fiscal_year VARCHAR(20) DEFAULT '2082/83',
+        status VARCHAR(30) DEFAULT 'LOGGED',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 12. Fiscal Years
+      CREATE TABLE IF NOT EXISTS fiscal_years (
+        id VARCHAR(50) PRIMARY KEY,
+        code VARCHAR(20) UNIQUE NOT NULL,
+        start_date_ad DATE NOT NULL,
+        end_date_ad DATE NOT NULL,
+        start_date_bs VARCHAR(20) NOT NULL,
+        end_date_bs VARCHAR(20) NOT NULL,
+        is_current BOOLEAN DEFAULT FALSE,
+        is_closed BOOLEAN DEFAULT FALSE
+      );
+
+      -- 13. Audit Trail
       CREATE TABLE IF NOT EXISTS audit_logs (
         id VARCHAR(50) PRIMARY KEY,
-        user_email VARCHAR(255),
-        user_name VARCHAR(255),
-        action VARCHAR(100),
-        module VARCHAR(50),
+        user_email VARCHAR(150) NOT NULL,
+        user_name VARCHAR(150) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        module VARCHAR(50) NOT NULL,
         details TEXT,
         timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        timestamp_bs VARCHAR(50),
-        branch_id VARCHAR(50)
+        timestamp_bs VARCHAR(20),
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL
       );
 
+      -- 14. Transaction Logs
       CREATE TABLE IF NOT EXISTS transaction_logs (
-        id VARCHAR(50) PRIMARY KEY,
-        transaction_number VARCHAR(100),
-        product_id VARCHAR(50),
-        product_sku VARCHAR(50),
+        id VARCHAR(100) PRIMARY KEY,
+        transaction_number VARCHAR(100) NOT NULL,
+        product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+        product_sku VARCHAR(100),
         product_name VARCHAR(255),
-        branch_id VARCHAR(50),
-        change_type VARCHAR(50),
-        quantity_before INT,
-        quantity_changed INT,
-        quantity_after INT,
-        timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        change_type VARCHAR(50) NOT NULL,
+        quantity_before INT NOT NULL,
+        quantity_changed INT NOT NULL,
+        quantity_after INT NOT NULL,
+        unit_cost NUMERIC(12, 2) DEFAULT 0.00,
+        reference_doc_id VARCHAR(100),
+        timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        timestamp_bs VARCHAR(20)
       );
 
-      -- PERFORMANCE INDEXES --
+      -- 15. Customer Records
+      CREATE TABLE IF NOT EXISTS customer_records (
+        id VARCHAR(50) PRIMARY KEY,
+        customer_id VARCHAR(50) UNIQUE NOT NULL,
+        customer_name VARCHAR(200) NOT NULL,
+        username VARCHAR(100),
+        contact_number VARCHAR(50) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        address TEXT,
+        email VARCHAR(150),
+        status VARCHAR(30) DEFAULT 'ACTIVE',
+        credit_limit NUMERIC(12, 2) DEFAULT 0.00,
+        assigned_devices_count INT DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 16. Customer Device Records
+      CREATE TABLE IF NOT EXISTS customer_device_records (
+        id VARCHAR(50) PRIMARY KEY,
+        customer_id VARCHAR(50),
+        customer_name VARCHAR(200) NOT NULL,
+        customer_code VARCHAR(50) NOT NULL,
+        contact_phone VARCHAR(50),
+        installation_address TEXT,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        product_name VARCHAR(255) NOT NULL,
+        device_serial VARCHAR(100) NOT NULL,
+        pon_serial VARCHAR(100) NOT NULL,
+        mac_address VARCHAR(100),
+        status VARCHAR(30) DEFAULT 'ACTIVE',
+        issued_date_ad DATE,
+        issued_date_bs VARCHAR(20),
+        purchase_bill_ref VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 17. Approval Requests
+      CREATE TABLE IF NOT EXISTS approval_requests (
+        id VARCHAR(50) PRIMARY KEY,
+        request_number VARCHAR(100) UNIQUE NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        target_id VARCHAR(50),
+        customer_name VARCHAR(200),
+        customer_code VARCHAR(50),
+        device_serial VARCHAR(100),
+        pon_serial VARCHAR(100),
+        product_name VARCHAR(255),
+        current_status VARCHAR(30),
+        requested_status VARCHAR(30),
+        requested_by_role VARCHAR(50),
+        requested_by_email VARCHAR(150),
+        requested_by_name VARCHAR(150),
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        branch_name VARCHAR(150),
+        reason TEXT NOT NULL,
+        restock_qty_on_approval BOOLEAN DEFAULT FALSE,
+        status VARCHAR(30) DEFAULT 'PENDING',
+        requested_at_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        requested_at_bs VARCHAR(20),
+        processed_by_email VARCHAR(150),
+        processed_by_name VARCHAR(150),
+        processed_by_role VARCHAR(50),
+        processed_at_ad TIMESTAMP WITH TIME ZONE,
+        processed_at_bs VARCHAR(20),
+        rejection_reason TEXT
+      );
+
+      -- 18. BS Calendar Years
+      CREATE TABLE IF NOT EXISTS bs_calendar_years (
+        year_bs INT PRIMARY KEY,
+        days_in_months INT[] NOT NULL,
+        start_ad DATE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 19. BS Day Records
+      CREATE TABLE IF NOT EXISTS bs_day_records (
+        ad_date DATE PRIMARY KEY,
+        bs_date VARCHAR(20) NOT NULL,
+        bs_year INT NOT NULL,
+        bs_month INT NOT NULL,
+        bs_month_name VARCHAR(50) NOT NULL,
+        bs_month_name_np VARCHAR(50) NOT NULL,
+        bs_day INT NOT NULL,
+        day_of_week_name VARCHAR(30) NOT NULL,
+        day_of_week_name_np VARCHAR(30) NOT NULL,
+        fiscal_year VARCHAR(20) NOT NULL,
+        quarter VARCHAR(10) NOT NULL,
+        is_weekend BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- HIGH-THROUGHPUT COMPOSITE PERFORMANCE INDEXES --
+      CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
+      CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
+
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+      CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id);
+
       CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
       CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
       CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+      CREATE INDEX IF NOT EXISTS idx_products_group ON products(product_group);
 
       CREATE INDEX IF NOT EXISTS idx_stock_prod_branch ON inventory_stock(product_id, branch_id);
-      CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON purchase_invoices(supplier_id);
-      CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
-      
-      CREATE INDEX IF NOT EXISTS idx_orders_supplier ON purchase_orders(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
+
+      CREATE INDEX IF NOT EXISTS idx_assets_tag ON fixed_assets(tag_number);
+      CREATE INDEX IF NOT EXISTS idx_assets_branch ON fixed_assets(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_assets_status ON fixed_assets(status);
+
+      CREATE INDEX IF NOT EXISTS idx_orders_num ON purchase_orders(po_number);
       CREATE INDEX IF NOT EXISTS idx_orders_branch ON purchase_orders(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_status ON purchase_orders(status);
+
+      CREATE INDEX IF NOT EXISTS idx_invoices_num ON purchase_invoices(invoice_number);
+      CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_status ON purchase_invoices(payment_status);
+
+      CREATE INDEX IF NOT EXISTS idx_shipments_track ON shipments(tracking_code);
+      CREATE INDEX IF NOT EXISTS idx_shipments_src_dst ON shipments(source_branch_id, destination_branch_id);
+      CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
+
+      CREATE INDEX IF NOT EXISTS idx_stock_ops_ref ON stock_operations(reference_number);
+      CREATE INDEX IF NOT EXISTS idx_stock_ops_branch ON stock_operations(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_stock_ops_type ON stock_operations(type);
 
       CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
       CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_email);
-      
+      CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module);
+      CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_logs(branch_id);
+
       CREATE INDEX IF NOT EXISTS idx_txn_product ON transaction_logs(product_id);
       CREATE INDEX IF NOT EXISTS idx_txn_branch ON transaction_logs(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_txn_timestamp ON transaction_logs(timestamp_ad DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_customers_id ON customer_records(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_customers_branch ON customer_records(branch_id);
+
+      CREATE INDEX IF NOT EXISTS idx_device_serials ON customer_device_records(device_serial, pon_serial, mac_address);
+      CREATE INDEX IF NOT EXISTS idx_device_branch ON customer_device_records(branch_id, status);
+
+      CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status, branch_id);
+      CREATE INDEX IF NOT EXISTS idx_approval_type ON approval_requests(type);
+
+      CREATE INDEX IF NOT EXISTS idx_bs_days_date ON bs_day_records(bs_date);
+      CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
     `);
 
     client.release();
-    console.log('Database tables and performance indexes created & synced successfully.');
+    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully.');
   } catch (err: any) {
-    console.log('Database pool note: Memory cache active.', err?.message || err);
+    console.log('Database pool note: In-memory store active with instant caching.', err?.message || err);
   }
 }
 

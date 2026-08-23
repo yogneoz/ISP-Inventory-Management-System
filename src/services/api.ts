@@ -16,6 +16,7 @@ import {
   CustomerDeviceRecord,
   CustomerRecord,
   ApprovalRequest,
+  BootstrapState,
 } from '../types';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
@@ -26,8 +27,18 @@ export const setUserContext = (user: User | null) => {
   currentUserContext = user;
 };
 
+// In-flight promise cache to deduplicate simultaneous duplicate requests
+const inFlightRequests = new Map<string, Promise<any>>();
+
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const isGet = !options?.method || options.method === 'GET';
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${currentUserContext?.branchId || ''}`;
+
+  if (isGet && inFlightRequests.has(cacheKey)) {
+    return inFlightRequests.get(cacheKey)! as Promise<T>;
+  }
+
   const userHeaders: Record<string, string> = {};
   if (currentUserContext) {
     userHeaders['x-user-email'] = currentUserContext.email;
@@ -36,23 +47,85 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
     userHeaders['x-user-branch'] = currentUserContext.branchId;
   }
 
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...userHeaders,
-      ...options?.headers,
-    },
-    ...options,
-  });
+  const promise = (async () => {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...userHeaders,
+          ...options?.headers,
+        },
+        ...options,
+      });
 
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(errorBody.message || `Request failed with status ${res.status}`);
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(errorBody.message || `Request failed with status ${res.status}`);
+      }
+      return await res.json();
+    } finally {
+      if (isGet) {
+        inFlightRequests.delete(cacheKey);
+      }
+    }
+  })();
+
+  if (isGet) {
+    inFlightRequests.set(cacheKey, promise);
   }
-  return res.json();
+
+  return promise;
+}
+
+// Real-Time Event Stream Subscription Helper
+export function subscribeToSyncStream(onEvent: (data: any) => void): () => void {
+  const streamUrl = `${API_BASE}/api/sync/stream`;
+  let eventSource: EventSource | null = null;
+  let retryTimeout: any = null;
+
+  function connect() {
+    try {
+      eventSource = new EventSource(streamUrl);
+      eventSource.onmessage = (event) => {
+        try {
+          if (event.data && event.data.startsWith('{')) {
+            const parsed = JSON.parse(event.data);
+            onEvent(parsed);
+          }
+        } catch (_err) {}
+      };
+      eventSource.onerror = () => {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        retryTimeout = setTimeout(connect, 5000);
+      };
+    } catch (_e) {
+      retryTimeout = setTimeout(connect, 5000);
+    }
+  }
+
+  connect();
+
+  return () => {
+    if (retryTimeout) clearTimeout(retryTimeout);
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  };
 }
 
 export const api = {
+  // Unified Bootstrap for zero-lag instant UI loading & sync
+  async getBootstrapState(branchId?: string): Promise<BootstrapState> {
+    const params = new URLSearchParams();
+    if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson<BootstrapState>(`/api/bootstrap${queryString}`);
+  },
+
   // Auth
   async getSetupStatus(): Promise<{ isFirstLaunch: boolean; userCount: number; hasSuperAdmin: boolean }> {
     return fetchJson('/api/auth/setup-status');

@@ -322,11 +322,71 @@ CREATE TABLE IF NOT EXISTS bs_day_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes for high-performance querying
+-- Indexes for high-performance multi-user querying and concurrency
+CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
+CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_pan_vat ON suppliers(pan_vat_number);
+
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_group ON products(product_group);
+
 CREATE INDEX IF NOT EXISTS idx_stock_product_branch ON inventory_stock(product_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
+CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
+
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_tag ON fixed_assets(tag_number);
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_branch ON fixed_assets(branch_id);
+CREATE INDEX IF NOT EXISTS idx_fixed_assets_status ON fixed_assets(status);
+
+CREATE INDEX IF NOT EXISTS idx_po_number ON purchase_orders(po_number);
+CREATE INDEX IF NOT EXISTS idx_po_branch ON purchase_orders(branch_id);
+CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
+CREATE INDEX IF NOT EXISTS idx_po_date ON purchase_orders(order_date_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_invoices_number ON purchase_invoices(invoice_number);
+CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_payment_status ON purchase_invoices(payment_status);
+CREATE INDEX IF NOT EXISTS idx_invoices_date ON purchase_invoices(invoice_date_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_shipments_tracking ON shipments(tracking_code);
+CREATE INDEX IF NOT EXISTS idx_shipments_source_dest ON shipments(source_branch_id, destination_branch_id);
+CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
+CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_stock_ops_ref ON stock_operations(reference_number);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_branch ON stock_operations(branch_id);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_type ON stock_operations(type);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_email);
+CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module);
+CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_logs(branch_id);
+
+CREATE INDEX IF NOT EXISTS idx_txn_product ON transaction_logs(product_id);
+CREATE INDEX IF NOT EXISTS idx_txn_branch ON transaction_logs(branch_id);
+CREATE INDEX IF NOT EXISTS idx_txn_timestamp ON transaction_logs(timestamp_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_customer_records_id ON customer_records(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_branch ON customer_records(branch_id);
+CREATE INDEX IF NOT EXISTS idx_customer_records_contact ON customer_records(contact_number);
+
 CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_records(device_serial, pon_serial, mac_address);
+CREATE INDEX IF NOT EXISTS idx_customer_devices_customer ON customer_device_records(customer_id, customer_code);
+CREATE INDEX IF NOT EXISTS idx_customer_devices_branch_status ON customer_device_records(branch_id, status);
+
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_type ON approval_requests(type);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_date ON approval_requests(requested_at_ad DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bs_calendar_year ON bs_calendar_years(year_bs);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_date ON bs_day_records(bs_date);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_year_month ON bs_day_records(bs_year, bs_month);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year ON bs_day_records(fiscal_year);

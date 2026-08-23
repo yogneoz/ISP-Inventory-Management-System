@@ -18,7 +18,7 @@ import {
   CustomerRecord,
   ApprovalRequest,
 } from './types';
-import { api, setUserContext } from './services/api';
+import { api, setUserContext, subscribeToSyncStream } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
@@ -171,64 +171,29 @@ export default function App() {
     currentFiscalYear: '2082/83',
   });
 
-  // Load state from API
+  // Load state from API via atomic unified bootstrap (1 roundtrip)
   const refreshAllData = async () => {
     try {
-      const [
-        brList,
-        pList,
-        sList,
-        astList,
-        devList,
-        poList,
-        invList,
-        shList,
-        opList,
-        fyList,
-        audList,
-        txnList,
-        finSum,
-        supList,
-        usrList,
-        aprList,
-        custList,
-      ] = await Promise.all([
-        api.getBranches(),
-        api.getProducts(),
-        api.getStock('ALL'),
-        api.getAssets(selectedBranchId),
-        api.getCustomerDevices(selectedBranchId),
-        api.getPurchaseOrders(selectedBranchId),
-        api.getPurchaseInvoices(selectedBranchId),
-        api.getShipments(selectedBranchId),
-        api.getStockOperations(selectedBranchId),
-        api.getFiscalYears(),
-        api.getAuditLogs(),
-        api.getTransactionLogs(),
-        api.getFinancialSummary(selectedBranchId),
-        api.getSuppliers(),
-        api.getUsers(),
-        api.getApprovalRequests(selectedBranchId),
-        api.getCustomers(selectedBranchId),
-      ]);
-
-      setBranches(brList);
-      setProducts(pList);
-      setStock(sList);
-      setAssets(astList);
-      setCustomerDevices(devList);
-      setCustomers(custList);
-      setPurchaseOrders(poList);
-      setPurchaseInvoices(invList);
-      setShipments(shList);
-      setStockOperations(opList);
-      setFiscalYears(fyList);
-      setAuditLogs(audList);
-      setTransactionLogs(txnList);
-      setFinancialSummary(finSum);
-      setSuppliers(supList);
-      setUsers(usrList);
-      setApprovalRequests(aprList);
+      const data = await api.getBootstrapState(selectedBranchId);
+      if (data) {
+        if (data.branches) setBranches(data.branches);
+        if (data.products) setProducts(data.products);
+        if (data.stock) setStock(data.stock);
+        if (data.assets) setAssets(data.assets);
+        if (data.customerDevices) setCustomerDevices(data.customerDevices);
+        if (data.customers) setCustomers(data.customers);
+        if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
+        if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
+        if (data.shipments) setShipments(data.shipments);
+        if (data.stockOperations) setStockOperations(data.stockOperations);
+        if (data.fiscalYears) setFiscalYears(data.fiscalYears);
+        if (data.auditLogs) setAuditLogs(data.auditLogs);
+        if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
+        if (data.financialSummary) setFinancialSummary(data.financialSummary);
+        if (data.suppliers) setSuppliers(data.suppliers);
+        if (data.users) setUsers(data.users as User[]);
+        if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
+      }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
     } finally {
@@ -260,6 +225,23 @@ export default function App() {
   // Fetch data on initial mount and whenever selectedBranchId changes
   useEffect(() => {
     refreshAllData();
+  }, [selectedBranchId]);
+
+  // Real-time synchronization stream: listen for background changes from any user/branch
+  useEffect(() => {
+    let debounceTimer: any = null;
+    const unsubscribe = subscribeToSyncStream((event) => {
+      // Debounce slightly to coalesce rapid bursts
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        refreshAllData();
+      }, 250);
+    });
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe();
+    };
   }, [selectedBranchId]);
 
   // React to currentUser state changes & enforce branch/tab restrictions
