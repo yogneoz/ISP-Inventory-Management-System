@@ -675,14 +675,13 @@ export default function App() {
     setActiveTab('create-po');
   };
 
-  return (
-    <div
-      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
-        isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
-      }`}
-    >
-      {/* Login Overlay if Logged Out */}
-      {!currentUser && (
+  if (!currentUser) {
+    return (
+      <div
+        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
+          isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
+        }`}
+      >
         <LoginModal
           onLoginSuccess={handleLogin}
           branches={branches}
@@ -694,8 +693,16 @@ export default function App() {
             refreshAllData();
           }}
         />
-      )}
+      </div>
+    );
+  }
 
+  return (
+    <div
+      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
+        isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
+      }`}
+    >
       {/* Top App Header (Fixed at top) */}
       <Header
         currentUser={currentUser}

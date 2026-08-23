@@ -4,7 +4,7 @@ import { UserRole, User, Branch } from '../types';
  * Super admin and Stock Manager (INVENTORY_MANAGER) can see ALL branches.
  */
 export const canUserSeeAllBranches = (user: User | null | undefined): boolean => {
-  if (!user) return true;
+  if (!user) return false;
   const role = user.role;
   return role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
 };
@@ -13,7 +13,8 @@ export const canUserSeeAllBranches = (user: User | null | undefined): boolean =>
  * Returns array of branch IDs that the user is allowed to access.
  */
 export const getAllowedBranchIds = (user: User | null | undefined, branches: Branch[]): string[] => {
-  if (!user || canUserSeeAllBranches(user)) {
+  if (!user) return [];
+  if (canUserSeeAllBranches(user)) {
     return branches.map((b) => b.id);
   }
 
@@ -32,7 +33,8 @@ export const getAllowedBranchIds = (user: User | null | undefined, branches: Bra
  * Filters branches list to only those allowed for the user.
  */
 export const getAllowedBranches = (user: User | null | undefined, branches: Branch[]): Branch[] => {
-  if (!user || canUserSeeAllBranches(user)) {
+  if (!user) return [];
+  if (canUserSeeAllBranches(user)) {
     return branches;
   }
   const allowedIds = getAllowedBranchIds(user, branches);
@@ -47,7 +49,8 @@ export const isBranchAllowedForUser = (
   user: User | null | undefined,
   branches: Branch[]
 ): boolean => {
-  if (!user || canUserSeeAllBranches(user)) return true;
+  if (!user) return false;
+  if (canUserSeeAllBranches(user)) return true;
   if (branchId === 'ALL') return false;
   const allowedIds = getAllowedBranchIds(user, branches);
   return allowedIds.includes(branchId);
@@ -130,7 +133,7 @@ export const isOperationAllowed = (
   userRole?: UserRole | string | null,
   allowBranchProcurement?: boolean
 ): boolean => {
-  if (!userRole) return true; // Default allow if unauthenticated in dev
+  if (!userRole) return false;
 
   // Check branch-level procurement restriction for procurement operations
   if (
@@ -179,7 +182,7 @@ export const canUserSwitchProfiles = (
  * Only Super Admin and Inventory Manager can execute write-offs.
  */
 export const canUserDisposeDamagedStock = (user: User | null | undefined): boolean => {
-  if (!user) return true; // Default allow in dev if unauthenticated
+  if (!user) return false;
   if (user.role === 'SUPER_ADMIN' || user.role === 'INVENTORY_MANAGER') return true;
   return isOperationAllowed('stock-disposal-writeoff', user.role);
 };
