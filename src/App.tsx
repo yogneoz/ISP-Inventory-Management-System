@@ -19,6 +19,14 @@ import {
   ApprovalRequest,
 } from './types';
 import { api, setUserContext, subscribeToSyncStream } from './services/api';
+import {
+  saveUserSession,
+  loadUserSession,
+  clearUserSession,
+  saveRecentBootstrapCache,
+  loadRecentBootstrapCache,
+  clearRecentBootstrapCache,
+} from './utils/sessionCache';
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
@@ -66,29 +74,12 @@ import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>({
-    id: 'usr-1',
-    email: 'superadmin@izone.net.np',
-    name: 'Nabin Shrestha',
-    role: 'SUPER_ADMIN',
-    canSwitchUser: true,
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    return loadUserSession().currentUser;
   });
 
   const [rootUser, setRootUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('izone_root_user');
-      return saved
-        ? JSON.parse(saved)
-        : {
-            id: 'usr-1',
-            email: 'superadmin@izone.net.np',
-            name: 'Nabin Shrestha',
-            role: 'SUPER_ADMIN',
-            canSwitchUser: true,
-          };
-    } catch {
-      return null;
-    }
+    return loadUserSession().rootUser;
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -171,28 +162,43 @@ export default function App() {
     currentFiscalYear: '2082/83',
   });
 
+  // Hydrate state from recent cache for instant 0ms load speed
+  const applyBootstrapData = (data: any) => {
+    if (data.branches) setBranches(data.branches);
+    if (data.products) setProducts(data.products);
+    if (data.stock) setStock(data.stock);
+    if (data.assets) setAssets(data.assets);
+    if (data.customerDevices) setCustomerDevices(data.customerDevices);
+    if (data.customers) setCustomers(data.customers);
+    if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
+    if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
+    if (data.shipments) setShipments(data.shipments);
+    if (data.stockOperations) setStockOperations(data.stockOperations);
+    if (data.fiscalYears) setFiscalYears(data.fiscalYears);
+    if (data.auditLogs) setAuditLogs(data.auditLogs);
+    if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
+    if (data.financialSummary) setFinancialSummary(data.financialSummary);
+    if (data.suppliers) setSuppliers(data.suppliers);
+    if (data.users) setUsers(data.users as User[]);
+    if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
+  };
+
+  // Instant pre-hydration from recent cache
+  useEffect(() => {
+    const cached = loadRecentBootstrapCache();
+    if (cached) {
+      applyBootstrapData(cached);
+      setLoading(false);
+    }
+  }, []);
+
   // Load state from API via atomic unified bootstrap (1 roundtrip)
   const refreshAllData = async () => {
     try {
       const data = await api.getBootstrapState(selectedBranchId);
       if (data) {
-        if (data.branches) setBranches(data.branches);
-        if (data.products) setProducts(data.products);
-        if (data.stock) setStock(data.stock);
-        if (data.assets) setAssets(data.assets);
-        if (data.customerDevices) setCustomerDevices(data.customerDevices);
-        if (data.customers) setCustomers(data.customers);
-        if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
-        if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
-        if (data.shipments) setShipments(data.shipments);
-        if (data.stockOperations) setStockOperations(data.stockOperations);
-        if (data.fiscalYears) setFiscalYears(data.fiscalYears);
-        if (data.auditLogs) setAuditLogs(data.auditLogs);
-        if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
-        if (data.financialSummary) setFinancialSummary(data.financialSummary);
-        if (data.suppliers) setSuppliers(data.suppliers);
-        if (data.users) setUsers(data.users as User[]);
-        if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
+        applyBootstrapData(data);
+        saveRecentBootstrapCache(data);
       }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
@@ -304,23 +310,26 @@ export default function App() {
     const res = await api.login(e, p);
     setCurrentUser(res.user);
     setRootUser(res.user);
-    localStorage.setItem('izone_root_user', JSON.stringify(res.user));
+    saveUserSession(res.user, res.user);
     refreshAllData();
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setRootUser(null);
-    localStorage.removeItem('izone_root_user');
+    setUserContext(null);
+    clearUserSession();
+    clearRecentBootstrapCache();
   };
 
   const handleSwitchProfile = async (targetUserId: string) => {
+    const nextRoot = rootUser || currentUser;
     if (!rootUser && currentUser) {
       setRootUser(currentUser);
-      localStorage.setItem('izone_root_user', JSON.stringify(currentUser));
     }
     const res = await api.switchProfile(targetUserId);
     setCurrentUser(res.user);
+    saveUserSession(res.user, nextRoot);
     await refreshAllData();
   };
 
@@ -328,12 +337,18 @@ export default function App() {
     if (!rootUser) return;
     const res = await api.switchProfile(rootUser.id);
     setCurrentUser(res.user);
+    saveUserSession(res.user, rootUser);
     await refreshAllData();
   };
 
   const handleUpdateProfile = async (data: Partial<User> & { newPassword?: string }) => {
     const updatedUser = await api.updateProfile(data);
     setCurrentUser(updatedUser);
+    const nextRoot = rootUser && rootUser.id === updatedUser.id ? updatedUser : rootUser;
+    if (rootUser && rootUser.id === updatedUser.id) {
+      setRootUser(updatedUser);
+    }
+    saveUserSession(updatedUser, nextRoot);
     await refreshAllData();
   };
 
@@ -674,7 +689,7 @@ export default function App() {
             const res = await api.setupSuperAdmin(data);
             setCurrentUser(res.user);
             setRootUser(res.user);
-            localStorage.setItem('izone_root_user', JSON.stringify(res.user));
+            saveUserSession(res.user, res.user);
             refreshAllData();
           }}
         />

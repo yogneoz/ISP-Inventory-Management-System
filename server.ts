@@ -26,6 +26,7 @@ import {
 dotenv.config();
 
 const { Pool } = pg;
+let isPgConnected = false;
 const pgPool = new Pool({
   host: process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
@@ -1171,9 +1172,90 @@ app.get('/api/sync/version', (req, res) => {
 // ==========================================
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
-app.get('/api/bootstrap', (req, res) => {
+app.get('/api/bootstrap', async (req, res) => {
   const { branchId } = req.query;
   const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+
+  if (isPgConnected) {
+    try {
+      const [
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, fyRes, auditRes, txnRes, supRes, uRes, appRes
+      ] = await Promise.all([
+        pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
+        pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
+        pgPool.query('SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAd", order_date_bs AS "orderDateBs", expected_delivery_date_ad AS "expectedDeliveryDateAd", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes FROM purchase_orders' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAd", invoice_date_bs AS "invoiceDateBs", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid" FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes FROM shipments' + (bId ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status FROM stock_operations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, code, start_date_ad AS "startDateAd", end_date_ad AS "endDateAd", start_date_bs AS "startDateBs", end_date_bs AS "endDateBs", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
+        pgPool.query('SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC LIMIT 200'),
+        pgPool.query('SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC LIMIT 300'),
+        pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
+        pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
+        pgPool.query('SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : [])
+      ]);
+
+      const pgStock = sRes.rows;
+      const pgProducts = pRes.rows;
+      const pgAssets = aRes.rows;
+      const pgInvoices = piRes.rows;
+      const pgOps = opRes.rows;
+      const pgFiscalYears = fyRes.rows;
+
+      const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
+        const prod = pgProducts.find((p: any) => p.id === item.productId);
+        return sum + (prod ? Number(prod.costPrice) * Number(item.quantityOnHand) : 0);
+      }, 0);
+
+      const totalFixedAssetValue = pgAssets.reduce((sum: number, a: any) => sum + Number(a.netBookValue || 0), 0);
+      const totalAccountsPayable = pgInvoices.reduce(
+        (sum: number, inv: any) => sum + Math.max(0, Number(inv.grandTotal || 0) - Number(inv.amountPaid || 0)),
+        0
+      );
+      const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
+      const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
+      const currentFy = pgFiscalYears.find((f: any) => f.isCurrent)?.code || '2082/83';
+
+      const financialSummary = {
+        totalInventoryAssetValue,
+        totalFixedAssetValue,
+        totalAccountsPayable,
+        totalCostOfGoodsSold: 450000,
+        totalDamageLossValue,
+        totalVatInputTax,
+        currentFiscalYear: currentFy,
+      };
+
+      res.setHeader('Cache-Control', 'private, no-cache');
+      return res.json({
+        branches: bRes.rows,
+        products: pgProducts,
+        stock: pgStock,
+        assets: pgAssets,
+        customerDevices: dRes.rows,
+        customers: cRes.rows,
+        purchaseOrders: poRes.rows,
+        purchaseInvoices: pgInvoices,
+        shipments: shRes.rows,
+        stockOperations: pgOps,
+        fiscalYears: pgFiscalYears,
+        auditLogs: auditRes.rows,
+        transactionLogs: txnRes.rows,
+        financialSummary,
+        suppliers: supRes.rows,
+        users: uRes.rows,
+        approvalRequests: appRes.rows,
+        serverTime: new Date().toISOString(),
+        dataVersion,
+      });
+    } catch (pgErr) {
+      console.error('PostgreSQL query note in /api/bootstrap, using in-memory store:', pgErr);
+    }
+  }
 
   let targetStock = inventoryStock;
   let targetAssets = assetRegister;
@@ -1264,7 +1346,7 @@ app.get('/api/auth/setup-status', (req, res) => {
   });
 });
 
-app.post('/api/auth/setup-superadmin', (req, res) => {
+app.post('/api/auth/setup-superadmin', async (req, res) => {
   const { name, email, password, branchId } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Name, email, and password are required.' });
@@ -1286,6 +1368,16 @@ app.post('/api/auth/setup-superadmin', (req, res) => {
     allowedBranchIds: branches.map((b) => b.id),
     canSwitchUser: true,
   };
+
+  if (isPgConnected) {
+    try {
+      await pgPool.query(
+        `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [newSuperAdmin.id, newSuperAdmin.email, newSuperAdmin.password, newSuperAdmin.name, newSuperAdmin.role, newSuperAdmin.branchId, newSuperAdmin.allowedBranchIds, newSuperAdmin.canSwitchUser]
+      );
+    } catch (_err) {}
+  }
 
   users.unshift(newSuperAdmin);
   activeUser = newSuperAdmin;
@@ -1315,9 +1407,25 @@ app.post('/api/auth/forgot-password', (req, res) => {
   });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = users.find((u) => u.email === email && u.password === password);
+
+  if (isPgConnected) {
+    try {
+      const dbRes = await pgPool.query(
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) AND password = $2',
+        [email, password]
+      );
+      if (dbRes.rows.length > 0) {
+        const dbUser = dbRes.rows[0];
+        activeUser = dbUser;
+        const { password: _, ...userWithoutPass } = dbUser;
+        return res.json({ user: userWithoutPass, token: 'session-token-izone' });
+      }
+    } catch (_err) {}
+  }
+
+  const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim() && u.password === password);
   if (!user) {
     return res.status(401).json({ message: 'Invalid email or password.' });
   }
@@ -4213,10 +4321,141 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
     `);
 
+    isPgConnected = true;
+    await seedInitialPostgresData(client);
+
     client.release();
     console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully.');
   } catch (err: any) {
+    isPgConnected = false;
     console.log('Database pool note: In-memory store active with instant caching.', err?.message || err);
+  }
+}
+
+async function seedInitialPostgresData(client: pg.PoolClient) {
+  try {
+    for (const b of branches) {
+      await client.query(
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false]
+      );
+    }
+    for (const u of users) {
+      await client.query(
+        `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [u.id, u.email, u.password, u.name, u.role, u.branchId, u.allowedBranchIds || [], u.canSwitchUser || false]
+      );
+    }
+    for (const s of suppliers) {
+      await client.query(
+        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        [s.id, s.supplierCode || '', s.name, s.contactPerson || '', s.phone || '', s.email || '', s.address || '', s.panVatNumber || '', s.rating || 5.0, s.status || 'ACTIVE']
+      );
+    }
+    for (const c of categories) {
+      await client.query(
+        `INSERT INTO categories (id, name, code, description)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.name, c.code, c.description || '']
+      );
+    }
+    for (const p of products) {
+      await client.query(
+        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
+        [
+          p.id, p.sku, p.barcode || '', p.name, p.category, p.productGroup || 'Product Item', p.unit || 'Pcs',
+          p.costPrice || 0, p.sellingPrice || 0, p.taxRate || 13.0, p.minReorderLevel || 5, p.requiresSerialTracking || false,
+          p.trackingType || 'QUANTITY_ONLY', p.description || '', p.status || 'ACTIVE'
+        ]
+      );
+    }
+    for (const st of inventoryStock) {
+      await client.query(
+        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [st.id, st.productId, st.branchId, st.quantityOnHand || 0, st.damagedQty || 0, st.reservedQty || 0, st.incomingQty || 0, st.minReorderLevel || 5]
+      );
+    }
+    for (const a of assetRegister) {
+      await client.query(
+        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
+        [
+          a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAd || '2025-01-01', a.acquisitionDateBs || '2081-09-17',
+          a.acquisitionCost || 0, a.depreciationMethod || 'STRAIGHT_LINE', a.depreciationRatePercent || 15.0,
+          a.accumulatedDepreciation || 0, a.netBookValue || 0, a.status || 'ACTIVE', a.supplierName || '', a.invoiceNo || ''
+        ]
+      );
+    }
+    for (const po of purchaseOrders) {
+      await client.query(
+        `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING`,
+        [
+          po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAd || '2025-01-01', po.orderDateBs || '2081-09-17',
+          po.expectedDeliveryDateAd || '2025-01-10', po.status || 'DRAFT', po.subtotalAmount || 0, po.taxAmount || 0,
+          po.totalAmount || 0, po.notes || ''
+        ]
+      );
+    }
+    for (const inv of purchaseInvoices) {
+      await client.query(
+        `INSERT INTO purchase_invoices (id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
+        [
+          inv.id, inv.invoiceNumber, inv.poReferenceId || '', inv.supplierName, inv.branchId, inv.invoiceDateAd || '2025-01-01',
+          inv.invoiceDateBs || '2081-09-17', inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
+          inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.amountPaid || 0
+        ]
+      );
+    }
+    for (const fy of fiscalYears) {
+      await client.query(
+        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [fy.id, fy.code, fy.startDateAd || '2025-07-16', fy.endDateAd || '2026-07-15', fy.startDateBs || '2082-04-01', fy.endDateBs || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
+      );
+    }
+    for (const cust of customerMasterRecords) {
+      await client.query(
+        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING`,
+        [
+          cust.id, cust.customerId, cust.customerName, cust.username || '', cust.contactNumber || '', cust.branchId,
+          cust.address || '', cust.email || '', cust.status || 'ACTIVE', cust.creditLimit || 0, cust.assignedDevicesCount || 0
+        ]
+      );
+    }
+    for (const dev of customerDeviceRecords) {
+      await client.query(
+        `INSERT INTO customer_device_records (id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) ON CONFLICT (id) DO NOTHING`,
+        [
+          dev.id, dev.customerId || '', dev.customerName, dev.customerCode, dev.contactPhone || '', dev.installationAddress || '',
+          dev.branchId, dev.productName, dev.deviceSerial, dev.ponSerial, dev.macAddress || '', dev.status || 'ACTIVE',
+          dev.issuedDateAd || '2025-01-01', dev.issuedDateBs || '2081-09-17', dev.purchaseBillRef || '', dev.notes || ''
+        ]
+      );
+    }
+    for (const app of approvalRequests) {
+      await client.query(
+        `INSERT INTO approval_requests (id, request_number, type, target_id, customer_name, customer_code, device_serial, pon_serial, product_name, current_status, requested_status, requested_by_role, requested_by_email, requested_by_name, branch_id, branch_name, reason, restock_qty_on_approval, status, requested_at_ad, requested_at_bs)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) ON CONFLICT (id) DO NOTHING`,
+        [
+          app.id, app.requestNumber, app.type, app.targetId || '', app.customerName || '', app.customerCode || '',
+          app.deviceSerial || '', app.ponSerial || '', app.productName || '', app.currentStatus || '', app.requestedStatus || '',
+          app.requestedByRole || '', app.requestedByEmail || '', app.requestedByName || '', app.branchId, app.branchName || '',
+          app.reason || '', app.restockQtyOnApproval || false, app.status || 'PENDING', app.requestedAtAd || new Date().toISOString(), app.requestedAtBs || '2081-09-17'
+        ]
+      );
+    }
+    console.log('✅ Initial PostgreSQL seed data loaded successfully.');
+  } catch (seedErr: any) {
+    console.log('PostgreSQL initial seed note:', seedErr?.message || seedErr);
   }
 }
 
