@@ -51,6 +51,7 @@ import {
   CalendarDays,
   HelpCircle,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -101,7 +102,8 @@ export type NavTab =
   | 'audit'
   | 'warranty-products'
   | 'export-reports'
-  | 'help-documentation';
+  | 'help-documentation'
+  | 'clear-demo-data';
 
 interface SidebarProps {
   currentUser?: User | null;
@@ -369,6 +371,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },
         { id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList },
+        { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true },
       ],
     });
   }

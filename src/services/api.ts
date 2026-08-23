@@ -637,4 +637,11 @@ export const api = {
       body: JSON.stringify({ dayRecords }),
     });
   },
+
+  // Clear Demo Data
+  async clearDemoData(): Promise<{ message: string }> {
+    return fetchJson('/api/admin/clear-demo-data', {
+      method: 'POST',
+    });
+  },
 };

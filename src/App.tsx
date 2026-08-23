@@ -63,6 +63,7 @@ import { FiscalYearClosingWizard } from './components/FiscalYearClosingWizard';
 import { WarrantyProducts } from './components/WarrantyProducts';
 import { CategoryManagement } from './components/CategoryManagement';
 import { UomManagement } from './components/UomManagement';
+import { ClearDemoDataView } from './components/ClearDemoDataView';
 import { ImportStock } from './components/ImportStock';
 import { ExportStock } from './components/ExportStock';
 import { LocationsManagement } from './components/LocationsManagement';
@@ -260,7 +261,7 @@ export default function App() {
       }
 
       // Check for restricted tabs
-      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'create-shipment'];
+      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'create-shipment', 'clear-demo-data'];
       if (adminOnlyTabs.includes(activeTab) && currentUser.role !== 'SUPER_ADMIN') {
         setActiveTab('dashboard');
       }
@@ -1528,6 +1529,25 @@ export default function App() {
 
               {activeTab === 'permissions' && (
                 <PermissionManagement currentUser={currentUser} isDarkMode={isDarkMode} />
+              )}
+
+              {activeTab === 'clear-demo-data' && (
+                <ClearDemoDataView
+                  currentUser={currentUser}
+                  productCount={products.length}
+                  stockCount={stock.length}
+                  assetCount={assets.length}
+                  deviceCount={customerDevices.length}
+                  customerCount={customers.length}
+                  poCount={purchaseOrders.length}
+                  invoiceCount={purchaseInvoices.length}
+                  onClearDemoData={async () => {
+                    await api.clearDemoData();
+                    await refreshAllData();
+                  }}
+                  onNavigateDashboard={() => setActiveTab('dashboard')}
+                  isDarkMode={isDarkMode}
+                />
               )}
 
               {activeTab === 'financial-statements' && (

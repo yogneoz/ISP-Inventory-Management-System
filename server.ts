@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
@@ -68,7 +69,7 @@ function getGenAIClient() {
 // ==========================================
 
 // Pre-seeded Users according to requested specifications
-const users = [
+let users: User[] = [
   {
     id: 'usr-1',
     email: 'superadmin@izone.net.np',
@@ -121,39 +122,8 @@ const users = [
   },
 ];
 
-// Pre-seeded Suppliers
-let suppliers: Supplier[] = [
-  {
-    id: 'sup-1',
-    name: 'Himalayan Tech Distributors Pvt. Ltd.',
-    contactPerson: 'Ramesh Adhikari',
-    phone: '+977-1-4265890',
-    email: 'orders@himalayantech.com.np',
-    address: 'Putalisadak, Kathmandu',
-    panVatNumber: '302918273',
-    rating: 4.8,
-  },
-  {
-    id: 'sup-2',
-    name: 'Nepal Optical & Fiber Optics Importers',
-    contactPerson: 'Sunita Sharma',
-    phone: '+977-1-5541209',
-    email: 'sales@nepaloptics.com.np',
-    address: 'Patan Industrial Estate, Lalitpur',
-    panVatNumber: '601239845',
-    rating: 4.6,
-  },
-  {
-    id: 'sup-3',
-    name: 'Apex Networking Hardware Traders',
-    contactPerson: 'Binod Shrestha',
-    phone: '+977-1-4432100',
-    email: 'info@apexnet.com.np',
-    address: 'New Road, Kathmandu',
-    panVatNumber: '300129841',
-    rating: 4.9,
-  },
-];
+// Pre-seeded Suppliers (Default operational data empty by default unless SEED_DUMMY_DATA=true)
+let suppliers: Supplier[] = [];
 
 // Pre-seeded Actual 19 Branches
 let branches: Branch[] = [
@@ -330,143 +300,64 @@ let branches: Branch[] = [
   },
 ];
 
-// Imported Items & Telecom Consumables
-const EXCEL_ITEMS = [
-  { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
-  { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
-  { code: 'SLV001', group: 'CONSUMABLE ITEM', type: 'Sleeves', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', uom: 'Box', qty: 100, val: 250 },
-  { code: 'CPL001', group: 'CONSUMABLE ITEM', type: 'Coupler', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', uom: 'Pcs', qty: 200, val: 35 },
-  { code: 'FCN001', group: 'CONSUMABLE ITEM', type: 'Fast Connector', name: 'Fast Connector SC/UPC Fiber Optical', uom: 'Pcs', qty: 150, val: 45 },
-  { code: 'PTC001', group: 'CONSUMABLE ITEM', type: 'Patch Cord', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', uom: 'Pcs', qty: 80, val: 180 },
-  { code: 'ADP001', group: 'CONSUMABLE ITEM', type: 'Adaptor', name: '0 DB ADAPTAR SC/APC', uom: 'Pcs', qty: 100, val: 25 },
-  { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
-  { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
-  { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
-  { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
-  { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
+// Master Fiscal Years
+let fiscalYears: FiscalYear[] = [
+  {
+    id: 'fy-1',
+    code: '2080-81',
+    startDateAD: '2023-07-17',
+    endDateAD: '2024-07-15',
+    startDateBS: '2080-04-01 BS',
+    endDateBS: '2080-12-31 BS',
+    isCurrent: false,
+    isClosed: true,
+  },
+  {
+    id: 'fy-2',
+    code: '2081-82',
+    startDateAD: '2024-07-16',
+    endDateAD: '2025-07-15',
+    startDateBS: '2081-04-01 BS',
+    endDateBS: '2081-12-31 BS',
+    isCurrent: false,
+    isClosed: true,
+  },
+  {
+    id: 'fy-3',
+    code: '2082-83',
+    startDateAD: '2025-07-16',
+    endDateAD: '2026-07-15',
+    startDateBS: '2082-04-01 BS',
+    endDateBS: '2082-12-31 BS',
+    isCurrent: true,
+    isClosed: false,
+  },
+  {
+    id: 'fy-4',
+    code: '2083-84',
+    startDateAD: '2026-07-16',
+    endDateAD: '2027-07-15',
+    startDateBS: '2083-04-01 BS',
+    endDateBS: '2083-12-31 BS',
+    isCurrent: false,
+    isClosed: false,
+  },
 ];
 
-const NON_SERIALIZED_CATEGORIES = [
-  'Drop Cable', 'Cat6 Cable', 'Fiber', 'Dac Cable', 'Patch Cord',
-  'Fast Connector', 'Coupler', 'Splitter', 'Distribution Box',
-  'Av Jack', 'Binding Wire', 'Adaptor', 'Sleeves', 'Tiffin Bod', 'Cassettte'
-];
-
-// Pre-seeded Products mapped from Excel Sheet
-let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
-  const isConsumableOrCable =
-    item.group === 'CONSUMABLE ITEM' ||
-    NON_SERIALIZED_CATEGORIES.includes(item.type) ||
-    ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
-    item.name.includes('CABLE') ||
-    item.name.includes('WIRE') ||
-    item.name.includes('CONNECTOR') ||
-    item.name.includes('SPLITTER') ||
-    item.name.includes('SLEEVE') ||
-    item.name.includes('COUPLER') ||
-    item.name.includes('ADAPTAR');
-
-  const requiresSerialTracking = !isConsumableOrCable && item.group !== 'CONSUMABLE ITEM';
-
-  let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
-  if (item.group === 'FIXED ASSET') {
-    productGroup = 'Fixed Asset';
-  } else if (isConsumableOrCable) {
-    productGroup = 'Consumable Item';
-  }
-
-  return {
-    id: `prod-${item.code.toLowerCase()}`,
-    sku: item.code,
-    barcode: `890${String(100000000 + idx).slice(1)}`,
-    name: item.name,
-    category: item.type,
-    productGroup,
-    unit: item.uom,
-    costPrice: item.val > 0 ? item.val : 1500,
-    sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
-    taxRate: 13,
-    minReorderLevel: productGroup === 'Consumable Item' ? 20 : (productGroup === 'Fixed Asset' ? 0 : 5),
-    requiresSerialTracking,
-    trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
-    description: `[${productGroup}] ${item.type} - ${item.name}`,
-    ...(productGroup === 'Fixed Asset'
-      ? {
-          depreciationMethod: 'STRAIGHT_LINE' as const,
-          depreciationRate: 15,
-          usefulLifeYears: 5,
-          salvageValuePercent: 10,
-        }
-      : {}),
-  };
-});
-
-// Pre-seeded Inventory Stock per Branch for all products across all 19 branches (2-3 pieces per item)
+// Operational arrays initialized empty by default
+let products: Product[] = [];
 let inventoryStock: InventoryStock[] = [];
-let seededDamagedCount = 0;
-
-products.forEach((p, index) => {
-  branches.forEach((branch, bIdx) => {
-    // Consumable products (splitters, sleeves, couplers) have higher operational quantity per branch
-    const isConsumable = p.productGroup === 'Consumable Item';
-    const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
-    const qty = baseQty;
-
-    // Seed exactly 21 pcs of damaged stock across active branches (1 pc per damaged stock entry)
-    let damagedQty = 0;
-    if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
-      damagedQty = 1;
-      seededDamagedCount++;
-    }
-
-    // Set realistic per-branch minimum reorder level based on branch demand / HQ status
-    const branchMinReorder = branch.isHeadquarters
-      ? p.minReorderLevel * 2
-      : (bIdx % 3 === 0 ? p.minReorderLevel : Math.max(1, Math.floor(p.minReorderLevel / 2)));
-
-    inventoryStock.push({
-      id: `stk-${branch.id.toLowerCase()}-${p.id}`,
-      productId: p.id,
-      branchId: branch.id,
-      quantityOnHand: qty,
-      damagedQty: damagedQty,
-      reservedQty: 0,
-      incomingQty: 0,
-      minReorderLevel: branchMinReorder,
-      lastUpdated: new Date().toISOString(),
-    });
-  });
-});
-
-// Pre-seeded Fixed Assets from Excel Sheet (2-3 pieces per asset category/item, keeping Fiber items)
-let assetRegister: Asset[] = EXCEL_ITEMS
-  .filter((item) => item.group === 'FIXED ASSET')
-  .map((item, idx) => {
-    let cat: Asset['category'] = 'IT Equipment';
-    if (item.type === 'Furniture') cat = 'Furniture';
-    else if (item.type === 'Air Conditioner' || item.type === 'Tiffin Bod') cat = 'Fixtures';
-    else if (item.type === 'Fiber Fusion Splicer' || item.type === 'Cutter' || item.type === 'Ladder') cat = 'Machinery';
-
-    const cost = item.val > 0 ? item.val * 1000 : 25000;
-    const accum = Math.round(cost * 0.15);
-    const assignedBranch = branches[idx % branches.length].id;
-
-    return {
-      id: `ast-${item.code.toLowerCase()}`,
-      tagNumber: `AST-${item.code}`,
-      name: item.name,
-      category: cat,
-      branchId: assignedBranch,
-      acquisitionDateAD: '2024-04-15',
-      acquisitionDateBS: '2081-01-03 BS',
-      acquisitionCost: cost,
-      depreciationMethod: 'STRAIGHT_LINE',
-      depreciationRatePercent: 15,
-      accumulatedDepreciation: accum,
-      netBookValue: cost - accum,
-      status: 'ACTIVE',
-    };
-  });
+let assetRegister: Asset[] = [];
+let customerDeviceRecords: CustomerDeviceRecord[] = [];
+let customerMasterRecords: CustomerRecord[] = [];
+let purchaseOrders: PurchaseOrder[] = [];
+let purchaseInvoices: PurchaseInvoice[] = [];
+let shipments: Shipment[] = [];
+let stockOperations: StockOperation[] = [];
+let auditTrail: AuditLog[] = [];
+let transactionLogs: TransactionLog[] = [];
+let approvalRequests: ApprovalRequest[] = [];
+let isDemoDataCleared = false;
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -517,521 +408,317 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
   return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
 }
 
-// Pre-seeded Purchase Orders referencing actual products
-let purchaseOrders: PurchaseOrder[] = [
-  {
-    id: 'po-101',
-    poNumber: 'PO-2083-001',
-    supplierName: 'Himalayan Tech Distributors Pvt. Ltd.',
-    branchId: 'WH001',
-    orderDateAD: '2026-07-20',
-    orderDateBS: '2083-04-05 BS',
-    expectedDeliveryDateAD: '2026-08-05',
-    status: 'SENT',
-    items: [
-      {
-        id: 'poi-1',
-        productId: 'prod-onu001',
-        productName: 'ONU ROUTER 2.4G',
-        sku: 'ONU001',
-        quantity: 50,
-        unitPrice: 2500,
-        taxRate: 13,
-        subtotal: 125000,
-        taxAmount: 16250,
-        total: 141250,
-      },
-      {
-        id: 'poi-2',
-        productId: 'prod-olt001',
-        productName: 'OLT SFP LOADED 16 PORT',
-        sku: 'OLT001',
-        quantity: 2,
-        unitPrice: 125000,
-        taxRate: 13,
-        subtotal: 250000,
-        taxAmount: 32500,
-        total: 282500,
-      },
-    ],
-    subtotalAmount: 375000,
-    taxAmount: 48750,
-    totalAmount: 423750,
-    notes: 'Urgent reorder for optical distribution network hardware.',
-  },
-];
+// Optional Helper to generate sample demo dataset when explicitly requested (e.g., SEED_DUMMY_DATA=true)
+function generateDemoDataset() {
+  const EXCEL_ITEMS = [
+    { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
+    { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
+    { code: 'SLV001', group: 'CONSUMABLE ITEM', type: 'Sleeves', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', uom: 'Box', qty: 100, val: 250 },
+    { code: 'CPL001', group: 'CONSUMABLE ITEM', type: 'Coupler', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', uom: 'Pcs', qty: 200, val: 35 },
+    { code: 'FCN001', group: 'CONSUMABLE ITEM', type: 'Fast Connector', name: 'Fast Connector SC/UPC Fiber Optical', uom: 'Pcs', qty: 150, val: 45 },
+    { code: 'PTC001', group: 'CONSUMABLE ITEM', type: 'Patch Cord', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', uom: 'Pcs', qty: 80, val: 180 },
+    { code: 'ADP001', group: 'CONSUMABLE ITEM', type: 'Adaptor', name: '0 DB ADAPTAR SC/APC', uom: 'Pcs', qty: 100, val: 25 },
+    { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
+    { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
+    { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
+    { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
+    { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
+  ];
 
-// Pre-seeded Purchase Invoices with 13% VAT
-let purchaseInvoices: PurchaseInvoice[] = [
-  {
-    id: 'inv-201',
-    invoiceNumber: 'INV-2083-8891',
-    poReferenceId: 'po-101',
-    supplierName: 'Himalayan Tech Distributors Pvt. Ltd.',
-    branchId: 'WH001',
-    invoiceDateAD: '2026-07-25',
-    invoiceDateBS: '2083-04-10 BS',
-    dueDateAD: '2026-08-25',
-    dueDateBS: '2083-05-09 BS',
-    taxableAmount: 375000,
-    vatAmount: 48750,
-    nonTaxableAmount: 0,
-    grandTotal: 423750,
-    paymentStatus: 'UNPAID',
-    amountPaid: 0,
-  },
-];
+  const NON_SERIALIZED_CATEGORIES = [
+    'Drop Cable', 'Cat6 Cable', 'Fiber', 'Dac Cable', 'Patch Cord',
+    'Fast Connector', 'Coupler', 'Splitter', 'Distribution Box',
+    'Av Jack', 'Binding Wire', 'Adaptor', 'Sleeves', 'Tiffin Bod', 'Cassettte'
+  ];
 
-// Pre-seeded Shipments & Transfers
-let shipments: Shipment[] = [
-  {
-    id: 'sh-301',
-    trackingCode: 'TRF-2083-0092',
-    type: 'INTER_BRANCH',
-    sourceBranchId: 'WH001',
-    sourceBranchName: 'Head Office (Urlabari)',
-    destinationBranchId: 'CHU01',
-    destinationBranchName: 'Chulachuli Branch',
-    dispatchDateAD: '2026-07-28',
-    dispatchDateBS: '2083-04-13 BS',
-    estimatedArrivalAD: '2026-08-01',
-    status: 'IN_TRANSIT',
-    items: [
-      {
-        id: 'shi-1',
-        productId: 'prod-drp001',
-        productName: 'DROP CABLE 175 MTR',
-        sku: 'DRP001',
-        quantitySent: 10,
-      },
-    ],
-    notes: 'Inter-branch drop cable stock transfer to Chulachuli branch.',
-  },
-  {
-    id: 'sh-302',
-    trackingCode: 'TRF-2083-0088',
-    type: 'INTER_BRANCH',
-    sourceBranchId: 'WH001',
-    sourceBranchName: 'Head Office (Urlabari)',
-    destinationBranchId: 'CHU01',
-    destinationBranchName: 'Chulachuli Branch',
-    dispatchDateAD: '2026-07-25',
-    dispatchDateBS: '2083-04-10 BS',
-    estimatedArrivalAD: '2026-07-27',
-    status: 'RECEIVED',
-    items: [
-      {
-        id: 'shi-2',
-        productId: 'prod-onu001',
-        productName: 'ONU ROUTER 2.4G',
-        sku: 'ONU001',
-        quantitySent: 5,
-        quantityReceived: 5,
-        deviceSerials: [
-          { deviceSerial: 'SN-ONU24G-880121', ponSerial: 'HWTC-A101B201' },
-          { deviceSerial: 'SN-ONU24G-880122', ponSerial: 'HWTC-A101B202' },
-          { deviceSerial: 'SN-ONU24G-880123', ponSerial: 'HWTC-A101B203' },
-          { deviceSerial: 'SN-ONU24G-880124', ponSerial: 'HWTC-A101B204' },
-          { deviceSerial: 'SN-ONU24G-880125', ponSerial: 'HWTC-A101B205' },
-        ],
-      },
-    ],
-    notes: 'Urgent ONU router replenish transfer for subscriber onboarding.',
-  },
-  {
-    id: 'sh-303',
-    trackingCode: 'TRF-2083-0085',
-    type: 'INTER_BRANCH',
-    sourceBranchId: 'WH001',
-    sourceBranchName: 'Head Office (Urlabari)',
-    destinationBranchId: 'BTM01',
-    destinationBranchName: 'Birtamode Branch',
-    dispatchDateAD: '2026-07-22',
-    dispatchDateBS: '2083-04-07 BS',
-    estimatedArrivalAD: '2026-07-24',
-    status: 'RECEIVED',
-    items: [
-      {
-        id: 'shi-3',
-        productId: 'prod-pat001',
-        productName: 'PATCH CORD 3 MTR',
-        sku: 'PAT001',
-        quantitySent: 2,
-        quantityReceived: 2,
-      },
-    ],
-    notes: 'Patch cord batch dispatch to Birtamode Branch.',
-  },
-];
-
-// Pre-seeded Stock Operations
-let stockOperations: StockOperation[] = [];
-
-// Auto-seed matching DAMAGE operations for all 21 pre-seeded damaged stock entries
-let dmgOpCounter = 1;
-inventoryStock.forEach((stk) => {
-  if (stk.damagedQty > 0) {
-    const prod = products.find((p) => p.id === stk.productId);
-    stockOperations.push({
-      id: `op-dmg-${stk.id}`,
-      referenceNumber: `DMG-2083-${String(dmgOpCounter++).padStart(3, '0')}`,
-      type: 'DAMAGE',
-      branchId: stk.branchId,
-      productId: stk.productId,
-      productName: prod?.name || 'Damaged Stock Item',
-      quantityChanged: -stk.damagedQty,
-      costPerUnit: prod?.costPrice || 0,
-      totalValue: stk.damagedQty * (prod?.costPrice || 0),
-      reason: 'Physical branch inventory inspection & transit damage tag',
-      inspectorName: 'Branch Quality Inspector',
-      dateAD: '2026-07-22',
-      dateBS: '2083-04-07 BS',
-      fiscalYear: '2082-83',
-    });
-  }
-});
-
-// Pre-seeded Fiscal Years
-let fiscalYears: FiscalYear[] = [
-  {
-    id: 'fy-1',
-    code: '2080-81',
-    startDateAD: '2023-07-17',
-    endDateAD: '2024-07-15',
-    startDateBS: '2080-04-01 BS',
-    endDateBS: '2080-12-31 BS',
-    isCurrent: false,
-    isClosed: true,
-  },
-  {
-    id: 'fy-2',
-    code: '2081-82',
-    startDateAD: '2024-07-16',
-    endDateAD: '2025-07-15',
-    startDateBS: '2081-04-01 BS',
-    endDateBS: '2081-12-31 BS',
-    isCurrent: false,
-    isClosed: true,
-  },
-  {
-    id: 'fy-3',
-    code: '2082-83',
-    startDateAD: '2025-07-16',
-    endDateAD: '2026-07-15',
-    startDateBS: '2082-04-01 BS',
-    endDateBS: '2082-12-31 BS',
-    isCurrent: true,
-    isClosed: false,
-  },
-  {
-    id: 'fy-4',
-    code: '2083-84',
-    startDateAD: '2026-07-16',
-    endDateAD: '2027-07-15',
-    startDateBS: '2083-04-01 BS',
-    endDateBS: '2083-12-31 BS',
-    isCurrent: false,
-    isClosed: false,
-  },
-];
-
-// Pre-seeded Audit Logs
-let auditTrail: AuditLog[] = [
-  {
-    id: 'aud-1',
-    userEmail: 'admin@izone.net.np',
-    userName: 'Shrestha Administrator',
-    action: 'SYSTEM_BOOT',
-    module: 'AUTH',
-    details: 'IZone Enterprise Inventory System initialized with multi-branch database.',
-    timestampAD: '2026-07-31T07:00:00Z',
-    timestampBS: '2083-04-16 BS',
-  },
-];
-
-// Pre-seeded Transaction Logs
-let transactionLogs: TransactionLog[] = [
-  {
-    id: 'txn-1',
-    transactionNumber: 'TXN-88001',
-    productId: 'prod-hoc001',
-    productSku: 'HOC001',
-    productName: 'HYDRAULIC OFFICE CHAIR-FA',
-    branchId: 'CHU01',
-    changeType: 'DAMAGE',
-    quantityBefore: 10,
-    quantityChanged: -1,
-    quantityAfter: 9,
-    unitCost: 25,
-    referenceDocId: 'DMG-2083-001',
-    timestampAD: '2026-07-22T10:30:00Z',
-    timestampBS: '2083-04-07 BS',
-  },
-];
-
-// Pre-seeded Customer Master Database
-let customerMasterRecords: CustomerRecord[] = [
-  {
-    id: 'CUS-10291',
-    customerId: 'CUS-10291',
-    customerName: 'Aarav Sharma',
-    username: 'aarav.sharma',
-    contactNumber: '9851092810',
-    branchId: 'BRC01',
-    address: 'Durbar Marg Ward 4, Kathmandu, Nepal',
-    email: 'aarav@gmail.com',
-    status: 'ACTIVE',
-    creditLimit: 25000,
-    assignedDevicesCount: 2,
-  },
-  {
-    id: 'CUS-10292',
-    customerId: 'CUS-10292',
-    customerName: 'Pooja Gurung',
-    username: 'pooja.g',
-    contactNumber: '9846019283',
-    branchId: 'BTM01',
-    address: 'Lakeside Ward 6, Pokhara, Nepal',
-    email: 'pooja.g@yahoo.com',
-    status: 'ACTIVE',
-    creditLimit: 15000,
-    assignedDevicesCount: 1,
-  },
-  {
-    id: 'CUS-10293',
-    customerId: 'CUS-10293',
-    customerName: 'Subash Shrestha',
-    username: 'subash.sh',
-    contactNumber: '9801029381',
-    branchId: 'WH001',
-    address: 'Jawalakhel Ward 2, Lalitpur, Nepal',
-    email: 'subash@outlook.com',
-    status: 'ACTIVE',
-    creditLimit: 50000,
-    assignedDevicesCount: 0,
-  },
-  {
-    id: 'CUS-10294',
-    customerId: 'CUS-10294',
-    customerName: 'Bina Thapa',
-    username: 'bina.t',
-    contactNumber: '9855019284',
-    branchId: 'CHU01',
-    address: 'Lions Chowk Ward 1, Narayangarh, Nepal',
-    email: 'bina@gmail.com',
-    status: 'ACTIVE',
-    creditLimit: 20000,
-    assignedDevicesCount: 1,
-  },
-];
-
-// Pre-seeded Customer Device Records (Device Serial & PON Serial Lookup)
-let customerDeviceRecords: CustomerDeviceRecord[] = [
-  {
-    id: 'cust-101',
-    customerId: 'c-801',
-    customerName: 'Aashish Subedi',
-    customerCode: 'CUST-URL-1092',
-    contactPhone: '+977-9851029381',
-    installationAddress: 'Urlabari Ward 3, Morang',
-    branchId: 'URL01',
-    productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
-    deviceSerial: 'SN-ONU24G-881923',
-    ponSerial: 'HWTC-90A812C4',
-    macAddress: '70:A8:E3:4B:91:10',
-    status: 'RENTAL',
-    issuedDateAD: '2026-05-10',
-    issuedDateBS: '2083-01-27 BS',
-    purchaseBillRef: 'BILL-9021',
-    notes: 'Fiber FTTH connection 100Mbps setup with Dual Band ONU Router.',
-  },
-  {
-    id: 'cust-102',
-    customerId: 'c-802',
-    customerName: 'Sujata Maharjan',
-    customerCode: 'CUST-ITH-4019',
-    contactPhone: '+977-9801928374',
-    installationAddress: 'Itahari Ward 4, Sunsari',
-    branchId: 'ITH01',
-    productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
-    deviceSerial: 'SN-ONU5G-774019',
-    ponSerial: 'ZTE-4481A290',
-    macAddress: 'CC:12:34:56:78:9A',
-    status: 'RENTAL',
-    issuedDateAD: '2026-06-18',
-    issuedDateBS: '2083-03-04 BS',
-    purchaseBillRef: 'BILL-4410',
-    notes: 'Dual band 5G Dual Antenna ONU Router.',
-  },
-  {
-    id: 'cust-103',
-    customerId: 'c-803',
-    customerName: 'Bikash Pokharel',
-    customerCode: 'CUST-CHU-2041',
-    contactPhone: '+977-9861234567',
-    installationAddress: 'Chulachuli Ward 1, Ilam',
-    branchId: 'CHU01',
-    productName: 'ONU ROUTER SINGLE BAND 2.4G XPON',
-    deviceSerial: 'SN-ONU24G-990182',
-    ponSerial: 'HWTC-8812B001',
-    macAddress: '88:E2:00:11:22:33',
-    status: 'RENTAL',
-    issuedDateAD: '2026-04-02',
-    issuedDateBS: '2082-12-20 BS',
-    purchaseBillRef: 'BILL-9021',
-    notes: 'Rental CPE ONU Router assigned at Chulachuli.',
-  },
-];
-
-// Dynamically seed unique serialized device records (Device SN, PON SN, MAC) for all on-hand stock of serialized products across all branches
-let snSeedCounter = 1000;
-products.filter((p) => p.requiresSerialTracking).forEach((prod, pIdx) => {
-  branches.forEach((branch, bIdx) => {
-    const stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === branch.id);
-    const qty = stk ? stk.quantityOnHand : 2;
-    const prefix = prod.sku?.includes('ONU001') ? 'ONU5G' : (prod.sku?.includes('ONU002') ? 'ONU24G' : 'OLT16');
-    const ponPrefix = pIdx % 2 === 0 ? 'HWTC' : 'ZTE';
-
-    for (let u = 1; u <= qty; u++) {
-      snSeedCounter++;
-      const snHex = (100000 + snSeedCounter).toString();
-      const ponHex = `${branch.code}${String(u).padStart(2, '0')}${snHex.slice(-4)}`;
-      const macHex = `70:${(10 + (bIdx % 80)).toString(16).padStart(2, '0').toUpperCase()}:${(20 + (u % 70)).toString(16).padStart(2, '0').toUpperCase()}:${snHex.slice(0, 2)}:${snHex.slice(2, 4)}:${snHex.slice(4, 6)}`;
-
-      customerDeviceRecords.push({
-        id: `dev-stk-${branch.id.toLowerCase()}-${prod.id}-${u}`,
-        customerId: `STOCK-${branch.id}`,
-        customerName: 'IN STORE (Available Stock)',
-        customerCode: `STORE-${branch.code}`,
-        contactPhone: branch.phone || '+977-9800000000',
-        installationAddress: `${branch.name} Storage Bin`,
-        branchId: branch.id,
-        productName: prod.name,
-        deviceSerial: `SN-${prefix}-${branch.code}-${snHex.slice(-5)}`,
-        ponSerial: `${ponPrefix}-${ponHex.toUpperCase()}`,
-        macAddress: macHex,
-        status: 'IN_STOCK',
-        issuedDateAD: '2026-07-15',
-        issuedDateBS: '2083-03-31 BS',
-        purchaseBillRef: `BATCH-2083-${branch.code}`,
-        notes: `Available on-hand serialized CPE stock in ${branch.name} inventory.`,
-      });
-    }
-  });
-});
-
-// Pre-seeded Approval Requests (Workflow Authorization Center)
-let approvalRequests: ApprovalRequest[] = [
-  {
-    id: 'apr-101',
-    requestNumber: 'APR-2083-001',
-    type: 'CUSTOMER_DEVICE_STATUS',
-    targetId: 'cust-103',
-    customerName: 'Bikash Pokharel',
-    customerCode: 'CUST-CHU-2041',
-    deviceSerial: 'SN-ONU24G-990182',
-    ponSerial: 'HWTC-8812B001',
-    productName: 'ONU ROUTER 2.4G',
-    currentStatus: 'RENTAL',
-    requestedStatus: 'ROUTER_COLLECTED',
-    requestedByRole: 'FRONT_DESK',
-    requestedByEmail: 'frontdesk.urlabari@izone.com.np',
-    requestedByName: 'Sabin Shrestha (Frontdesk)',
-    branchId: 'CHU01',
-    branchName: 'Chulachuli Branch Office',
-    reason: 'Customer requested account termination & disconnection. Router inspected in working condition. Requesting approval to collect router and restock inventory.',
-    restockQtyOnApproval: true,
-    status: 'PENDING',
-    requestedAtAD: '2026-08-05T14:20:00Z',
-    requestedAtBS: '2083-04-21 BS',
-  },
-  {
-    id: 'apr-102',
-    requestNumber: 'APR-2083-002',
-    type: 'CUSTOMER_DEVICE_STATUS',
-    targetId: 'cust-102',
-    customerName: 'Sujata Maharjan',
-    customerCode: 'CUST-ITH-4019',
-    deviceSerial: 'SN-ONU5G-774019',
-    ponSerial: 'ZTE-4481A290',
-    productName: 'ONU ROUTER 5G',
-    currentStatus: 'RENTAL',
-    requestedStatus: 'ROUTER_COLLECTED',
-    requestedByRole: 'BRANCH_MANAGER',
-    requestedByEmail: 'bm.itahari@izone.com.np',
-    requestedByName: 'Ramesh Karki (Branch Manager)',
-    branchId: 'ITH01',
-    branchName: 'Itahari Branch Office',
-    reason: 'Service disconnection requested due to customer relocation. ONU router and power adapter collected and verified.',
-    restockQtyOnApproval: true,
-    status: 'APPROVED',
-    requestedAtAD: '2026-08-01T09:15:00Z',
-    requestedAtBS: '2083-04-17 BS',
-    processedByEmail: 'admin@system.com.np',
-    processedByName: 'Super Admin',
-    processedByRole: 'SUPER_ADMIN',
-    processedAtAD: '2026-08-01T10:00:00Z',
-    processedAtBS: '2083-04-17 BS',
-  },
-  {
-    id: 'apr-103',
-    requestNumber: 'APR-2083-003',
-    type: 'CUSTOMER_DEVICE_STATUS',
-    targetId: 'cust-101',
-    customerName: 'Aashish Subedi',
-    customerCode: 'CUST-URL-1092',
-    deviceSerial: 'SN-ONU24G-881923',
-    ponSerial: 'HWTC-90A812C4',
-    productName: 'ONU ROUTER 2.4G',
-    currentStatus: 'ACTIVE',
-    requestedStatus: 'DISCONNECTED',
-    requestedByRole: 'FRONT_DESK',
-    requestedByEmail: 'frontdesk.urlabari@izone.com.np',
-    requestedByName: 'Sabin Shrestha (Frontdesk)',
-    branchId: 'URL01',
-    branchName: 'Urlabari Branch Office',
-    reason: 'Immediate disconnection request without returning physical ONU equipment.',
-    restockQtyOnApproval: false,
-    status: 'REJECTED',
-    requestedAtAD: '2026-07-28T11:30:00Z',
-    requestedAtBS: '2083-04-13 BS',
-    processedByEmail: 'inventory@system.com.np',
-    processedByName: 'Bikash Pokharel (Inventory Mgr)',
-    processedByRole: 'INVENTORY_MANAGER',
-    processedAtAD: '2026-07-28T12:00:00Z',
-    processedAtBS: '2083-04-13 BS',
-    rejectionReason: 'Rejected: Customer must return physical ONU equipment to the branch office before disconnection can be authorized.',
-  },
-  {
-    id: 'apr-104',
-    requestNumber: 'APR-2083-004',
-    type: 'CANCEL_RECEIVE_TRANSFER',
-    targetId: 'sh-303',
-    customerName: 'TRF-2083-0085',
-    customerCode: 'TRF-BTM01',
-    deviceSerial: 'TRF-2083-0085',
-    productName: 'PATCH CORD 3 MTR (2 pcs)',
-    currentStatus: 'RECEIVED',
-    requestedStatus: 'IN_TRANSIT',
-    requestedByRole: 'BRANCH_MANAGER',
-    requestedByEmail: 'manager.birtamode@izone.com.np',
-    requestedByName: 'Rajan Shrestha (Branch Manager)',
-    branchId: 'BTM01',
-    branchName: 'Birtamode Branch Office',
-    reason: 'Wrong transfer marked as received in system by store clerk. Consignment is still on transport vehicle. Requesting approval to revert received stock and set status back to IN_TRANSIT.',
-    status: 'PENDING',
-    requestedAtAD: '2026-08-10T11:45:00Z',
-    requestedAtBS: '2083-04-26 BS',
-    shipmentData: {
-      shipmentId: 'sh-303',
-      trackingCode: 'TRF-2083-0085',
-      sourceBranchName: 'Head Office (Urlabari)',
-      destinationBranchName: 'Birtamode Branch',
-      itemSummary: 'PATCH CORD 3 MTR (2 pcs)',
-      totalQuantity: 2,
+  const demoSuppliers: Supplier[] = [
+    {
+      id: 'sup-1',
+      name: 'Himalayan Tech Distributors Pvt. Ltd.',
+      contactPerson: 'Ramesh Adhikari',
+      phone: '+977-1-4265890',
+      email: 'orders@himalayantech.com.np',
+      address: 'Putalisadak, Kathmandu',
+      panVatNumber: '302918273',
+      rating: 4.8,
     },
-  },
-];
+    {
+      id: 'sup-2',
+      name: 'Nepal Optical & Fiber Optics Importers',
+      contactPerson: 'Sunita Sharma',
+      phone: '+977-1-5541209',
+      email: 'sales@nepaloptics.com.np',
+      address: 'Patan Industrial Estate, Lalitpur',
+      panVatNumber: '601239845',
+      rating: 4.6,
+    },
+    {
+      id: 'sup-3',
+      name: 'Apex Networking Hardware Traders',
+      contactPerson: 'Binod Shrestha',
+      phone: '+977-1-4432100',
+      email: 'info@apexnet.com.np',
+      address: 'New Road, Kathmandu',
+      panVatNumber: '300129841',
+      rating: 4.9,
+    },
+  ];
+
+  const demoProducts: Product[] = EXCEL_ITEMS.map((item, idx) => {
+    const isConsumableOrCable =
+      item.group === 'CONSUMABLE ITEM' ||
+      NON_SERIALIZED_CATEGORIES.includes(item.type) ||
+      ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
+      item.name.includes('CABLE') ||
+      item.name.includes('WIRE') ||
+      item.name.includes('CONNECTOR') ||
+      item.name.includes('SPLITTER') ||
+      item.name.includes('SLEEVE') ||
+      item.name.includes('COUPLER') ||
+      item.name.includes('ADAPTAR');
+
+    const requiresSerialTracking = !isConsumableOrCable && item.group !== 'CONSUMABLE ITEM';
+
+    let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
+    if (item.group === 'FIXED ASSET') {
+      productGroup = 'Fixed Asset';
+    } else if (isConsumableOrCable) {
+      productGroup = 'Consumable Item';
+    }
+
+    return {
+      id: `prod-${item.code.toLowerCase()}`,
+      sku: item.code,
+      barcode: `890${String(100000000 + idx).slice(1)}`,
+      name: item.name,
+      category: item.type,
+      productGroup,
+      unit: item.uom,
+      costPrice: item.val > 0 ? item.val : 1500,
+      sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
+      taxRate: 13,
+      minReorderLevel: productGroup === 'Consumable Item' ? 20 : (productGroup === 'Fixed Asset' ? 0 : 5),
+      requiresSerialTracking,
+      trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
+      description: `[${productGroup}] ${item.type} - ${item.name}`,
+      ...(productGroup === 'Fixed Asset'
+        ? {
+            depreciationMethod: 'STRAIGHT_LINE' as const,
+            depreciationRate: 15,
+            usefulLifeYears: 5,
+            salvageValuePercent: 10,
+          }
+        : {}),
+    };
+  });
+
+  const demoInventoryStock: InventoryStock[] = [];
+  let seededDamagedCount = 0;
+
+  demoProducts.forEach((p, index) => {
+    branches.forEach((branch, bIdx) => {
+      const isConsumable = p.productGroup === 'Consumable Item';
+      const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
+      const qty = baseQty;
+
+      let damagedQty = 0;
+      if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
+        damagedQty = 1;
+        seededDamagedCount++;
+      }
+
+      const branchMinReorder = branch.isHeadquarters
+        ? p.minReorderLevel * 2
+        : (bIdx % 3 === 0 ? p.minReorderLevel : Math.max(1, Math.floor(p.minReorderLevel / 2)));
+
+      demoInventoryStock.push({
+        id: `stk-${branch.id.toLowerCase()}-${p.id}`,
+        productId: p.id,
+        branchId: branch.id,
+        quantityOnHand: qty,
+        damagedQty: damagedQty,
+        reservedQty: 0,
+        incomingQty: 0,
+        minReorderLevel: branchMinReorder,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+  });
+
+  const demoAssetRegister: Asset[] = EXCEL_ITEMS
+    .filter((item) => item.group === 'FIXED ASSET')
+    .map((item, idx) => {
+      let cat: Asset['category'] = 'IT Equipment';
+      if (item.type === 'Furniture') cat = 'Furniture';
+      else if (item.type === 'Air Conditioner' || item.type === 'Tiffin Bod') cat = 'Fixtures';
+      else if (item.type === 'Fiber Fusion Splicer' || item.type === 'Cutter' || item.type === 'Ladder') cat = 'Machinery';
+
+      const cost = item.val > 0 ? item.val * 1000 : 25000;
+      const accum = Math.round(cost * 0.15);
+      const assignedBranch = branches[idx % branches.length].id;
+
+      return {
+        id: `ast-${item.code.toLowerCase()}`,
+        tagNumber: `AST-${item.code}`,
+        name: item.name,
+        category: cat,
+        branchId: assignedBranch,
+        acquisitionDateAD: '2024-04-15',
+        acquisitionDateBS: '2081-01-03 BS',
+        acquisitionCost: cost,
+        depreciationMethod: 'STRAIGHT_LINE',
+        depreciationRatePercent: 15,
+        accumulatedDepreciation: accum,
+        netBookValue: cost - accum,
+        status: 'ACTIVE',
+      };
+    });
+
+  const demoPurchaseOrders: PurchaseOrder[] = [
+    {
+      id: 'po-101',
+      poNumber: 'PO-2083-001',
+      supplierName: 'Himalayan Tech Distributors Pvt. Ltd.',
+      branchId: 'WH001',
+      orderDateAD: '2026-07-20',
+      orderDateBS: '2083-04-05 BS',
+      expectedDeliveryDateAD: '2026-08-05',
+      status: 'SENT',
+      items: [
+        {
+          id: 'poi-1',
+          productId: 'prod-onu001',
+          productName: 'ONU ROUTER 2.4G',
+          sku: 'ONU001',
+          quantity: 50,
+          unitPrice: 2500,
+          taxRate: 13,
+          subtotal: 125000,
+          taxAmount: 16250,
+          total: 141250,
+        },
+      ],
+      subtotalAmount: 125000,
+      taxAmount: 16250,
+      totalAmount: 141250,
+      notes: 'Sample purchase order.',
+    },
+  ];
+
+  const demoPurchaseInvoices: PurchaseInvoice[] = [];
+  const demoShipments: Shipment[] = [];
+  const demoStockOperations: StockOperation[] = [];
+  const demoAuditTrail: AuditLog[] = [];
+  const demoTransactionLogs: TransactionLog[] = [];
+  const demoCustomerMasterRecords: CustomerRecord[] = [];
+  const demoCustomerDeviceRecords: CustomerDeviceRecord[] = [];
+  const demoApprovalRequests: ApprovalRequest[] = [];
+
+  return {
+    suppliers: demoSuppliers,
+    products: demoProducts,
+    inventoryStock: demoInventoryStock,
+    assetRegister: demoAssetRegister,
+    purchaseOrders: demoPurchaseOrders,
+    purchaseInvoices: demoPurchaseInvoices,
+    shipments: demoShipments,
+    stockOperations: demoStockOperations,
+    auditTrail: demoAuditTrail,
+    transactionLogs: demoTransactionLogs,
+    customerMasterRecords: demoCustomerMasterRecords,
+    customerDeviceRecords: demoCustomerDeviceRecords,
+    approvalRequests: demoApprovalRequests,
+  };
+}
+
+// ==========================================
+// PERSISTENT JSON STORE HELPER
+// ==========================================
+const DATA_FILE_PATH = path.join(process.cwd(), '.data_store.json');
+
+function saveDataStore() {
+  try {
+    const payload = {
+      isDemoDataCleared,
+      users,
+      branches,
+      suppliers,
+      fiscalYears,
+      products,
+      inventoryStock,
+      assetRegister,
+      customerDeviceRecords,
+      customerMasterRecords,
+      purchaseOrders,
+      purchaseInvoices,
+      shipments,
+      stockOperations,
+      auditTrail,
+      transactionLogs,
+      approvalRequests,
+    };
+    fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Data persistence note:', err);
+  }
+}
+
+function loadDataStore() {
+  try {
+    if (fs.existsSync(DATA_FILE_PATH)) {
+      const raw = fs.readFileSync(DATA_FILE_PATH, 'utf-8');
+      const data = JSON.parse(raw);
+      if (typeof data.isDemoDataCleared === 'boolean') {
+        isDemoDataCleared = data.isDemoDataCleared;
+      }
+      if (Array.isArray(data.users) && data.users.length > 0) users = data.users;
+      if (Array.isArray(data.branches) && data.branches.length > 0) branches = data.branches;
+      if (Array.isArray(data.suppliers)) suppliers = data.suppliers;
+      if (Array.isArray(data.fiscalYears)) fiscalYears = data.fiscalYears;
+      if (Array.isArray(data.products)) products = data.products;
+      if (Array.isArray(data.inventoryStock)) inventoryStock = data.inventoryStock;
+      if (Array.isArray(data.assetRegister)) assetRegister = data.assetRegister;
+      if (Array.isArray(data.customerDeviceRecords)) customerDeviceRecords = data.customerDeviceRecords;
+      if (Array.isArray(data.customerMasterRecords)) customerMasterRecords = data.customerMasterRecords;
+      if (Array.isArray(data.purchaseOrders)) purchaseOrders = data.purchaseOrders;
+      if (Array.isArray(data.purchaseInvoices)) purchaseInvoices = data.purchaseInvoices;
+      if (Array.isArray(data.shipments)) shipments = data.shipments;
+      if (Array.isArray(data.stockOperations)) stockOperations = data.stockOperations;
+      if (Array.isArray(data.auditTrail)) auditTrail = data.auditTrail;
+      if (Array.isArray(data.transactionLogs)) transactionLogs = data.transactionLogs;
+      if (Array.isArray(data.approvalRequests)) approvalRequests = data.approvalRequests;
+      console.log('✅ Persistent database store loaded successfully with', users.length, 'registered users. isDemoDataCleared:', isDemoDataCleared);
+    } else {
+      // If data store file does not exist, check if SEED_DUMMY_DATA=true is explicitly set
+      if (process.env.SEED_DUMMY_DATA === 'true') {
+        console.log('🌱 Initializing sample demo dataset...');
+        const demo = generateDemoDataset();
+        suppliers = demo.suppliers;
+        products = demo.products;
+        inventoryStock = demo.inventoryStock;
+        assetRegister = demo.assetRegister;
+        purchaseOrders = demo.purchaseOrders;
+        purchaseInvoices = demo.purchaseInvoices;
+        shipments = demo.shipments;
+        stockOperations = demo.stockOperations;
+        auditTrail = demo.auditTrail;
+        transactionLogs = demo.transactionLogs;
+        customerMasterRecords = demo.customerMasterRecords;
+        customerDeviceRecords = demo.customerDeviceRecords;
+        approvalRequests = demo.approvalRequests;
+        isDemoDataCleared = false;
+      } else {
+        isDemoDataCleared = true;
+      }
+      saveDataStore();
+    }
+  } catch (err) {
+    console.error('Error loading persistent data store:', err);
+  }
+}
+
+// Hydrate from persistent store on startup
+loadDataStore();
 
 // Active user session simulation
 let activeUser = users[0];
@@ -1337,12 +1024,89 @@ app.get('/api/bootstrap', async (req, res) => {
 // API REST ENDPOINTS
 // ==========================================
 
+// Clear Demo/Dummy Data Endpoint
+app.post('/api/admin/clear-demo-data', async (req, res) => {
+  try {
+    if (isPgConnected) {
+      await pgPool.query(`
+        TRUNCATE TABLE 
+          approval_requests,
+          customer_device_records,
+          customer_records,
+          purchase_invoices,
+          purchase_orders,
+          shipments,
+          stock_operations,
+          inventory_stock,
+          fixed_assets,
+          products,
+          categories,
+          suppliers,
+          audit_logs,
+          transaction_logs
+        CASCADE;
+      `);
+    }
+
+    // Operational tables to clear
+    products.length = 0;
+    inventoryStock.length = 0;
+    assetRegister.length = 0;
+    customerDeviceRecords.length = 0;
+    customerMasterRecords.length = 0;
+    purchaseOrders.length = 0;
+    purchaseInvoices.length = 0;
+    shipments.length = 0;
+    stockOperations.length = 0;
+    auditTrail.length = 0;
+    transactionLogs.length = 0;
+    approvalRequests.length = 0;
+    suppliers.length = 0;
+    isDemoDataCleared = true;
+
+    // Persist operational purge while strictly keeping users, branches, fiscalYears
+    saveDataStore();
+
+    dataVersion++;
+    sseClients.forEach((client) => {
+      try {
+        client.write(`data: ${JSON.stringify({ type: 'DEMO_DATA_CLEARED', dataVersion, timestamp: new Date().toISOString() })}\n\n`);
+      } catch (_e) {}
+    });
+
+    return res.json({
+      message: 'All demo and dummy operational data cleared successfully. Master users, branches, and fiscal years are intact.',
+      userCount: users.length,
+      superAdminCount: users.filter((u) => u.role === 'SUPER_ADMIN').length,
+    });
+  } catch (err: any) {
+    console.error('Error clearing demo data:', err);
+    return res.status(500).json({ message: 'Failed to clear demo data: ' + (err?.message || err) });
+  }
+});
+
 // Auth Login
-app.get('/api/auth/setup-status', (req, res) => {
+app.get('/api/auth/setup-status', async (req, res) => {
+  if (isPgConnected) {
+    try {
+      const { rows } = await pgPool.query('SELECT COUNT(*) AS count, COUNT(CASE WHEN role = \'SUPER_ADMIN\' THEN 1 END) AS sa_count FROM users');
+      const count = parseInt(rows[0]?.count || '0', 10);
+      const saCount = parseInt(rows[0]?.sa_count || '0', 10);
+      if (count > 0 && saCount > 0) {
+        return res.json({
+          isFirstLaunch: false,
+          userCount: count,
+          hasSuperAdmin: true,
+        });
+      }
+    } catch (_err) {}
+  }
+  const hasSA = users.some((u) => u.role === 'SUPER_ADMIN');
+  const userCount = users.length;
   res.json({
-    isFirstLaunch: users.length === 0,
-    userCount: users.length,
-    hasSuperAdmin: users.some((u) => u.role === 'SUPER_ADMIN'),
+    isFirstLaunch: userCount === 0 || !hasSA,
+    userCount,
+    hasSuperAdmin: hasSA,
   });
 });
 
@@ -1352,37 +1116,50 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
     return res.status(400).json({ message: 'Name, email, and password are required.' });
   }
 
-  // If superadmin exists and users are not empty, prevent unauthorized duplicate setup
-  if (users.length > 0 && users.some((u) => u.role === 'SUPER_ADMIN')) {
-    return res.status(400).json({ message: 'Super admin already exists in the system.' });
-  }
-
   const hqBranchId = branchId || branches[0]?.id || 'WH001';
-  const newSuperAdmin = {
-    id: `usr-sa-${Date.now()}`,
-    email,
-    password,
-    name,
-    role: 'SUPER_ADMIN' as const,
-    branchId: hqBranchId,
-    allowedBranchIds: branches.map((b) => b.id),
-    canSwitchUser: true,
-  };
+  const cleanEmail = email.trim().toLowerCase();
+  
+  // Check if a user with this email already exists
+  const existingIdx = users.findIndex((u) => u.email.toLowerCase() === cleanEmail);
+  
+  let newSuperAdmin: User;
+  if (existingIdx !== -1) {
+    users[existingIdx].name = name.trim();
+    users[existingIdx].password = password;
+    users[existingIdx].role = 'SUPER_ADMIN';
+    users[existingIdx].branchId = hqBranchId;
+    users[existingIdx].allowedBranchIds = branches.map((b) => b.id);
+    users[existingIdx].canSwitchUser = true;
+    newSuperAdmin = users[existingIdx];
+  } else {
+    newSuperAdmin = {
+      id: `usr-sa-${Date.now()}`,
+      email: cleanEmail,
+      password,
+      name: name.trim(),
+      role: 'SUPER_ADMIN' as const,
+      branchId: hqBranchId,
+      allowedBranchIds: branches.map((b) => b.id),
+      canSwitchUser: true,
+    };
+    users.unshift(newSuperAdmin);
+  }
 
   if (isPgConnected) {
     try {
       await pgPool.query(
         `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, password = EXCLUDED.password, name = EXCLUDED.name, role = 'SUPER_ADMIN'`,
         [newSuperAdmin.id, newSuperAdmin.email, newSuperAdmin.password, newSuperAdmin.name, newSuperAdmin.role, newSuperAdmin.branchId, newSuperAdmin.allowedBranchIds, newSuperAdmin.canSwitchUser]
       );
     } catch (_err) {}
   }
 
-  users.unshift(newSuperAdmin);
+  saveDataStore();
   activeUser = newSuperAdmin;
 
-  logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Initial Super Admin account initialized: ${name} (${email})`);
+  logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
 
   const { password: _, ...userWithoutPass } = newSuperAdmin;
   res.status(201).json({ user: userWithoutPass, token: `session-token-${newSuperAdmin.id}` });
@@ -1513,6 +1290,7 @@ app.post('/api/branches', (req, res) => {
     });
   });
 
+  saveDataStore();
   logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
   res.status(201).json(newBranch);
 });
@@ -1522,6 +1300,7 @@ app.put('/api/branches/:id', (req, res) => {
   const idx = branches.findIndex((b) => b.id === id);
   if (idx === -1) return res.status(404).json({ message: 'Branch not found' });
   branches[idx] = { ...branches[idx], ...req.body };
+  saveDataStore();
   logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${branches[idx].name} (${branches[idx].id})`);
   res.json(branches[idx]);
 });
@@ -1530,6 +1309,7 @@ app.delete('/api/branches/:id', (req, res) => {
   const { id } = req.params;
   const br = branches.find((b) => b.id === id);
   branches = branches.filter((b) => b.id !== id);
+  saveDataStore();
   logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
   res.json({ success: true });
 });
@@ -1546,6 +1326,7 @@ app.post('/api/suppliers', (req, res) => {
     ...req.body,
   };
   suppliers.push(newSupplier);
+  saveDataStore();
   logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name} (${(newSupplier as any).supplierCode || newSupplier.id})`);
   res.status(201).json(newSupplier);
 });
@@ -1555,6 +1336,7 @@ app.put('/api/suppliers/:id', (req, res) => {
   const idx = suppliers.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ message: 'Supplier not found' });
   suppliers[idx] = { ...suppliers[idx], ...req.body };
+  saveDataStore();
   logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${suppliers[idx].name} (${(suppliers[idx] as any).supplierCode || suppliers[idx].id})`);
   res.json(suppliers[idx]);
 });
@@ -1563,6 +1345,7 @@ app.delete('/api/suppliers/:id', (req, res) => {
   const { id } = req.params;
   const sup = suppliers.find((s) => s.id === id);
   suppliers = suppliers.filter((s) => s.id !== id);
+  saveDataStore();
   logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
   res.json({ success: true });
 });
@@ -1580,6 +1363,7 @@ app.post('/api/users', (req, res) => {
     ...req.body,
   };
   users.push(newUser);
+  saveDataStore();
   logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
   const { password: _, ...userWithoutPass } = newUser;
   res.status(201).json(userWithoutPass);
@@ -1594,6 +1378,7 @@ app.put('/api/users/:id', (req, res) => {
     ...users[idx],
     ...req.body,
   };
+  saveDataStore();
   logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${users[idx].name} (${users[idx].email})`);
   const { password: _, ...userWithoutPass } = users[idx];
   res.json(userWithoutPass);
@@ -1605,6 +1390,7 @@ app.delete('/api/users/:id', (req, res) => {
   if (idx !== -1) {
     const deletedUser = users[idx];
     users.splice(idx, 1);
+    saveDataStore();
     logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedUser.name} (${deletedUser.email})`);
   }
   res.json({ success: true });
@@ -1624,6 +1410,7 @@ app.post('/api/users/:id/reset-password', (req, res) => {
   }
 
   users[userIdx].password = newPassword.trim();
+  saveDataStore();
   logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${users[userIdx].name} (${users[userIdx].email})`);
 
   const { password: _, ...userWithoutPass } = users[userIdx];
@@ -4348,28 +4135,50 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         [u.id, u.email, u.password, u.name, u.role, u.branchId, u.allowedBranchIds || [], u.canSwitchUser || false]
       );
     }
+    for (const fy of fiscalYears) {
+      await client.query(
+        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [fy.id, fy.code, fy.startDateAD || '2025-07-16', fy.endDateAD || '2026-07-15', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
+      );
+    }
+
+    // Only populate operational sample inventory/orders if SEED_DUMMY_DATA=true is explicitly set
+    if (process.env.SEED_DUMMY_DATA !== 'true') {
+      console.log('ℹ️ Clean DB mode active (SEED_DUMMY_DATA is not set). Operational tables initialized empty.');
+      return;
+    }
+
     for (const s of suppliers) {
+      const sup = s as any;
       await client.query(
         `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
-        [s.id, s.supplierCode || '', s.name, s.contactPerson || '', s.phone || '', s.email || '', s.address || '', s.panVatNumber || '', s.rating || 5.0, s.status || 'ACTIVE']
+        [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
       );
     }
-    for (const c of categories) {
+    const categoryList = Array.from(new Set(products.map((p) => p.category))).map((cat, idx) => ({
+      id: `cat-${idx + 1}`,
+      name: cat,
+      code: cat.toUpperCase().replace(/\s+/g, '_').slice(0, 10),
+      description: `${cat} Inventory Category`,
+    }));
+    for (const c of categoryList) {
       await client.query(
         `INSERT INTO categories (id, name, code, description)
          VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.name, c.code, c.description || '']
+        [c.id, c.name, c.code, c.description]
       );
     }
     for (const p of products) {
+      const prod = p as any;
       await client.query(
         `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
         [
-          p.id, p.sku, p.barcode || '', p.name, p.category, p.productGroup || 'Product Item', p.unit || 'Pcs',
-          p.costPrice || 0, p.sellingPrice || 0, p.taxRate || 13.0, p.minReorderLevel || 5, p.requiresSerialTracking || false,
-          p.trackingType || 'QUANTITY_ONLY', p.description || '', p.status || 'ACTIVE'
+          prod.id, prod.sku, prod.barcode || '', prod.name, prod.category, prod.productGroup || 'Product Item', prod.unit || 'Pcs',
+          prod.costPrice || 0, prod.sellingPrice || 0, prod.taxRate || 13.0, prod.minReorderLevel || 5, prod.requiresSerialTracking || false,
+          prod.trackingType || 'QUANTITY_ONLY', prod.description || '', prod.status || 'ACTIVE'
         ]
       );
     }
@@ -4385,7 +4194,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
         [
-          a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAd || '2025-01-01', a.acquisitionDateBs || '2081-09-17',
+          a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD || '2025-01-01', a.acquisitionDateBS || '2081-09-17',
           a.acquisitionCost || 0, a.depreciationMethod || 'STRAIGHT_LINE', a.depreciationRatePercent || 15.0,
           a.accumulatedDepreciation || 0, a.netBookValue || 0, a.status || 'ACTIVE', a.supplierName || '', a.invoiceNo || ''
         ]
@@ -4396,8 +4205,8 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING`,
         [
-          po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAd || '2025-01-01', po.orderDateBs || '2081-09-17',
-          po.expectedDeliveryDateAd || '2025-01-10', po.status || 'DRAFT', po.subtotalAmount || 0, po.taxAmount || 0,
+          po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAD || '2025-01-01', po.orderDateBS || '2081-09-17',
+          po.expectedDeliveryDateAD || '2025-01-10', po.status || 'DRAFT', po.subtotalAmount || 0, po.taxAmount || 0,
           po.totalAmount || 0, po.notes || ''
         ]
       );
@@ -4407,17 +4216,10 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         `INSERT INTO purchase_invoices (id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
         [
-          inv.id, inv.invoiceNumber, inv.poReferenceId || '', inv.supplierName, inv.branchId, inv.invoiceDateAd || '2025-01-01',
-          inv.invoiceDateBs || '2081-09-17', inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
+          inv.id, inv.invoiceNumber, inv.poReferenceId || '', inv.supplierName, inv.branchId, inv.invoiceDateAD || '2025-01-01',
+          inv.invoiceDateBS || '2081-09-17', inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
           inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.amountPaid || 0
         ]
-      );
-    }
-    for (const fy of fiscalYears) {
-      await client.query(
-        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-        [fy.id, fy.code, fy.startDateAd || '2025-07-16', fy.endDateAd || '2026-07-15', fy.startDateBs || '2082-04-01', fy.endDateBs || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
       );
     }
     for (const cust of customerMasterRecords) {
@@ -4437,7 +4239,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         [
           dev.id, dev.customerId || '', dev.customerName, dev.customerCode, dev.contactPhone || '', dev.installationAddress || '',
           dev.branchId, dev.productName, dev.deviceSerial, dev.ponSerial, dev.macAddress || '', dev.status || 'ACTIVE',
-          dev.issuedDateAd || '2025-01-01', dev.issuedDateBs || '2081-09-17', dev.purchaseBillRef || '', dev.notes || ''
+          dev.issuedDateAD || '2025-01-01', dev.issuedDateBS || '2081-09-17', dev.purchaseBillRef || '', dev.notes || ''
         ]
       );
     }
@@ -4449,7 +4251,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
           app.id, app.requestNumber, app.type, app.targetId || '', app.customerName || '', app.customerCode || '',
           app.deviceSerial || '', app.ponSerial || '', app.productName || '', app.currentStatus || '', app.requestedStatus || '',
           app.requestedByRole || '', app.requestedByEmail || '', app.requestedByName || '', app.branchId, app.branchName || '',
-          app.reason || '', app.restockQtyOnApproval || false, app.status || 'PENDING', app.requestedAtAd || new Date().toISOString(), app.requestedAtBs || '2081-09-17'
+          app.reason || '', app.restockQtyOnApproval || false, app.status || 'PENDING', app.requestedAtAD || new Date().toISOString(), app.requestedAtBS || '2081-09-17'
         ]
       );
     }

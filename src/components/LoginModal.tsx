@@ -33,16 +33,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [mode, setMode] = useState<'LOGIN' | 'FIRST_TIME_SETUP' | 'FORGOT_PASSWORD'>('LOGIN');
   
   // Login State
-  const [email, setEmail] = useState('superadmin@izone.net.np');
-  const [password, setPassword] = useState('superadmin@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
 
   // Setup State
-  const [setupName, setSetupName] = useState('Nabin Shrestha (Super Admin)');
-  const [setupEmail, setSetupEmail] = useState('superadmin@izone.net.np');
-  const [setupPassword, setSetupPassword] = useState('superadmin@123');
-  const [setupConfirmPassword, setSetupConfirmPassword] = useState('superadmin@123');
+  const [setupName, setSetupName] = useState('');
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupPassword, setSetupPassword] = useState('');
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
   const [setupBranchId, setSetupBranchId] = useState(branches[0]?.id || 'WH001');
 
   // Forgot Password State
@@ -59,14 +59,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     async function checkStatus() {
       try {
         const st = await api.getSetupStatus();
-        if (st.isFirstLaunch || st.userCount === 0) {
+        if (st.hasSuperAdmin && st.userCount > 0) {
+          setIsFirstLaunch(false);
+          setMode('LOGIN');
+        } else if (st.isFirstLaunch || st.userCount === 0 || !st.hasSuperAdmin) {
           setIsFirstLaunch(true);
           setMode('FIRST_TIME_SETUP');
         } else {
           setIsFirstLaunch(false);
+          setMode('LOGIN');
         }
       } catch (e) {
-        // Fallback gracefully
+        setIsFirstLaunch(false);
+        setMode('LOGIN');
       }
     }
     checkStatus();
@@ -273,18 +278,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   Keep me logged in
                 </span>
               </label>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setError('');
-                  setMode('FIRST_TIME_SETUP');
-                }}
-                className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
-              >
-                <UserPlus className="h-3 w-3" />
-                <span>Create Super Admin</span>
-              </button>
             </div>
 
             <button
@@ -321,19 +314,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <Crown className="h-4 w-4 text-amber-500" />
                 <span>Create Super Admin Account</span>
               </div>
-              {!isFirstLaunch && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError('');
-                    setMode('LOGIN');
-                  }}
-                  className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <ArrowLeft className="h-3 w-3" />
-                  <span>Back to Login</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setMode('LOGIN');
+                }}
+                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                <span>Back to Login</span>
+              </button>
             </div>
 
             {error && (
@@ -443,6 +434,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </>
               )}
             </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setMode('LOGIN');
+                }}
+                className="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+              >
+                Already have an account? <span className="font-bold underline">Sign In</span>
+              </button>
+            </div>
           </form>
         )}
 
