@@ -232,14 +232,25 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   // Permission Check: Stock Manager and Super Admin only
   const isStockManager = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
 
-  const openEditModal = (s: InventoryStock, p: Product, b: Branch, mode: 'stock' | 'reorder') => {
+  const openEditModal = (s: InventoryStock | undefined, p: Product, b: Branch, mode: 'stock' | 'reorder') => {
     if (!isStockManager) {
       alert('Permission Denied: Only Stock Manager / Super Admin can edit branch reorder thresholds and adjust stock balances.');
       return;
     }
-    setEditingStock({ stockItem: s, product: p, branch: b, mode });
-    setNewQty(s.quantityOnHand);
-    setNewReorderLevel(s.minReorderLevel ?? p.minReorderLevel);
+    const safeStockItem: InventoryStock = s || {
+      id: `stk-${b.id.toLowerCase()}-${p.id}`,
+      productId: p.id,
+      branchId: b.id,
+      quantityOnHand: 0,
+      damagedQty: 0,
+      reservedQty: 0,
+      incomingQty: 0,
+      minReorderLevel: p.minReorderLevel || 5,
+      lastUpdated: new Date().toISOString(),
+    };
+    setEditingStock({ stockItem: safeStockItem, product: p, branch: b, mode });
+    setNewQty(safeStockItem.quantityOnHand);
+    setNewReorderLevel(safeStockItem.minReorderLevel ?? p.minReorderLevel ?? 5);
     setReason('Reorder threshold adjustment');
   };
 

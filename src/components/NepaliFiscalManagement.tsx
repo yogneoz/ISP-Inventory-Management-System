@@ -40,6 +40,9 @@ import {
   ShieldAlert,
   X,
   Search,
+  Edit3,
+  Sliders,
+  Save,
 } from 'lucide-react';
 
 interface NepaliFiscalManagementProps {
@@ -59,6 +62,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   const [seedInput, setSeedInput] = useState<string>(
     '2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'
   );
+  const [seedOnlyIfNew, setSeedOnlyIfNew] = useState<boolean>(true);
   const [seedStatus, setSeedStatus] = useState<{
     type: 'success' | 'error' | null;
     message: string;
@@ -85,6 +89,73 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   const [isSyncingSql, setIsSyncingSql] = useState<boolean>(false);
   const [sqlSyncSuccess, setSqlSyncSuccess] = useState<{ success: boolean; message: string } | null>(null);
   const [rangeSearchQuery, setRangeSearchQuery] = useState<string>('');
+
+  // Existing BS Year Editing & Filtering State
+  const [managerFilterMode, setManagerFilterMode] = useState<'recent' | 'all' | 'specific'>('recent');
+  const [selectedSpecificYear, setSelectedSpecificYear] = useState<number | null>(null);
+  const [yearSearchTerm, setYearSearchTerm] = useState<string>('');
+
+  const [editingYearData, setEditingYearData] = useState<BSYearData | null>(null);
+  const [editStartAD, setEditStartAD] = useState<string>('');
+  const [editDaysInMonths, setEditDaysInMonths] = useState<number[]>([]);
+  const [isSavingYearEdit, setIsSavingYearEdit] = useState<boolean>(false);
+  const [editError, setEditError] = useState<string>('');
+
+  const openEditYearModal = (yearData: BSYearData) => {
+    setEditingYearData(yearData);
+    setEditStartAD(yearData.startAD);
+    setEditDaysInMonths([...yearData.daysInMonths]);
+    setEditError('');
+  };
+
+  const handleMonthDaysChange = (index: number, val: number) => {
+    const updated = [...editDaysInMonths];
+    updated[index] = val;
+    setEditDaysInMonths(updated);
+  };
+
+  const handleSaveYearEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingYearData) return;
+
+    if (editDaysInMonths.length !== 12) {
+      setEditError('Month array must contain exactly 12 month values.');
+      return;
+    }
+
+    if (editDaysInMonths.some((d) => isNaN(d) || d < 28 || d > 32)) {
+      setEditError('Each month day count must be a valid number between 28 and 32.');
+      return;
+    }
+
+    if (!editStartAD) {
+      setEditError('Please select a valid AD Start Date for Baisakh 1.');
+      return;
+    }
+
+    setIsSavingYearEdit(true);
+    setEditError('');
+
+    try {
+      // 1. Local storage & memory update
+      seedBSYearCalendar(editingYearData.yearBS, editDaysInMonths, editStartAD);
+
+      // 2. PostgreSQL DB update
+      await api.seedBsCalendarYear(editingYearData.yearBS, editDaysInMonths, editStartAD);
+
+      setSeedStatus({
+        type: 'success',
+        message: `Successfully updated 12-month array and Start AD date for BS Year ${editingYearData.yearBS} in PostgreSQL database!`,
+      });
+
+      setEditingYearData(null);
+      await refreshCalendarData();
+    } catch (err: any) {
+      setEditError(`Error saving BS year changes: ${err.message}`);
+    } finally {
+      setIsSavingYearEdit(false);
+    }
+  };
 
   // Load calendar data and generate full database on mount
   useEffect(() => {
@@ -125,21 +196,32 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     e.preventDefault();
     if (!seedInput.trim()) return;
 
+    const match = seedInput.match(/(\d{4})\s*:\s*\[([\d\s,]+)\]/);
+    if (match) {
+      const yearBS = parseInt(match[1], 10);
+      if (seedOnlyIfNew && calendarData[yearBS]) {
+        setSeedStatus({
+          type: 'success',
+          message: `BS Year ${yearBS} already exists in calendar database. Skipped seeding because 'Seed only if new' is enabled. (Use 'Edit Array' below to modify existing years).`,
+        });
+        return;
+      }
+    }
+
     const res = parseAndSeedBSInput(seedInput);
     if (res.success) {
-      const match = seedInput.match(/(\d{4})\s*:\s*\[([\d\s,]+)\]/);
       if (match) {
         const yearBS = parseInt(match[1], 10);
         const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
         if (days.length === 12) {
           try {
-            await api.seedBsCalendarYear(yearBS, days);
+            await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
           } catch (err: any) {
             console.warn('PostgreSQL Seed Warning:', err.message);
           }
         }
       }
-      setSeedStatus({ type: 'success', message: `${res.message} (Synced to PostgreSQL bs_day_records table)` });
+      setSeedStatus({ type: 'success', message: `${res.message} (Synced 365 daily records to PostgreSQL bs_day_records table)` });
       await refreshCalendarData();
     } else {
       setSeedStatus({ type: 'error', message: res.message });
@@ -147,16 +229,24 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   };
 
   const handleQuickSeed = async (yearBS: number, monthDays: number[]) => {
+    if (seedOnlyIfNew && calendarData[yearBS]) {
+      setSeedStatus({
+        type: 'success',
+        message: `BS Year ${yearBS} already exists in calendar database! Skipped duplicate seed. (Use 'Edit Array' in the table below to modify existing year data).`,
+      });
+      return;
+    }
+
     try {
       seedBSYearCalendar(yearBS, monthDays);
       try {
-        await api.seedBsCalendarYear(yearBS, monthDays);
+        await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
       } catch (e: any) {
         console.warn('PostgreSQL quick seed notice:', e.message);
       }
       setSeedStatus({
         type: 'success',
-        message: `Successfully seeded BS Year ${yearBS} and regenerated PostgreSQL BSDayRecord table!`,
+        message: `Successfully seeded new BS Year ${yearBS} and generated 365 daily records in PostgreSQL bs_day_records table!`,
       });
       await refreshCalendarData();
     } catch (err: any) {
@@ -520,13 +610,27 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                     : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
                 }`}
               />
-              <button
-                type="submit"
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
-              >
-                <PlusCircle className="h-4 w-4" />
-                <span>Seed & Regenerate Day Table</span>
-              </button>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer select-none ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={seedOnlyIfNew}
+                    onChange={(e) => setSeedOnlyIfNew(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <span>Seed only if new (Skip existing)</span>
+                </label>
+
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  <span>Seed & Regenerate Day Table</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -585,6 +689,362 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           </div>
         )}
       </div>
+
+      {/* FEATURE 1.5: Existing BS Calendar Years & Month Days Array Manager */}
+      {(() => {
+        const sortedYears = Object.keys(calendarData)
+          .map((y) => parseInt(y, 10))
+          .sort((a, b) => a - b)
+          .map((y) => calendarData[y]);
+
+        const recentYearObj = sortedYears.length > 0 ? sortedYears[sortedYears.length - 1] : null;
+
+        const displayedManagerYears = sortedYears.filter((y) => {
+          if (yearSearchTerm.trim()) {
+            return y.yearBS.toString().includes(yearSearchTerm.trim());
+          }
+          if (managerFilterMode === 'recent') {
+            return recentYearObj ? y.yearBS === recentYearObj.yearBS : true;
+          }
+          if (managerFilterMode === 'specific' && selectedSpecificYear) {
+            return y.yearBS === selectedSpecificYear;
+          }
+          return true; // 'all'
+        });
+
+        return (
+          <div className={`rounded-2xl border p-5 shadow-xl space-y-4 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
+          }`}>
+            <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 ${
+              isDarkMode ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl border ${
+                  isDarkMode ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-200'
+                }`}>
+                  <Sliders className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                    Existing BS Calendar Years & Month Days Array Manager
+                  </h3>
+                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Filter and update 12-month day count arrays (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>[Baisakh..Chaitra]</code>) and Baisakh 1 AD start dates in PostgreSQL database.
+                  </p>
+                </div>
+              </div>
+
+              {/* FILTER CONTROLS */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={`flex items-center p-1 rounded-xl border ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManagerFilterMode('recent');
+                      setYearSearchTerm('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      managerFilterMode === 'recent'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Recent Year ({recentYearObj?.yearBS || '2082'} BS)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManagerFilterMode('all');
+                      setYearSearchTerm('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      managerFilterMode === 'all'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    All Years ({sortedYears.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManagerFilterMode('specific');
+                      if (!selectedSpecificYear && recentYearObj) {
+                        setSelectedSpecificYear(recentYearObj.yearBS);
+                      }
+                      setYearSearchTerm('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      managerFilterMode === 'specific'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Specific Year
+                  </button>
+                </div>
+
+                {/* Specific Year Selector Dropdown */}
+                {managerFilterMode === 'specific' && (
+                  <select
+                    value={selectedSpecificYear || (recentYearObj?.yearBS ?? 2082)}
+                    onChange={(e) => setSelectedSpecificYear(parseInt(e.target.value, 10))}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold outline-none cursor-pointer ${
+                      isDarkMode ? 'bg-slate-900 border-slate-700 text-amber-400' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  >
+                    {sortedYears.map((y) => (
+                      <option key={y.yearBS} value={y.yearBS}>
+                        BS Year {y.yearBS} ({y.daysInMonths.reduce((a, b) => a + b, 0)} days)
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Quick Search */}
+                <div className="relative">
+                  <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${
+                    isDarkMode ? 'text-slate-500' : 'text-slate-400'
+                  }`} />
+                  <input
+                    type="text"
+                    placeholder="Search BS year..."
+                    value={yearSearchTerm}
+                    onChange={(e) => setYearSearchTerm(e.target.value)}
+                    className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs font-mono outline-none w-36 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-indigo-500' : 'bg-white border-slate-200 text-slate-900 focus:border-indigo-500'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* List Table of Displayed BS Years */}
+            <div className={`overflow-x-auto rounded-xl border ${
+              isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'
+            }`}>
+              <table className="w-full text-left text-xs font-mono">
+                <thead className={`font-bold border-b ${
+                  isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}>
+                  <tr>
+                    <th className="p-3">BS Year</th>
+                    <th className="p-3">Baisakh 1 AD Date</th>
+                    <th className="p-3">Total Days</th>
+                    <th className="p-3">12 Month Days Array [Baisakh → Chaitra]</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${
+                  isDarkMode ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'
+                }`}>
+                  {displayedManagerYears.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-slate-400">
+                        No BS calendar years found matching your search/filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedManagerYears.map((y) => {
+                      const totalDays = y.daysInMonths.reduce((a, b) => a + b, 0);
+                      const isRecent = recentYearObj && y.yearBS === recentYearObj.yearBS;
+                      return (
+                        <tr key={y.yearBS} className={`transition-colors ${
+                          isRecent
+                            ? isDarkMode ? 'bg-amber-950/20 hover:bg-amber-950/30' : 'bg-amber-50/60 hover:bg-amber-50'
+                            : isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
+                        }`}>
+                          <td className="p-3 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <span>{y.yearBS} BS</span>
+                              {isRecent && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-sans font-extrabold border ${
+                                  isDarkMode ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-amber-100 text-amber-800 border-amber-200'
+                                }`}>
+                                  Recent
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 font-semibold whitespace-nowrap">
+                            {y.startAD}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                              totalDays === 365
+                                ? isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : isDarkMode ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}>
+                              {totalDays} Days
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {y.daysInMonths.map((d, idx) => (
+                                <span
+                                  key={idx}
+                                  title={`${NEPALI_MONTHS_EN[idx]} (${NEPALI_MONTHS_NP[idx]}): ${d} days`}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                    isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-800'
+                                  }`}
+                                >
+                                  <span className="text-slate-400 mr-0.5">{idx + 1}:</span>
+                                  <span className="font-bold">{d}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => openEditYearModal(y)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              <span>Edit Array</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* EDIT BS YEAR MONTH ARRAY MODAL */}
+      {editingYearData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-2xl rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Sliders className="h-5 w-5 text-indigo-500" />
+                <h3 className="text-base font-bold">
+                  Update BS Year {editingYearData.yearBS} Month Array & Start Date
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingYearData(null)}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
+                isDarkMode ? 'bg-rose-950/80 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveYearEdit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold mb-1">BS Year:</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={`${editingYearData.yearBS} BS`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold ${
+                      isDarkMode ? 'bg-slate-950 border-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 text-slate-700'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold mb-1">
+                    Baisakh 1 AD Start Date:
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editStartAD}
+                    onChange={(e) => setEditStartAD(e.target.value)}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono focus:border-indigo-500 outline-none ${
+                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold">
+                    12 Months Day Counts [Baisakh → Chaitra]:
+                  </label>
+                  <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    editDaysInMonths.reduce((a, b) => a + (Number(b) || 0), 0) === 365
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                  }`}>
+                    Total: {editDaysInMonths.reduce((a, b) => a + (Number(b) || 0), 0)} Days
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                  {NEPALI_MONTHS_EN.map((mName, idx) => (
+                    <div
+                      key={mName}
+                      className={`p-2 rounded-xl border space-y-1 ${
+                        isDarkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <label className="block text-[11px] font-semibold truncate">
+                        {idx + 1}. {mName} <span className="text-slate-400 font-normal">({NEPALI_MONTHS_NP[idx]})</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={28}
+                        max={32}
+                        required
+                        value={editDaysInMonths[idx] ?? 30}
+                        onChange={(e) => handleMonthDaysChange(idx, parseInt(e.target.value, 10) || 0)}
+                        className={`w-full rounded-lg border p-1.5 text-xs font-mono font-bold text-center outline-none focus:border-indigo-500 ${
+                          isDarkMode ? 'bg-slate-900 border-slate-700 text-amber-300' : 'bg-white border-slate-300 text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingYearData(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
+                    isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingYearEdit}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-400 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>{isSavingYearEdit ? 'Saving & Syncing...' : 'Save & Sync to PostgreSQL'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* UNIFIED FEATURE CARD: Nepali Calendar Conversion, Bounds Checker & Day Table Suite */}
       <div className={`rounded-2xl border p-4 sm:p-5 shadow-xl space-y-4 ${

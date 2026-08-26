@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Category, Product, User } from '../types';
 import { Grid, Plus, Edit2, Trash2, Tag, Search, X, Layers, CheckCircle2 } from 'lucide-react';
 import { isOperationAllowed } from '../utils/permissions';
+import { api } from '../services/api';
 
 interface CategoryManagementProps {
   products: Product[];
@@ -15,17 +16,8 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   isDarkMode = false,
 }) => {
   const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
-  // Pre-seed default categories if not yet modified
-  const initialCategories: Category[] = [
-    { id: 'cat-1', code: 'CAT-FIB', name: 'Fiber Accessories & Cables', description: 'Fiber drop wire, patch cords, splice trays, and adapters' },
-    { id: 'cat-2', code: 'CAT-ONT', name: 'Routers & ONTs', description: 'Optical Network Terminals, dual-band Wi-Fi 6 routers, PON devices' },
-    { id: 'cat-3', code: 'CAT-NET', name: 'Networking Switches', description: 'Layer 2/3 Managed PoE switches and distribution racks' },
-    { id: 'cat-4', code: 'CAT-AST', name: 'Fixed Assets', description: 'Laptops, office furniture, vehicles, and server racks' },
-    { id: 'cat-5', code: 'CAT-TL', name: 'Tools & Safety Gear', description: 'Fiber fusion splicers, OTDR meters, optical power meters, helmets' },
-    { id: 'cat-6', code: 'CAT-PWR', name: 'Power & UPS', description: 'Online UPS, battery packs, power supply adapters' },
-  ];
-
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
@@ -33,6 +25,23 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
+
+  const loadCategoriesFromDb = async () => {
+    try {
+      const data = await api.getCategories();
+      if (Array.isArray(data)) {
+        setCategories(data);
+      }
+    } catch (err) {
+      console.warn('Could not load categories from database:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCategoriesFromDb();
+  }, []);
 
   // Calculate live product counts per category
   const getProductCountForCategory = (catName: string) => {
@@ -62,31 +71,37 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    if (editingCat) {
-      setCategories(
-        categories.map((c) =>
-          c.id === editingCat.id ? { ...c, name, code, description } : c
-        )
-      );
-    } else {
-      const newCat: Category = {
-        id: `cat-${Date.now()}`,
-        code,
-        name,
-        description,
-      };
-      setCategories([...categories, newCat]);
+    try {
+      if (editingCat) {
+        const updated = await api.updateCategory(editingCat.id, { name, code, description });
+        setCategories(categories.map((c) => (c.id === editingCat.id ? updated : c)));
+      } else {
+        const created = await api.createCategory({
+          id: `cat-${Date.now()}`,
+          code,
+          name,
+          description,
+        });
+        setCategories([...categories, created]);
+      }
+      setIsModalOpen(false);
+    } catch (err: any) {
+      alert(`Failed to save category: ${err?.message || 'Database error'}`);
     }
-    setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this category?')) {
-      setCategories(categories.filter((c) => c.id !== id));
+      try {
+        await api.deleteCategory(id);
+        setCategories(categories.filter((c) => c.id !== id));
+      } catch (err: any) {
+        alert(`Failed to delete category: ${err?.message || 'Database error'}`);
+      }
     }
   };
 

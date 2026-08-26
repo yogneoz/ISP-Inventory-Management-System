@@ -5,6 +5,7 @@ import {
   PurchaseOrder,
   Product,
   Branch,
+  Supplier,
   InventoryStock,
   DeviceSerialPair,
   User,
@@ -49,6 +50,7 @@ interface PurchaseInvoicesProps {
   invoices: PurchaseInvoice[];
   products: Product[];
   branches: Branch[];
+  suppliers?: Supplier[];
   stock: InventoryStock[];
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
@@ -86,6 +88,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   invoices,
   products,
   branches,
+  suppliers = [],
   stock,
   purchaseOrders = [],
   selectedBranchId,
@@ -95,6 +98,20 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onRecordPayment,
   isDarkMode = false,
 }) => {
+  const availableSuppliers =
+    suppliers && suppliers.length > 0
+      ? suppliers
+      : DB_SUPPLIERS.map((s, idx) => ({
+          id: `sup-default-${idx}`,
+          name: s,
+          contactPerson: '',
+          phone: '',
+          email: '',
+          address: '',
+          panVatNumber: '',
+          rating: 5,
+        }));
+
   // Navigation Sub-tabs: 'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'
   const [activeTab, setActiveTab] = useState<'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'>(
     autoOpenModal ? 'CREATE_INVOICE' : 'INVOICE_LIST'
@@ -123,7 +140,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [billDiscountValue, setBillDiscountValue] = useState<number>(0);
 
   // Form State
-  const [supplierName, setSupplierName] = useState(DB_SUPPLIERS[0]);
+  const [supplierName, setSupplierName] = useState(availableSuppliers[0]?.name || DB_SUPPLIERS[0]);
   const [vendorBillNumber, setVendorBillNumber] = useState(
     `BILL-${Math.floor(10000 + Math.random() * 90000)}`
   );
@@ -131,8 +148,27 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     new Date().toISOString().split('T')[0]
   );
   const [branchId, setBranchId] = useState(
-    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'br-ktm'
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
   );
+
+  // Automatically sync branchId when branches load or selectedBranchId changes
+  useEffect(() => {
+    const allowed = getAllowedBranches(currentUser, branches);
+    if (allowed.length > 0) {
+      if (selectedBranchId !== 'ALL' && allowed.some((b) => b.id === selectedBranchId)) {
+        setBranchId(selectedBranchId);
+      } else if (!allowed.some((b) => b.id === branchId)) {
+        setBranchId(allowed[0].id);
+      }
+    }
+  }, [selectedBranchId, branches, currentUser]);
+
+  // Automatically sync supplierName when availableSuppliers load
+  useEffect(() => {
+    if (availableSuppliers && availableSuppliers.length > 0 && !availableSuppliers.some((s) => s?.name === supplierName)) {
+      setSupplierName(availableSuppliers[0]?.name || DB_SUPPLIERS[0]);
+    }
+  }, [availableSuppliers]);
   const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
   const [notes, setNotes] = useState('');
 
@@ -673,8 +709,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       : 'bg-white border-slate-200 text-slate-800 focus:border-blue-500'
                   }`}
                 >
-                  <option value="ALL">All Vendors / Suppliers ({DB_SUPPLIERS.length})</option>
-                  {Array.from(new Set([...DB_SUPPLIERS, ...invoices.map((i) => i.supplierName)])).map((supp) => (
+                  <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
+                  {Array.from(new Set([...availableSuppliers.map((s) => s.name), ...invoices.map((i) => i.supplierName)])).map((supp) => (
                     <option key={supp} value={supp}>
                       🏢 {supp}
                     </option>
@@ -865,9 +901,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   onChange={(e) => setSupplierName(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
                 >
-                  {DB_SUPPLIERS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                  {availableSuppliers.map((s) => (
+                    <option key={s.id || s.name} value={s.name}>
+                      🏢 {s.name} {s.panVatNumber ? `(PAN: ${s.panVatNumber})` : ''}
                     </option>
                   ))}
                 </select>

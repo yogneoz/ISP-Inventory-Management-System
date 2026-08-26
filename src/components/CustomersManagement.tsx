@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CustomerDeviceRecord, CustomerRecord, Branch, Product, User, ApprovalRequest } from '../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../utils/nepaliCalendar';
 import { getWarrantyInfo } from '../utils/warranty';
-import { isOperationAllowed } from '../utils/permissions';
+import { isOperationAllowed, getAllowedBranches } from '../utils/permissions';
 import { exportToCSV } from '../utils/exportUtils';
 import { api } from '../services/api';
 import {
@@ -277,8 +277,20 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [contactPhone, setContactPhone] = useState('+977-98');
   const [installationAddress, setInstallationAddress] = useState('');
   const [branchId, setBranchId] = useState(
-    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'br-ktm'
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
   );
+
+  // Sync branchId when branches load or selectedBranchId changes
+  useEffect(() => {
+    const allowed = getAllowedBranches(currentUser, branches);
+    if (allowed.length > 0) {
+      if (selectedBranchId !== 'ALL' && allowed.some((b) => b.id === selectedBranchId)) {
+        setBranchId(selectedBranchId);
+      } else if (!allowed.some((b) => b.id === branchId)) {
+        setBranchId(allowed[0].id);
+      }
+    }
+  }, [selectedBranchId, branches, currentUser]);
   const [productName, setProductName] = useState('ONU ROUTER 2.4G');
   const [deviceSerial, setDeviceSerial] = useState('');
   const [ponSerial, setPonSerial] = useState('');

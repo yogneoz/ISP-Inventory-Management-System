@@ -151,13 +151,13 @@ export const Header: React.FC<HeaderProps> = ({
     >
       {/* Left: Brand logo & Branch Switcher */}
       <div className="flex items-center gap-2.5 sm:gap-3">
-        {/* Mobile & Desktop Hamburger Menu Toggle Button */}
+        {/* Mobile Hamburger Menu Toggle Button (hidden on non-mobile screens) */}
         {onToggleSidebar && (
           <button
             type="button"
             onClick={onToggleSidebar}
             title={isSidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
-            className="flex items-center justify-center p-1.5 rounded-lg text-white hover:bg-white/10 active:bg-white/20 transition-all cursor-pointer"
+            className="flex md:hidden items-center justify-center p-1.5 rounded-lg text-white hover:bg-white/10 active:bg-white/20 transition-all cursor-pointer"
             aria-label="Toggle navigation menu"
           >
             {isSidebarOpen ? (

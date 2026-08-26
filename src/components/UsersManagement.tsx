@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Branch } from '../types';
 import {
   Users,
@@ -49,8 +49,17 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<User['role']>('FRONT_DESK');
-  const [branchId, setBranchId] = useState(branches[0]?.id || 'br-hq');
-  const [allowedBranchIds, setAllowedBranchIds] = useState<string[]>([branches[0]?.id || 'br-hq']);
+  const defaultBranchId = branches.find((b) => b.isHeadquarters)?.id || branches[0]?.id || '';
+  const [branchId, setBranchId] = useState(defaultBranchId);
+  const [allowedBranchIds, setAllowedBranchIds] = useState<string[]>([defaultBranchId]);
+
+  useEffect(() => {
+    if (branches.length > 0 && !branches.some((b) => b.id === branchId)) {
+      const hqId = branches.find((b) => b.isHeadquarters)?.id || branches[0].id;
+      setBranchId(hqId);
+      setAllowedBranchIds([hqId]);
+    }
+  }, [branches]);
 
   // Reset Password Modal State
   const [resetModalUser, setResetModalUser] = useState<User | null>(null);
@@ -73,7 +82,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setEmail('');
     setPassword('');
     setRole('FRONT_DESK');
-    const defaultB = branches[0]?.id || 'br-hq';
+    const defaultB = branches.find((b) => b.isHeadquarters)?.id || branches[0]?.id || '';
     setBranchId(defaultB);
     setAllowedBranchIds([defaultB]);
     setIsModalOpen(true);
@@ -85,7 +94,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setEmail(u.email);
     setPassword('');
     setRole(u.role);
-    const primaryB = u.branchId || branches[0]?.id || 'br-hq';
+    const primaryB = u.branchId || branches.find((b) => b.isHeadquarters)?.id || branches[0]?.id || '';
     setBranchId(primaryB);
     setAllowedBranchIds(
       u.allowedBranchIds && u.allowedBranchIds.length > 0

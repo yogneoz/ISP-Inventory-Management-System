@@ -1,68 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Branch, LocationRecord } from '../types';
 import { MapPin, Plus, Search, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation, Trash2, Edit } from 'lucide-react';
+import { api } from '../services/api';
 
 interface LocationsManagementProps {
   branches: Branch[];
   isDarkMode?: boolean;
 }
 
-const initialLocations: LocationRecord[] = [
-  {
-    id: 'LOC-001',
-    name: 'Kathmandu Central POP Server Room 01',
-    type: 'POP_SERVER_ROOM',
-    branchId: 'BR-KTM',
-    address: 'Durbar Marg, Kathmandu, Nepal',
-    coordinates: { latitude: 27.712, longitude: 85.318 },
-    contactPerson: 'Ramesh Adhikari',
-    contactPhone: '9851012345',
-    notes: 'Primary GPON OLT Core Switch Location for KTM Sector 1',
-    activeAssetsCount: 14,
-  },
-  {
-    id: 'LOC-002',
-    name: 'Pokhara Lakeside Fiber Junction Node',
-    type: 'FIBER_NETWORK_NODE',
-    branchId: 'BR-PKR',
-    address: 'Lakeside Baidam, Pokhara, Nepal',
-    coordinates: { latitude: 28.2096, longitude: 83.9585 },
-    contactPerson: 'Suresh Thapa',
-    contactPhone: '9846012345',
-    notes: 'Main Fiber Loop Distribution Box (Splice Tray 04)',
-    activeAssetsCount: 8,
-  },
-  {
-    id: 'LOC-003',
-    name: 'Lalitpur Jawalakhel Server POP Site',
-    type: 'POP_SERVER_ROOM',
-    branchId: 'BR-KTM',
-    address: 'Jawalakhel Chowk, Lalitpur, Nepal',
-    coordinates: { latitude: 27.6744, longitude: 85.3123 },
-    contactPerson: 'Bikash Shrestha',
-    contactPhone: '9801012345',
-    notes: 'Sub-POP Node with UPS & Redundant Power Backup',
-    activeAssetsCount: 6,
-  },
-  {
-    id: 'LOC-004',
-    name: 'Chitwan Narayangarh Main Distribution Hub',
-    type: 'WAREHOUSE',
-    branchId: 'BR-CTN',
-    address: 'Lions Chowk, Narayangarh, Chitwan',
-    coordinates: { latitude: 27.6833, longitude: 84.4333 },
-    contactPerson: 'Anita Gurung',
-    contactPhone: '9855012345',
-    notes: 'Central Fiber Drum & Equipment Warehouse for Central Region',
-    activeAssetsCount: 22,
-  },
-];
-
 export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   branches,
   isDarkMode = false,
 }) => {
-  const [locations, setLocations] = useState<LocationRecord[]>(initialLocations);
+  const [locations, setLocations] = useState<LocationRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('ALL');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('ALL');
@@ -82,6 +33,22 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     activeAssetsCount: 0,
   });
 
+  const loadLocations = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getLocations(selectedBranchFilter);
+      setLocations(data || []);
+    } catch (err) {
+      console.error('Failed to load locations:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLocations();
+  }, [selectedBranchFilter]);
+
   const filteredLocations = locations.filter((loc) => {
     const matchesSearch =
       (loc?.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
@@ -100,28 +67,39 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleAddLocation = (e: React.FormEvent) => {
+  const handleAddLocation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) return;
 
-    const newLoc: LocationRecord = {
-      ...formData,
-      id: `LOC-${Math.floor(1000 + Math.random() * 9000)}`,
-    };
+    try {
+      await api.createLocation(formData);
+      setIsModalOpen(false);
+      setFormData({
+        name: '',
+        type: 'POP_SERVER_ROOM',
+        branchId: branches[0]?.id || 'BR-KTM',
+        address: '',
+        coordinates: { latitude: 27.7172, longitude: 85.324 },
+        contactPerson: '',
+        contactPhone: '',
+        notes: '',
+        activeAssetsCount: 0,
+      });
+      await loadLocations();
+    } catch (err) {
+      console.error('Failed to create location:', err);
+    }
+  };
 
-    setLocations([newLoc, ...locations]);
-    setIsModalOpen(false);
-    setFormData({
-      name: '',
-      type: 'POP_SERVER_ROOM',
-      branchId: branches[0]?.id || 'BR-KTM',
-      address: '',
-      coordinates: { latitude: 27.7172, longitude: 85.324 },
-      contactPerson: '',
-      contactPhone: '',
-      notes: '',
-      activeAssetsCount: 0,
-    });
+  const handleDeleteLocation = async (id: string) => {
+    if (confirm('Are you sure you want to delete this location site?')) {
+      try {
+        await api.deleteLocation(id);
+        await loadLocations();
+      } catch (err) {
+        console.error('Failed to delete location:', err);
+      }
+    }
   };
 
   const getTypeBadge = (type: string) => {

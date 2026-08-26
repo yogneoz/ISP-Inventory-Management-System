@@ -3,6 +3,7 @@ import {
   Supplier,
   Branch,
   Product,
+  CompanyProfile,
   InventoryStock,
   Asset,
   PurchaseOrder,
@@ -17,6 +18,9 @@ import {
   CustomerRecord,
   ApprovalRequest,
   BootstrapState,
+  Category,
+  UnitOfMeasure,
+  LocationRecord,
 } from '../types';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
@@ -624,10 +628,10 @@ export const api = {
     return fetchJson(`/api/bs-calendar/days${queryString}`);
   },
 
-  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string): Promise<{ success: boolean; message: string }> {
+  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; message: string }> {
     return fetchJson('/api/bs-calendar/seed', {
       method: 'POST',
-      body: JSON.stringify({ yearBS, daysInMonths, customStartAD }),
+      body: JSON.stringify({ yearBS, daysInMonths, customStartAD, onlyIfNew }),
     });
   },
 
@@ -642,6 +646,94 @@ export const api = {
   async clearDemoData(): Promise<{ message: string }> {
     return fetchJson('/api/admin/clear-demo-data', {
       method: 'POST',
+    });
+  },
+
+  // Categories API
+  async getCategories(): Promise<Category[]> {
+    return fetchJson('/api/categories');
+  },
+
+  async createCategory(category: Partial<Category>): Promise<Category> {
+    return fetchJson('/api/categories', {
+      method: 'POST',
+      body: JSON.stringify(category),
+    });
+  },
+
+  async updateCategory(id: string, category: Partial<Category>): Promise<Category> {
+    return fetchJson(`/api/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(category),
+    });
+  },
+
+  async deleteCategory(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/categories/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // UoM API
+  async getUoms(): Promise<UnitOfMeasure[]> {
+    return fetchJson('/api/uom');
+  },
+
+  async createUom(uom: Partial<UnitOfMeasure>): Promise<UnitOfMeasure> {
+    return fetchJson('/api/uom', {
+      method: 'POST',
+      body: JSON.stringify(uom),
+    });
+  },
+
+  async updateUom(id: string, uom: Partial<UnitOfMeasure>): Promise<UnitOfMeasure> {
+    return fetchJson(`/api/uom/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(uom),
+    });
+  },
+
+  async deleteUom(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/uom/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Locations API
+  async getLocations(branchId?: string): Promise<LocationRecord[]> {
+    const query = branchId && branchId !== 'ALL' ? `?branchId=${encodeURIComponent(branchId)}` : '';
+    return fetchJson(`/api/locations${query}`);
+  },
+
+  async createLocation(location: Partial<LocationRecord>): Promise<LocationRecord> {
+    return fetchJson('/api/locations', {
+      method: 'POST',
+      body: JSON.stringify(location),
+    });
+  },
+
+  async updateLocation(id: string, location: Partial<LocationRecord>): Promise<LocationRecord> {
+    return fetchJson(`/api/locations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(location),
+    });
+  },
+
+  async deleteLocation(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/locations/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Company Profile API
+  async getCompanyProfile(): Promise<CompanyProfile> {
+    return fetchJson('/api/company-profile');
+  },
+
+  async updateCompanyProfile(profile: Partial<CompanyProfile>): Promise<CompanyProfile> {
+    return fetchJson('/api/company-profile', {
+      method: 'PUT',
+      body: JSON.stringify(profile),
     });
   },
 };

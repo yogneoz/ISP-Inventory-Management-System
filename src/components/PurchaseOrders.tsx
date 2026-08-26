@@ -108,10 +108,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const availableSuppliers = suppliers.length > 0 ? suppliers : defaultSuppliersList;
 
   // Form State
-  const [supplierName, setSupplierName] = useState('Apex Trade & Telecom Supplies Pvt. Ltd.');
+  const [supplierName, setSupplierName] = useState(availableSuppliers[0]?.name || 'Apex Trade & Telecom Supplies Pvt. Ltd.');
   const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
   const [branchId, setBranchId] = useState(
-    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'WH001'
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
   );
   const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
   const [expectedDeliveryDateAD, setExpectedDeliveryDateAD] = useState(
@@ -121,13 +121,33 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [notes, setNotes] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('ALL');
 
+  // Automatically sync branchId when branches load or selectedBranchId changes
+  useEffect(() => {
+    const allowed = getAllowedBranches(currentUser, branches);
+    if (allowed.length > 0) {
+      if (selectedBranchId !== 'ALL' && allowed.some((b) => b.id === selectedBranchId)) {
+        setBranchId(selectedBranchId);
+      } else if (!allowed.some((b) => b.id === branchId)) {
+        setBranchId(allowed[0].id);
+      }
+    }
+  }, [selectedBranchId, branches, currentUser]);
+
+  // Automatically sync supplierName when availableSuppliers load
+  useEffect(() => {
+    if (availableSuppliers && availableSuppliers.length > 0 && !availableSuppliers.some((s) => s?.name === supplierName)) {
+      setSupplierName(availableSuppliers[0]?.name || '');
+    }
+  }, [availableSuppliers]);
+
   // Filtered suppliers for autocomplete
-  const filteredSuppliers = availableSuppliers.filter((s) => {
+  const filteredSuppliers = (availableSuppliers || []).filter((s) => {
+    if (!s) return false;
     if (!supplierName.trim()) return true;
     const q = (supplierName || '').toLowerCase();
     return (
       (s?.name || '').toLowerCase().includes(q) ||
-      (s.panVatNumber && s.panVatNumber.includes(q))
+      (s?.panVatNumber && s.panVatNumber.includes(q))
     );
   });
 

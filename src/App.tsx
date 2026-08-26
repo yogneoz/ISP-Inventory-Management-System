@@ -4,6 +4,7 @@ import {
   Supplier,
   Branch,
   Product,
+  CompanyProfile,
   InventoryStock,
   Asset,
   PurchaseOrder,
@@ -17,6 +18,7 @@ import {
   CustomerDeviceRecord,
   CustomerRecord,
   ApprovalRequest,
+  Category,
 } from './types';
 import { api, setUserContext, subscribeToSyncStream } from './services/api';
 import {
@@ -47,6 +49,7 @@ import { ReceiveInboundWarehouse } from './components/ReceiveInboundWarehouse';
 import { NepaliFiscalManagement } from './components/NepaliFiscalManagement';
 import { AuditTrailReports } from './components/AuditTrailReports';
 import { BranchesManagement } from './components/BranchesManagement';
+import { CompanySetupManagement } from './components/CompanySetupManagement';
 import { SuppliersManagement } from './components/SuppliersManagement';
 import { UsersManagement } from './components/UsersManagement';
 import { PermissionManagement } from './components/PermissionManagement';
@@ -137,10 +140,12 @@ export default function App() {
 
   // App Data State
   const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [stock, setStock] = useState<InventoryStock[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
@@ -182,6 +187,8 @@ export default function App() {
     if (data.suppliers) setSuppliers(data.suppliers);
     if (data.users) setUsers(data.users as User[]);
     if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
+    if (data.categories) setCategories(data.categories);
+    if (data.companyProfile) setCompanyProfile(data.companyProfile);
   };
 
   // Instant pre-hydration from recent cache
@@ -841,6 +848,7 @@ export default function App() {
                   searchQuery={searchQuery}
                   isDarkMode={isDarkMode}
                   mode="all-stock"
+                  dbCategories={categories}
                 />
               )}
 
@@ -856,6 +864,7 @@ export default function App() {
                   searchQuery={searchQuery}
                   isDarkMode={isDarkMode}
                   mode="product-master"
+                  dbCategories={categories}
                 />
               )}
 
@@ -1078,6 +1087,7 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   products={products}
                   branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1097,6 +1107,7 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   products={products}
                   branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1116,6 +1127,7 @@ export default function App() {
                   invoices={purchaseInvoices}
                   products={products}
                   branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
@@ -1133,6 +1145,7 @@ export default function App() {
                   invoices={purchaseInvoices}
                   products={products}
                   branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
@@ -1536,6 +1549,25 @@ export default function App() {
 
               {activeTab === 'permissions' && (
                 <PermissionManagement currentUser={currentUser} isDarkMode={isDarkMode} />
+              )}
+
+              {activeTab === 'company-setup' && (
+                <CompanySetupManagement
+                  currentUser={currentUser}
+                  companyProfile={companyProfile}
+                  initialProfile={companyProfile}
+                  onUpdateCompanyProfile={async (updatedProfile) => {
+                    await api.updateCompanyProfile(updatedProfile);
+                    await refreshAllData();
+                    return true;
+                  }}
+                  onSave={async (updatedProfile) => {
+                    await api.updateCompanyProfile(updatedProfile);
+                    await refreshAllData();
+                    return true;
+                  }}
+                  isDarkMode={isDarkMode}
+                />
               )}
 
               {activeTab === 'clear-demo-data' && (

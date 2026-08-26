@@ -1,3 +1,23 @@
+export interface CompanyProfile {
+  id?: string;
+  name: string;
+  legalName?: string;
+  tagline?: string;
+  address: string;
+  city?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  panVatNumber?: string;
+  registrationNumber?: string;
+  logoUrl?: string;
+  logoPreset?: string;
+  currencySymbol?: string;
+  defaultTaxRate?: number;
+  notes?: string;
+}
+
 export type UserRole =
   | 'SUPER_ADMIN'
   | 'INVENTORY_MANAGER'
@@ -55,6 +75,7 @@ export interface Product {
   requiresSerialTracking?: boolean;
   trackingType?: 'SERIAL_MAC_PON' | 'QUANTITY_ONLY';
   description?: string;
+  status?: 'ACTIVE' | 'INACTIVE' | 'DISCONTINUED';
   imageUrl?: string;
 
   // Depreciation Settings (for productGroup === 'Fixed Asset')
@@ -495,6 +516,9 @@ export interface BootstrapState {
   suppliers: Supplier[];
   users: Omit<User, 'password'>[];
   approvalRequests: ApprovalRequest[];
+  categories?: Category[];
+  uom?: UnitOfMeasure[];
+  locations?: LocationRecord[];
   serverTime: string;
   dataVersion: number;
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { InventoryStock, Product, User } from '../types';
+import { Category, InventoryStock, Product, User } from '../types';
 import { isOperationAllowed } from '../utils/permissions';
 import { exportToCSV } from '../utils/exportUtils';
 import {
@@ -95,6 +95,7 @@ interface ProductManagementProps {
   searchQuery: string;
   isDarkMode?: boolean;
   mode?: 'product-master' | 'all-stock';
+  dbCategories?: Category[];
 }
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
@@ -108,6 +109,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   searchQuery,
   isDarkMode = false,
   mode = 'product-master',
+  dbCategories = [],
 }) => {
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterProductGroup, setFilterProductGroup] = useState<string>('ALL');
@@ -135,7 +137,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Electronics');
+  const [category, setCategory] = useState('Fiber Accessories & Cables');
+  const [isCustomCategory, setIsCustomCategory] = useState<boolean>(false);
   const [productGroup, setProductGroup] = useState<'Product Item' | 'Fixed Asset' | 'Consumable Item'>('Product Item');
   const [unit, setUnit] = useState<Product['unit']>('Pcs');
   const [costPrice, setCostPrice] = useState<number>(0);
@@ -151,7 +154,31 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [usefulLifeYears, setUsefulLifeYears] = useState<number>(5);
   const [salvageValuePercent, setSalvageValuePercent] = useState<number>(10);
 
-  const categories = Array.from(new Set(products.map((p) => p.category)));
+  // Categories fetched dynamically from backend database table
+  const availableCategories = Array.from(
+    new Set([
+      ...dbCategories.map((c) => c.name),
+      ...products.map((p) => p.category).filter(Boolean),
+    ])
+  ).sort();
+
+  if (availableCategories.length === 0) {
+    availableCategories.push(
+      'Fiber Accessories & Cables',
+      'Routers & ONTs',
+      'Networking Switches',
+      'Fixed Assets',
+      'Tools & Safety Gear',
+      'Power & UPS'
+    );
+  }
+
+  const categories = Array.from(
+    new Set([
+      ...dbCategories.map((c) => c.name),
+      ...products.map((p) => p.category).filter(Boolean),
+    ])
+  ).sort();
 
   const effectiveSearch = localSearch || searchQuery;
 
@@ -240,7 +267,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setSku(newSku);
     setBarcode(newSku);
     setName('');
-    setCategory('Electronics');
+    const defaultCat = availableCategories[0] || 'Fiber Accessories & Cables';
+    setCategory(defaultCat);
+    setIsCustomCategory(false);
     setProductGroup('Product Item');
     setUnit('Pcs');
     setCostPrice(1000);
@@ -265,7 +294,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setSku(p.sku);
     setBarcode(p.barcode || p.sku);
     setName(p.name);
-    setCategory(p.category);
+    setCategory(p.category || 'Fiber Accessories & Cables');
+    setIsCustomCategory(!availableCategories.includes(p.category));
     setProductGroup(p.productGroup || 'Product Item');
     setUnit(p.unit);
     setCostPrice(p.costPrice);
@@ -1018,35 +1048,71 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    Category
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    list="product-categories-list"
-                    value={category}
-                    onChange={(e) => {
-                      const newCat = e.target.value;
-                      setCategory(newCat);
-                      if ((newCat || '').toLowerCase().includes('asset') || (newCat || '').toLowerCase().includes('fixed')) {
-                        setMinReorderLevel(0);
-                      }
-                    }}
-                    placeholder="e.g. Adaptor, Fixed Assets, Electronics"
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
-                  />
-                  <datalist id="product-categories-list">
-                    <option value="Adaptor" />
-                    <option value="Fixed Assets" />
-                    <option value="Electronics" />
-                    <option value="Furniture" />
-                    <option value="Office Supplies" />
-                    <option value="Machinery & Equipment" />
-                    <option value="IT Hardware" />
-                  </datalist>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold opacity-80">
+                      Category
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextIsCustom = !isCustomCategory;
+                        setIsCustomCategory(nextIsCustom);
+                        if (!nextIsCustom) {
+                          setCategory(availableCategories[0] || 'Fiber Accessories & Cables');
+                        }
+                      }}
+                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                    >
+                      {isCustomCategory ? '← Choose Existing' : '＋ Type Custom'}
+                    </button>
+                  </div>
+
+                  {isCustomCategory ? (
+                    <input
+                      type="text"
+                      required
+                      value={category}
+                      onChange={(e) => {
+                        const newCat = e.target.value;
+                        setCategory(newCat);
+                        if ((newCat || '').toLowerCase().includes('asset') || (newCat || '').toLowerCase().includes('fixed')) {
+                          setMinReorderLevel(0);
+                        }
+                      }}
+                      placeholder="e.g. Fiber Drop Wire, Splitters..."
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
+                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
+                      }`}
+                    />
+                  ) : (
+                    <select
+                      value={category}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__ADD_NEW_CUSTOM__') {
+                          setIsCustomCategory(true);
+                          setCategory('');
+                        } else {
+                          setCategory(val);
+                          if ((val || '').toLowerCase().includes('asset') || (val || '').toLowerCase().includes('fixed')) {
+                            setMinReorderLevel(0);
+                          }
+                        }
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer ${
+                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
+                      }`}
+                    >
+                      {availableCategories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__ADD_NEW_CUSTOM__" className="font-bold text-indigo-600">
+                        ＋ Type Custom Category...
+                      </option>
+                    </select>
+                  )}
                 </div>
 
                 <div>

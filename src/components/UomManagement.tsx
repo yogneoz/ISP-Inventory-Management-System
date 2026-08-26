@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UnitOfMeasure, User } from '../types';
 import { Ruler, Plus, Edit2, Trash2, Search, X, CheckCircle2, Layers } from 'lucide-react';
 import { isOperationAllowed } from '../utils/permissions';
+import { api } from '../services/api';
 
 interface UomManagementProps {
   currentUser?: User | null;
@@ -10,18 +11,8 @@ interface UomManagementProps {
 
 export const UomManagement: React.FC<UomManagementProps> = ({ currentUser, isDarkMode = false }) => {
   const canManageUom = isOperationAllowed('uom-manage', currentUser?.role);
-  const initialUoms: UnitOfMeasure[] = [
-    { id: 'uom-1', name: 'Pieces', symbol: 'Pcs', type: 'Count', isBaseUnit: true },
-    { id: 'uom-2', name: 'Box / Carton', symbol: 'Box', type: 'Package', isBaseUnit: false },
-    { id: 'uom-3', name: 'Meters', symbol: 'Mtr', type: 'Length', isBaseUnit: true },
-    { id: 'uom-4', name: 'Kilograms', symbol: 'Kg', type: 'Weight', isBaseUnit: true },
-    { id: 'uom-5', name: 'Set', symbol: 'Set', type: 'Package', isBaseUnit: false },
-    { id: 'uom-6', name: 'Roll', symbol: 'Roll', type: 'Length', isBaseUnit: false },
-    { id: 'uom-7', name: 'Pair', symbol: 'Pair', type: 'Count', isBaseUnit: false },
-    { id: 'uom-8', name: 'Packets', symbol: 'Pkt', type: 'Package', isBaseUnit: false },
-  ];
-
-  const [uoms, setUoms] = useState<UnitOfMeasure[]>(initialUoms);
+  const [uoms, setUoms] = useState<UnitOfMeasure[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUom, setEditingUom] = useState<UnitOfMeasure | null>(null);
@@ -30,6 +21,22 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser, isDar
   const [symbol, setSymbol] = useState('');
   const [type, setType] = useState<UnitOfMeasure['type']>('Count');
   const [isBaseUnit, setIsBaseUnit] = useState(false);
+
+  const loadUoms = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getUoms();
+      setUoms(data || []);
+    } catch (err) {
+      console.error('Failed to load UOMs:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUoms();
+  }, []);
 
   const filteredUoms = uoms.filter(
     (u) =>
@@ -56,32 +63,31 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser, isDar
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !symbol.trim()) return;
 
-    if (editingUom) {
-      setUoms(
-        uoms.map((u) =>
-          u.id === editingUom.id ? { ...u, name, symbol, type, isBaseUnit } : u
-        )
-      );
-    } else {
-      const newUom: UnitOfMeasure = {
-        id: `uom-${Date.now()}`,
-        name,
-        symbol,
-        type,
-        isBaseUnit,
-      };
-      setUoms([...uoms, newUom]);
+    try {
+      if (editingUom) {
+        await api.updateUom(editingUom.id, { name, symbol, type, isBaseUnit });
+      } else {
+        await api.createUom({ name, symbol, type, isBaseUnit });
+      }
+      setIsModalOpen(false);
+      await loadUoms();
+    } catch (err) {
+      console.error('Failed to save UOM:', err);
     }
-    setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this Unit of Measure?')) {
-      setUoms(uoms.filter((u) => u.id !== id));
+      try {
+        await api.deleteUom(id);
+        await loadUoms();
+      } catch (err) {
+        console.error('Failed to delete UOM:', err);
+      }
     }
   };
 

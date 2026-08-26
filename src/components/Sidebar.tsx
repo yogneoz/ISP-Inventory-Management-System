@@ -102,6 +102,7 @@ export type NavTab =
   | 'audit'
   | 'warranty-products'
   | 'export-reports'
+  | 'company-setup'
   | 'help-documentation'
   | 'clear-demo-data';
 
@@ -363,6 +364,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortLabel: 'Admin',
       icon: Settings,
       children: [
+        { id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 },
         { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays },
         { id: 'nepali-fiscal' as NavTab, label: 'BS Calendar & Fiscal Years', icon: CalendarDays },
         { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
