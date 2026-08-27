@@ -151,16 +151,18 @@ http://localhost:3000
 
 ## 🔑 Initial Super Admin Login Credentials
 
-On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-configured root administrator:
+On **first launch** (empty user store), the login screen opens a **Create Super Admin** wizard. Choose a strong password (**minimum 8 characters**). Passwords are stored as **bcrypt hashes**; API access requires a **Bearer session token** issued at login (spoofable `x-user-role` headers are no longer trusted).
 
-| Field | Default Value |
+If a local data store already contains seed users, example accounts may look like:
+
+| Field | Example Value |
 | :--- | :--- |
-| **Email** | `admin@izone.net.np` |
-| **Password** | `admin123` |
+| **Email** | `superadmin@izone.net.np` |
+| **Password** | *(the password set for that account — change immediately)* |
 | **Role** | `SUPER_ADMIN` |
 | **Branch** | Head Office (Urlabari) |
 
-> **Security Note**: You can change your password anytime under **User Management** or through the profile menu in the header.
+> **Security Note**: Change all default/demo passwords under **User Management**. Session tokens expire after 12 hours of activity. PM2 runs as a **single instance** because sessions are in-memory.
 
 ---
 

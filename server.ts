@@ -28,6 +28,22 @@ import {
   LocationRecord,
 } from './src/types';
 import { newDb } from 'pg-mem';
+import {
+  hashPassword,
+  verifyPassword,
+  validatePasswordStrength,
+  isBcryptHash,
+  createSession,
+  getSession,
+  destroySession,
+  destroyUserSessions,
+  extractBearerToken,
+  toBsDateStamp,
+  getTodayBsStamp,
+  normalizeRole,
+  rolesMatch,
+  MIN_PASSWORD_LENGTH,
+} from './authUtils';
 
 dotenv.config();
 
@@ -610,39 +626,106 @@ function loadDataStore() {
 // Hydrate from persistent store on startup
 loadDataStore();
 
+// Lazily re-hash any legacy plaintext passwords still sitting in the data store
+(async () => {
+  let changed = false;
+  for (const u of users) {
+    if (u.password && !isBcryptHash(u.password)) {
+      try {
+        u.password = await hashPassword(u.password);
+        changed = true;
+      } catch (_e) {}
+    }
+    if (u.role) u.role = normalizeRole(u.role) as User['role'];
+  }
+  if (changed) {
+    saveDataStore();
+    console.log('🔐 Migrated legacy plaintext passwords to bcrypt hashes.');
+  }
+})();
+
+
 // Active user session simulation
-let activeUser: User | null = users[0] || null;
+let activeUser: User | null = null;
 
-// Extract triggering user details from request headers or body or activeUser
-function getUserFromReq(req: any) {
-  const email =
-    (req.headers['x-user-email'] as string) ||
-    req.body?.userEmail ||
-    req.body?.user?.email ||
-    req.body?.currentUser?.email ||
-    activeUser?.email ||
-    'admin@izone.net.np';
-  const name =
-    (req.headers['x-user-name'] as string) ||
-    req.body?.userName ||
-    req.body?.user?.name ||
-    req.body?.currentUser?.name ||
-    activeUser?.name ||
-    'Shrestha Administrator';
-  const role =
-    (req.headers['x-user-role'] as string) ||
-    req.body?.userRole ||
-    req.body?.user?.role ||
-    activeUser?.role ||
-    'SUPER_ADMIN';
-  const branchId =
-    (req.headers['x-user-branch'] as string) ||
-    req.body?.branchId ||
-    req.body?.user?.branchId ||
-    activeUser?.branchId ||
-    'WH001';
+/** Public API paths that do not require a session token. */
+const PUBLIC_API_PATHS = [
+  '/api/health',
+  '/api/auth/login',
+  '/api/auth/setup-status',
+  '/api/auth/setup-superadmin',
+  '/api/auth/forgot-password',
+];
 
-  return { email, name, role, branchId };
+function isPublicApiPath(path: string): boolean {
+  if (!path) return false;
+  const bare = path.split('?')[0];
+  return PUBLIC_API_PATHS.some((p) => bare === p || bare.startsWith(p + '/'));
+}
+
+function findUserByIdOrEmail(idOrEmail: string | undefined | null): User | undefined {
+  if (!idOrEmail) return undefined;
+  const key = String(idOrEmail).toLowerCase();
+  return users.find((u) => u.id === idOrEmail || (u.email || '').toLowerCase() === key);
+}
+
+function sanitizeUser(user: User | any) {
+  if (!user) return user;
+  const { password: _pw, ...rest } = user;
+  return { ...rest, role: normalizeRole(rest.role) };
+}
+
+async function migrateUserPasswordIfNeeded(user: User, plainPassword: string): Promise<void> {
+  if (!user?.password || isBcryptHash(user.password)) return;
+  try {
+    const hashed = await hashPassword(plainPassword);
+    user.password = hashed;
+    const idx = users.findIndex((u) => u.id === user.id);
+    if (idx !== -1) users[idx].password = hashed;
+    if (isPgConnected) {
+      await pgPool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, user.id]).catch(() => {});
+    }
+    saveDataStore();
+  } catch (err) {
+    console.warn('Password migration note:', err);
+  }
+}
+
+/**
+ * Resolve the acting user from a verified session token only.
+ * Never trust client-supplied role/email headers for authorization.
+ */
+function getUserFromReq(req: any): {
+  id?: string;
+  email: string;
+  name: string;
+  role: string;
+  branchId?: string;
+  allowedBranchIds?: string[];
+  canSwitchUser?: boolean;
+  authenticated: boolean;
+} {
+  const session = req.session as import('./authUtils').SessionRecord | undefined;
+  if (session) {
+    const live = findUserByIdOrEmail(session.userId) || findUserByIdOrEmail(session.email);
+    return {
+      id: live?.id || session.userId,
+      email: live?.email || session.email,
+      name: live?.name || session.name,
+      role: normalizeRole(live?.role || session.role),
+      branchId: live?.branchId || session.branchId,
+      allowedBranchIds: live?.allowedBranchIds || session.allowedBranchIds,
+      canSwitchUser: live?.canSwitchUser ?? session.canSwitchUser,
+      authenticated: true,
+    };
+  }
+  // Unauthenticated placeholder — no SUPER_ADMIN default
+  return {
+    email: 'anonymous',
+    name: 'Anonymous',
+    role: 'FRONT_DESK',
+    authenticated: false,
+  };
 }
 
 /**
@@ -686,10 +769,57 @@ async function withTransaction<T>(
 
 /**
  * Express Authentication Middleware
- * Resolves authenticated user details from headers/session and attaches to request
+ * Attaches verified session user to req; does not default to Super Admin.
  */
-function authenticateUser(req: any, _res: any, next: any) {
-  req.user = getUserFromReq(req);
+function authenticateUser(req: any, res: any, next: any) {
+  // Prefer Authorization header; allow ?token= for SSE (EventSource cannot set headers)
+  const queryToken =
+    typeof req.query?.token === 'string'
+      ? req.query.token
+      : typeof req.query?.access_token === 'string'
+        ? req.query.access_token
+        : null;
+  const token = extractBearerToken(req) || queryToken;
+  const session = getSession(token);
+  if (session) {
+    req.session = session;
+    req.authToken = token;
+    const live = findUserByIdOrEmail(session.userId) || findUserByIdOrEmail(session.email);
+    req.user = {
+      id: live?.id || session.userId,
+      email: live?.email || session.email,
+      name: live?.name || session.name,
+      role: normalizeRole(live?.role || session.role),
+      branchId: live?.branchId || session.branchId,
+      allowedBranchIds: live?.allowedBranchIds || session.allowedBranchIds,
+      canSwitchUser: live?.canSwitchUser ?? session.canSwitchUser,
+      authenticated: true,
+    };
+    activeUser = (live as User) || activeUser;
+  } else {
+    req.session = null;
+    req.authToken = null;
+    req.user = getUserFromReq(req);
+  }
+
+  // Enforce auth on non-public API routes
+  // When mounted via app.use('/api', ...), req.path is relative (e.g. /auth/login)
+  const relPath = (req.path || req.url || '').split('?')[0];
+  const original = (req.originalUrl || '').split('?')[0];
+  const candidates = [original, relPath, relPath.startsWith('/api') ? relPath : `/api${relPath}`];
+  const isPublic = candidates.some(
+    (p) =>
+      isPublicApiPath(p) ||
+      p.endsWith('/health') ||
+      p.includes('/auth/login') ||
+      p.includes('/auth/setup-status') ||
+      p.includes('/auth/setup-superadmin') ||
+      p.includes('/auth/forgot-password')
+  );
+
+  if (!isPublic && !req.session) {
+    return res.status(401).json({ message: 'Unauthorized: valid session token required.' });
+  }
   next();
 }
 
@@ -697,29 +827,26 @@ function authenticateUser(req: any, _res: any, next: any) {
  * Authentication Enforcer Middleware
  */
 function requireAuth(req: any, res: any, next: any) {
-  const user = req.user || getUserFromReq(req);
-  if (!user || !user.email) {
+  if (!req.session || !req.user?.authenticated) {
     return res.status(401).json({ message: 'Unauthorized: Authentication required to access endpoint' });
   }
-  req.user = user;
   next();
 }
 
 /**
- * Role-Based Access Control Middleware
+ * Role-Based Access Control Middleware (canonical + legacy role aliases)
  */
 function requireRole(...allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
-    const user = req.user || getUserFromReq(req);
-    if (!user || !user.email) {
+    if (!req.session || !req.user?.authenticated) {
       return res.status(401).json({ message: 'Unauthorized: Authentication required' });
     }
-    if (allowedRoles.length > 0 && !allowedRoles.includes(user.role) && user.role !== 'SUPER_ADMIN') {
+    const role = normalizeRole(req.user.role);
+    if (allowedRoles.length > 0 && !rolesMatch(role, allowedRoles)) {
       return res.status(403).json({
-        message: `Forbidden: Access restricted. Role '${user.role}' lacks sufficient privileges for this operational action. Required role: ${allowedRoles.join(' or ')}`,
+        message: `Forbidden: Access restricted. Role '${role}' lacks sufficient privileges for this operational action. Required role: ${allowedRoles.join(' or ')}`,
       });
     }
-    req.user = user;
     next();
   };
 }
@@ -740,7 +867,7 @@ function logAuditEvent(
     module: module as AuditLog['module'],
     details,
     timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
+    timestampBS: getTodayBsStamp(),
     branchId: overrideBranchId || u.branchId,
   };
 
@@ -884,7 +1011,7 @@ app.get('/api/bootstrap', async (req, res) => {
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        totalCostOfGoodsSold: pgOps.filter((op: any) => op.type === 'STOCK_OUT' || op.type === 'CONSUMABLE_ISSUE').reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0),
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: currentFy,
@@ -965,7 +1092,7 @@ app.get('/api/bootstrap', async (req, res) => {
     totalInventoryAssetValue,
     totalFixedAssetValue,
     totalAccountsPayable,
-    totalCostOfGoodsSold: 450000,
+    totalCostOfGoodsSold: stockOperations.filter((op) => op.type === 'STOCK_OUT' || op.type === 'CONSUMABLE_ISSUE').reduce((sum, op) => sum + Number(op.totalValue || 0), 0),
     totalDamageLossValue,
     totalVatInputTax,
     currentFiscalYear: currentFy,
@@ -1004,7 +1131,7 @@ app.get('/api/bootstrap', async (req, res) => {
 // ==========================================
 
 // Clear Demo/Dummy Data Endpoint
-app.post('/api/admin/clear-demo-data', async (req, res) => {
+app.post('/api/admin/clear-demo-data', requireRole('SUPER_ADMIN'), async (req, res) => {
   try {
     if (isPgConnected) {
       await pgPool.query(`
@@ -1087,16 +1214,22 @@ app.get('/api/auth/setup-status', async (req, res) => {
   });
 });
 
-app.post('/api/auth/setup-superadmin', async (req, res) => {
+app.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
   const { name, email, password, branchId } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Name, email, and password are required.' });
+  }
+
+  const strength = validatePasswordStrength(password);
+  if (!strength.ok) {
+    return res.status(400).json({ message: strength.message });
   }
 
   const hqBranchId = branchId || branches[0]?.id || 'WH001';
   const cleanEmail = email.trim().toLowerCase();
   const allowedBranches = branches.map((b) => b.id);
   let targetId = `usr-sa-${Date.now()}`;
+  const hashed = await hashPassword(password);
 
   if (isPgConnected) {
     try {
@@ -1122,7 +1255,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
              can_switch_user = true
            WHERE id = $6
            RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-          [cleanEmail, password, name.trim(), hqBranchId, allowedBranches, targetId]
+          [cleanEmail, hashed, name.trim(), hqBranchId, allowedBranches, targetId]
         );
         savedUser = upRes.rows[0];
       } else {
@@ -1137,7 +1270,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
              allowed_branch_ids = EXCLUDED.allowed_branch_ids,
              can_switch_user = true
            RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-          [targetId, cleanEmail, password, name.trim(), hqBranchId, allowedBranches]
+          [targetId, cleanEmail, hashed, name.trim(), hqBranchId, allowedBranches]
         );
         savedUser = insRes.rows[0];
       }
@@ -1148,10 +1281,9 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
 
       activeUser = savedUser;
       saveDataStore();
+      const session = createSession(savedUser as any);
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
-
-      const { password: _, ...userWithoutPass } = savedUser;
-      return res.status(201).json({ user: userWithoutPass, token: `session-token-${savedUser.id}` });
+      return res.status(201).json({ user: sanitizeUser(savedUser), token: session.token });
     } catch (err: any) {
       console.error('Error setting up Super Admin in DB:', err);
     }
@@ -1162,7 +1294,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
   if (existingIdx !== -1) {
     users[existingIdx].name = name.trim();
     users[existingIdx].email = cleanEmail;
-    users[existingIdx].password = password;
+    users[existingIdx].password = hashed;
     users[existingIdx].role = 'SUPER_ADMIN';
     users[existingIdx].branchId = hqBranchId;
     users[existingIdx].allowedBranchIds = allowedBranches;
@@ -1172,7 +1304,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
     newSuperAdmin = {
       id: targetId,
       email: cleanEmail,
-      password,
+      password: hashed,
       name: name.trim(),
       role: 'SUPER_ADMIN' as const,
       branchId: hqBranchId,
@@ -1184,16 +1316,15 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
 
   saveDataStore();
   activeUser = newSuperAdmin;
+  const session = createSession(newSuperAdmin as any);
   logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
-
-  const { password: _, ...userWithoutPass } = newSuperAdmin;
-  res.status(201).json({ user: userWithoutPass, token: `session-token-${newSuperAdmin.id}` });
+  res.status(201).json({ user: sanitizeUser(newSuperAdmin), token: session.token });
 });
 
 app.post('/api/auth/forgot-password', (req, res) => {
   const { email } = req.body;
   const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim());
-  
+
   if (!user) {
     return res.status(404).json({ message: 'No registered user account found with this email address.' });
   }
@@ -1209,51 +1340,115 @@ app.post('/api/auth/forgot-password', (req, res) => {
   });
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req: any, res: any) => {
   const { email, password } = req.body;
+  const cleanEmail = (email || '').toLowerCase().trim();
+  if (!cleanEmail || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' });
+  }
+
+  let candidate: User | null = null;
 
   if (isPgConnected) {
     try {
       const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) AND password = $2',
-        [email, password]
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+        [cleanEmail]
       );
       if (dbRes.rows.length > 0) {
-        const dbUser = dbRes.rows[0];
-        activeUser = dbUser;
-        const { password: _, ...userWithoutPass } = dbUser;
-        return res.json({ user: userWithoutPass, token: 'session-token-izone' });
+        candidate = dbRes.rows[0];
       }
     } catch (_err) {}
   }
 
-  const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim() && u.password === password);
-  if (!user) {
+  if (!candidate) {
+    candidate = users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
+  }
+
+  if (!candidate) {
     return res.status(401).json({ message: 'Invalid email or password.' });
   }
-  activeUser = user;
-  const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: 'session-token-izone' });
+
+  const ok = await verifyPassword(password, candidate.password);
+  if (!ok) {
+    return res.status(401).json({ message: 'Invalid email or password.' });
+  }
+
+  await migrateUserPasswordIfNeeded(candidate, password);
+
+  // Keep memory store in sync
+  const memIdx = users.findIndex((u) => u.id === candidate!.id || u.email.toLowerCase() === cleanEmail);
+  if (memIdx !== -1) {
+    users[memIdx] = { ...users[memIdx], ...candidate, password: candidate.password };
+    candidate = users[memIdx];
+  } else {
+    users.push(candidate);
+  }
+
+  candidate.role = normalizeRole(candidate.role) as User['role'];
+  activeUser = candidate;
+  const session = createSession(candidate as any);
+  // Attach session so audit trail records the real actor (not anonymous)
+  (req as any).session = session;
+  (req as any).user = {
+    id: candidate.id,
+    email: candidate.email,
+    name: candidate.name,
+    role: candidate.role,
+    branchId: candidate.branchId,
+    authenticated: true,
+  };
+  logAuditEvent(req, 'USER_LOGIN', 'AUTH', `User ${candidate.name} (${candidate.email}) signed in`);
+  res.json({ user: sanitizeUser(candidate), token: session.token });
 });
 
-app.get('/api/auth/me', (req, res) => {
-  if (!activeUser) {
+app.post('/api/auth/logout', (req: any, res: any) => {
+  const token = extractBearerToken(req) || req.authToken;
+  destroySession(token);
+  activeUser = null;
+  res.json({ success: true, message: 'Signed out successfully.' });
+});
+
+app.get('/api/auth/me', (req: any, res: any) => {
+  if (!req.session || !req.user?.authenticated) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
-  const { password: _, ...userWithoutPass } = activeUser;
-  res.json(userWithoutPass);
+  const live = findUserByIdOrEmail(req.user.id) || findUserByIdOrEmail(req.user.email);
+  if (!live) {
+    return res.status(401).json({ message: 'Not authenticated' });
+  }
+  res.json(sanitizeUser(live));
 });
 
-// Profile Switching Endpoint
-app.post('/api/auth/switch-profile', (req, res) => {
+// Profile Switching Endpoint — requires authenticated session + switch permission
+app.post('/api/auth/switch-profile', (req: any, res: any) => {
+  if (!req.session || !req.user?.authenticated) {
+    return res.status(401).json({ message: 'Not authenticated' });
+  }
+
+  const actor = findUserByIdOrEmail(req.session.rootUserId) || findUserByIdOrEmail(req.user.id);
+  const canSwitch =
+    actor &&
+    (normalizeRole(actor.role) === 'SUPER_ADMIN' ||
+      normalizeRole(actor.role) === 'INVENTORY_MANAGER' ||
+      actor.canSwitchUser === true);
+
+  if (!canSwitch) {
+    return res.status(403).json({ message: 'Forbidden: your account is not permitted to switch profiles.' });
+  }
+
   const { targetUserId } = req.body;
-  const user = users.find((u) => u.id === targetUserId || u.email === targetUserId);
+  const user = findUserByIdOrEmail(targetUserId);
   if (!user) {
     return res.status(404).json({ message: 'Target user profile not found.' });
   }
 
-  const previousUser = activeUser;
+  const previousUser = req.user;
   activeUser = user;
+  const rootId = req.session.rootUserId || req.session.userId;
+  // Rotate session onto target while preserving root
+  destroySession(req.authToken);
+  const session = createSession(user as any, rootId);
 
   auditTrail.unshift({
     id: `aud-${Date.now()}`,
@@ -1263,31 +1458,55 @@ app.post('/api/auth/switch-profile', (req, res) => {
     module: 'AUTH',
     details: `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
     timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
+    timestampBS: getTodayBsStamp(),
   });
 
-  const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: `session-token-${user.id}` });
+  res.json({ user: sanitizeUser(user), token: session.token });
 });
 
 // Profile Update Endpoint
-app.put('/api/auth/profile', (req, res) => {
-  if (!activeUser) {
+app.put('/api/auth/profile', async (req: any, res: any) => {
+  if (!req.session || !req.user?.authenticated) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
   const { name, email, branchId, newPassword } = req.body;
-
-  const idx = users.findIndex((u) => u.id === activeUser.id);
-  if (idx !== -1) {
-    if (name) users[idx].name = name;
-    if (email) users[idx].email = email;
-    if (branchId) users[idx].branchId = branchId;
-    if (newPassword) users[idx].password = newPassword;
-    activeUser = users[idx];
+  const idx = users.findIndex((u) => u.id === req.user.id || u.email === req.user.email);
+  if (idx === -1) {
+    return res.status(404).json({ message: 'User not found' });
   }
 
-  const { password: _, ...userWithoutPass } = activeUser;
-  res.json(userWithoutPass);
+  if (name) users[idx].name = name;
+  if (email) users[idx].email = email;
+  if (branchId) users[idx].branchId = branchId;
+  if (newPassword) {
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.ok) {
+      return res.status(400).json({ message: strength.message });
+    }
+    users[idx].password = await hashPassword(newPassword);
+  }
+  activeUser = users[idx];
+
+  if (isPgConnected) {
+    try {
+      if (newPassword) {
+        await pgPool.query(
+          'UPDATE users SET name = COALESCE($1, name), email = COALESCE($2, email), branch_id = COALESCE($3, branch_id), password = $4 WHERE id = $5',
+          [name || null, email || null, branchId || null, users[idx].password, users[idx].id]
+        );
+      } else {
+        await pgPool.query(
+          'UPDATE users SET name = COALESCE($1, name), email = COALESCE($2, email), branch_id = COALESCE($3, branch_id) WHERE id = $4',
+          [name || null, email || null, branchId || null, users[idx].id]
+        );
+      }
+    } catch (err) {
+      console.warn('Profile DB update note:', err);
+    }
+  }
+
+  saveDataStore();
+  res.json(sanitizeUser(users[idx]));
 });
 
 // UOM (Unit of Measure)
@@ -1790,15 +2009,39 @@ app.get('/api/users', async (req, res) => {
   res.json(safeUsers);
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireRole('SUPER_ADMIN'), async (req, res) => {
   try {
-    const newUser = {
+    const plainPassword = (req.body.password && String(req.body.password).trim()) || '';
+    const strength = validatePasswordStrength(plainPassword || 'x');
+    // Allow auto-generated default only if client omitted password; still enforce min length on provided ones
+    let passwordToStore: string;
+    if (!plainPassword) {
+      passwordToStore = await hashPassword('ChangeMe@12345');
+    } else {
+      if (!validatePasswordStrength(plainPassword).ok) {
+        return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.` });
+      }
+      passwordToStore = await hashPassword(plainPassword);
+    }
+
+    const role = normalizeRole(req.body.role || 'FRONT_DESK');
+    const newUser: User = {
       id: req.body.id || `usr-${Date.now()}`,
-      password: req.body.password || 'password@123',
-      ...req.body,
+      email: (req.body.email || '').trim().toLowerCase(),
+      name: req.body.name || 'New User',
+      role: role as User['role'],
+      branchId: req.body.branchId,
+      allowedBranchIds: req.body.allowedBranchIds,
+      canSwitchUser: !!req.body.canSwitchUser,
+      password: passwordToStore,
     };
+
+    if (!newUser.email) {
+      return res.status(400).json({ message: 'Email is required.' });
+    }
+
     const idx = users.findIndex((u) => u.id === newUser.id || u.email === newUser.email);
-    if (idx >= 0) users[idx] = newUser;
+    if (idx >= 0) users[idx] = { ...users[idx], ...newUser };
     else users.push(newUser);
 
     if (isPgConnected) {
@@ -1810,7 +2053,8 @@ app.post('/api/users', async (req, res) => {
            role = EXCLUDED.role,
            branch_id = EXCLUDED.branch_id,
            allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-           can_switch_user = EXCLUDED.can_switch_user;`,
+           can_switch_user = EXCLUDED.can_switch_user,
+           password = EXCLUDED.password;`,
         [
           newUser.id,
           newUser.email,
@@ -1826,15 +2070,14 @@ app.post('/api/users', async (req, res) => {
 
     saveDataStore();
     logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
-    const { password: _, ...userWithoutPass } = newUser;
-    res.status(201).json(userWithoutPass);
+    res.status(201).json(sanitizeUser(newUser));
   } catch (err: any) {
     console.error('Error creating user:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
     let idx = users.findIndex((u) => u.id === id);
@@ -1844,10 +2087,14 @@ app.put('/api/users/:id', async (req, res) => {
       if (r.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     }
 
+    const { password: _ignorePassword, ...safeBody } = req.body || {};
     const updatedUser = {
       ...(users[idx] || {}),
-      ...req.body,
+      ...safeBody,
       id,
+      role: normalizeRole(safeBody.role || (users[idx] || {}).role || 'FRONT_DESK') as User['role'],
+      // Never overwrite password via generic update — use reset-password endpoint
+      password: (users[idx] || {}).password,
     };
     if (idx !== -1) users[idx] = updatedUser;
 
@@ -1883,7 +2130,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = users.findIndex((u) => u.id === id);
@@ -1913,35 +2160,39 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-app.post('/api/users/:id/reset-password', async (req, res) => {
+app.post('/api/users/:id/reset-password', requireRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
     const { newPassword } = req.body;
     const userIdx = users.findIndex((u) => u.id === id);
 
-    if (!newPassword || newPassword.trim().length < 3) {
-      return res.status(400).json({ message: 'New password must be at least 3 characters long.' });
+    const strength = validatePasswordStrength(newPassword || '');
+    if (!strength.ok) {
+      return res.status(400).json({ message: strength.message || `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.` });
     }
 
+    const hashed = await hashPassword(newPassword.trim());
+
     if (userIdx !== -1) {
-      users[userIdx].password = newPassword.trim();
+      users[userIdx].password = hashed;
     }
 
     let targetEmail = users[userIdx]?.email || id;
     let targetName = users[userIdx]?.name || id;
 
     if (isPgConnected) {
-      const r = await pgPool.query('UPDATE users SET password = $1 WHERE id = $2 RETURNING email, name', [newPassword.trim(), id]);
+      const r = await pgPool.query('UPDATE users SET password = $1 WHERE id = $2 RETURNING email, name', [hashed, id]);
       if (r.rows.length > 0) {
         targetEmail = r.rows[0].email;
         targetName = r.rows[0].name;
       }
     }
 
+    destroyUserSessions(id);
     saveDataStore();
     logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 
-    const userWithoutPass = userIdx !== -1 ? (({ password, ...rest }) => rest)(users[userIdx]) : { id, email: targetEmail, name: targetName };
+    const userWithoutPass = userIdx !== -1 ? sanitizeUser(users[userIdx]) : { id, email: targetEmail, name: targetName };
     res.json({
       success: true,
       message: `Password for ${targetName} (${targetEmail}) has been successfully updated.`,
@@ -2322,7 +2573,7 @@ app.patch('/api/stock/:id', async (req, res) => {
         unitCost: prod?.costPrice || 0,
         referenceDocId: reason || 'DMG-VERIFICATION',
         timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-16 BS',
+        timestampBS: getTodayBsStamp(),
       };
       transactionLogs.unshift(newTxn);
 
@@ -2348,7 +2599,7 @@ app.patch('/api/stock/:id', async (req, res) => {
         unitCost: prod?.costPrice || 0,
         referenceDocId: reason || 'STOCK_ADJUSTMENT',
         timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-16 BS',
+        timestampBS: getTodayBsStamp(),
       };
       transactionLogs.unshift(newTxn);
 
@@ -2451,7 +2702,7 @@ app.patch('/api/stock/:id/reorder-level', async (req, res) => {
   }
 });
 
-app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER'), async (req, res) => {
+app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), async (req, res) => {
   try {
     const { updates } = req.body;
     if (Array.isArray(updates)) {
@@ -2521,7 +2772,7 @@ app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'HEAD_OFFI
 });
 
 // Physical Stock Audit Direct Reconciliation
-app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'AUDITOR'), async (req, res) => {
+app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req, res) => {
   try {
     const { branchId, auditRefNumber, varianceItems, auditorName, userEmail, notes } = req.body;
     if (!branchId || !Array.isArray(varianceItems)) {
@@ -2585,7 +2836,7 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
             unitCost: unitCost || prod?.costPrice || 0,
             referenceDocId: auditRefNumber || `AUDIT-${Date.now()}`,
             timestampAD: new Date().toISOString(),
-            timestampBS: '2083-04-22 BS',
+            timestampBS: getTodayBsStamp(),
           };
           transactionLogs.unshift(newTxn);
 
@@ -2920,7 +3171,7 @@ app.patch('/api/purchase-orders/:id/status', async (req, res) => {
   }
 });
 
-app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'PROCUREMENT_OFFICER'), async (req, res) => {
+app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER'), async (req, res) => {
   try {
     const { id } = req.params;
     let po = purchaseOrders.find((p) => p.id === id);
@@ -2954,7 +3205,7 @@ app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'HEAD_OF
           await client.query(
             `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_bs)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11)`,
-            [txnId, txnNum, item.productId, item.sku || '', item.productName || '', po.branchId, 'INBOUND_PO', Number(item.quantity) || 0, item.unitPrice || 0, po.poNumber, '2083-04-16 BS']
+            [txnId, txnNum, item.productId, item.sku || '', item.productName || '', po.branchId, 'INBOUND_PO', Number(item.quantity) || 0, item.unitPrice || 0, po.poNumber, getTodayBsStamp()]
           );
         }
       });
@@ -3060,7 +3311,7 @@ app.post('/api/purchase-invoices', async (req, res) => {
         await pgPool.query(
           `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_bs)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11)`,
-          [`txn-${Date.now()}-${item.productId}`, `TXN-${Math.floor(10000 + Math.random() * 90000)}`, item.productId, item.sku || '', item.productName || 'Product', targetBranchId, 'PURCHASE_INVOICE', qtyToAdd, Number(item.unitPrice) || 0, newInv.invoiceNumber, '2083-04-16 BS']
+          [`txn-${Date.now()}-${item.productId}`, `TXN-${Math.floor(10000 + Math.random() * 90000)}`, item.productId, item.sku || '', item.productName || 'Product', targetBranchId, 'PURCHASE_INVOICE', qtyToAdd, Number(item.unitPrice) || 0, newInv.invoiceNumber, getTodayBsStamp()]
         );
       }
 
@@ -3250,7 +3501,7 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
     let hasDiscrepancy = false;
     sh.receivedByNotes = receivedByNotes || '';
     sh.receivedDateAD = new Date().toISOString().split('T')[0];
-    sh.receivedDateBS = '2083-04-16 BS';
+    sh.receivedDateBS = getTodayBsStamp();
 
     sh.items.forEach((item: any, idx: number) => {
       const verified = Array.isArray(receivedItems)
@@ -3392,7 +3643,7 @@ app.post('/api/stock-operations', async (req, res) => {
       id: req.body.id || `op-${Date.now()}`,
       referenceNumber: req.body.referenceNumber || generateStandardTransactionId(req.body.branchId || 'WH001', opType),
       dateAD: req.body.dateAD || req.body.dateAd || new Date().toISOString().split('T')[0],
-      dateBS: req.body.dateBS || req.body.dateBs || '2083-04-16 BS',
+      dateBS: req.body.dateBS || req.body.dateBs || getTodayBsStamp(),
       totalValue,
       fiscalYear: req.body.fiscalYear || '2082/83',
       branchName: branchObj?.name || req.body.branchName || 'Branch',
@@ -4030,7 +4281,7 @@ app.post('/api/customer-devices', async (req, res) => {
           newRecord.macAddress || null,
           newRecord.status || 'ACTIVE',
           newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
-          newRecord.issuedDateBS || '2083-04-16 BS',
+          newRecord.issuedDateBS || getTodayBsStamp(),
           newRecord.purchaseBillRef || null,
           newRecord.notes || '',
         ]
@@ -4094,7 +4345,7 @@ app.patch('/api/customer-devices/:id/status', async (req, res) => {
 });
 
 // Device Exchange & Replacement Handler
-app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res) => {
+app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'FRONT_DESK', 'INVENTORY_MANAGER'), async (req, res) => {
   try {
     const {
       oldDeviceId,
@@ -4325,7 +4576,7 @@ app.post('/api/customers', async (req, res) => {
   }
 });
 
-app.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'BRANCH_MANAGER'), async (req, res) => {
+app.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER'), async (req, res) => {
   try {
     const items: CustomerRecord[] = req.body.customers || [];
     let count = 0;
@@ -4519,7 +4770,7 @@ app.post('/api/approval-requests', async (req, res) => {
       ...req.body,
       status: 'PENDING',
       requestedAtAD: new Date().toISOString(),
-      requestedAtBS: '2083-04-22 BS',
+      requestedAtBS: getTodayBsStamp(),
     };
 
     approvalRequests.unshift(newRequest);
@@ -4576,7 +4827,7 @@ app.post('/api/approval-requests', async (req, res) => {
   }
 });
 
-app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'BRANCH_MANAGER', 'AUDITOR'), async (req, res) => {
+app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status, approverUser, rejectionReason } = req.body; // status: 'APPROVED' | 'REJECTED'
@@ -4597,7 +4848,7 @@ app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'HEAD_
     request.processedByName = approverUser?.name || currentU.name;
     request.processedByRole = approverUser?.role || currentU.role;
     request.processedAtAD = new Date().toISOString();
-    request.processedAtBS = '2083-04-22 BS';
+    request.processedAtBS = getTodayBsStamp();
 
     if (status === 'REJECTED') {
       request.rejectionReason = rejectionReason || 'Request rejected by administrator';
@@ -4677,7 +4928,7 @@ app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'HEAD_
               unitCost: prod.costPrice,
               referenceDocId: request.requestNumber,
               timestampAD: new Date().toISOString(),
-              timestampBS: '2083-04-22 BS',
+              timestampBS: getTodayBsStamp(),
             };
             transactionLogs.unshift(newTxn);
 
@@ -4799,7 +5050,7 @@ app.post('/api/approval-requests/:id/cancel', async (req, res) => {
     request.processedByName = user?.name || currentU.name || request.requestedByName;
     request.processedByRole = user?.role || currentU.role || request.requestedByRole;
     request.processedAtAD = new Date().toISOString();
-    request.processedAtBS = '2083-04-22 BS';
+    request.processedAtBS = getTodayBsStamp();
     request.rejectionReason = reason?.trim() || 'Request cancelled by user';
 
     if (isPgConnected) {
@@ -4864,7 +5115,7 @@ app.get('/api/reports/financial-summary', async (req, res) => {
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        totalCostOfGoodsSold: stockOperations.filter((op) => op.type === 'STOCK_OUT' || op.type === 'CONSUMABLE_ISSUE').reduce((sum, op) => sum + Number(op.totalValue || 0), 0),
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: currentFy,
@@ -4917,7 +5168,7 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     totalInventoryAssetValue,
     totalFixedAssetValue,
     totalAccountsPayable,
-    totalCostOfGoodsSold: 450000,
+    totalCostOfGoodsSold: stockOperations.filter((op) => op.type === 'STOCK_OUT' || op.type === 'CONSUMABLE_ISSUE').reduce((sum, op) => sum + Number(op.totalValue || 0), 0),
     totalDamageLossValue,
     totalVatInputTax,
     currentFiscalYear: currentFy,
@@ -5722,7 +5973,11 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        host: '0.0.0.0',
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -99,8 +99,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    if (setupPassword.length < 4) {
-      setError('Password must be at least 4 characters long.');
+    if (setupPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
       return;
     }
 

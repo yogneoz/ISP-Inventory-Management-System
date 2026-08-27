@@ -20,10 +20,11 @@ import {
   ApprovalRequest,
   Category,
 } from './types';
-import { api, setUserContext, subscribeToSyncStream } from './services/api';
+import { api, setUserContext, setAuthToken, subscribeToSyncStream } from './services/api';
 import {
   saveUserSession,
   loadUserSession,
+  loadAuthToken,
   clearUserSession,
   saveRecentBootstrapCache,
   loadRecentBootstrapCache,
@@ -98,6 +99,19 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
+
+  // Restore bearer token from storage on first mount
+  useEffect(() => {
+    const token = loadAuthToken();
+    if (token) {
+      setAuthToken(token);
+    } else if (currentUser) {
+      // Stale user without token — force re-login
+      setCurrentUser(null);
+      setRootUser(null);
+      clearUserSession();
+    }
+  }, []);
 
   // Synchronize permissions live across components
   useEffect(() => {
@@ -316,16 +330,21 @@ export default function App() {
   // Auth actions
   const handleLogin = async (e: string, p: string) => {
     const res = await api.login(e, p);
+    setAuthToken(res.token);
     setCurrentUser(res.user);
     setRootUser(res.user);
-    saveUserSession(res.user, res.user);
+    saveUserSession(res.user, res.user, res.token);
     refreshAllData();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (_e) {}
     setCurrentUser(null);
     setRootUser(null);
     setUserContext(null);
+    setAuthToken(null);
     clearUserSession();
     clearRecentBootstrapCache();
   };
@@ -336,16 +355,18 @@ export default function App() {
       setRootUser(currentUser);
     }
     const res = await api.switchProfile(targetUserId);
+    if (res.token) setAuthToken(res.token);
     setCurrentUser(res.user);
-    saveUserSession(res.user, nextRoot);
+    saveUserSession(res.user, nextRoot, res.token);
     await refreshAllData();
   };
 
   const handleSwitchBackToRoot = async () => {
     if (!rootUser) return;
     const res = await api.switchProfile(rootUser.id);
+    if (res.token) setAuthToken(res.token);
     setCurrentUser(res.user);
-    saveUserSession(res.user, rootUser);
+    saveUserSession(res.user, rootUser, res.token);
     await refreshAllData();
   };
 
@@ -694,9 +715,10 @@ export default function App() {
           branches={branches}
           onSetupSuperAdmin={async (data) => {
             const res = await api.setupSuperAdmin(data);
+            if (res.token) setAuthToken(res.token);
             setCurrentUser(res.user);
             setRootUser(res.user);
-            saveUserSession(res.user, res.user);
+            saveUserSession(res.user, res.user, res.token);
             refreshAllData();
           }}
         />

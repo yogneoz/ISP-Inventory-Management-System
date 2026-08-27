@@ -3,6 +3,7 @@ import { BootstrapState, User } from '../types';
 
 const LOGGED_USER_STORAGE_KEY = 'izone_auth_user';
 const ROOT_USER_STORAGE_KEY = 'izone_root_user';
+const AUTH_TOKEN_STORAGE_KEY = 'izone_auth_token';
 const LOGGED_OUT_FLAG_KEY = 'izone_session_logged_out';
 const RECENT_BOOTSTRAP_CACHE_KEY = 'izone_recent_bootstrap_cache_v2';
 
@@ -32,8 +33,33 @@ export function eraseCookie(name: string) {
 // 2. PRIMARY USER SESSION STORAGE
 // ------------------------------------
 
+// Save auth bearer token
+export function saveAuthToken(token: string | null) {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+      localStorage.removeItem(LOGGED_OUT_FLAG_KEY);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+  } catch (_e) {}
+}
+
+export function loadAuthToken(): string | null {
+  try {
+    if (localStorage.getItem(LOGGED_OUT_FLAG_KEY) === 'true') return null;
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch (_e) {
+    return null;
+  }
+}
+
 // Save logged-in user in localStorage
-export function saveUserSession(currentUser: User | null, rootUser: User | null) {
+export function saveUserSession(
+  currentUser: User | null,
+  rootUser: User | null,
+  token?: string | null
+) {
   if (currentUser) {
     // Clear logged-out marker
     try {
@@ -65,6 +91,10 @@ export function saveUserSession(currentUser: User | null, rootUser: User | null)
       localStorage.removeItem(ROOT_USER_STORAGE_KEY);
     } catch (_e) {}
     eraseCookie(ROOT_USER_STORAGE_KEY);
+  }
+
+  if (token !== undefined) {
+    saveAuthToken(token);
   }
 }
 
@@ -101,6 +131,7 @@ export function clearUserSession() {
     localStorage.setItem(LOGGED_OUT_FLAG_KEY, 'true');
     localStorage.removeItem(LOGGED_USER_STORAGE_KEY);
     localStorage.removeItem(ROOT_USER_STORAGE_KEY);
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
     localStorage.removeItem('izone_logged_user');
     localStorage.removeItem('izone_root_user');
     localStorage.removeItem(RECENT_BOOTSTRAP_CACHE_KEY);

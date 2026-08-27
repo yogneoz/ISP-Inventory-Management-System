@@ -22,14 +22,30 @@ import {
   UnitOfMeasure,
   LocationRecord,
 } from '../types';
+import { loadAuthToken, saveAuthToken, clearUserSession } from '../utils/sessionCache';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
 let currentUserContext: User | null = null;
+let authToken: string | null = null;
+
+// Hydrate token from storage on module load
+try {
+  authToken = loadAuthToken();
+} catch (_e) {
+  authToken = null;
+}
 
 export const setUserContext = (user: User | null) => {
   currentUserContext = user;
 };
+
+export const setAuthToken = (token: string | null) => {
+  authToken = token;
+  saveAuthToken(token);
+};
+
+export const getAuthToken = (): string | null => authToken || loadAuthToken();
 
 // In-flight promise cache to deduplicate simultaneous duplicate requests
 const inFlightRequests = new Map<string, Promise<any>>();
@@ -37,18 +53,26 @@ const inFlightRequests = new Map<string, Promise<any>>();
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const isGet = !options?.method || options.method === 'GET';
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
-  const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${currentUserContext?.branchId || ''}`;
+  const token = getAuthToken();
+  const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${token || ''}`;
 
   if (isGet && inFlightRequests.has(cacheKey)) {
     return inFlightRequests.get(cacheKey)! as Promise<T>;
   }
 
   const userHeaders: Record<string, string> = {};
+  // Bearer token is the sole authentication credential.
+  // User identity headers are informational only and ignored by the server for auth.
+  if (token) {
+    userHeaders['Authorization'] = `Bearer ${token}`;
+  }
   if (currentUserContext) {
     userHeaders['x-user-email'] = currentUserContext.email;
     userHeaders['x-user-name'] = currentUserContext.name;
     userHeaders['x-user-role'] = currentUserContext.role;
-    userHeaders['x-user-branch'] = currentUserContext.branchId;
+    if (currentUserContext.branchId) {
+      userHeaders['x-user-branch'] = currentUserContext.branchId;
+    }
   }
 
   const promise = (async () => {
@@ -57,10 +81,26 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
         headers: {
           'Content-Type': 'application/json',
           ...userHeaders,
-          ...options?.headers,
+          ...(options?.headers as Record<string, string> | undefined),
         },
         ...options,
       });
+
+      if (res.status === 401) {
+        const isAuthEndpoint =
+          endpoint.includes('/api/auth/login') ||
+          endpoint.includes('/api/auth/setup') ||
+          endpoint.includes('/api/auth/forgot-password') ||
+          endpoint.includes('/api/auth/setup-status');
+        if (!isAuthEndpoint) {
+          authToken = null;
+          saveAuthToken(null);
+          // Soft-clear so the login screen is shown on next render
+          try {
+            clearUserSession();
+          } catch (_e) {}
+        }
+      }
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({ message: res.statusText }));
@@ -83,12 +123,15 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
 
 // Real-Time Event Stream Subscription Helper
 export function subscribeToSyncStream(onEvent: (data: any) => void): () => void {
-  const streamUrl = `${API_BASE}/api/sync/stream`;
   let eventSource: EventSource | null = null;
   let retryTimeout: any = null;
 
   function connect() {
     try {
+      const token = getAuthToken();
+      const streamUrl = token
+        ? `${API_BASE}/api/sync/stream?token=${encodeURIComponent(token)}`
+        : `${API_BASE}/api/sync/stream`;
       eventSource = new EventSource(streamUrl);
       eventSource.onmessage = (event) => {
         try {
@@ -141,10 +184,17 @@ export const api = {
     password: string;
     branchId?: string;
   }): Promise<{ user: User; token: string }> {
-    return fetchJson('/api/auth/setup-superadmin', {
+    const result = await fetchJson<{ user: User; token: string }>('/api/auth/setup-superadmin', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (result?.token) {
+      setAuthToken(result.token);
+    }
+    if (result?.user) {
+      setUserContext(result.user);
+    }
+    return result;
   },
 
   async forgotPassword(email: string): Promise<{ success: boolean; userName: string; adminEmail: string; message: string }> {
@@ -155,10 +205,28 @@ export const api = {
   },
 
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
-    return fetchJson('/api/auth/login', {
+    const result = await fetchJson<{ user: User; token: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
+    if (result?.token) {
+      setAuthToken(result.token);
+    }
+    if (result?.user) {
+      setUserContext(result.user);
+    }
+    return result;
+  },
+
+  async logout(): Promise<{ success: boolean }> {
+    try {
+      await fetchJson('/api/auth/logout', { method: 'POST' });
+    } catch (_e) {
+      // ignore network errors on logout
+    }
+    setAuthToken(null);
+    setUserContext(null);
+    return { success: true };
   },
 
   async getCurrentUser(): Promise<User> {
@@ -166,10 +234,17 @@ export const api = {
   },
 
   async switchProfile(targetUserId: string): Promise<{ user: User; token: string }> {
-    return fetchJson('/api/auth/switch-profile', {
+    const result = await fetchJson<{ user: User; token: string }>('/api/auth/switch-profile', {
       method: 'POST',
       body: JSON.stringify({ targetUserId }),
     });
+    if (result?.token) {
+      setAuthToken(result.token);
+    }
+    if (result?.user) {
+      setUserContext(result.user);
+    }
+    return result;
   },
 
   async updateProfile(data: Partial<User> & { newPassword?: string }): Promise<User> {
