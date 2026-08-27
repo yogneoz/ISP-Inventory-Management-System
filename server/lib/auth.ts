@@ -93,7 +93,7 @@ export function getUserFromReq(req: any): {
   };
 }
 
-export function authenticateUser(req: any, res: any, next: any) {
+export async function authenticateUser(req: any, res: any, next: any) {
   const queryToken =
     typeof req.query?.token === 'string'
       ? req.query.token
@@ -101,7 +101,7 @@ export function authenticateUser(req: any, res: any, next: any) {
         ? req.query.access_token
         : null;
   const token = extractBearerToken(req) || queryToken;
-  const session = getSession(token);
+  const session = await getSession(token);
   if (session) {
     req.session = session;
     req.authToken = token;

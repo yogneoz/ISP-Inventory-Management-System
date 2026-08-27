@@ -739,7 +739,7 @@ router.post('/api/users/:id/reset-password', requireRole('SUPER_ADMIN'), async (
       }
     }
 
-    destroyUserSessions(id);
+    await destroyUserSessions(id);
     store.saveDataStore();
     logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 

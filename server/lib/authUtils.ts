@@ -1,31 +1,26 @@
 /**
  * Server-side auth helpers: password hashing, session tokens, BS date stamps.
- * Kept outside src/ so the Express bundle can import it cleanly.
+ * Session persistence is delegated to sessionStore (Redis with memory fallback).
  */
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
+export {
+  type SessionRecord,
+  SESSION_TTL_MS,
+  createSession,
+  getSession,
+  destroySession,
+  destroyUserSessions,
+  initSessionStore,
+  getSessionBackend,
+  isRedisSessionsEnabled,
+  getSessionStoreStats,
+} from './sessionStore';
+
 const BCRYPT_ROUNDS = 10;
-const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 const MIN_PASSWORD_LENGTH = 8;
 
 export { MIN_PASSWORD_LENGTH };
-
-export interface SessionRecord {
-  token: string;
-  userId: string;
-  email: string;
-  name: string;
-  role: string;
-  branchId?: string;
-  allowedBranchIds?: string[];
-  canSwitchUser?: boolean;
-  createdAt: number;
-  expiresAt: number;
-  rootUserId?: string; // original user when profile-switched
-}
-
-const sessions = new Map<string, SessionRecord>();
 
 /** Built-in BS year anchors (Baisakh 1 AD) for live date conversion on the server. */
 const BS_YEAR_ANCHORS: { yearBS: number; startAD: string; daysInMonths: number[] }[] = [
@@ -69,69 +64,6 @@ export function validatePasswordStrength(password: string): { ok: boolean; messa
     };
   }
   return { ok: true };
-}
-
-function pruneExpiredSessions() {
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (session.expiresAt <= now) sessions.delete(token);
-  }
-}
-
-export function createSession(user: {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  branchId?: string;
-  allowedBranchIds?: string[];
-  canSwitchUser?: boolean;
-}, rootUserId?: string): SessionRecord {
-  pruneExpiredSessions();
-  const token = crypto.randomBytes(32).toString('hex');
-  const now = Date.now();
-  const record: SessionRecord = {
-    token,
-    userId: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    branchId: user.branchId,
-    allowedBranchIds: user.allowedBranchIds,
-    canSwitchUser: user.canSwitchUser,
-    createdAt: now,
-    expiresAt: now + SESSION_TTL_MS,
-    rootUserId: rootUserId || user.id,
-  };
-  sessions.set(token, record);
-  return record;
-}
-
-export function getSession(token: string | undefined | null): SessionRecord | null {
-  if (!token) return null;
-  pruneExpiredSessions();
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (session.expiresAt <= Date.now()) {
-    sessions.delete(token);
-    return null;
-  }
-  // Sliding expiry on activity
-  session.expiresAt = Date.now() + SESSION_TTL_MS;
-  return session;
-}
-
-export function destroySession(token: string | undefined | null): void {
-  if (!token) return;
-  sessions.delete(token);
-}
-
-export function destroyUserSessions(userId: string): void {
-  for (const [token, session] of sessions.entries()) {
-    if (session.userId === userId || session.rootUserId === userId) {
-      sessions.delete(token);
-    }
-  }
 }
 
 export function extractBearerToken(req: { headers?: Record<string, any> }): string | null {
@@ -183,7 +115,6 @@ export function toBsDateStamp(adInput?: string | Date | null): string {
       dayOffset -= dim;
     }
 
-    // Overflow into next year estimate
     return fallbackBsEstimate(adDate);
   } catch {
     return fallbackBsEstimate(new Date());

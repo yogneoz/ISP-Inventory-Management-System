@@ -45,7 +45,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── store.ts                  # In-memory domain state + JSON persistence
 │   ├── lib/
 │   │   ├── auth.ts               # Session middleware, RBAC, audit helper
-│   │   ├── authUtils.ts          # bcrypt, tokens, BS date stamps, role aliases
+│   │   ├── authUtils.ts          # bcrypt, BS date stamps, role aliases
+│   │   ├── sessionStore.ts       # Redis sessions (memory fallback)
 │   │   ├── db.ts                 # PostgreSQL / pg-mem pool + transactions
 │   │   ├── dbBootstrap.ts        # Schema sync, indexes, seed
 │   │   ├── sync.ts               # SSE live broadcast
@@ -58,7 +59,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   └── setup_db.js
 │
 ├── server.ts                     # Thin entrypoint (Express + Vite middleware)
-├── ecosystem.config.js           # PM2 (single instance — in-memory sessions)
+├── ecosystem.config.js           # PM2 (cluster-ready when REDIS_URL is set)
 ├── Dockerfile
 ├── .env.example
 └── package.json
@@ -162,7 +163,7 @@ If a local data store already contains seed users, example accounts may look lik
 | **Role** | `SUPER_ADMIN` |
 | **Branch** | Head Office (Urlabari) |
 
-> **Security Note**: Change all default/demo passwords under **User Management**. Session tokens expire after 12 hours of activity. PM2 runs as a **single instance** because sessions are in-memory.
+> **Security Note**: Change all default/demo passwords under **User Management**. Session tokens expire after 12 hours of activity (sliding). Set `REDIS_URL` to share sessions across PM2 workers; without Redis the server falls back to in-memory sessions automatically.
 
 ---
 

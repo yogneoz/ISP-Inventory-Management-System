@@ -150,7 +150,7 @@ router.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
 
       store.setActiveUser(savedUser);
       store.saveDataStore();
-      const session = createSession(savedUser as any);
+      const session = await createSession(savedUser as any);
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
       return res.status(201).json({ user: sanitizeUser(savedUser), token: session.token });
     } catch (err: any) {
@@ -185,7 +185,7 @@ router.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
 
   store.saveDataStore();
   store.setActiveUser(newSuperAdmin);
-  const session = createSession(newSuperAdmin as any);
+  const session = await createSession(newSuperAdmin as any);
   logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
   res.status(201).json({ user: sanitizeUser(newSuperAdmin), token: session.token });
 });
@@ -256,7 +256,7 @@ router.post('/api/auth/login', async (req: any, res: any) => {
 
   candidate.role = normalizeRole(candidate.role) as User['role'];
   store.setActiveUser(candidate);
-  const session = createSession(candidate as any);
+  const session = await createSession(candidate as any);
   // Attach session so audit trail records the real actor (not anonymous)
   (req as any).session = session;
   (req as any).user = {
@@ -271,9 +271,9 @@ router.post('/api/auth/login', async (req: any, res: any) => {
   res.json({ user: sanitizeUser(candidate), token: session.token });
 });
 
-router.post('/api/auth/logout', (req: any, res: any) => {
+router.post('/api/auth/logout', async (req: any, res: any) => {
   const token = extractBearerToken(req) || req.authToken;
-  destroySession(token);
+  await destroySession(token);
   store.setActiveUser(null);
   res.json({ success: true, message: 'Signed out successfully.' });
 });
@@ -290,7 +290,7 @@ router.get('/api/auth/me', (req: any, res: any) => {
 });
 
 // Profile Switching Endpoint — requires authenticated session + switch permission
-router.post('/api/auth/switch-profile', (req: any, res: any) => {
+router.post('/api/auth/switch-profile', async (req: any, res: any) => {
   if (!req.session || !req.user?.authenticated) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
@@ -316,8 +316,8 @@ router.post('/api/auth/switch-profile', (req: any, res: any) => {
   store.setActiveUser(user);
   const rootId = req.session.rootUserId || req.session.userId;
   // Rotate session onto target while preserving root
-  destroySession(req.authToken);
-  const session = createSession(user as any, rootId);
+  await destroySession(req.authToken);
+  const session = await createSession(user as any, rootId);
 
   store.auditTrail.unshift({
     id: `aud-${Date.now()}`,

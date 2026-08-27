@@ -10,6 +10,7 @@ import { initializeStore } from './server/store';
 import { authenticateUser } from './server/lib/auth';
 import { registerRoutes } from './server/routes';
 import { syncDatabaseAndIndexes } from './server/lib/dbBootstrap';
+import { initSessionStore, getSessionStoreStats } from './server/lib/sessionStore';
 
 dotenv.config();
 
@@ -17,8 +18,17 @@ const app = express();
 app.use(express.json({ limit: '25mb' }));
 
 // Health & control-plane endpoints BEFORE auth middleware
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (_req, res) => {
+  const sessions = await getSessionStoreStats();
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    sessions: {
+      backend: sessions.backend,
+      memoryCount: sessions.memoryCount,
+      redis: sessions.redisPing || null,
+    },
+  });
 });
 
 app.get('/__aistudio_internal_control_plane/dev/status', (_req, res) => {
@@ -39,6 +49,7 @@ registerRoutes(app);
 
 async function startServer() {
   await initializeStore();
+  await initSessionStore();
   await syncDatabaseAndIndexes();
 
   // IMPORTANT: register Vite/static AFTER API routes so /api is never swallowed
