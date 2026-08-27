@@ -36,32 +36,32 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 .
 ├── src/                          # React 19 + TypeScript Frontend
 │   ├── components/               # UI Views and Modals
-│   │   ├── Header.tsx            # Header with Profile Switching & Notifications
-│   │   ├── Sidebar.tsx           # Multi-level Rail Navigation & Submenus
-│   │   ├── LoginModal.tsx        # Super Admin First-Launch Setup & Login
-│   │   ├── PhysicalStockAudit.tsx# Physical Stock Count & Reconciliation Audit View
-│   │   ├── FiscalYearClosingWizard.tsx # 5-Step Fiscal Closing & Lock Wizard
-│   │   ├── StockOperations.tsx   # Stock Out, Consumable Issue, Pullouts & Adjustments
-│   │   ├── CustomerDeviceManagement.tsx # ONU / Router Serial & Customer Assignment
-│   │   ├── ApprovalWorkflowCenter.tsx   # Multi-tier Device Return & Refund Approvals
-│   │   ├── FixedAssetRegister.tsx# Fixed Assets & Depreciation Register
-│   │   ├── NepaliFiscalManagement.tsx # BS Fiscal Calendar & Year Settings
-│   │   └── ...
-│   ├── types/                    # Shared TypeScript Interfaces (index.ts)
-│   ├── utils/                    # BS/AD Calendar Utilities & Permissions
+│   ├── services/api.ts           # REST client (Bearer session tokens)
+│   ├── types/                    # Shared TypeScript Interfaces
+│   ├── utils/                    # BS/AD Calendar, permissions, session cache
 │   └── App.tsx                   # Main React Application shell
 │
-├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql                # Full 19-Table PostgreSQL Schema with Indexes & FKs
-│   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
-│   └── setup_db.js               # Node.js runner for database setup & migration
+├── server/                       # Modular Express backend
+│   ├── store.ts                  # In-memory domain state + JSON persistence
+│   ├── lib/
+│   │   ├── auth.ts               # Session middleware, RBAC, audit helper
+│   │   ├── authUtils.ts          # bcrypt, tokens, BS date stamps, role aliases
+│   │   ├── db.ts                 # PostgreSQL / pg-mem pool + transactions
+│   │   ├── dbBootstrap.ts        # Schema sync, indexes, seed
+│   │   ├── sync.ts               # SSE live broadcast
+│   │   └── ai.ts                 # Gemini client helper
+│   └── routes/                   # Domain route modules (auth, stock, POs, …)
 │
-├── server.ts                     # Full-stack Node.js Express server with Vite middleware
-├── ecosystem.config.js           # PM2 Process Manager Configuration for Production
-├── Dockerfile                    # Production Docker Multi-Stage Build
-├── .data_store.json              # Local persistent JSON state store
-├── .env.example                  # Environment configuration template
-└── package.json                  # Frontend Vite / React & Server Dependencies
+├── scripts/                      # Database Automation Scripts
+│   ├── schema.sql
+│   ├── setup_postgres.sh
+│   └── setup_db.js
+│
+├── server.ts                     # Thin entrypoint (Express + Vite middleware)
+├── ecosystem.config.js           # PM2 (single instance — in-memory sessions)
+├── Dockerfile
+├── .env.example
+└── package.json
 ```
 
 ---

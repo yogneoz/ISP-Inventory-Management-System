@@ -1,0 +1,594 @@
+/**
+ * Route module: customers
+ */
+import { Router } from 'express';
+import * as store from '../store';
+import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import {
+  requireRole,
+  requireAuth,
+  logAuditEvent,
+  sanitizeUser,
+  findUserByIdOrEmail,
+  migrateUserPasswordIfNeeded,
+  getUserFromReq,
+} from '../lib/auth';
+import {
+  hashPassword,
+  verifyPassword,
+  validatePasswordStrength,
+  createSession,
+  destroySession,
+  destroyUserSessions,
+  extractBearerToken,
+  getTodayBsStamp,
+  normalizeRole,
+  MIN_PASSWORD_LENGTH,
+  getSession,
+} from '../lib/authUtils';
+import {
+  broadcastChange,
+  dataVersion,
+  setDataVersion,
+  bumpDataVersion,
+  addSseClient,
+  removeSseClient,
+  forEachSseClient,
+} from '../lib/sync';
+import { getGenAIClient } from '../lib/ai';
+import type {
+  User,
+  Supplier,
+  Branch,
+  Product,
+  CompanyProfile,
+  InventoryStock,
+  Asset,
+  PurchaseOrder,
+  PurchaseInvoice,
+  Shipment,
+  StockOperation,
+  FiscalYear,
+  AuditLog,
+  TransactionLog,
+  CustomerDeviceRecord,
+  CustomerRecord,
+  ApprovalRequest,
+  Category,
+  UnitOfMeasure,
+  LocationRecord,
+} from '../../src/types';
+
+const router = Router();
+
+router.get('/api/customer-devices', async (req, res) => {
+  const { branchId, query } = req.query;
+
+  if (isPgConnected) {
+    try {
+      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
+      const params: any[] = [];
+      const conditions: string[] = [];
+
+      if (branchId && branchId !== 'ALL') {
+        params.push(branchId);
+        conditions.push(`branch_id = $${params.length}`);
+      }
+
+      if (query && typeof query === 'string' && query.trim()) {
+        params.push(`%${query.trim().toLowerCase()}%`);
+        conditions.push(`(LOWER(device_serial) LIKE $${params.length} OR LOWER(pon_serial) LIKE $${params.length} OR LOWER(mac_address) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(customer_code) LIKE $${params.length} OR LOWER(contact_phone) LIKE $${params.length})`);
+      }
+
+      if (conditions.length > 0) {
+        sql += ' WHERE ' + conditions.join(' AND ');
+      }
+      sql += ' ORDER BY created_at DESC';
+
+      const r = await pgPool.query(sql, params);
+      return res.json(r.rows);
+    } catch (err) {
+      console.error('Error fetching customer devices from DB:', err);
+    }
+  }
+
+  let list = store.customerDeviceRecords;
+
+  if (branchId && branchId !== 'ALL') {
+    list = list.filter((c) => c.branchId === branchId);
+  }
+
+  if (query && typeof query === 'string' && query.trim()) {
+    const q = query.toLowerCase().trim();
+    list = list.filter(
+      (c) =>
+        c.deviceSerial.toLowerCase().includes(q) ||
+        c.ponSerial.toLowerCase().includes(q) ||
+        (c.macAddress && c.macAddress.toLowerCase().includes(q)) ||
+        c.customerName.toLowerCase().includes(q) ||
+        c.customerCode.toLowerCase().includes(q) ||
+        c.contactPhone.toLowerCase().includes(q)
+    );
+  }
+
+  res.json(list);
+});
+
+router.post('/api/customer-devices', async (req, res) => {
+  try {
+    const newRecord: CustomerDeviceRecord = {
+      id: req.body.id || `cust-${Date.now()}`,
+      ...req.body,
+    };
+    const idx = store.customerDeviceRecords.findIndex((c) => c.id === newRecord.id);
+    if (idx >= 0) store.customerDeviceRecords[idx] = newRecord;
+    else store.customerDeviceRecords.unshift(newRecord);
+
+    const custCode = newRecord.customerCode || newRecord.customerId;
+
+    if (isPgConnected) {
+      await pgPool.query(
+        `INSERT INTO customer_device_records (
+           id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           branch_id = EXCLUDED.branch_id,
+           notes = EXCLUDED.notes;`,
+        [
+          newRecord.id,
+          newRecord.customerId || custCode,
+          newRecord.customerName,
+          custCode,
+          newRecord.contactPhone || '',
+          newRecord.installationAddress || '',
+          newRecord.branchId || 'WH001',
+          newRecord.productName,
+          newRecord.deviceSerial,
+          newRecord.ponSerial || newRecord.deviceSerial,
+          newRecord.macAddress || null,
+          newRecord.status || 'ACTIVE',
+          newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
+          newRecord.issuedDateBS || getTodayBsStamp(),
+          newRecord.purchaseBillRef || null,
+          newRecord.notes || '',
+        ]
+      );
+
+      await pgPool.query(
+        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, status, assigned_devices_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', 1)
+         ON CONFLICT (customer_id) DO UPDATE SET
+           assigned_devices_count = customer_records.assigned_devices_count + 1;`,
+        [
+          custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          newRecord.customerName,
+          newRecord.customerName.toLowerCase().replace(/\s+/g, '.'),
+          newRecord.contactPhone || '9800000000',
+          newRecord.branchId || 'WH001',
+          newRecord.installationAddress || 'Nepal',
+        ]
+      );
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
+    res.status(201).json(newRecord);
+  } catch (err: any) {
+    console.error('Error adding customer device:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+router.patch('/api/customer-devices/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    let record = store.customerDeviceRecords.find((c) => c.id === id);
+
+    if (isPgConnected && !record) {
+      const r = await pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", status FROM customer_device_records WHERE id = $1', [id]);
+      if (r.rows.length > 0) record = r.rows[0];
+    }
+    if (!record) return res.status(404).json({ message: 'Customer device record not found' });
+
+    const oldStatus = record.status;
+    const isDisconn = status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED';
+    const newStatusStr = isDisconn ? 'ROUTER_COLLECTED' : status;
+
+    record.status = newStatusStr;
+
+    if (isPgConnected) {
+      await pgPool.query('UPDATE customer_device_records SET status = $1 WHERE id = $2', [newStatusStr, id]);
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
+    res.json(record);
+  } catch (err: any) {
+    console.error('Error updating CPE device status:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Device Exchange & Replacement Handler
+router.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'FRONT_DESK', 'INVENTORY_MANAGER'), async (req, res) => {
+  try {
+    const {
+      oldDeviceId,
+      exchangeReason,
+      oldDeviceAction,
+      newProductName,
+      newDeviceSerial,
+      newPonSerial,
+      newMacAddress,
+      notes,
+      branchId,
+    } = req.body;
+
+    let oldRecord = store.customerDeviceRecords.find((c) => c.id === oldDeviceId);
+    if (isPgConnected && !oldRecord) {
+      const r = await pgPool.query('SELECT * FROM customer_device_records WHERE id = $1', [oldDeviceId]);
+      if (r.rows.length > 0) {
+        const row = r.rows[0];
+        oldRecord = {
+          id: row.id,
+          customerId: row.customer_id,
+          customerName: row.customer_name,
+          customerCode: row.customer_code,
+          contactPhone: row.contact_phone,
+          installationAddress: row.installation_address,
+          branchId: row.branch_id,
+          productName: row.product_name,
+          deviceSerial: row.device_serial,
+          ponSerial: row.pon_serial,
+          macAddress: row.mac_address,
+          status: row.status,
+          issuedDateAD: row.issued_date_ad,
+          issuedDateBS: row.issued_date_bs,
+          purchaseBillRef: row.purchase_bill_ref,
+          notes: row.notes,
+        };
+      }
+    }
+
+    if (!oldRecord) return res.status(404).json({ message: 'Old customer device record not found' });
+
+    const dateStrAD = new Date().toISOString().split('T')[0];
+
+    oldRecord.status = 'EXCHANGED';
+    oldRecord.notes = `[EXCHANGED on ${dateStrAD}] Reason: ${exchangeReason || 'Defective / Replacement'}. Old device disposition: ${oldDeviceAction}. Replacement SN: ${newDeviceSerial}. ${oldRecord.notes || ''}`;
+
+    const newRecord: CustomerDeviceRecord = {
+      id: `cust-${Date.now()}`,
+      customerId: oldRecord.customerId,
+      customerName: oldRecord.customerName,
+      customerCode: oldRecord.customerCode,
+      contactPhone: oldRecord.contactPhone,
+      installationAddress: oldRecord.installationAddress,
+      branchId: branchId || oldRecord.branchId,
+      productName: newProductName || oldRecord.productName,
+      deviceSerial: newDeviceSerial,
+      ponSerial: newPonSerial,
+      macAddress: newMacAddress || undefined,
+      status: 'RENTAL',
+      issuedDateAD: dateStrAD,
+      issuedDateBS: '2083-04-28 BS',
+      purchaseBillRef: oldRecord.purchaseBillRef,
+      notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
+    };
+
+    store.customerDeviceRecords.unshift(newRecord);
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        await client.query('UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3', ['EXCHANGED', oldRecord.notes, oldDeviceId]);
+
+        await client.query(
+          `INSERT INTO customer_device_records (
+             id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);`,
+          [
+            newRecord.id,
+            newRecord.customerId,
+            newRecord.customerName,
+            newRecord.customerCode,
+            newRecord.contactPhone || '',
+            newRecord.installationAddress || '',
+            newRecord.branchId || 'WH001',
+            newRecord.productName,
+            newRecord.deviceSerial,
+            newRecord.ponSerial || newRecord.deviceSerial,
+            newRecord.macAddress || null,
+            newRecord.status,
+            newRecord.issuedDateAD,
+            newRecord.issuedDateBS,
+            newRecord.purchaseBillRef || null,
+            newRecord.notes,
+          ]
+        );
+      });
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
+    res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
+  } catch (err: any) {
+    console.error('Error exchanging customer device:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Customer Master Database Endpoints
+router.get('/api/customers', async (req, res) => {
+  const { branchId, query } = req.query;
+
+  if (isPgConnected) {
+    try {
+      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records`;
+      const params: any[] = [];
+      const conditions: string[] = [];
+
+      if (branchId && branchId !== 'ALL') {
+        params.push(branchId);
+        conditions.push(`branch_id = $${params.length}`);
+      }
+
+      if (query && typeof query === 'string' && query.trim()) {
+        params.push(`%${query.trim().toLowerCase()}%`);
+        conditions.push(`(LOWER(customer_id) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(username) LIKE $${params.length} OR LOWER(contact_number) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(address) LIKE $${params.length})`);
+      }
+
+      if (conditions.length > 0) {
+        sql += ' WHERE ' + conditions.join(' AND ');
+      }
+      sql += ' ORDER BY customer_name ASC';
+
+      const r = await pgPool.query(sql, params);
+      return res.json(r.rows);
+    } catch (err) {
+      console.error('Error fetching customers from DB:', err);
+    }
+  }
+
+  // Dynamically calculate assignedDevicesCount from customerDeviceRecords
+  store.customerMasterRecords.forEach((c) => {
+    c.assignedDevicesCount = store.customerDeviceRecords.filter(
+      (d) => d.customerCode === c.customerId || d.customerId === c.id || d.customerName.toLowerCase() === c.customerName.toLowerCase()
+    ).length;
+  });
+
+  let list = store.customerMasterRecords;
+
+  if (branchId && branchId !== 'ALL') {
+    list = list.filter((c) => c.branchId === branchId);
+  }
+
+  if (query && typeof query === 'string' && query.trim()) {
+    const q = query.toLowerCase().trim();
+    list = list.filter(
+      (c) =>
+        c.customerId?.toLowerCase().includes(q) ||
+        c.customerName?.toLowerCase().includes(q) ||
+        c.username?.toLowerCase().includes(q) ||
+        c.contactNumber?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.address?.toLowerCase().includes(q)
+    );
+  }
+
+  res.json(list);
+});
+
+router.post('/api/customers', async (req, res) => {
+  try {
+    const body = req.body;
+    const newRecord: CustomerRecord = {
+      id: body.id || body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerId: body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerName: body.customerName || 'New Customer',
+      username: body.username || (body.customerId ? body.customerId.toLowerCase() : 'user'),
+      contactNumber: body.contactNumber || '9800000000',
+      branchId: body.branchId || 'WH001',
+      address: body.address || 'Nepal',
+      email: body.email || '',
+      status: body.status || 'ACTIVE',
+      creditLimit: Number(body.creditLimit) || 0,
+      assignedDevicesCount: 0,
+    };
+
+    const idx = store.customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+    if (idx >= 0) {
+      store.customerMasterRecords[idx] = newRecord;
+    } else {
+      store.customerMasterRecords.unshift(newRecord);
+    }
+
+    if (isPgConnected) {
+      await pgPool.query(
+        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           customer_id = EXCLUDED.customer_id,
+           customer_name = EXCLUDED.customer_name,
+           username = EXCLUDED.username,
+           contact_number = EXCLUDED.contact_number,
+           branch_id = EXCLUDED.branch_id,
+           address = EXCLUDED.address,
+           email = EXCLUDED.email,
+           status = EXCLUDED.status,
+           credit_limit = EXCLUDED.credit_limit;`,
+        [
+          newRecord.id,
+          newRecord.customerId,
+          newRecord.customerName,
+          newRecord.username,
+          newRecord.contactNumber,
+          newRecord.branchId,
+          newRecord.address,
+          newRecord.email,
+          newRecord.status,
+          newRecord.creditLimit,
+          newRecord.assignedDevicesCount,
+        ]
+      );
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
+    res.status(201).json(newRecord);
+  } catch (err: any) {
+    console.error('Error creating customer:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+router.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER'), async (req, res) => {
+  try {
+    const items: CustomerRecord[] = req.body.customers || [];
+    let count = 0;
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        for (const cust of items) {
+          const newRecord: CustomerRecord = {
+            id: cust.id || cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+            customerId: cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+            customerName: cust.customerName || 'Imported Customer',
+            username: cust.username || (cust.customerId ? cust.customerId.toLowerCase() : 'user'),
+            contactNumber: cust.contactNumber || '9800000000',
+            branchId: cust.branchId || 'WH001',
+            address: cust.address || 'Nepal',
+            email: cust.email || '',
+            status: cust.status || 'ACTIVE',
+            creditLimit: Number(cust.creditLimit) || 0,
+            assignedDevicesCount: 0,
+          };
+
+          const idx = store.customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+          if (idx >= 0) {
+            store.customerMasterRecords[idx] = newRecord;
+          } else {
+            store.customerMasterRecords.unshift(newRecord);
+          }
+
+          await client.query(
+            `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (id) DO UPDATE SET
+               customer_id = EXCLUDED.customer_id,
+               customer_name = EXCLUDED.customer_name,
+               username = EXCLUDED.username,
+               contact_number = EXCLUDED.contact_number,
+               branch_id = EXCLUDED.branch_id,
+               address = EXCLUDED.address,
+               email = EXCLUDED.email,
+               status = EXCLUDED.status,
+               credit_limit = EXCLUDED.credit_limit;`,
+            [
+              newRecord.id,
+              newRecord.customerId,
+              newRecord.customerName,
+              newRecord.username,
+              newRecord.contactNumber,
+              newRecord.branchId,
+              newRecord.address,
+              newRecord.email,
+              newRecord.status,
+              newRecord.creditLimit,
+              newRecord.assignedDevicesCount,
+            ]
+          );
+          count++;
+        }
+      });
+    } else {
+      for (const cust of items) {
+        const newRecord: CustomerRecord = {
+          id: cust.id || cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          customerId: cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          customerName: cust.customerName || 'Imported Customer',
+          username: cust.username || (cust.customerId ? cust.customerId.toLowerCase() : 'user'),
+          contactNumber: cust.contactNumber || '9800000000',
+          branchId: cust.branchId || 'WH001',
+          address: cust.address || 'Nepal',
+          email: cust.email || '',
+          status: cust.status || 'ACTIVE',
+          creditLimit: Number(cust.creditLimit) || 0,
+          assignedDevicesCount: 0,
+        };
+
+        const idx = store.customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+        if (idx >= 0) {
+          store.customerMasterRecords[idx] = newRecord;
+        } else {
+          store.customerMasterRecords.unshift(newRecord);
+        }
+        count++;
+      }
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
+    res.status(201).json({ success: true, count, total: store.customerMasterRecords.length });
+  } catch (err: any) {
+    console.error('Error bulk importing customers:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+router.put('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const idx = store.customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
+    if (idx < 0) {
+      return res.status(404).json({ message: 'Customer record not found' });
+    }
+
+    store.customerMasterRecords[idx] = {
+      ...store.customerMasterRecords[idx],
+      ...req.body,
+    };
+    const updated = store.customerMasterRecords[idx];
+
+    if (isPgConnected) {
+      await pgPool.query(
+        `UPDATE customer_records SET
+           customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9
+         WHERE id = $10 OR customer_id = $10;`,
+        [updated.customerId, updated.customerName, updated.username, updated.contactNumber, updated.branchId, updated.address, updated.email, updated.status, Number(updated.creditLimit) || 0, id]
+      );
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
+    res.json(updated);
+  } catch (err: any) {
+    console.error('Error updating customer:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+router.delete('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const cust = store.customerMasterRecords.find((c) => c.id === id || c.customerId === id);
+    { const __filtered = store.customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id); store.customerMasterRecords.length = 0; store.customerMasterRecords.push(...__filtered); }
+
+    if (isPgConnected) {
+      await pgPool.query('DELETE FROM customer_records WHERE id = $1 OR customer_id = $1', [id]);
+    }
+
+    store.saveDataStore();
+    logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
+    res.json({ success: true, deletedId: id });
+  } catch (err: any) {
+    console.error('Error deleting customer:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Approval Requests & Workflow Authorization Routes
+
+export default router;
