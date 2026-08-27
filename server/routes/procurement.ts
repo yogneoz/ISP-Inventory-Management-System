@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -83,6 +91,7 @@ router.get('/api/purchase-orders', async (req, res) => {
 });
 
 router.post('/api/purchase-orders', async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const items = req.body.items || [];
     const subtotalAmount = items.reduce((s: number, i: any) => s + (i.subtotal || (i.quantity * (i.unitPrice || 0))), 0);
@@ -104,7 +113,7 @@ router.post('/api/purchase-orders', async (req, res) => {
     if (idx >= 0) store.purchaseOrders[idx] = newPO;
     else store.purchaseOrders.unshift(newPO);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_PURCHASE_ORDER', async () => {
       await pgPool.query(
         `INSERT INTO purchase_orders (
            id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
@@ -145,7 +154,7 @@ router.post('/api/purchase-orders', async (req, res) => {
           );
         }
       }
-    }
+    });
 
     if (newPO.branchId && Array.isArray(items)) {
       items.forEach((item: any) => {
@@ -157,16 +166,18 @@ router.post('/api/purchase-orders', async (req, res) => {
       });
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_PURCHASE_ORDER', 'PROCUREMENT', `Created Purchase Order #${newPO.poNumber} for supplier ${newPO.supplierName || 'Vendor'}`);
     res.status(201).json(newPO);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating purchase order:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/purchase-orders/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const { id } = req.params;
     const index = store.purchaseOrders.findIndex((p) => p.id === id);
@@ -187,7 +198,7 @@ router.put('/api/purchase-orders/:id', async (req, res) => {
     };
     if (index >= 0) store.purchaseOrders[index] = updatedPO;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_PURCHASE_ORDER', async () => {
       await pgPool.query(
         `UPDATE purchase_orders SET
            supplier_name = $1, branch_id = $2, status = $3, subtotal_amount = $4, tax_amount = $5, total_amount = $6, notes = $7, items = $8
@@ -204,51 +215,55 @@ router.put('/api/purchase-orders/:id', async (req, res) => {
           id,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
     res.json(updatedPO);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating purchase order:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.patch('/api/purchase-orders/:id/status', async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const { id } = req.params;
     const { status } = req.body;
     const po = store.purchaseOrders.find((p) => p.id === id);
     if (po) po.status = status;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_PO_STATUS', async () => {
       await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', [status, id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
     res.json(po || req.body);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating PO status:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER'), async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const { id } = req.params;
     let po = store.purchaseOrders.find((p) => p.id === id);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       const r = await pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1', [id]);
       if (r.rows.length > 0) po = r.rows[0];
-    }
+    });
     if (!po) return res.status(404).json({ message: 'PO not found' });
 
     po.status = 'RECEIVED';
 
-    if (isPgConnected) {
+    await writeThroughPg('RECEIVE_PURCHASE_ORDER', async () => {
       await withTransaction(async (client) => {
         await client.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', ['RECEIVED', id]);
 
@@ -273,7 +288,7 @@ router.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'INVE
           );
         }
       });
-    }
+    });
 
     if (po.items && Array.isArray(po.items)) {
       po.items.forEach((item: any) => {
@@ -286,12 +301,13 @@ router.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'INVE
       });
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'RECEIVE_PURCHASE_ORDER', 'PROCUREMENT', `Received goods for Purchase Order #${po.poNumber}`);
     res.json(po);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error receiving PO:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -318,6 +334,7 @@ router.get('/api/purchase-invoices', async (req, res) => {
 });
 
 router.post('/api/purchase-invoices', async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const targetBranchId = req.body.branchId || store.branches[0]?.id || 'WH001';
     const newInv = {
@@ -333,7 +350,7 @@ router.post('/api/purchase-invoices', async (req, res) => {
     if (idx >= 0) store.purchaseInvoices[idx] = newInv;
     else store.purchaseInvoices.unshift(newInv);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(
         `INSERT INTO purchase_invoices (
            id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid, items
@@ -383,7 +400,7 @@ router.post('/api/purchase-invoices', async (req, res) => {
       if (poRef) {
         await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2', ['RECEIVED', poRef]);
       }
-    }
+    });
 
     items.forEach((item: any) => {
       let stk = store.inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
@@ -405,16 +422,18 @@ router.post('/api/purchase-invoices', async (req, res) => {
       stk.lastUpdated = new Date().toISOString();
     });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
     res.status(201).json(newInv);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating purchase invoice:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/purchase-invoices/:id/pay', async (req, res) => {
+  const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const { id } = req.params;
     const { amount } = req.body;
@@ -424,7 +443,7 @@ router.post('/api/purchase-invoices/:id/pay', async (req, res) => {
       inv.paymentStatus = inv.amountPaid >= inv.grandTotal ? 'PAID' : 'PARTIAL';
     }
 
-    if (isPgConnected) {
+    await writeThroughPg('RECORD_INVOICE_PAYMENT', async () => {
       await pgPool.query(
         `UPDATE purchase_invoices SET
            amount_paid = amount_paid + $1,
@@ -432,14 +451,15 @@ router.post('/api/purchase-invoices/:id/pay', async (req, res) => {
          WHERE id = $2;`,
         [Number(amount), id]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${Number(amount).toLocaleString()} for Invoice`);
     res.json(inv || { message: 'Payment recorded' });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error recording payment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

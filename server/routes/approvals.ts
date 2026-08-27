@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -99,6 +107,7 @@ router.get('/api/approval-requests', async (req, res) => {
 });
 
 router.post('/api/approval-requests', async (req, res) => {
+  const __writeSnap = snapshotStore(['approvalRequests', 'customerDeviceRecords', 'shipments', 'inventoryStock', 'transactionLogs']);
   try {
     const count = store.approvalRequests.length + 1;
     const requestNumber = req.body.requestNumber || `APR-2083-${count.toString().padStart(3, '0')}`;
@@ -114,7 +123,7 @@ router.post('/api/approval-requests', async (req, res) => {
 
     store.approvalRequests.unshift(newRequest);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(
         `INSERT INTO approval_requests (id, request_number, type, target_id, customer_name, customer_code, device_serial, pon_serial, product_name, current_status, requested_status, requested_by_role, requested_by_email, requested_by_name, branch_id, branch_name, reason, restock_qty_on_approval, status, requested_at_ad, requested_at_bs)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20)`,
@@ -141,7 +150,7 @@ router.post('/api/approval-requests', async (req, res) => {
           newRequest.requestedAtBS,
         ]
       );
-    }
+    });
 
     // Log in Audit Trail
     const isTransferCancel = newRequest.type === 'CANCEL_TRANSFER' || newRequest.type === 'CANCEL_IN_TRANSIT_TRANSFER' || newRequest.type === 'CANCEL_RECEIVE_TRANSFER';
@@ -158,15 +167,17 @@ router.post('/api/approval-requests', async (req, res) => {
     }
 
     logAuditEvent(req, 'APPROVAL_REQUEST_SUBMITTED', logModule, logDetails, newRequest.branchId);
-    store.saveDataStore();
+    commitLocalMirror();
     res.status(201).json(newRequest);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating approval request:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req, res) => {
+  const __writeSnap = snapshotStore(['approvalRequests', 'customerDeviceRecords', 'shipments', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;
     const { status, approverUser, rejectionReason } = req.body; // status: 'APPROVED' | 'REJECTED'
@@ -192,22 +203,22 @@ router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BR
     if (status === 'REJECTED') {
       request.rejectionReason = rejectionReason || 'Request rejected by administrator';
 
-      if (isPgConnected) {
+      await writeThroughPg('APPROVAL_REQUEST_REJECTED', async () => {
         await withTransaction(async (client) => {
           await client.query(
             `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5, rejection_reason = $6 WHERE id = $7`,
             [status, request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, request.rejectionReason, id]
           );
         });
-      }
+      });
 
       logAuditEvent(req, 'APPROVAL_REQUEST_REJECTED', 'OPERATIONS', `Rejected approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}): ${request.rejectionReason}`, request.branchId);
 
-      store.saveDataStore();
+      commitLocalMirror();
       return res.json({ request, message: 'Approval request rejected successfully' });
     }
 
-    if (isPgConnected) {
+    await writeThroughPg('APPROVAL_REQUEST_REJECTED', async () => {
       await withTransaction(async (client) => {
         await client.query(
           `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5 WHERE id = $6`,
@@ -347,7 +358,8 @@ router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BR
           }
         }
       });
-    } else {
+    });
+    if (!isPgConnected) {
       // In-memory updates if PostgreSQL not connected
       if (request.type === 'CUSTOMER_DEVICE_STATUS') {
         const devRecord = store.customerDeviceRecords.find((c) => c.id === request.targetId || c.deviceSerial === request.deviceSerial);
@@ -359,15 +371,17 @@ router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BR
       }
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     res.json({ request, message: 'Approval request authorized and executed successfully' });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error processing approval request:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/approval-requests/:id/cancel', async (req, res) => {
+  const __writeSnap = snapshotStore(['approvalRequests', 'customerDeviceRecords', 'shipments', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;
     const { user, reason } = req.body;
@@ -392,20 +406,21 @@ router.post('/api/approval-requests/:id/cancel', async (req, res) => {
     request.processedAtBS = getTodayBsStamp();
     request.rejectionReason = reason?.trim() || 'Request cancelled by user';
 
-    if (isPgConnected) {
+    await writeThroughPg('APPROVAL_REQUEST_CANCELLED', async () => {
       await pgPool.query(
         `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5, rejection_reason = $6 WHERE id = $7`,
         ['CANCELLED', request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, request.rejectionReason, id]
       );
-    }
+    });
 
     logAuditEvent(req, 'APPROVAL_REQUEST_CANCELLED', 'OPERATIONS', `Cancelled approval request #${request.requestNumber} for ${request.customerName || id} (${request.deviceSerial || id}). Reason: ${request.rejectionReason}`, request.branchId);
-    store.saveDataStore();
+    commitLocalMirror();
 
     res.json({ request, message: 'Approval request cancelled successfully' });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error cancelling approval request:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

@@ -79,6 +79,8 @@ On startup the server probes Postgres, syncs the 19-table schema, seeds masters 
 
 Check `/api/health` → `database.mode` (`postgres` | `pg-mem` | `memory`) and `database.durable`.
 
+**Write hardening:** Mutating routes snapshot memory, write through Postgres via `writeThroughPg`, and on failure **roll back memory** and return **HTTP 503** with `code: "DURABLE_WRITE_FAILED"` so clients never see a false success when the primary DB write fails. Offline modes skip SQL and keep the memory/JSON path.
+
 ---
 
 ## 🚀 Complete Installation & Setup Guide

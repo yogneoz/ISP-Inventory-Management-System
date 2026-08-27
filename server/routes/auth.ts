@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -149,7 +157,7 @@ router.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
       else store.users.unshift(savedUser);
 
       store.setActiveUser(savedUser);
-      store.saveDataStore();
+      commitLocalMirror();
       const session = await createSession(savedUser as any);
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
       return res.status(201).json({ user: sanitizeUser(savedUser), token: session.token });
@@ -183,7 +191,7 @@ router.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
     store.users.unshift(newSuperAdmin);
   }
 
-  store.saveDataStore();
+  commitLocalMirror();
   store.setActiveUser(newSuperAdmin);
   const session = await createSession(newSuperAdmin as any);
   logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
@@ -218,7 +226,7 @@ router.post('/api/auth/login', async (req: any, res: any) => {
 
   let candidate: User | null = null;
 
-  if (isPgConnected) {
+  await writeThroughPg('DB_WRITE', async () => {
     try {
       const dbRes = await pgPool.query(
         'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
@@ -228,7 +236,7 @@ router.post('/api/auth/login', async (req: any, res: any) => {
         candidate = dbRes.rows[0];
       }
     } catch (_err) {}
-  }
+  });
 
   if (!candidate) {
     candidate = store.users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
@@ -356,7 +364,7 @@ router.put('/api/auth/profile', async (req: any, res: any) => {
   }
   store.setActiveUser(store.users[idx]);
 
-  if (isPgConnected) {
+  await writeThroughPg('DB_WRITE', async () => {
     try {
       if (newPassword) {
         await pgPool.query(
@@ -372,9 +380,9 @@ router.put('/api/auth/profile', async (req: any, res: any) => {
     } catch (err) {
       console.warn('Profile DB update note:', err);
     }
-  }
+  });
 
-  store.saveDataStore();
+  commitLocalMirror();
   res.json(sanitizeUser(store.users[idx]));
 });
 

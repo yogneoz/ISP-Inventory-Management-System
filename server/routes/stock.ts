@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -85,6 +93,7 @@ router.get('/api/stock', async (req, res) => {
 });
 
 router.patch('/api/stock/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { id } = req.params;
     const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body;
@@ -122,7 +131,7 @@ router.patch('/api/stock/:id', async (req, res) => {
 
     const prod = store.products.find((p) => p.id === stk.productId);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(
         `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level, last_updated)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -133,7 +142,7 @@ router.patch('/api/stock/:id', async (req, res) => {
            last_updated = NOW();`,
         [stk.id, stk.productId, stk.branchId, stk.quantityOnHand || 0, stk.damagedQty || 0, stk.reservedQty || 0, stk.incomingQty || 0, stk.minReorderLevel || 5]
       );
-    }
+    });
 
     const isDamageChange = changeType === 'DAMAGE' || (damagedQty !== undefined && stk.damagedQty !== oldDamaged);
 
@@ -157,13 +166,13 @@ router.patch('/api/stock/:id', async (req, res) => {
       };
       store.transactionLogs.unshift(newTxn);
 
-      if (isPgConnected) {
+      await writeThroughPg('DB_WRITE', async () => {
         await pgPool.query(
           `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
           [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
         );
-      }
+      });
     } else if (quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
       const newTxn: TransactionLog = {
         id: `txn-${Date.now()}`,
@@ -183,24 +192,26 @@ router.patch('/api/stock/:id', async (req, res) => {
       };
       store.transactionLogs.unshift(newTxn);
 
-      if (isPgConnected) {
+      await writeThroughPg('DB_WRITE', async () => {
         await pgPool.query(
           `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
           [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
         );
-      }
+      });
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     res.json(stk);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating stock level:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.patch('/api/stock/:id/reorder-level', async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { id } = req.params;
     const { minReorderLevel, productId, branchId } = req.body;
@@ -255,7 +266,7 @@ router.patch('/api/stock/:id/reorder-level', async (req, res) => {
     stk.minReorderLevel = Number(minReorderLevel);
     stk.lastUpdated = new Date().toISOString();
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(
         `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -271,22 +282,24 @@ router.patch('/api/stock/:id/reorder-level', async (req, res) => {
           stk.minReorderLevel,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     broadcastChange({ type: 'STOCK_UPDATED', entity: 'stock', branchId: stk.branchId });
     res.json(stk);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error setting reorder level:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { updates } = req.body;
     if (Array.isArray(updates)) {
-      if (isPgConnected) {
+      await writeThroughPg('DB_WRITE', async () => {
         await withTransaction(async (client) => {
           for (const u of updates) {
             let stk = store.inventoryStock.find((s) => s.id === u.stockId);
@@ -329,7 +342,8 @@ router.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'INVENT
             }
           }
         });
-      } else {
+      });
+    if (!isPgConnected) {
         for (const u of updates) {
           let stk = store.inventoryStock.find((s) => s.id === u.stockId);
           if (!stk && u.productId && u.branchId) {
@@ -341,18 +355,20 @@ router.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'INVENT
           }
         }
       }
-      store.saveDataStore();
+      commitLocalMirror();
       broadcastChange({ type: 'STOCK_UPDATED', entity: 'stock' });
     }
     res.json({ success: true, count: updates?.length || 0 });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error bulk updating reorder levels:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 // Physical Stock Audit Direct Reconciliation
 router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { branchId, auditRefNumber, varianceItems, auditorName, userEmail, notes } = req.body;
     if (!branchId || !Array.isArray(varianceItems)) {
@@ -362,7 +378,7 @@ router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_
     let totalAdjusted = 0;
     let netFinancialImpact = 0;
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await withTransaction(async (client) => {
         for (const item of varianceItems) {
           let stk = store.inventoryStock.find(
@@ -427,7 +443,8 @@ router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_
           );
         }
       });
-    } else {
+    });
+    if (!isPgConnected) {
       for (const item of varianceItems) {
         let stk = store.inventoryStock.find((s) => s.productId === item.productId && s.branchId === branchId);
         if (stk) {
@@ -452,7 +469,7 @@ router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_
       branchId
     );
 
-    store.saveDataStore();
+    commitLocalMirror();
     res.json({
       success: true,
       totalAdjusted,
@@ -460,8 +477,9 @@ router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_
       message: `Physical stock reconciled successfully for ${branch?.name || branchId}`,
     });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error reconciling stock audit:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -488,6 +506,7 @@ router.get('/api/assets', async (req, res) => {
 });
 
 router.post('/api/assets', async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const tagNum = req.body.tagNumber || req.body.assetTag || `AST-${Math.floor(1000 + Math.random() * 9000)}`;
     const newAsset = {
@@ -513,7 +532,7 @@ router.post('/api/assets', async (req, res) => {
     if (idx >= 0) store.assetRegister[idx] = newAsset as any;
     else store.assetRegister.unshift(newAsset as any);
 
-    if (isPgConnected) {
+    await writeThroughPg('ASSIGN_FIXED_ASSET', async () => {
       await pgPool.query(
         `INSERT INTO fixed_assets (
            id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id
@@ -546,33 +565,36 @@ router.post('/api/assets', async (req, res) => {
           newAsset.productId,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}`);
     res.status(201).json(newAsset);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating fixed asset:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.patch('/api/assets/:id/status', async (req, res) => {
+  const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { id } = req.params;
     const asset = store.assetRegister.find((a) => a.id === id);
     if (asset) Object.assign(asset, req.body);
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_ASSET_STATUS', async () => {
       await pgPool.query('UPDATE fixed_assets SET status = $1 WHERE id = $2', [req.body.status || 'ACTIVE', id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating asset status:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

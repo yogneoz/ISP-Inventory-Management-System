@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,

@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -79,6 +87,7 @@ router.get('/api/company-profile', async (req, res) => {
 });
 
 router.put('/api/company-profile', async (req, res) => {
+  const __writeSnap = snapshotStore(['companyProfile']);
   try {
     const updated = req.body;
     store.setCompanyProfile({
@@ -86,7 +95,7 @@ router.put('/api/company-profile', async (req, res) => {
       ...updated,
     });
 
-    if (isPgConnected) {
+    await writeThroughPg('COMPANY_PROFILE_UPDATED', async () => {
       await pgPool.query(
         `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -127,7 +136,7 @@ router.put('/api/company-profile', async (req, res) => {
           store.companyProfile.notes || '',
         ]
       );
-    }
+    });
 
     logAuditEvent(
       req,
@@ -137,13 +146,14 @@ router.put('/api/company-profile', async (req, res) => {
       'WH001'
     );
 
-    store.saveDataStore();
+    commitLocalMirror();
     broadcastChange({ type: 'COMPANY_PROFILE_UPDATED', entity: 'COMPANY_PROFILE' });
 
     res.json(store.companyProfile);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating company profile:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

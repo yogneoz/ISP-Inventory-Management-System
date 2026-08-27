@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -76,6 +84,7 @@ router.get('/api/products', async (req, res) => {
 });
 
 router.post('/api/products', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const newProd = {
       id: `prod-${Date.now()}`,
@@ -115,7 +124,7 @@ router.post('/api/products', async (req, res) => {
     });
 
     // PostgreSQL database insertion
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_PRODUCT', async () => {
       await pgPool.query(
         `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -151,18 +160,20 @@ router.post('/api/products', async (req, res) => {
           [stk.id, stk.productId, stk.branchId, stk.quantityOnHand, stk.damagedQty, stk.reservedQty, stk.incomingQty, stk.minReorderLevel]
         );
       }
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
     res.status(201).json(newProd);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating product in database:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/products/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const { id } = req.params;
     const idx = store.products.findIndex((p) => p.id === id);
@@ -172,7 +183,7 @@ router.put('/api/products/:id', async (req, res) => {
     store.products[idx] = { ...store.products[idx], ...req.body };
     const updated = store.products[idx];
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_PRODUCT_SKU', async () => {
       await pgPool.query(
         `UPDATE products SET
            sku = $1,
@@ -208,9 +219,9 @@ router.put('/api/products/:id', async (req, res) => {
           id,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     const changeMsg = oldProd.sku !== updated.sku
       ? `SKU updated from ${oldProd.sku} to ${updated.sku}`
       : `Updated product details for ${updated.name} (${updated.sku})`;
@@ -218,28 +229,31 @@ router.put('/api/products/:id', async (req, res) => {
     logAuditEvent(req, 'UPDATE_PRODUCT_SKU', 'PRODUCTS', changeMsg);
     res.json(store.products[idx]);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating product in database:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/products/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const { id } = req.params;
     const prod = store.products.find((p) => p.id === id);
     { const __filtered = store.products.filter((p) => p.id !== id); store.products.length = 0; store.products.push(...__filtered); }
     { const __filtered = store.inventoryStock.filter((s) => s.productId !== id); store.inventoryStock.length = 0; store.inventoryStock.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_PRODUCT', async () => {
       await pgPool.query('DELETE FROM products WHERE id = $1;', [id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting product from database:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -257,6 +271,7 @@ router.get('/api/categories', async (req, res) => {
 });
 
 router.post('/api/categories', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const newCat: Category = {
       id: req.body.id || `cat-${Date.now()}`,
@@ -271,7 +286,7 @@ router.post('/api/categories', async (req, res) => {
       store.categories.push(newCat);
     }
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_CATEGORY', async () => {
       await pgPool.query(
         `INSERT INTO categories (id, name, code, description)
          VALUES ($1, $2, $3, $4)
@@ -281,18 +296,20 @@ router.post('/api/categories', async (req, res) => {
            description = EXCLUDED.description;`,
         [newCat.id, newCat.name, newCat.code, newCat.description]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
     res.status(201).json(newCat);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating category:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/categories/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const { id } = req.params;
     const idx = store.categories.findIndex((c) => c.id === id);
@@ -301,38 +318,41 @@ router.put('/api/categories/:id', async (req, res) => {
     }
     const updated = store.categories[idx] || { id, ...req.body };
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_CATEGORY', async () => {
       await pgPool.query(
         `UPDATE categories SET name = $1, code = $2, description = $3 WHERE id = $4;`,
         [updated.name, updated.code, updated.description, id]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
     res.json(updated);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating category:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/categories/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const { id } = req.params;
     const cat = store.categories.find((c) => c.id === id);
     { const __filtered = store.categories.filter((c) => c.id !== id); store.categories.length = 0; store.categories.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_CATEGORY', async () => {
       await pgPool.query('DELETE FROM categories WHERE id = $1;', [id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting category:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -76,6 +84,7 @@ router.get('/api/shipments', async (req, res) => {
 });
 
 router.post('/api/shipments', async (req, res) => {
+  const __writeSnap = snapshotStore(['shipments', 'stockOperations', 'inventoryStock', 'transactionLogs']);
   try {
     const sourceBranch = store.branches.find((b) => b.id === req.body.sourceBranchId);
     const destBranch = store.branches.find((b) => b.id === req.body.destinationBranchId);
@@ -96,7 +105,7 @@ router.post('/api/shipments', async (req, res) => {
     if (idx >= 0) store.shipments[idx] = newShipment;
     else store.shipments.unshift(newShipment);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await withTransaction(async (client) => {
         await client.query(
           `INSERT INTO shipments (
@@ -143,7 +152,7 @@ router.post('/api/shipments', async (req, res) => {
           }
         }
       });
-    }
+    });
 
     if (newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
       newShipment.items.forEach((item: any) => {
@@ -163,16 +172,18 @@ router.post('/api/shipments', async (req, res) => {
       });
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_SHIPMENT', 'LOGISTICS', `Created Shipment #${newShipment.trackingCode}`);
     res.status(201).json(newShipment);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating shipment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/shipments/:id/receive', async (req, res) => {
+  const __writeSnap = snapshotStore(['shipments', 'stockOperations', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;
     const { receivedItems, receivedByNotes } = req.body || {};
@@ -199,7 +210,7 @@ router.post('/api/shipments/:id/receive', async (req, res) => {
     sh.hasDiscrepancy = hasDiscrepancy;
     sh.status = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
 
-    if (isPgConnected) {
+    await writeThroughPg('RECEIVE_SHIPMENT', async () => {
       await withTransaction(async (client) => {
         await client.query(
           `UPDATE shipments SET status = $1, received_by_notes = $2, received_date_ad = CURRENT_DATE, received_date_bs = $3, has_discrepancy = $4, items = $5 WHERE id = $6`,
@@ -219,18 +230,20 @@ router.post('/api/shipments/:id/receive', async (req, res) => {
           );
         }
       });
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error receiving shipment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/shipments/:id/cancel', async (req, res) => {
+  const __writeSnap = snapshotStore(['shipments', 'stockOperations', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;
     const { user, reason } = req.body || {};
@@ -247,7 +260,7 @@ router.post('/api/shipments/:id/cancel', async (req, res) => {
     sh.status = 'CANCELLED';
     sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
 
-    if (isPgConnected) {
+    await writeThroughPg('CANCEL_TRANSFER', async () => {
       await pgPool.query('UPDATE shipments SET status = $1, notes = $2 WHERE id = $3 OR tracking_code = $3', ['CANCELLED', sh.notes, id]);
 
       for (const item of sh.items) {
@@ -265,14 +278,15 @@ router.post('/api/shipments/:id/cancel', async (req, res) => {
           );
         }
       }
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
     res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully.` });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error cancelling transfer:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -308,6 +322,7 @@ router.get('/api/stock-operations', async (req, res) => {
 });
 
 router.post('/api/stock-operations', async (req, res) => {
+  const __writeSnap = snapshotStore(['shipments', 'stockOperations', 'inventoryStock', 'transactionLogs']);
   try {
     const opType = req.body.type || 'DAMAGE';
     const branchObj = store.branches.find((b) => b.id === req.body.branchId);
@@ -338,7 +353,7 @@ router.post('/api/stock-operations', async (req, res) => {
     if (idx >= 0) store.stockOperations[idx] = newOp;
     else store.stockOperations.unshift(newOp);
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(
         `INSERT INTO stock_operations (
            id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
@@ -389,25 +404,27 @@ router.post('/api/stock-operations', async (req, res) => {
           );
         }
       }
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
     res.status(201).json(newOp);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating stock operation:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 // Receive Pullout Bin at Warehouse
 router.post('/api/stock-operations/:id/receive', async (req, res) => {
+  const __writeSnap = snapshotStore(['shipments', 'stockOperations', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;
     let op = store.stockOperations.find((o) => o.id === id);
     if (op) op.status = 'RECEIVED';
 
-    if (isPgConnected) {
+    await writeThroughPg('RECEIVE_PULLOUT_BIN', async () => {
       await pgPool.query('UPDATE stock_operations SET status = $1 WHERE id = $2', ['RECEIVED', id]);
       if (op) {
         const whId = op.destinationWarehouseId || 'WH001';
@@ -424,14 +441,15 @@ router.post('/api/stock-operations/:id/receive', async (req, res) => {
           );
         }
       }
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error receiving stock operation:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

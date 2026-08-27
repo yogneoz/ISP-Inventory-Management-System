@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -115,6 +123,7 @@ router.get('/api/customer-devices', async (req, res) => {
 });
 
 router.post('/api/customer-devices', async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const newRecord: CustomerDeviceRecord = {
       id: req.body.id || `cust-${Date.now()}`,
@@ -126,7 +135,7 @@ router.post('/api/customer-devices', async (req, res) => {
 
     const custCode = newRecord.customerCode || newRecord.customerId;
 
-    if (isPgConnected) {
+    await writeThroughPg('ASSIGN_CUSTOMER_CPE', async () => {
       await pgPool.query(
         `INSERT INTO customer_device_records (
            id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
@@ -170,18 +179,20 @@ router.post('/api/customer-devices', async (req, res) => {
           newRecord.installationAddress || 'Nepal',
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error adding customer device:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.patch('/api/customer-devices/:id/status', async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -199,21 +210,23 @@ router.patch('/api/customer-devices/:id/status', async (req, res) => {
 
     record.status = newStatusStr;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_CPE_DEVICE_STATUS', async () => {
       await pgPool.query('UPDATE customer_device_records SET status = $1 WHERE id = $2', [newStatusStr, id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating CPE device status:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 // Device Exchange & Replacement Handler
 router.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'FRONT_DESK', 'INVENTORY_MANAGER'), async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const {
       oldDeviceId,
@@ -281,7 +294,7 @@ router.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH
 
     store.customerDeviceRecords.unshift(newRecord);
 
-    if (isPgConnected) {
+    await writeThroughPg('DEVICE_EXCHANGE', async () => {
       await withTransaction(async (client) => {
         await client.query('UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3', ['EXCHANGED', oldRecord.notes, oldDeviceId]);
 
@@ -309,14 +322,15 @@ router.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH
           ]
         );
       });
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error exchanging customer device:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -382,6 +396,7 @@ router.get('/api/customers', async (req, res) => {
 });
 
 router.post('/api/customers', async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const body = req.body;
     const newRecord: CustomerRecord = {
@@ -405,7 +420,7 @@ router.post('/api/customers', async (req, res) => {
       store.customerMasterRecords.unshift(newRecord);
     }
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_CUSTOMER', async () => {
       await pgPool.query(
         `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -433,23 +448,25 @@ router.post('/api/customers', async (req, res) => {
           newRecord.assignedDevicesCount,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating customer:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER'), async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const items: CustomerRecord[] = req.body.customers || [];
     let count = 0;
 
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await withTransaction(async (client) => {
         for (const cust of items) {
           const newRecord: CustomerRecord = {
@@ -503,7 +520,8 @@ router.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 
           count++;
         }
       });
-    } else {
+    });
+    if (!isPgConnected) {
       for (const cust of items) {
         const newRecord: CustomerRecord = {
           id: cust.id || cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -529,16 +547,18 @@ router.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 
       }
     }
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
     res.status(201).json({ success: true, count, total: store.customerMasterRecords.length });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error bulk importing customers:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/customers/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const { id } = req.params;
     const idx = store.customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
@@ -552,40 +572,43 @@ router.put('/api/customers/:id', async (req, res) => {
     };
     const updated = store.customerMasterRecords[idx];
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_CUSTOMER', async () => {
       await pgPool.query(
         `UPDATE customer_records SET
            customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9
          WHERE id = $10 OR customer_id = $10;`,
         [updated.customerId, updated.customerName, updated.username, updated.contactNumber, updated.branchId, updated.address, updated.email, updated.status, Number(updated.creditLimit) || 0, id]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
     res.json(updated);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating customer:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/customers/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['customerMasterRecords', 'customerDeviceRecords', 'inventoryStock']);
   try {
     const { id } = req.params;
     const cust = store.customerMasterRecords.find((c) => c.id === id || c.customerId === id);
     { const __filtered = store.customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id); store.customerMasterRecords.length = 0; store.customerMasterRecords.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_CUSTOMER', async () => {
       await pgPool.query('DELETE FROM customer_records WHERE id = $1 OR customer_id = $1', [id]);
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting customer:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

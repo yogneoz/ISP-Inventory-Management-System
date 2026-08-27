@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -62,8 +70,9 @@ import type {
 const router = Router();
 
 router.post('/api/admin/clear-demo-data', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const __writeSnap = snapshotStore(['products', 'inventoryStock', 'assetRegister', 'customerDeviceRecords', 'customerMasterRecords', 'purchaseOrders', 'purchaseInvoices', 'shipments', 'stockOperations', 'auditTrail', 'transactionLogs', 'approvalRequests', 'suppliers']);
   try {
-    if (isPgConnected) {
+    await writeThroughPg('DB_WRITE', async () => {
       await pgPool.query(`
         TRUNCATE TABLE 
           approval_requests,
@@ -82,7 +91,7 @@ router.post('/api/admin/clear-demo-data', requireRole('SUPER_ADMIN'), async (req
           transaction_logs
         CASCADE;
       `);
-    }
+    });
 
     // Operational tables to clear
     store.products.length = 0;
@@ -101,7 +110,7 @@ router.post('/api/admin/clear-demo-data', requireRole('SUPER_ADMIN'), async (req
     store.setIsDemoDataCleared(true);
 
     // Persist operational purge while strictly keeping users, branches, fiscalYears
-    store.saveDataStore();
+    commitLocalMirror();
 
     bumpDataVersion();
     forEachSseClient((client) => {
@@ -116,8 +125,9 @@ router.post('/api/admin/clear-demo-data', requireRole('SUPER_ADMIN'), async (req
       superAdminCount: store.users.filter((u) => u.role === 'SUPER_ADMIN').length,
     });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error clearing demo data:', err);
-    return res.status(500).json({ message: 'Failed to clear demo data: ' + (err?.message || err) });
+    return sendWriteFailure(res, err, 'CLEAR_DEMO_DATA');
   }
 });
 

@@ -5,6 +5,14 @@ import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
 import {
+  snapshotStore,
+  restoreSnapshot,
+  writeThroughPg,
+  sendWriteFailure,
+  commitLocalMirror,
+  isDurableWriteError,
+} from '../lib/writeGuard';
+import {
   requireRole,
   requireAuth,
   logAuditEvent,
@@ -74,6 +82,7 @@ router.get('/api/uom', async (req, res) => {
 });
 
 router.post('/api/uom', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const newUom: UnitOfMeasure = {
       id: req.body.id || `uom-${Date.now()}`,
@@ -86,7 +95,7 @@ router.post('/api/uom', async (req, res) => {
     if (idx >= 0) store.uomList[idx] = newUom;
     else store.uomList.push(newUom);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_UOM', async () => {
       await pgPool.query(
         `INSERT INTO uom (id, name, symbol, type, is_base_unit)
          VALUES ($1, $2, $3, $4, $5)
@@ -97,53 +106,58 @@ router.post('/api/uom', async (req, res) => {
            is_base_unit = EXCLUDED.is_base_unit;`,
         [newUom.id, newUom.name, newUom.symbol, newUom.type, newUom.isBaseUnit]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created/updated Unit of Measure ${newUom.name} (${newUom.symbol})`);
     res.status(201).json(newUom);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating UOM:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/uom/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const idx = store.uomList.findIndex((u) => u.id === id);
     if (idx >= 0) store.uomList[idx] = { ...store.uomList[idx], ...req.body };
     const uom = store.uomList[idx] || req.body;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_UOM', async () => {
       await pgPool.query(
         `UPDATE uom SET name = $1, symbol = $2, type = $3, is_base_unit = $4 WHERE id = $5;`,
         [uom.name, uom.symbol, uom.type, Boolean(uom.isBaseUnit), id]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_UOM', 'MASTER_DATA', `Updated UOM ${uom.name}`);
     res.json(uom);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating UOM:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/uom/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const uom = store.uomList.find((u) => u.id === id);
     { const __filtered = store.uomList.filter((u) => u.id !== id); store.uomList.length = 0; store.uomList.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_UOM', async () => {
       await pgPool.query('DELETE FROM uom WHERE id = $1', [id]);
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_UOM', 'MASTER_DATA', `Deleted UOM ${uom?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting UOM:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -167,6 +181,7 @@ router.get('/api/locations', async (req, res) => {
 });
 
 router.post('/api/locations', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const newLoc: LocationRecord = {
       id: req.body.id || `LOC-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -184,7 +199,7 @@ router.post('/api/locations', async (req, res) => {
     if (idx >= 0) store.locationRecords[idx] = newLoc;
     else store.locationRecords.unshift(newLoc);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_LOCATION', async () => {
       await pgPool.query(
         `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -211,17 +226,19 @@ router.post('/api/locations', async (req, res) => {
           newLoc.activeAssetsCount,
         ]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
     res.status(201).json(newLoc);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating location:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/locations/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const idx = store.locationRecords.findIndex((l) => l.id === id);
@@ -247,30 +264,33 @@ router.put('/api/locations/:id', async (req, res) => {
         ]
       );
     }
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_LOCATION', 'MASTER_DATA', `Updated location details for ${loc.name} (${id})`, loc.branchId);
     res.json(loc);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating location:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/locations/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const loc = store.locationRecords.find((l) => l.id === id);
     { const __filtered = store.locationRecords.filter((l) => l.id !== id); store.locationRecords.length = 0; store.locationRecords.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_LOCATION', async () => {
       await pgPool.query('DELETE FROM locations WHERE id = $1', [id]);
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting location:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -291,11 +311,12 @@ router.get('/api/company-profile', async (req, res) => {
 });
 
 router.put('/api/company-profile', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     store.setCompanyProfile({ ...store.companyProfile, ...req.body });
     if (!store.companyProfile.id) store.companyProfile.id = 'COMP-001';
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_COMPANY_PROFILE', async () => {
       await pgPool.query(
         `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP)
@@ -337,14 +358,15 @@ router.put('/api/company-profile', async (req, res) => {
           store.companyProfile.notes || '',
         ]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_COMPANY_PROFILE', 'MASTER_DATA', `Updated Company Master Details: ${store.companyProfile.name}`);
     bumpDataVersion();
     res.json(store.companyProfile);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating company profile:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -362,6 +384,7 @@ router.get('/api/branches', async (req, res) => {
 });
 
 router.post('/api/branches', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const newBranch: Branch = {
       id: req.body.id || `br-${Date.now()}`,
@@ -377,7 +400,7 @@ router.post('/api/branches', async (req, res) => {
     if (idx >= 0) store.branches[idx] = newBranch;
     else store.branches.push(newBranch);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_BRANCH', async () => {
       await pgPool.query(
         `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -391,18 +414,20 @@ router.post('/api/branches', async (req, res) => {
            allow_procurement = EXCLUDED.allow_procurement;`,
         [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
     res.status(201).json(newBranch);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating branch:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/branches/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const idx = store.branches.findIndex((b) => b.id === id);
@@ -410,38 +435,41 @@ router.put('/api/branches/:id', async (req, res) => {
     store.branches[idx] = { ...store.branches[idx], ...req.body };
     const b = store.branches[idx];
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_BRANCH', async () => {
       await pgPool.query(
         `UPDATE branches SET
            code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7
          WHERE id = $8;`,
         [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, id]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
     res.json(b);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating branch:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/branches/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const br = store.branches.find((b) => b.id === id);
     { const __filtered = store.branches.filter((b) => b.id !== id); store.branches.length = 0; store.branches.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_BRANCH', async () => {
       await pgPool.query('DELETE FROM branches WHERE id = $1', [id]);
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting branch:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -459,6 +487,7 @@ router.get('/api/suppliers', async (req, res) => {
 });
 
 router.post('/api/suppliers', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const newSupplier: Supplier = {
       id: req.body.id || `sup-${Date.now()}`,
@@ -474,7 +503,7 @@ router.post('/api/suppliers', async (req, res) => {
     } as any;
     store.suppliers.push(newSupplier);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_SUPPLIER', async () => {
       const sup = newSupplier as any;
       await pgPool.query(
         `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
@@ -491,17 +520,19 @@ router.post('/api/suppliers', async (req, res) => {
            status = EXCLUDED.status;`,
         [sup.id, sup.supplierCode, sup.name, sup.contactPerson, sup.phone, sup.email, sup.address, sup.panVatNumber, sup.rating, sup.status]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name}`);
     res.status(201).json(newSupplier);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating supplier:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/suppliers/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const idx = store.suppliers.findIndex((s) => s.id === id);
@@ -509,38 +540,41 @@ router.put('/api/suppliers/:id', async (req, res) => {
     store.suppliers[idx] = { ...store.suppliers[idx], ...req.body };
     const sup = store.suppliers[idx] as any;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_SUPPLIER', async () => {
       await pgPool.query(
         `UPDATE suppliers SET
            supplier_code = $1, name = $2, contact_person = $3, phone = $4, email = $5, address = $6, pan_vat_number = $7, rating = $8, status = $9
          WHERE id = $10;`,
         [sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', Number(sup.rating) || 5.0, sup.status || 'ACTIVE', id]
       );
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${sup.name} (${id})`);
     res.json(sup);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating supplier:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/suppliers/:id', async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const sup = store.suppliers.find((s) => s.id === id);
     { const __filtered = store.suppliers.filter((s) => s.id !== id); store.suppliers.length = 0; store.suppliers.push(...__filtered); }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_SUPPLIER', async () => {
       await pgPool.query('DELETE FROM suppliers WHERE id = $1', [id]);
-    }
-    store.saveDataStore();
+    });
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting supplier:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
@@ -561,6 +595,7 @@ router.get('/api/users', async (req, res) => {
 });
 
 router.post('/api/users', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const plainPassword = (req.body.password && String(req.body.password).trim()) || '';
     const strength = validatePasswordStrength(plainPassword || 'x');
@@ -595,7 +630,7 @@ router.post('/api/users', requireRole('SUPER_ADMIN'), async (req, res) => {
     if (idx >= 0) store.users[idx] = { ...store.users[idx], ...newUser };
     else store.users.push(newUser);
 
-    if (isPgConnected) {
+    await writeThroughPg('CREATE_USER', async () => {
       await pgPool.query(
         `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -617,18 +652,20 @@ router.post('/api/users', requireRole('SUPER_ADMIN'), async (req, res) => {
           !!newUser.canSwitchUser,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
     res.status(201).json(sanitizeUser(newUser));
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error creating user:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.put('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     let idx = store.users.findIndex((u) => u.id === id);
@@ -649,7 +686,7 @@ router.put('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
     };
     if (idx !== -1) store.users[idx] = updatedUser;
 
-    if (isPgConnected) {
+    await writeThroughPg('UPDATE_USER', async () => {
       await pgPool.query(
         `UPDATE users SET
            email = $1,
@@ -669,19 +706,21 @@ router.put('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
           id,
         ]
       );
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
     const { password: _, ...userWithoutPass } = updatedUser;
     res.json(userWithoutPass);
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error updating user:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.delete('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const idx = store.users.findIndex((u) => u.id === id);
@@ -694,24 +733,26 @@ router.delete('/api/users/:id', requireRole('SUPER_ADMIN'), async (req, res) => 
       store.users.splice(idx, 1);
     }
 
-    if (isPgConnected) {
+    await writeThroughPg('DELETE_USER', async () => {
       const r = await pgPool.query('DELETE FROM users WHERE id = $1 RETURNING email, name', [id]);
       if (r.rows.length > 0) {
         deletedEmail = r.rows[0].email;
         deletedName = r.rows[0].name;
       }
-    }
+    });
 
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedName || id} (${deletedEmail || id})`);
     res.json({ success: true });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error deleting user:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 
 router.post('/api/users/:id/reset-password', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const __writeSnap = snapshotStore(['uomList', 'locationRecords', 'branches', 'suppliers', 'users']);
   try {
     const { id } = req.params;
     const { newPassword } = req.body;
@@ -731,16 +772,16 @@ router.post('/api/users/:id/reset-password', requireRole('SUPER_ADMIN'), async (
     let targetEmail = store.users[userIdx]?.email || id;
     let targetName = store.users[userIdx]?.name || id;
 
-    if (isPgConnected) {
+    await writeThroughPg('RESET_USER_PASSWORD', async () => {
       const r = await pgPool.query('UPDATE users SET password = $1 WHERE id = $2 RETURNING email, name', [hashed, id]);
       if (r.rows.length > 0) {
         targetEmail = r.rows[0].email;
         targetName = r.rows[0].name;
       }
-    }
+    });
 
     await destroyUserSessions(id);
-    store.saveDataStore();
+    commitLocalMirror();
     logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 
     const userWithoutPass = userIdx !== -1 ? sanitizeUser(store.users[userIdx]) : { id, email: targetEmail, name: targetName };
@@ -750,8 +791,9 @@ router.post('/api/users/:id/reset-password', requireRole('SUPER_ADMIN'), async (
       user: userWithoutPass,
     });
   } catch (err: any) {
+    restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);
     console.error('Error resetting user password:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    return sendWriteFailure(res, err);
   }
 });
 

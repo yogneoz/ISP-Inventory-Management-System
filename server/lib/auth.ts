@@ -13,6 +13,7 @@ import {
   type SessionRecord,
 } from './authUtils';
 import { pgPool, isPgConnected } from './db';
+import { writeThroughPg } from './writeGuard';
 import * as store from '../store';
 import { broadcastChange } from './sync';
 
@@ -49,9 +50,9 @@ export async function migrateUserPasswordIfNeeded(user: User, plainPassword: str
     user.password = hashed;
     const idx = store.users.findIndex((u) => u.id === user.id);
     if (idx !== -1) store.users[idx].password = hashed;
-    if (isPgConnected) {
-      await pgPool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, user.id]).catch(() => {});
-    }
+    await writeThroughPg('MIGRATE_USER_PASSWORD', async () => {
+      await pgPool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, user.id]);
+    });
     store.saveDataStore();
   } catch (err) {
     console.warn('Password migration note:', err);
