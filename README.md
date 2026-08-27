@@ -47,8 +47,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   │   ├── auth.ts               # Session middleware, RBAC, audit helper
 │   │   ├── authUtils.ts          # bcrypt, BS date stamps, role aliases
 │   │   ├── sessionStore.ts       # Redis sessions (memory fallback)
-│   │   ├── db.ts                 # PostgreSQL / pg-mem pool + transactions
-│   │   ├── dbBootstrap.ts        # Schema sync, indexes, seed
+│   │   ├── db.ts                 # PG primary / pg-mem / memory modes
+│   │   ├── dbBootstrap.ts        # Schema sync, seed, store hydration
 │   │   ├── sync.ts               # SSE live broadcast
 │   │   └── ai.ts                 # Gemini client helper
 │   └── routes/                   # Domain route modules (auth, stock, POs, …)
@@ -64,6 +64,20 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 ├── .env.example
 └── package.json
 ```
+
+---
+
+## 💾 Data Durability & Write Path
+
+| Backend | When used | Durable? |
+| :--- | :--- | :--- |
+| **PostgreSQL** | `DATABASE_URL` / `POSTGRES_*` reachable | **Yes — primary source of truth** |
+| **pg-mem** | Postgres offline, `DISABLE_PG_MEM` not set | No (process memory SQL) |
+| **JSON + arrays** | Always as local cache / last-resort | File-backed (`.data_store.json`) |
+
+On startup the server probes Postgres, syncs the 19-table schema, seeds masters if empty, then **hydrates the in-memory store from SQL**. Mutating API routes write through to Postgres whenever `isPgConnected` is true, then update memory and the JSON mirror.
+
+Check `/api/health` → `database.mode` (`postgres` | `pg-mem` | `memory`) and `database.durable`.
 
 ---
 

@@ -4,15 +4,37 @@
 import fs from 'fs';
 import path from 'path';
 import * as store from '../store';
-import { pgPool, isPgConnected, setPgConnected, getRealPool, withTransaction } from './db';
+import { pgPool, isPgConnected, setPgConnected, setDbMode, getDbMode, initDatabaseConnection, getRealPool, withTransaction } from './db';
 
 export async function syncDatabaseAndIndexes() {
+  // Establish backend mode first (real PG preferred)
+  const mode = await initDatabaseConnection();
+  if (mode === 'memory') {
+    console.log('ℹ️  No SQL backend available — using JSON/memory store only.');
+    setPgConnected(false);
+    return;
+  }
+
   try {
     const client = await pgPool.connect();
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
+    if (!client) {
+      console.log('ℹ️  Could not obtain SQL client — skipping schema sync.');
+      return;
+    }
+    console.log(
+      mode === 'postgres'
+        ? 'PostgreSQL primary connected. Syncing schema (19 tables) & indexes...'
+        : 'pg-mem backend active. Syncing schema for offline SQL compatibility...'
+    );
+
+    // CREATE EXTENSION is Postgres-only; ignore failures on pg-mem
+    try {
+      await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+    } catch (_extErr) {
+      // pg-mem and locked-down PG roles may not allow extensions
+    }
 
     await client.query(`
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
       -- 1. Branches
       CREATE TABLE IF NOT EXISTS branches (
@@ -451,16 +473,37 @@ export async function syncDatabaseAndIndexes() {
 
       CREATE INDEX IF NOT EXISTS idx_bs_days_date ON bs_day_records(bs_date);
       CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
+    
     `);
 
-    setPgConnected(true);
-    await seedInitialPostgresData(client);
+    if (mode === 'postgres') {
+      setPgConnected(true);
+      setDbMode('postgres');
+    } else {
+      setPgConnected(false);
+      setDbMode('pg-mem');
+    }
 
-    client.release();
-    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully.');
+    await seedInitialPostgresData(client);
+    // Always hydrate operational collections from SQL so memory mirrors PG
+    await hydrateStoreFromSql(client);
+
+    if (typeof client.release === 'function') client.release();
+    console.log(
+      mode === 'postgres'
+        ? '✅ PostgreSQL primary ready — schema synced, store hydrated from database.'
+        : '✅ pg-mem schema synced (ephemeral).'
+    );
   } catch (err: any) {
-    setPgConnected(false);
-    console.log('Database pool note: In-memory store active with instant caching.', err?.message || err);
+    if (getDbMode() === 'postgres') {
+      // Real PG was expected — surface the failure clearly
+      console.error('❌ PostgreSQL primary sync failed:', err?.message || err);
+      setPgConnected(false);
+      setDbMode('memory');
+    } else {
+      setPgConnected(false);
+      console.log('Database pool note: In-memory store active with instant caching.', err?.message || err);
+    }
   }
 }
 
@@ -675,3 +718,364 @@ export async function seedInitialPostgresData(client: any) {
   }
 }
 
+/**
+ * Load all domain collections from the active SQL backend into the in-memory store.
+ * Called after schema sync so route handlers that read from `store.*` see PG data.
+ */
+export async function hydrateStoreFromSql(client?: any) {
+  const c = client || pgPool;
+  try {
+    const run = (sql: string, params?: any[]) =>
+      client && typeof client.query === 'function'
+        ? client.query(sql, params)
+        : pgPool.query(sql, params);
+
+    // Masters (refresh even if seed already did — keeps a single path)
+    try {
+      const bRes = await run(
+        'SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", is_warehouse AS "isWarehouse" FROM branches ORDER BY code'
+      );
+      if (bRes.rows?.length) store.replaceCollection('branches', bRes.rows);
+    } catch (_e) {
+      const bRes = await run(
+        'SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code'
+      );
+      if (bRes.rows?.length) store.replaceCollection('branches', bRes.rows);
+    }
+
+    const uRes = await run(
+      'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC'
+    );
+    if (uRes.rows?.length) store.replaceCollection('users', uRes.rows);
+
+    const fyRes = await run(
+      'SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years ORDER BY id'
+    );
+    if (fyRes.rows?.length) store.replaceCollection('fiscalYears', fyRes.rows);
+
+    try {
+      const uomRes = await run(
+        'SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'
+      );
+      if (uomRes.rows?.length) store.replaceCollection('uomList', uomRes.rows);
+    } catch (_e) {}
+
+    try {
+      const locRes = await run(
+        'SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations ORDER BY name ASC'
+      );
+      if (locRes.rows?.length) {
+        const rows = locRes.rows.map((r: any) => ({
+          ...r,
+          coordinates:
+            typeof r.coordinates === 'string'
+              ? JSON.parse(r.coordinates || 'null')
+              : r.coordinates,
+        }));
+        store.replaceCollection('locationRecords', rows);
+      }
+    } catch (_e) {}
+
+    const supRes = await run(
+      'SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC'
+    );
+    if (supRes.rows) store.replaceCollection('suppliers', supRes.rows);
+
+    try {
+      const compRes = await run(
+        'SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'
+      );
+      if (compRes.rows?.length) store.setCompanyProfile(compRes.rows[0]);
+    } catch (_e) {}
+
+    // Operational
+    try {
+      const catRes = await run('SELECT id, name, code, description FROM categories ORDER BY name ASC');
+      if (catRes.rows) store.replaceCollection('categories', catRes.rows);
+    } catch (_e) {}
+
+    try {
+      const pRes = await run(
+        `SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit,
+                cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate",
+                min_reorder_level AS "minReorderLevel",
+                requires_serial_tracking AS "requiresSerialTracking",
+                tracking_type AS "trackingType", description, status,
+                depreciation_method AS "depreciationMethod",
+                depreciation_rate AS "depreciationRate",
+                useful_life_years AS "usefulLifeYears",
+                salvage_value_percent AS "salvageValuePercent",
+                image_url AS "imageUrl"
+         FROM products ORDER BY name ASC`
+      );
+      if (pRes.rows) {
+        store.replaceCollection(
+          'products',
+          pRes.rows.map((r: any) => ({
+            ...r,
+            costPrice: Number(r.costPrice) || 0,
+            sellingPrice: Number(r.sellingPrice) || 0,
+            taxRate: Number(r.taxRate) || 0,
+            minReorderLevel: Number(r.minReorderLevel) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const sRes = await run(
+        `SELECT id, product_id AS "productId", branch_id AS "branchId",
+                quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty",
+                reserved_qty AS "reservedQty", incoming_qty AS "incomingQty",
+                min_reorder_level AS "minReorderLevel",
+                last_updated AS "lastUpdated"
+         FROM inventory_stock`
+      );
+      if (sRes.rows) {
+        store.replaceCollection(
+          'inventoryStock',
+          sRes.rows.map((r: any) => ({
+            ...r,
+            quantityOnHand: Number(r.quantityOnHand) || 0,
+            damagedQty: Number(r.damagedQty) || 0,
+            reservedQty: Number(r.reservedQty) || 0,
+            incomingQty: Number(r.incomingQty) || 0,
+            minReorderLevel: r.minReorderLevel != null ? Number(r.minReorderLevel) : undefined,
+            lastUpdated: r.lastUpdated
+              ? new Date(r.lastUpdated).toISOString()
+              : new Date().toISOString(),
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const aRes = await run(
+        `SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId",
+                acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS",
+                acquisition_cost AS "acquisitionCost",
+                depreciation_method AS "depreciationMethod",
+                depreciation_rate_percent AS "depreciationRatePercent",
+                accumulated_depreciation AS "accumulatedDepreciation",
+                net_book_value AS "netBookValue", status,
+                supplier_name AS "supplierName", invoice_no AS "invoiceNo",
+                product_id AS "productId"
+         FROM fixed_assets`
+      );
+      if (aRes.rows) {
+        store.replaceCollection(
+          'assetRegister',
+          aRes.rows.map((r: any) => ({
+            ...r,
+            acquisitionCost: Number(r.acquisitionCost) || 0,
+            depreciationRatePercent: Number(r.depreciationRatePercent) || 0,
+            accumulatedDepreciation: Number(r.accumulatedDepreciation) || 0,
+            netBookValue: Number(r.netBookValue) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    const parseJson = (v: any, fallback: any = []) => {
+      if (v == null) return fallback;
+      if (typeof v === 'object') return v;
+      try {
+        return JSON.parse(v);
+      } catch {
+        return fallback;
+      }
+    };
+
+    try {
+      const poRes = await run(
+        `SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId",
+                order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS",
+                expected_delivery_date_ad AS "expectedDeliveryDateAD", status,
+                subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount",
+                total_amount AS "totalAmount", notes, items
+         FROM purchase_orders ORDER BY created_at DESC NULLS LAST`
+      );
+      if (poRes.rows) {
+        store.replaceCollection(
+          'purchaseOrders',
+          poRes.rows.map((r: any) => ({
+            ...r,
+            items: parseJson(r.items, []),
+            subtotalAmount: Number(r.subtotalAmount) || 0,
+            taxAmount: Number(r.taxAmount) || 0,
+            totalAmount: Number(r.totalAmount) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const invRes = await run(
+        `SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId",
+                supplier_name AS "supplierName", branch_id AS "branchId",
+                invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS",
+                due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS",
+                taxable_amount AS "taxableAmount", vat_amount AS "vatAmount",
+                non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal",
+                payment_status AS "paymentStatus", amount_paid AS "amountPaid",
+                notes, items
+         FROM purchase_invoices ORDER BY created_at DESC NULLS LAST`
+      );
+      if (invRes.rows) {
+        store.replaceCollection(
+          'purchaseInvoices',
+          invRes.rows.map((r: any) => ({
+            ...r,
+            items: parseJson(r.items, []),
+            taxableAmount: Number(r.taxableAmount) || 0,
+            vatAmount: Number(r.vatAmount) || 0,
+            nonTaxableAmount: Number(r.nonTaxableAmount) || 0,
+            grandTotal: Number(r.grandTotal) || 0,
+            amountPaid: Number(r.amountPaid) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const shRes = await run(
+        `SELECT id, tracking_code AS "trackingCode", type,
+                source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName",
+                destination_branch_id AS "destinationBranchId",
+                destination_branch_name AS "destinationBranchName",
+                dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS",
+                estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items,
+                received_by_notes AS "receivedByNotes",
+                received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS",
+                has_discrepancy AS "hasDiscrepancy"
+         FROM shipments ORDER BY created_at DESC NULLS LAST`
+      );
+      if (shRes.rows) {
+        store.replaceCollection(
+          'shipments',
+          shRes.rows.map((r: any) => ({ ...r, items: parseJson(r.items, []) }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const opRes = await run(
+        `SELECT id, reference_number AS "referenceNumber", type,
+                technician_name AS "technicianName", work_order_ref AS "workOrderRef",
+                branch_id AS "branchId", branch_name AS "branchName",
+                destination_warehouse_id AS "destinationWarehouseId",
+                destination_warehouse_name AS "destinationWarehouseName",
+                product_id AS "productId", product_name AS "productName",
+                quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit",
+                total_value AS "totalValue", reason, inspector_name AS "inspectorName",
+                date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear",
+                status, items
+         FROM stock_operations ORDER BY created_at DESC NULLS LAST`
+      );
+      if (opRes.rows) {
+        store.replaceCollection(
+          'stockOperations',
+          opRes.rows.map((r: any) => ({
+            ...r,
+            items: parseJson(r.items, undefined),
+            quantityChanged: Number(r.quantityChanged) || 0,
+            costPerUnit: Number(r.costPerUnit) || 0,
+            totalValue: Number(r.totalValue) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    try {
+      const cRes = await run(
+        `SELECT id, customer_id AS "customerId", customer_name AS "customerName",
+                username, contact_number AS "contactNumber", branch_id AS "branchId",
+                address, email, status, credit_limit AS "creditLimit",
+                assigned_devices_count AS "assignedDevicesCount"
+         FROM customer_records ORDER BY customer_name ASC`
+      );
+      if (cRes.rows) store.replaceCollection('customerMasterRecords', cRes.rows);
+    } catch (_e) {}
+
+    try {
+      const dRes = await run(
+        `SELECT id, customer_id AS "customerId", customer_name AS "customerName",
+                customer_code AS "customerCode", contact_phone AS "contactPhone",
+                installation_address AS "installationAddress", branch_id AS "branchId",
+                product_name AS "productName", device_serial AS "deviceSerial",
+                pon_serial AS "ponSerial", mac_address AS "macAddress", status,
+                issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS",
+                purchase_bill_ref AS "purchaseBillRef", notes,
+                warranty_months AS "warrantyMonths",
+                warranty_end_date_ad AS "warrantyEndDateAD"
+         FROM customer_device_records ORDER BY issued_date_ad DESC NULLS LAST`
+      );
+      if (dRes.rows) store.replaceCollection('customerDeviceRecords', dRes.rows);
+    } catch (_e) {}
+
+    try {
+      const apRes = await run(
+        `SELECT id, request_number AS "requestNumber", type, target_id AS "targetId",
+                customer_name AS "customerName", customer_code AS "customerCode",
+                device_serial AS "deviceSerial", pon_serial AS "ponSerial",
+                product_name AS "productName", current_status AS "currentStatus",
+                requested_status AS "requestedStatus",
+                requested_by_role AS "requestedByRole",
+                requested_by_email AS "requestedByEmail",
+                requested_by_name AS "requestedByName",
+                branch_id AS "branchId", branch_name AS "branchName", reason,
+                restock_qty_on_approval AS "restockQtyOnApproval", status,
+                requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS",
+                processed_by_email AS "processedByEmail",
+                processed_by_name AS "processedByName",
+                processed_at_ad AS "processedAtAD", processed_at_bs AS "processedAtBS",
+                rejection_reason AS "rejectionReason"
+         FROM approval_requests ORDER BY requested_at_ad DESC NULLS LAST`
+      );
+      if (apRes.rows) store.replaceCollection('approvalRequests', apRes.rows);
+    } catch (_e) {}
+
+    try {
+      const audRes = await run(
+        `SELECT id, user_email AS "userEmail", user_name AS "userName", action, module,
+                details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS",
+                branch_id AS "branchId"
+         FROM audit_logs ORDER BY timestamp_ad DESC LIMIT 500`
+      );
+      if (audRes.rows) store.replaceCollection('auditTrail', audRes.rows);
+    } catch (_e) {}
+
+    try {
+      const txnRes = await run(
+        `SELECT id, transaction_number AS "transactionNumber", product_id AS "productId",
+                product_sku AS "productSku", product_name AS "productName",
+                branch_id AS "branchId", change_type AS "changeType",
+                quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged",
+                quantity_after AS "quantityAfter", unit_cost AS "unitCost",
+                reference_doc_id AS "referenceDocId",
+                timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS"
+         FROM transaction_logs ORDER BY timestamp_ad DESC LIMIT 1000`
+      );
+      if (txnRes.rows) {
+        store.replaceCollection(
+          'transactionLogs',
+          txnRes.rows.map((r: any) => ({
+            ...r,
+            quantityBefore: Number(r.quantityBefore) || 0,
+            quantityChanged: Number(r.quantityChanged) || 0,
+            quantityAfter: Number(r.quantityAfter) || 0,
+            unitCost: Number(r.unitCost) || 0,
+          }))
+        );
+      }
+    } catch (_e) {}
+
+    // Persist a local mirror for faster cold starts / offline continuity
+    store.saveDataStore();
+    console.log(
+      `📦 Store hydrated from SQL — users:${store.users.length} products:${store.products.length} stock:${store.inventoryStock.length} branches:${store.branches.length}`
+    );
+  } catch (err: any) {
+    console.warn('Store hydration warning:', err?.message || err);
+  }
+}

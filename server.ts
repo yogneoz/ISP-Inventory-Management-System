@@ -11,6 +11,7 @@ import { authenticateUser } from './server/lib/auth';
 import { registerRoutes } from './server/routes';
 import { syncDatabaseAndIndexes } from './server/lib/dbBootstrap';
 import { initSessionStore, getSessionStoreStats } from './server/lib/sessionStore';
+import { getDbHealth } from './server/lib/db';
 
 dotenv.config();
 
@@ -19,7 +20,10 @@ app.use(express.json({ limit: '25mb' }));
 
 // Health & control-plane endpoints BEFORE auth middleware
 app.get('/api/health', async (_req, res) => {
-  const sessions = await getSessionStoreStats();
+  const [sessions, database] = await Promise.all([
+    getSessionStoreStats(),
+    getDbHealth(),
+  ]);
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -27,6 +31,11 @@ app.get('/api/health', async (_req, res) => {
       backend: sessions.backend,
       memoryCount: sessions.memoryCount,
       redis: sessions.redisPing || null,
+    },
+    database: {
+      mode: database.mode,
+      durable: database.durable,
+      ping: database.ping || null,
     },
   });
 });
