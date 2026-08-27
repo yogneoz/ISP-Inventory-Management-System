@@ -29,52 +29,55 @@ import {
   loadRecentBootstrapCache,
   clearRecentBootstrapCache,
 } from './utils/sessionCache';
-import { Header } from './components/Header';
-import { Sidebar, NavTab } from './components/Sidebar';
-import { LoginModal } from './components/LoginModal';
-import { ProfileSwitchModal } from './components/ProfileSwitchModal';
-import { Dashboard } from './components/Dashboard';
-import { ProductManagement } from './components/ProductManagement';
-import { BranchStockTracking } from './components/BranchStockTracking';
-import { ReorderStockTracking } from './components/ReorderStockTracking';
-import { DamagedStockTracking } from './components/DamagedStockTracking';
-import { FixedAssetRegister } from './components/FixedAssetRegister';
-import { CustomersManagement } from './components/CustomersManagement';
-import { CustomerMasterDirectory } from './components/CustomerMasterDirectory';
-import { PurchaseOrders, OrderFormLine } from './components/PurchaseOrders';
-import { PurchaseInvoices } from './components/PurchaseInvoices';
-import { Shipments } from './components/Shipments';
-import { StockOperations } from './components/StockOperations';
-import { ReceiveInboundWarehouse } from './components/ReceiveInboundWarehouse';
-import { NepaliFiscalManagement } from './components/NepaliFiscalManagement';
-import { AuditTrailReports } from './components/AuditTrailReports';
-import { BranchesManagement } from './components/BranchesManagement';
-import { CompanySetupManagement } from './components/CompanySetupManagement';
-import { SuppliersManagement } from './components/SuppliersManagement';
-import { UsersManagement } from './components/UsersManagement';
-import { PermissionManagement } from './components/PermissionManagement';
-import { ExportReports } from './components/ExportReports';
-import { FinancialStatements } from './components/FinancialStatements';
-import { VatRegister } from './components/VatRegister';
-import { DepreciationRegister } from './components/DepreciationRegister';
-import { StockValuation } from './components/StockValuation';
-import { NotificationCenter } from './components/NotificationCenter';
-import { ApprovalWorkflowCenter } from './components/ApprovalWorkflowCenter';
-import { StockMovementLedger } from './components/StockMovementLedger';
-import { PhysicalStockAudit } from './components/PhysicalStockAudit';
-import { FiscalYearClosingWizard } from './components/FiscalYearClosingWizard';
-import { WarrantyProducts } from './components/WarrantyProducts';
-import { CategoryManagement } from './components/CategoryManagement';
-import { UomManagement } from './components/UomManagement';
-import { ClearDemoDataView } from './components/ClearDemoDataView';
-import { ImportStock } from './components/ImportStock';
-import { ExportStock } from './components/ExportStock';
-import { LocationsManagement } from './components/LocationsManagement';
-import { ImportCustomers } from './components/ImportCustomers';
-import { HelpDocumentation } from './components/HelpDocumentation';
-import { AiAssistantModal } from './components/AiAssistantModal';
-import { BarcodeScannerModal } from './components/BarcodeScannerModal';
-import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { Header } from './components/layout/Header';
+import { Sidebar, NavTab } from './components/layout/Sidebar';
+import { LoginModal } from './components/common/LoginModal';
+import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
+import { Dashboard } from './features/dashboard/Dashboard';
+import { ProductManagement } from './features/inventory/ProductManagement';
+import { BranchStockTracking } from './features/inventory/BranchStockTracking';
+import { ReorderStockTracking } from './features/inventory/ReorderStockTracking';
+import { DamagedStockTracking } from './features/inventory/DamagedStockTracking';
+import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
+import { CustomersManagement } from './features/sales/CustomersManagement';
+import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
+import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
+import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
+import { Shipments } from './features/procurement/Shipments';
+import { StockOperations } from './features/inventory/StockOperations';
+import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
+import { BsCalendarUtility } from './features/finance/BsCalendarUtility';
+import { FiscalYearManagement } from './features/finance/FiscalYearManagement';
+import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagement';
+import { AuditTrailReports } from './features/finance/AuditTrailReports';
+import { BranchesManagement } from './features/settings/BranchesManagement';
+import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
+import { SuppliersManagement } from './features/procurement/SuppliersManagement';
+import { UsersManagement } from './features/settings/UsersManagement';
+import { PermissionManagement } from './features/settings/PermissionManagement';
+import { ExportReports } from './features/finance/ExportReports';
+import { FinancialStatements } from './features/finance/FinancialStatements';
+import { VatRegister } from './features/finance/VatRegister';
+import { DepreciationRegister } from './features/finance/DepreciationRegister';
+import { StockValuation } from './features/inventory/StockValuation';
+import { NotificationCenter } from './components/common/NotificationCenter';
+import { ApprovalWorkflowCenter } from './features/settings/ApprovalWorkflowCenter';
+import { StockMovementLedger } from './features/inventory/StockMovementLedger';
+import { PhysicalStockAudit } from './features/inventory/PhysicalStockAudit';
+import { FiscalYearClosingWizard } from './features/finance/FiscalYearClosingWizard';
+import { WarrantyProducts } from './features/inventory/WarrantyProducts';
+import { CategoryManagement } from './features/inventory/CategoryManagement';
+import { UomManagement } from './features/inventory/UomManagement';
+import { ClearDemoDataView } from './components/common/ClearDemoDataView';
+import { ImportStock } from './features/inventory/ImportStock';
+import { ExportStock } from './features/inventory/ExportStock';
+import { LocationsManagement } from './features/settings/LocationsManagement';
+import { ImportCustomers } from './features/sales/ImportCustomers';
+import { HelpDocumentation } from './components/common/HelpDocumentation';
+import { AiAssistantModal } from './components/common/AiAssistantModal';
+import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
+import { GlobalSearchModal } from './components/common/GlobalSearchModal';
+import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
@@ -167,6 +170,21 @@ export default function App() {
     totalVatInputTax: 0,
     currentFiscalYear: '2082/83',
   });
+  const [postgresStatus, setPostgresStatus] = useState<{
+    isConnected: boolean;
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    engine?: string;
+    errorDetails?: string;
+  }>({
+    isConnected: false,
+    host: 'localhost',
+    port: 5432,
+    database: 'inventory_db',
+    user: 'inventory_user',
+  });
 
   // Hydrate state from recent cache for instant 0ms load speed
   const applyBootstrapData = (data: any) => {
@@ -189,6 +207,7 @@ export default function App() {
     if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
     if (data.categories) setCategories(data.categories);
     if (data.companyProfile) setCompanyProfile(data.companyProfile);
+    if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
   };
 
   // Instant pre-hydration from recent cache
@@ -744,6 +763,20 @@ export default function App() {
         onSelectTab={setActiveTab}
         onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
         onOpenProfileModal={() => setIsProfileModalOpen(true)}
+      />
+
+      {/* Direct PostgreSQL Database Setup Notification Banner */}
+      <DatabaseSetupBanner
+        isDarkMode={isDarkMode}
+        onRefresh={refreshAllData}
+        postgresConfig={{
+          host: postgresStatus.host,
+          port: postgresStatus.port,
+          database: postgresStatus.database,
+          user: postgresStatus.user,
+          isConnected: postgresStatus.isConnected,
+          errorDetails: postgresStatus.errorDetails,
+        }}
       />
 
       {/* Main Workspace Layout */}
@@ -1650,11 +1683,23 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'nepali-fiscal' && (
-                <NepaliFiscalManagement
+              {activeTab === 'bs-calendar' && (
+                <BsCalendarUtility
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'fiscal-year-management' && (
+                <FiscalYearManagement
                   fiscalYears={fiscalYears}
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
                   dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'nepali-fiscal' && (
+                <BsCalendarUtility
                   isDarkMode={isDarkMode}
                 />
               )}

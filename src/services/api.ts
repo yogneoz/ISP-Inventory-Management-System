@@ -22,6 +22,7 @@ import {
   UnitOfMeasure,
   LocationRecord,
 } from '../types';
+import { generateNextDocumentNumber } from '../utils/documentNumbering';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
@@ -354,10 +355,11 @@ export const api = {
     return fetchJson(`/api/purchase-orders${query}`);
   },
 
-  async createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'>): Promise<PurchaseOrder> {
+  async createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'> & { poNumber?: string }): Promise<PurchaseOrder> {
+    const poNumber = po.poNumber || generateNextDocumentNumber('PO', true);
     return fetchJson('/api/purchase-orders', {
       method: 'POST',
-      body: JSON.stringify(po),
+      body: JSON.stringify({ ...po, poNumber }),
     });
   },
 
@@ -387,10 +389,11 @@ export const api = {
     return fetchJson(`/api/purchase-invoices${query}`);
   },
 
-  async createPurchaseInvoice(inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>): Promise<PurchaseInvoice> {
+  async createPurchaseInvoice(inv: Partial<PurchaseInvoice>): Promise<PurchaseInvoice> {
+    const invoiceNumber = inv.invoiceNumber || generateNextDocumentNumber('PI', true);
     return fetchJson('/api/purchase-invoices', {
       method: 'POST',
-      body: JSON.stringify(inv),
+      body: JSON.stringify({ ...inv, invoiceNumber }),
     });
   },
 
@@ -407,10 +410,11 @@ export const api = {
     return fetchJson(`/api/shipments${query}`);
   },
 
-  async createShipment(shipment: Omit<Shipment, 'id' | 'trackingCode'>): Promise<Shipment> {
+  async createShipment(shipment: Partial<Shipment>): Promise<Shipment> {
+    const trackingCode = shipment.trackingCode || generateNextDocumentNumber('ST', true);
     return fetchJson('/api/shipments', {
       method: 'POST',
-      body: JSON.stringify(shipment),
+      body: JSON.stringify({ ...shipment, trackingCode }),
     });
   },
 

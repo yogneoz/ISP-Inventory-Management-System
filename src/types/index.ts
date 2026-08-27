@@ -39,6 +39,7 @@ export interface User {
 
 export interface Supplier {
   id: string;
+  supplierCode?: string;
   name: string;
   contactPerson: string;
   phone: string;
@@ -349,6 +350,18 @@ export interface StockOperation {
   glAccountCode?: string;
 }
 
+export interface DocumentNumberConfig {
+  id: string; // e.g., 'PO', 'PI', 'INV', 'GRN', 'ST', 'SA', 'JV', 'DC'
+  documentType: string;
+  prefix: string;
+  suffix: string;
+  minDigits: number;
+  startingNumber: number;
+  nextNumber: number;
+  resetEveryFiscalYear: boolean;
+  notes?: string;
+}
+
 export interface FiscalYear {
   id: string;
   code: string; // e.g. "2080/81", "2081/82", "2082/83"
@@ -519,6 +532,16 @@ export interface BootstrapState {
   categories?: Category[];
   uom?: UnitOfMeasure[];
   locations?: LocationRecord[];
+  companyProfile?: CompanyProfile;
+  postgresDatabaseStatus?: {
+    isConnected: boolean;
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    engine?: string;
+    errorDetails?: string;
+  };
   serverTime: string;
   dataVersion: number;
 }

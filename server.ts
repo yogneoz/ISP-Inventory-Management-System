@@ -27,77 +27,11 @@ import {
   UnitOfMeasure,
   LocationRecord,
 } from './src/types';
-import { newDb } from 'pg-mem';
 
 dotenv.config();
 
-const { Pool: RealPgPool } = pg;
+import { pgPool, realPoolInstance } from './server/db';
 let isPgConnected = false;
-let realPoolInstance: any = null;
-let memPgPool: any = null;
-
-function getMemPool() {
-  if (!memPgPool) {
-    try {
-      const memDb = newDb();
-      const adapter = memDb.adapters.createPg();
-      memPgPool = new adapter.Pool();
-      console.log('✅ In-memory PostgreSQL engine initialized via pg-mem.');
-    } catch (err) {
-      console.error('pg-mem initialization error:', err);
-    }
-  }
-  return memPgPool;
-}
-
-try {
-  realPoolInstance = new RealPgPool({
-    host: process.env.POSTGRES_HOST || 'localhost',
-    port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
-    database: process.env.POSTGRES_DB || 'inventory_db',
-    user: process.env.POSTGRES_USER || 'inventory_user',
-    password: process.env.POSTGRES_PASSWORD || 'securepassword',
-    connectionTimeoutMillis: 2000,
-  });
-} catch (_e) {}
-
-const pgPool = {
-  async query(text: string, params?: any[]) {
-    if (isPgConnected && realPoolInstance) {
-      try {
-        return await realPoolInstance.query(text, params);
-      } catch (err: any) {
-        console.warn('Real Postgres query warning:', err?.message || err);
-      }
-    }
-    const mem = getMemPool();
-    if (mem) {
-      try {
-        return await mem.query(text, params);
-      } catch (memErr: any) {
-        console.warn('Embedded PGlite query warning:', memErr?.message || memErr);
-      }
-    }
-    // Database connection fallback protection - returns safe empty result set to prevent server crash
-    console.warn('PostgreSQL database query fallback (DB offline or initializing):', text.slice(0, 60));
-    return { rows: [], rowCount: 0 };
-  },
-  async connect() {
-    if (isPgConnected && realPoolInstance) {
-      try {
-        return await realPoolInstance.connect();
-      } catch (_e) {}
-    }
-    const mem = getMemPool();
-    if (mem) {
-      try {
-        return await mem.connect();
-      } catch (_e) {}
-    }
-    console.warn('PostgreSQL database connection fallback triggered');
-    return null;
-  }
-};
 
 const app = express();
 app.use(express.json());
@@ -214,6 +148,64 @@ const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
   { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isCurrent: false, isClosed: true },
   { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-16', endDateAD: '2026-07-15', startDateBS: '2082-04-01 BS', endDateBS: '2082-12-31 BS', isCurrent: true, isClosed: false },
   { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isCurrent: false, isClosed: false },
+];
+
+const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
+  {
+    id: 'sup-1',
+    supplierCode: 'SUP-1001',
+    name: 'Apex Trade & Telecom Supplies Pvt. Ltd.',
+    contactPerson: 'Ramesh Adhikari',
+    phone: '+977-1-4265890',
+    email: 'orders@apextelecom.com.np',
+    address: 'Putalisadak, Kathmandu, Nepal',
+    panVatNumber: '300129841',
+    rating: 4.8,
+  },
+  {
+    id: 'sup-2',
+    supplierCode: 'SUP-1002',
+    name: 'Himalayan Tech Distributors Pvt. Ltd.',
+    contactPerson: 'Sanjay Thapa',
+    phone: '+977-1-4412390',
+    email: 'sales@himalayantech.com.np',
+    address: 'New Road, Kathmandu, Nepal',
+    panVatNumber: '302918273',
+    rating: 4.7,
+  },
+  {
+    id: 'sup-3',
+    supplierCode: 'SUP-1003',
+    name: 'Nepal Optical & Fiber Optics Importers',
+    contactPerson: 'Binod Shrestha',
+    phone: '+977-1-4432100',
+    email: 'info@nepaloptical.com.np',
+    address: 'Morang, Koshi Province, Nepal',
+    panVatNumber: '601239845',
+    rating: 4.9,
+  },
+  {
+    id: 'sup-4',
+    supplierCode: 'SUP-1004',
+    name: 'IZone Cablenet Hardware Suppliers',
+    contactPerson: 'Prakash Karki',
+    phone: '+977-021-540200',
+    email: 'procurement@izonehardware.com.np',
+    address: 'Urlabari, Morang, Nepal',
+    panVatNumber: '602819384',
+    rating: 5.0,
+  },
+  {
+    id: 'sup-5',
+    supplierCode: 'SUP-1005',
+    name: 'Broadlink Fiber Importers Pvt. Ltd.',
+    contactPerson: 'Deepak Sharma',
+    phone: '+977-1-4109823',
+    email: 'imports@broadlinkfiber.com.np',
+    address: 'Biratnagar, Koshi Province, Nepal',
+    panVatNumber: '301829304',
+    rating: 4.6,
+  },
 ];
 
 // Operational arrays initialized empty by default
@@ -573,12 +565,14 @@ function loadDataStore() {
       if (fiscalYears.length === 0) fiscalYears = [...INITIAL_MASTER_FISCAL_YEARS];
       if (uomList.length === 0) uomList = [...INITIAL_MASTER_UOM];
       if (locationRecords.length === 0) locationRecords = [...INITIAL_MASTER_LOCATIONS];
+      if (suppliers.length === 0) suppliers = [...INITIAL_MASTER_SUPPLIERS];
       console.log('✅ Persistent database store loaded successfully with', users.length, 'registered users. isDemoDataCleared:', isDemoDataCleared);
     } else {
       branches = [...INITIAL_MASTER_BRANCHES];
       fiscalYears = [...INITIAL_MASTER_FISCAL_YEARS];
       uomList = [...INITIAL_MASTER_UOM];
       locationRecords = [...INITIAL_MASTER_LOCATIONS];
+      suppliers = [...INITIAL_MASTER_SUPPLIERS];
       // If data store file does not exist, check if SEED_DUMMY_DATA=true is explicitly set
       if (process.env.SEED_DUMMY_DATA === 'true') {
         console.log('🌱 Initializing sample demo dataset...');
@@ -913,6 +907,14 @@ app.get('/api/bootstrap', async (req, res) => {
         uom: uomRes.rows,
         locations: locRes.rows,
         companyProfile: compDbRes.rows[0] || companyProfile,
+        postgresDatabaseStatus: {
+          isConnected: true,
+          host: process.env.POSTGRES_HOST || 'localhost',
+          port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+          database: process.env.POSTGRES_DB || 'inventory_db',
+          user: process.env.POSTGRES_USER || 'inventory_user',
+          engine: 'PostgreSQL Server (External/Self-Hosted)'
+        },
         serverTime: new Date().toISOString(),
         dataVersion,
       });
@@ -994,8 +996,47 @@ app.get('/api/bootstrap', async (req, res) => {
     approvalRequests: targetApprovals,
     categories,
     companyProfile,
+    postgresDatabaseStatus: {
+      isConnected: isPgConnected,
+      host: process.env.POSTGRES_HOST || 'localhost',
+      port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+      database: process.env.POSTGRES_DB || 'inventory_db',
+      user: process.env.POSTGRES_USER || 'inventory_user',
+      engine: isPgConnected ? 'PostgreSQL Server (External/Self-Hosted)' : 'PostgreSQL Standby'
+    },
     serverTime: new Date().toISOString(),
     dataVersion,
+  });
+});
+
+// Database Health & Connection Check Endpoint
+app.get('/api/db/status', async (req, res) => {
+  let isConnected = false;
+  let errorDetails = '';
+  let tableCount = 0;
+
+  if (realPoolInstance) {
+    try {
+      const client = await realPoolInstance.connect();
+      const testRes = await client.query('SELECT current_database(), version(), (SELECT count(*) FROM information_schema.tables WHERE table_schema = \'public\') as tables');
+      client.release();
+      isConnected = true;
+      isPgConnected = true;
+      tableCount = parseInt(testRes.rows[0]?.tables || '0', 10);
+    } catch (err: any) {
+      isConnected = false;
+      errorDetails = err?.message || 'Failed to connect to PostgreSQL server';
+    }
+  }
+
+  res.json({
+    isConnected,
+    host: process.env.POSTGRES_HOST || 'localhost',
+    port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+    database: process.env.POSTGRES_DB || 'inventory_db',
+    user: process.env.POSTGRES_USER || 'inventory_user',
+    tableCount,
+    errorDetails,
   });
 });
 
@@ -5045,8 +5086,19 @@ app.post('/api/ai/analytics', async (req, res) => {
 
 // Vite Middleware Setup for Dev Mode vs Static Production Serving
 async function syncDatabaseAndIndexes() {
+  if (!realPoolInstance) {
+    isPgConnected = false;
+    console.log('ℹ️ Running on self-contained server database store. PostgreSQL host not specified.');
+    return;
+  }
+
   try {
     const client = await pgPool.connect();
+    if (!client) {
+      isPgConnected = false;
+      console.log('ℹ️ PostgreSQL database offline or awaiting connection. Setup banner enabled for user notification.');
+      return;
+    }
     console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
@@ -5495,10 +5547,10 @@ async function syncDatabaseAndIndexes() {
     await seedInitialPostgresData(client);
 
     client.release();
-    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully.');
+    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
-    console.log('Database pool note: In-memory store active with instant caching.', err?.message || err);
+    console.log('ℹ️ PostgreSQL database offline or awaiting connection. Setup banner enabled for user notification.', err?.message || err);
   }
 }
 
@@ -5555,6 +5607,15 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
         [l.id, l.name, l.type, l.branchId, l.address, JSON.stringify(l.coordinates), l.contactPerson, l.contactPhone, l.notes, l.activeAssetsCount]
+      );
+    }
+
+    for (const s of INITIAL_MASTER_SUPPLIERS) {
+      const sup = s as any;
+      await client.query(
+        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
       );
     }
 
