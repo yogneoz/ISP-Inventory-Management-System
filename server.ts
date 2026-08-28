@@ -7,54 +7,14 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { initializeStore } from './server/store';
-import { authenticateUser } from './server/lib/auth';
-import { registerRoutes } from './server/routes';
+import { createApp } from './server/createApp';
 import { syncDatabaseAndIndexes } from './server/lib/dbBootstrap';
-import { initSessionStore, getSessionStoreStats } from './server/lib/sessionStore';
-import { getDbHealth } from './server/lib/db';
+import { initSessionStore } from './server/lib/sessionStore';
 
 dotenv.config();
 
-const app = express();
-app.use(express.json({ limit: '25mb' }));
-
-// Health & control-plane endpoints BEFORE auth middleware
-app.get('/api/health', async (_req, res) => {
-  const [sessions, database] = await Promise.all([
-    getSessionStoreStats(),
-    getDbHealth(),
-  ]);
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    sessions: {
-      backend: sessions.backend,
-      memoryCount: sessions.memoryCount,
-      redis: sessions.redisPing || null,
-    },
-    database: {
-      mode: database.mode,
-      durable: database.durable,
-      ping: database.ping || null,
-    },
-  });
-});
-
-app.get('/__aistudio_internal_control_plane/dev/status', (_req, res) => {
-  res.json({ status: 'ok', dev: true });
-});
-
-app.get('/__aistudio_internal_control_plane/*', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// Authenticate API traffic (public paths are allow-listed inside middleware).
-// Mounted at '/' so req.path stays as full '/api/...' matching route modules.
-app.use(authenticateUser);
-
+const app = createApp();
 const PORT = Number(process.env.PORT) || 3000;
-
-registerRoutes(app);
 
 async function startServer() {
   await initializeStore();
@@ -75,7 +35,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

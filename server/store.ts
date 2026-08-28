@@ -401,7 +401,8 @@ export function generateDemoDataset() {
 // ==========================================
 // PERSISTENT JSON STORE HELPER
 // ==========================================
-export const DATA_FILE_PATH = path.join(process.cwd(), '.data_store.json');
+export const DATA_FILE_PATH =
+  process.env.DATA_STORE_PATH || path.join(process.cwd(), '.data_store.json');
 
 export function saveDataStore() {
   try {

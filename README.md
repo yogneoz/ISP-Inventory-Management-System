@@ -348,6 +348,7 @@ docker run -d \
 | :--- | :--- |
 | **Development Server** | `npm run dev` |
 | **Type Check & Lint** | `npm run lint` |
+| **Test Suite** | `npm test` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
 | **Automated DB Setup** | `npm run setup:pg` |
@@ -357,6 +358,21 @@ docker run -d \
 | **PostgreSQL Backup** | `pg_dump -U inventory_user -h localhost inventory_db > backup_$(date +%Y%m%d).sql` |
 
 ---
+
+
+## 🧪 Testing
+
+```bash
+npm test           # run full Vitest suite once
+npm run test:watch # watch mode
+```
+
+The first suite covers:
+
+- **Unit:** password hashing, roles, BS dates, session store, write-guard rollback, stock movement invariants
+- **API:** auth/login/logout, header spoof rejection, product create, durable write 503 + memory rollback
+
+Tests force offline backends (`DISABLE_PG_MEM=true`, no Redis) and an isolated temp `DATA_STORE_PATH` so they never touch your real database or `.data_store.json`.
 
 ## 📄 License
 
