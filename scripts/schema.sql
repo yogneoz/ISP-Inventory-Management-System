@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS branches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Users Table
+-- 2. Users Table (Updated with missing columns)
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(50) PRIMARY KEY,
     email VARCHAR(150) UNIQUE NOT NULL,
@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT')),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
     allowed_branch_ids TEXT[],
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    status VARCHAR(30) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'locked')),
+    can_switch_user BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. Suppliers Table
@@ -329,6 +332,7 @@ CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id);
+CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 
 CREATE INDEX IF NOT EXISTS idx_suppliers_pan_vat ON suppliers(pan_vat_number);
 
