@@ -423,7 +423,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   const selectedWorkflow = workflows.find((w) => w.id === selectedWorkflowId) || workflows[0];
 
   return (
-    <div className={`p-4 sm:p-6 min-h-screen ${isDarkMode ? 'bg-[#0f1218] text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+    <div className={`printable-document p-4 sm:p-6 min-h-screen ${isDarkMode ? 'bg-[#0f1218] text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
       {/* Top Banner Header */}
       <div className="mb-6 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 text-white shadow-lg border border-indigo-700/40 relative overflow-hidden">
         <div className="absolute right-0 top-0 -mr-16 -mt-16 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none"></div>

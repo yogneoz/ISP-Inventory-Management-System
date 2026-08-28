@@ -489,6 +489,11 @@ export default function App() {
     refreshAllData();
   };
 
+  const handleDeletePO = async (poId: string) => {
+    await api.deletePurchaseOrder(poId);
+    await refreshAllData();
+  };
+
   // Invoice Actions
   const handleCreateInvoice = async (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>
@@ -522,6 +527,11 @@ export default function App() {
     }
 
     refreshAllData();
+  };
+
+  const handleDeleteInvoice = async (invoiceId: string) => {
+    await api.deletePurchaseInvoice(invoiceId);
+    await refreshAllData();
   };
 
   const handleRecordPayment = async (id: string, amount: number) => {
@@ -1101,12 +1111,13 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onUpdatePO={handleUpdatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
+                  onDeletePO={handleDeletePO}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1129,6 +1140,7 @@ export default function App() {
                   onUpdatePO={handleUpdatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
+                  onDeletePO={handleDeletePO}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1145,9 +1157,10 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onDeleteInvoice={handleDeleteInvoice}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1167,6 +1180,7 @@ export default function App() {
                   autoOpenModal={false}
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onDeleteInvoice={handleDeleteInvoice}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1309,7 +1323,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT"
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
@@ -1357,6 +1371,49 @@ export default function App() {
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
+                />
+              )}
+
+              {activeTab === 'pullout-report' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="PULLOUT_REPORT"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  approvalRequests={approvalRequests}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                />
+              )}
+
+              {activeTab === 'damage-report' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="DAMAGE_REPORT"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  approvalRequests={approvalRequests}
+                  onCreateOperation={handleCreateOperation}
                 />
               )}
 

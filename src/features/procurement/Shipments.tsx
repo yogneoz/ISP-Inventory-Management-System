@@ -607,25 +607,17 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             />
           </div>
 
-          {isSuperAdmin ? (
-            <button
-              onClick={() => setInternalTab('CREATE_SHIPMENT')}
-              className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              <span>+ New Warehouse Dispatch Form</span>
-            </button>
-          ) : (
+          {!isSuperAdmin ? (
             <div className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
               <PackageCheck className="h-4 w-4 text-indigo-500 flex-shrink-0" />
               <span>Branch Inbound Mode: Receive incoming stock shipments below.</span>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
       {/* Rail Sub-Navigation Tabs Bar (Like Purchase Invoices) */}
-      <div
+      {activeTab !== 'create-shipment' && activeTab !== 'shipment-list' && <div
         className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto ${
           isDarkMode ? 'border-slate-800' : 'border-slate-200'
         }`}
@@ -643,7 +635,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           }`}
         >
           <History className="h-4 w-4" />
-          <span>1. Shipment & Transfer Register</span>
+          <span>Shipment & Transfer Register</span>
           <span
             className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
               internalTab === 'REGISTER'
@@ -670,7 +662,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           }`}
         >
           <Send className="h-4 w-4" />
-          <span>2. New Warehouse Dispatch & Sale Form (Inline POS & Scan)</span>
+          <span>New Warehouse Dispatch & Sale Form (Inline POS & Scan)</span>
           {lines.length > 0 && (
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
@@ -698,10 +690,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             }`}
           >
             <Eye className="h-4 w-4" />
-            <span>3. Manifest Details #{viewingShipment.trackingCode}</span>
+            <span>Manifest Details #{viewingShipment.trackingCode}</span>
           </button>
         )}
-      </div>
+      </div>}
 
       {/* CREATE SUBTAB: Embedded Inline Form View */}
       {internalTab === 'CREATE_SHIPMENT' && (
@@ -1167,10 +1159,11 @@ export const Shipments: React.FC<ShipmentsProps> = ({
         </>
       )}
 
-      {/* Multi-Item Shipment Creation Modal */}
-      {internalTab === 'CREATE_SHIPMENT' && (
+      {/* View Shipment Details Modal */}
+      {false && <>
+      {viewingShipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200 max-h-[90vh] flex flex-col">
+          <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 shrink-0">
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
@@ -1431,6 +1424,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           </div>
         </div>
       )}
+      </>}
 
       {/* View Shipment Details Modal */}
       {viewingShipment && (

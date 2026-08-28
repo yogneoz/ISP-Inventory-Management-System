@@ -378,6 +378,10 @@ export const api = {
     });
   },
 
+  async deletePurchaseOrder(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/purchase-orders/${id}`, { method: 'DELETE' });
+  },
+
   async receivePurchaseOrder(id: string): Promise<PurchaseOrder> {
     return fetchJson(`/api/purchase-orders/${id}/receive`, {
       method: 'POST',
@@ -403,6 +407,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ amount }),
     });
+  },
+
+  async deletePurchaseInvoice(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/purchase-invoices/${id}`, { method: 'DELETE' });
   },
 
   // Shipments

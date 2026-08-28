@@ -80,6 +80,18 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Record credit settlements, bank transfers, and partial invoice payments',
         permissions: DEFAULT_PERMISSIONS_MATRIX['inv-pay'],
       },
+      {
+        id: 'po-delete',
+        operationName: 'Delete Purchase Orders (PO)',
+        description: 'Delete eligible purchase orders and reverse outstanding incoming quantities',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['po-delete'],
+      },
+      {
+        id: 'inv-delete',
+        operationName: 'Delete Purchase Invoices (PI)',
+        description: 'Delete eligible purchase invoices and reverse their inventory entries',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['inv-delete'],
+      },
     ],
   },
   {

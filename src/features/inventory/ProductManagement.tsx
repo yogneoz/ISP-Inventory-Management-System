@@ -389,7 +389,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 6mm;
+            margin: 0;
           }
           body * {
             visibility: hidden !important;

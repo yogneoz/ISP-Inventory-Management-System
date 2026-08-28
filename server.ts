@@ -2797,6 +2797,50 @@ app.put('/api/purchase-orders/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/purchase-orders/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    let po: any = purchaseOrders.find((entry) => entry.id === id);
+    if (isPgConnected && !po) {
+      const result = await pgPool.query('SELECT id, po_number AS "poNumber", status, items, branch_id AS "branchId" FROM purchase_orders WHERE id = $1', [id]);
+      po = result.rows[0];
+    }
+    if (!po) return res.status(404).json({ message: 'Purchase Order not found' });
+    if (['RECEIVED', 'IN_PROGRESS'].includes(po.status)) {
+      return res.status(409).json({ message: 'Received or in-progress purchase orders cannot be deleted.' });
+    }
+
+    const linkedInvoice = purchaseInvoices.some((invoice) => invoice.poReferenceId === po.id || invoice.poReferenceId === po.poNumber);
+    if (linkedInvoice) return res.status(409).json({ message: 'Delete the linked Purchase Invoice before deleting this Purchase Order.' });
+
+    const items = typeof po.items === 'string' ? JSON.parse(po.items) : (po.items || []);
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        for (const item of items) {
+          await client.query(
+            `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP
+             WHERE product_id = $2 AND branch_id = $3`,
+            [Number(item.quantity) || 0, item.productId, po.branchId]
+          );
+        }
+        await client.query('DELETE FROM purchase_orders WHERE id = $1', [id]);
+      });
+    }
+
+    purchaseOrders = purchaseOrders.filter((entry) => entry.id !== id);
+    inventoryStock.forEach((stock) => {
+      if (stock.branchId !== po.branchId) return;
+      const item = items.find((entry: any) => entry.productId === stock.productId);
+      if (item) stock.incomingQty = Math.max(0, (stock.incomingQty || 0) - (Number(item.quantity) || 0));
+    });
+    logAuditEvent(req, 'DELETE_PURCHASE_ORDER', 'PROCUREMENT', `Deleted Purchase Order #${po.poNumber}`);
+    res.json({ success: true, deletedId: id });
+  } catch (err: any) {
+    console.error('Error deleting purchase order:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
 app.patch('/api/purchase-orders/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -3019,6 +3063,78 @@ app.post('/api/purchase-invoices', async (req, res) => {
   } catch (err: any) {
     console.error('Error creating purchase invoice:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+app.delete('/api/purchase-invoices/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    let invoice: any = purchaseInvoices.find((entry) => entry.id === id);
+    if (isPgConnected && !invoice) {
+      const result = await pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", items FROM purchase_invoices WHERE id = $1', [id]);
+      invoice = result.rows[0];
+    }
+    if (!invoice) return res.status(404).json({ message: 'Purchase Invoice not found' });
+
+    const items = typeof invoice.items === 'string' ? JSON.parse(invoice.items) : (invoice.items || []);
+    const quantities = new Map<string, number>();
+    const serials = items.flatMap((item: any) => (item.deviceSerials || []).map((serial: any) => serial.deviceSerial).filter(Boolean));
+    items.forEach((item: any) => quantities.set(item.productId, (quantities.get(item.productId) || 0) + (Number(item.quantity) || 0)));
+
+    const purchaseRefs = [invoice.vendorBillNumber, invoice.invoiceNumber].filter(Boolean);
+    const localAssignedSerial = customerDeviceRecords.some(
+      (record) => serials.includes(record.deviceSerial) && purchaseRefs.includes(record.purchaseBillRef || '') && record.status !== 'IN_STOCK'
+    );
+    if (localAssignedSerial) return res.status(409).json({ message: 'This invoice has serial devices that are already assigned or consumed and cannot be deleted.' });
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        if (serials.length > 0 && purchaseRefs.length > 0) {
+          const assigned = await client.query(
+            `SELECT 1 FROM customer_device_records
+             WHERE device_serial = ANY($1::text[]) AND purchase_bill_ref = ANY($2::text[]) AND status <> 'IN_STOCK' LIMIT 1`,
+            [serials, purchaseRefs]
+          );
+          if (assigned.rowCount) throw new Error('This invoice has serial devices that are already assigned or consumed and cannot be deleted.');
+        }
+        for (const [productId, quantity] of quantities) {
+          const updated = await client.query(
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
+             WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`,
+            [quantity, productId, invoice.branchId]
+          );
+          if (updated.rowCount !== 1) throw new Error(`Insufficient stock to reverse invoice item ${productId}.`);
+        }
+        if (serials.length > 0 && purchaseRefs.length > 0) {
+          await client.query(
+            `DELETE FROM customer_device_records
+             WHERE device_serial = ANY($1::text[]) AND purchase_bill_ref = ANY($2::text[]) AND status = 'IN_STOCK'`,
+            [serials, purchaseRefs]
+          );
+        }
+        await client.query('DELETE FROM purchase_invoices WHERE id = $1', [id]);
+        if (invoice.poReferenceId) {
+          await client.query('UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2', ['APPROVED', invoice.poReferenceId]);
+        }
+      });
+    }
+
+    purchaseInvoices = purchaseInvoices.filter((entry) => entry.id !== id);
+    inventoryStock.forEach((stock) => {
+      if (stock.branchId !== invoice.branchId) return;
+      const quantity = quantities.get(stock.productId);
+      if (quantity) stock.quantityOnHand = Math.max(0, stock.quantityOnHand - quantity);
+    });
+    customerDeviceRecords = customerDeviceRecords.filter(
+      (record) => !(serials.includes(record.deviceSerial) && purchaseRefs.includes(record.purchaseBillRef || '') && record.status === 'IN_STOCK')
+    );
+    const linkedPO = purchaseOrders.find((entry) => entry.id === invoice.poReferenceId || entry.poNumber === invoice.poReferenceId);
+    if (linkedPO) linkedPO.status = 'APPROVED';
+    logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
+    res.json({ success: true, deletedId: id });
+  } catch (err: any) {
+    console.error('Error deleting purchase invoice:', err);
+    res.status(409).json({ message: err.message || 'Unable to delete purchase invoice.' });
   }
 });
 
@@ -3296,6 +3412,45 @@ app.post('/api/stock-operations', async (req, res) => {
     const branchObj = branches.find((b) => b.id === req.body.branchId);
     const destWarehouseObj = branches.find((b) => b.id === (req.body.destinationWarehouseId || 'WH001'));
     const items = req.body.items || [];
+    const operationItems = items.length > 0
+      ? items
+      : req.body.productId
+      ? [{ productId: req.body.productId, productName: req.body.productName || '', quantity: Math.abs(Number(req.body.quantityChanged) || 0), deviceSerials: req.body.deviceSerials || [] }]
+      : [];
+    const stockConsumingType = ['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE'].includes(opType);
+    if (stockConsumingType) {
+      for (const item of operationItems) {
+        const product = products.find((entry) => entry.id === item.productId);
+        const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === req.body.branchId);
+        const quantity = Number(item.quantity) || 0;
+        const availableQuantity = item.condition === 'DAMAGED_STOCK'
+          ? Number(stockRecord?.damagedQty) || 0
+          : Number(stockRecord?.quantityOnHand) || 0;
+        if (!stockRecord || quantity < 1 || availableQuantity < quantity) {
+          return res.status(400).json({ message: `Insufficient inventory for ${item.productName || item.productId}. Available: ${availableQuantity}, requested: ${quantity}.` });
+        }
+        const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : true;
+        if (isSerialized) {
+          const serialEntries = item.deviceSerials || [];
+          if (serialEntries.length < quantity) {
+            return res.status(400).json({ message: `Serial/PON details are required for every unit of ${item.productName || item.productId}.` });
+          }
+          for (let index = 0; index < quantity; index += 1) {
+            const serial = serialEntries[index];
+            const device = customerDeviceRecords.find((entry) =>
+              entry.deviceSerial?.trim().toUpperCase() === serial.deviceSerial?.trim().toUpperCase() &&
+              entry.ponSerial?.trim().toUpperCase() === serial.ponSerial?.trim().toUpperCase() &&
+              entry.branchId === req.body.branchId &&
+              entry.status === 'IN_STOCK' &&
+              (!product || entry.productName?.trim().toLowerCase() === product.name.trim().toLowerCase())
+            );
+            if (!device) {
+              return res.status(400).json({ message: `Device Serial/PON must match an IN_STOCK inventory record for ${item.productName || item.productId}.` });
+            }
+          }
+        }
+      }
+    }
     let totalValue = 0;
     if (items.length > 0) {
       totalValue = items.reduce((sum: number, it: any) => sum + (it.totalValue || it.quantity * (it.unitCost || 0)), 0);
@@ -3353,23 +3508,40 @@ app.post('/api/stock-operations', async (req, res) => {
         ]
       );
 
-      for (const item of items) {
+      for (const item of operationItems) {
         const qty = Number(item.quantity) || 1;
         if (opType === 'DAMAGE') {
           await pgPool.query(
-            `UPDATE inventory_stock SET quantity_on_hand = GREATEST(0, quantity_on_hand - $1), damaged_qty = damaged_qty + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, damaged_qty = damaged_qty + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
             [qty, item.productId, newOp.branchId]
           );
         } else if (opType === 'PULLOUT') {
           await pgPool.query(
-            `UPDATE inventory_stock SET quantity_on_hand = GREATEST(0, quantity_on_hand - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+            item.condition === 'DAMAGED_STOCK'
+              ? `UPDATE inventory_stock SET damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`
+              : `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
             [qty, item.productId, newOp.branchId]
           );
         } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
           await pgPool.query(
-            `UPDATE inventory_stock SET quantity_on_hand = GREATEST(0, quantity_on_hand - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
             [qty, item.productId, newOp.branchId]
           );
+        }
+      }
+    }
+    if (stockConsumingType) {
+      for (const item of operationItems) {
+        const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === newOp.branchId);
+        const quantity = Number(item.quantity) || 0;
+        if (stockRecord) {
+          if (opType === 'PULLOUT' && item.condition === 'DAMAGED_STOCK') {
+            stockRecord.damagedQty = Math.max(0, (stockRecord.damagedQty || 0) - quantity);
+          } else {
+            stockRecord.quantityOnHand -= quantity;
+          }
+          if (opType === 'DAMAGE') stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
+          stockRecord.lastUpdated = new Date().toISOString();
         }
       }
     }

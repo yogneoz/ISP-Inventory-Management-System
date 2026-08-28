@@ -1,1 +1,24 @@
 @import "tailwindcss";
+
+@media print {
+	@page { margin: 0; }
+	body * { visibility: hidden !important; }
+	.printable-document, .printable-document * { visibility: visible !important; }
+	.printable-document {
+		position: absolute !important;
+		inset: 0 auto auto 0 !important;
+		width: 100% !important;
+		max-width: none !important;
+		margin: 0 !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: white !important;
+		color: black !important;
+	}
+	.printable-document .print\:hidden,
+	.printable-document .print-hidden { display: none !important; }
+	.printable-document button,
+	.printable-document input,
+	.printable-document select,
+	.printable-document textarea { display: none !important; }
+}

@@ -85,6 +85,8 @@ export type NavTab =
   | 'shipment-list'
   | 'pullout'
   | 'damage'
+  | 'pullout-report'
+  | 'damage-report'
   | 'stock-out'
   | 'assign-asset'
   | 'consumable-issue'
@@ -301,8 +303,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 5. Branch Operations & Transfers Group
   const branchOpsChildren = [
-    { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
-    { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
+    { id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight },
+    { id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff },
     {
       id: 'receive-branch-transfer' as NavTab,
       label: 'Receive Branch Stock Transfer',
@@ -322,7 +324,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     title: 'Branch Operations & Transfers',
     shortLabel: 'Branch Ops',
     icon: Layers,
-    children: branchOpsChildren,
+    children: [
+      ...branchOpsChildren,
+      { id: 'pullout-report' as NavTab, label: 'Warehouse Pullout Report', icon: ClipboardList, hasSeparatorAbove: true },
+      { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList },
+    ],
   });
 
   // 6. Fixed Assets Group

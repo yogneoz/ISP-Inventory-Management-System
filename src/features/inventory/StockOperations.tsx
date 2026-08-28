@@ -107,6 +107,11 @@ interface StockOperationsProps {
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
+interface DamageSerialEntry {
+  deviceSerial: string;
+  ponSerial: string;
+}
+
 export const StockOperations: React.FC<StockOperationsProps> = ({
   operations,
   products,
@@ -140,25 +145,29 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
+  const getInitialTab = (): 'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
     if (initialType === 'DEVICE_EXCHANGE') return 'DEVICE_EXCHANGE';
     if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
-    if (initialType === 'DAMAGE') return 'DAMAGE_TRACKING';
+    if (initialType === 'DAMAGE') return 'LABEL_DAMAGE';
+    if (initialType === 'PULLOUT_REPORT') return 'PULLOUT_BINS';
+    if (initialType === 'DAMAGE_REPORT') return 'DAMAGE_TRACKING';
     if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
     if (initialType === 'CREATE_TRANSFER' || initialType === 'TRANSFER') return 'CREATE_TRANSFER';
     if (initialType === 'ASSIGN_ASSET' || initialType === 'ASSIGN') return 'ASSIGN_ASSET';
     if (initialType === 'STOCK_OUT' || initialType === 'PRODUCT_SALE') return 'PRODUCT_SALE';
     if (initialType === 'LOGS') return 'LOGS';
-    return 'PULLOUT_BINS';
+    return 'CREATE_PULLOUT';
   };
 
   const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
+    'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
   >(getInitialTab());
 
   useEffect(() => {
     setActiveTab(getInitialTab());
   }, [initialType]);
+
+  const isStandalonePage = Boolean(initialType);
 
   // Filter state
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
@@ -260,8 +269,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 2. Damage Labeling Form State
   const defaultDamageBranch = userBranchId;
   const [damageBranchId, setDamageBranchId] = useState<string>(defaultDamageBranch);
-  const [damageProductId, setDamageProductId] = useState<string>(products[0]?.id || '');
-  const [damageQty, setDamageQty] = useState<number>(1);
+  const [damageItems, setDamageItems] = useState<PulloutItem[]>([]);
   const [damageReason, setDamageReason] = useState<string>('Overstock transit damage / defective hardware unit');
   const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
 
@@ -1009,11 +1017,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       const isDamagedPullout = item.condition === 'DAMAGED_STOCK';
       const availStock = srcStock ? (isDamagedPullout ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
 
-      // 1. Validate Branch Stock Quantity On Hand / Damaged Stock
-      if (srcStock && availStock < item.quantity) {
-        console.warn(
-          `Branch Stock Warning: "${branchName}" has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", transferring ${item.quantity} unit(s).`
+      // 1. Every stock-out operation must have a real branch stock record.
+      if (!srcStock || availStock < item.quantity) {
+        alert(
+          `Insufficient inventory: "${branchName}" has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", but ${item.quantity} unit(s) were requested.`
         );
+        return false;
       }
 
       // 2. Validate Serial Tracking & Register for Serialized Items
@@ -1032,6 +1041,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
           const cleanSerial = s.deviceSerial.trim().toUpperCase();
           const cleanPon = s.ponSerial?.trim().toUpperCase();
+          if (prod?.trackingType === 'SERIAL_MAC_PON' && !cleanPon) {
+            alert(`Validation Error: PON Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
+            return false;
+          }
 
           if (seenSerials.has(cleanSerial)) {
             alert(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in requested items.`);
@@ -1039,22 +1052,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }
           seenSerials.add(cleanSerial);
 
-          // Check against customerDevices serial register if populated
-          if (customerDevices.length > 0) {
-            const match = customerDevices.find(
-              (cd) =>
-                cd.deviceSerial.trim().toUpperCase() === cleanSerial ||
-                (cleanPon && cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanPon)
-            );
-
-            if (match) {
-              if (match.status && match.status !== 'IN_STOCK' && match.status !== 'AVAILABLE') {
-                alert(
-                  `Serial Register Error: Serial #${cleanSerial} in branch "${branchName}" has status "${match.status}" (must be in-stock/available).`
-                );
-                return false;
-              }
-            }
+          const match = customerDevices.find(
+            (cd) =>
+              cd.deviceSerial?.trim().toUpperCase() === cleanSerial &&
+              (!cleanPon || cd.ponSerial?.trim().toUpperCase() === cleanPon) &&
+              cd.branchId === branchId &&
+              cd.status === 'IN_STOCK' &&
+              (!cd.productName || cd.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
+          );
+          if (!match) {
+            alert(`Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} must match an IN_STOCK ${item.productName} record at ${branchName}.`);
+            return false;
           }
         }
       }
@@ -1109,6 +1117,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     alert(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
 
     setIsPulloutModalOpen(false);
+    setActiveTab('PULLOUT_BINS');
     setPulloutItems([]);
   };
 
@@ -1116,20 +1125,16 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const handleSubmitDamageTag = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
-    const prod = products.find((p) => p.id === damageProductId);
-    if (!prod) return;
+    if (damageItems.length === 0) {
+      alert('Add at least one product to the damaged stock list.');
+      return;
+    }
 
     if (
       !validateSourceBranchStockAndSerials(
         targetBranch,
         branches.find((b) => b.id === targetBranch)?.name || targetBranch,
-        [
-          {
-            productId: damageProductId,
-            productName: prod.name,
-            quantity: Number(damageQty),
-          },
-        ]
+        damageItems.map(({ condition: _condition, ...item }) => item)
       )
     ) {
       return;
@@ -1138,17 +1143,68 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     await onCreateOperation({
       type: 'DAMAGE',
       branchId: targetBranch,
-      productId: damageProductId,
-      productName: prod.name,
-      quantityChanged: Number(damageQty),
-      costPerUnit: prod.costPrice,
-      totalValue: Number(damageQty) * prod.costPrice,
+      productId: damageItems.length === 1 ? damageItems[0].productId : undefined,
+      productName: damageItems.length === 1 ? damageItems[0].productName : undefined,
+      quantityChanged: damageItems.reduce((sum, item) => sum + item.quantity, 0),
+      costPerUnit: damageItems.length === 1 ? damageItems[0].unitCost : 0,
+      totalValue: damageItems.reduce((sum, item) => sum + item.totalValue, 0),
       reason: damageReason,
       inspectorName: damageInspector,
       status: 'LOGGED',
+      items: damageItems,
     });
 
     setIsDamageModalOpen(false);
+    setActiveTab('DAMAGE_TRACKING');
+    setDamageItems([]);
+  };
+
+  const handleAddDamageItem = (product: Product) => {
+    const isSerialized = product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
+    setDamageItems((previous) => {
+      const existing = previous.find((item) => item.productId === product.id);
+      if (existing) {
+        return previous.map((item) => item.productId === product.id ? {
+          ...item,
+          quantity: item.quantity + 1,
+          totalValue: (item.quantity + 1) * item.unitCost,
+          deviceSerials: isSerialized ? [...(item.deviceSerials || []), { deviceSerial: '', ponSerial: '' }] : undefined,
+        } : item);
+      }
+      return [...previous, {
+        id: `damage-${Date.now()}-${product.id}`,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        unit: product.unit,
+        quantity: 1,
+        condition: 'DAMAGED_STOCK',
+        unitCost: product.costPrice,
+        totalValue: product.costPrice,
+        deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+      }];
+    });
+  };
+
+  const updateDamageItem = (id: string, updates: Partial<PulloutItem>) => {
+    setDamageItems((previous) => previous.map((item) => {
+      if (item.id !== id) return item;
+      const updated = { ...item, ...updates };
+      if (updates.quantity !== undefined) {
+        const product = products.find((entry) => entry.id === item.productId);
+        const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : false;
+        updated.totalValue = updated.quantity * updated.unitCost;
+        updated.deviceSerials = isSerialized ? Array.from({ length: updated.quantity }, (_, index) => item.deviceSerials?.[index] || { deviceSerial: '', ponSerial: '' }) : undefined;
+      }
+      return updated;
+    }));
+  };
+
+  const updateDamageItemSerial = (itemId: string, index: number, field: keyof DamageSerialEntry, value: string) => {
+    setDamageItems((previous) => previous.map((item) => item.id === itemId ? {
+      ...item,
+      deviceSerials: (item.deviceSerials || []).map((entry, entryIndex) => entryIndex === index ? { ...entry, [field]: value } : entry),
+    } : item));
   };
 
   // 3. Submit Create Transfer
@@ -1238,12 +1294,33 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     if (selectedProductForAssign) {
       const custObj = customers.find((c) => c.id === assignCustomerId);
       const locObj = locations.find((l) => l.id === assignLocationId);
+      const assetBranchId = selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId;
+      const availableAssetStock = stock.find((entry) => entry.productId === selectedProductForAssign.id && entry.branchId === assetBranchId);
+      if (!availableAssetStock || availableAssetStock.quantityOnHand < 1) {
+        alert(`Cannot assign "${selectedProductForAssign.name}": no available stock exists at the selected branch.`);
+        return;
+      }
+      const assetIsSerialized = selectedProductForAssign.requiresSerialTracking !== false && selectedProductForAssign.trackingType !== 'QUANTITY_ONLY';
+      if (assetIsSerialized) {
+        const matchingAssetDevice = customerDevices.find(
+          (device) =>
+            device.deviceSerial?.trim().toUpperCase() === productAssignSerial.trim().toUpperCase() &&
+            device.ponSerial?.trim().toUpperCase() === productAssignPon.trim().toUpperCase() &&
+            device.branchId === assetBranchId &&
+            device.status === 'IN_STOCK' &&
+            device.productName?.trim().toLowerCase() === selectedProductForAssign.name.trim().toLowerCase()
+        );
+        if (!matchingAssetDevice) {
+          alert('The assigned serialized product must use a matching Device Serial/PON pair from IN_STOCK inventory.');
+          return;
+        }
+      }
 
       await api.createAsset({
         tagNumber: productAssignTag || `FA-ONU-${Math.floor(1000 + Math.random() * 9000)}`,
         name: selectedProductForAssign.name,
         category: selectedProductForAssign.category || 'IT Equipment',
-        branchId: selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId,
+        branchId: assetBranchId,
         acquisitionDateAD: todayAD,
         acquisitionDateBS: todayBS,
         acquisitionCost: selectedProductForAssign.costPrice,
@@ -1267,7 +1344,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           customerCode: custObj.customerId,
           contactPhone: custObj.contactNumber || '9800000000',
           installationAddress: custObj.address || 'Nepal',
-          branchId: selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId,
+          branchId: assetBranchId,
           productName: selectedProductForAssign.name,
           deviceSerial: productAssignSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
           ponSerial: productAssignPon || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
@@ -1519,6 +1596,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       alert('Please enter new device serial number (SN) and PON serial number.');
       return;
     }
+    const exchangeBranchId = selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId;
+    const replacementDevice = customerDevices.find(
+      (device) =>
+        device.deviceSerial?.trim().toUpperCase() === exchangeNewSerial.trim().toUpperCase() &&
+        device.ponSerial?.trim().toUpperCase() === exchangeNewPon.trim().toUpperCase() &&
+        device.branchId === exchangeBranchId &&
+        device.status === 'IN_STOCK' &&
+        device.productName?.trim().toLowerCase() === (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase()
+    );
+    if (!replacementDevice) {
+      alert('The replacement Device Serial/PON pair must match an IN_STOCK device at the selected branch.');
+      return;
+    }
 
     setIsSubmittingExchange(true);
     try {
@@ -1531,7 +1621,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         newPonSerial: exchangeNewPon.trim(),
         newMacAddress: exchangeNewMac.trim() || undefined,
         notes: exchangeNotes.trim() || undefined,
-        branchId: selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId,
+        branchId: exchangeBranchId,
       });
 
       const actionText =
@@ -1646,33 +1736,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
         {/* Top Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setIsDamageModalOpen(true)}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-              isDarkMode
-                ? 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/60'
-                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-            }`}
-          >
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <span>Label Damaged Stock</span>
-          </button>
-
-          <button
-            onClick={() => setIsPulloutModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create Pullout Bin</span>
-          </button>
         </div>
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto ${
+      {!isStandalonePage && <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto ${
         isDarkMode ? 'border-slate-800' : 'border-slate-200'
       }`}>
-        {(() => {
+        {initialType !== 'PULLOUT' && initialType !== 'DAMAGE' && initialType !== 'PULLOUT_REPORT' && initialType !== 'DAMAGE_REPORT' && (() => {
           const canPullout = isOperationAllowed('branch-pullout-dispatch', currentUser?.role);
           return (
             <button
@@ -1696,12 +1767,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canPullout ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Truck className="h-4 w-4" />}
-              <span>1. Warehouse Pullout ({pulloutOperations.length})</span>
+              <span>Warehouse Pullout ({pulloutOperations.length})</span>
             </button>
           );
         })()}
 
-        {(() => {
+        {initialType !== 'PULLOUT' && initialType !== 'DAMAGE' && initialType !== 'PULLOUT_REPORT' && initialType !== 'DAMAGE_REPORT' && (() => {
           const canDamage = isOperationAllowed('branch-damage-mark', currentUser?.role);
           return (
             <button
@@ -1725,7 +1796,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canDamage ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <AlertTriangle className="h-4 w-4" />}
-              <span>2. Damaged Stock ({damageOperations.length})</span>
+              <span>Damaged Stock ({damageOperations.length})</span>
             </button>
           );
         })()}
@@ -1754,7 +1825,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canReceive ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Inbox className="h-4 w-4" />}
-              <span>3. Receive Transfer ({shipments.length})</span>
+              <span>Receive Transfer ({shipments.length})</span>
             </button>
           );
         })()}
@@ -1783,7 +1854,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canCreateXfer ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Send className="h-4 w-4" />}
-              <span>4. Create Transfer</span>
+              <span>Create Transfer</span>
             </button>
           );
         })()}
@@ -1812,7 +1883,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canAssignAsset ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Wrench className="h-4 w-4" />}
-              <span>5. Assign Fixed Asset ({availableStockAssets.length} Avail)</span>
+              <span>Assign Fixed Asset ({availableStockAssets.length} Avail)</span>
             </button>
           );
         })()}
@@ -1831,7 +1902,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               <Wrench className="h-4 w-4 text-amber-300" />
-              <span>6. Issue Consumables ({consumableOperations.length})</span>
+              <span>Issue Consumables ({consumableOperations.length})</span>
             </button>
           );
         })()}
@@ -1860,7 +1931,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
-              <span>7. Product Sale ({saleOperations.length})</span>
+              <span>Product Sale ({saleOperations.length})</span>
             </button>
           );
         })()}
@@ -1877,7 +1948,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }`}
         >
           <RefreshCw className="h-4 w-4 text-indigo-300" />
-          <span>8. Device Exchange ({exchangeCustomerDevices.length})</span>
+          <span>Device Exchange ({exchangeCustomerDevices.length})</span>
         </button>
 
         <button
@@ -1893,7 +1964,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           <Package className="h-4 w-4" />
           <span>Logs ({operations.length})</span>
         </button>
-      </div>
+      </div>}
 
       {/* ------------------------------------------------------------- */}
       {/* TAB 1: PULLOUT BINS (Warehouse Return) */}
@@ -2016,13 +2087,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <AlertTriangle className="h-4 w-4 text-rose-500" />
                 <span>Locally Tagged Damaged Stock Logs</span>
               </h3>
-              <button
-                onClick={() => setIsDamageModalOpen(true)}
-                className="flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-500 shadow-sm transition-all cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Label New Damaged Item</span>
-              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -4032,17 +4096,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ============================================================ */}
       {/* MODAL 1: Create Pullout Bin */}
       {/* ============================================================ */}
-      {isPulloutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl overflow-hidden p-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+      {(isPulloutModalOpen || activeTab === 'CREATE_PULLOUT') && (
+        <div className="p-4 sm:p-6 rounded-2xl border bg-white dark:bg-[#0f1218] border-slate-200 dark:border-slate-800 animate-fadeIn">
+          <div className="w-full max-w-4xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white dark:bg-[#0f1218] border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <Truck className="h-5 w-5 text-indigo-500" />
                 <span>Create Overstock / Damaged Stock Pullout Bin</span>
               </h3>
-              <button onClick={() => setIsPulloutModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 ✕
               </button>
             </div>
@@ -4302,7 +4364,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsPulloutModalOpen(false)}
+                    onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }}
                     className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel
@@ -4323,17 +4385,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ============================================================ */}
       {/* MODAL 2: Label Local Damaged Stock */}
       {/* ============================================================ */}
-      {isDamageModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+      {(isDamageModalOpen || activeTab === 'LABEL_DAMAGE') && (
+        <div className="p-4 sm:p-6 rounded-2xl border bg-white dark:bg-[#0f1218] border-slate-200 dark:border-slate-800 animate-fadeIn">
+          <div className="w-full max-w-3xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white dark:bg-[#0f1218] border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-500" />
                 <span>Label Local Damaged Stock</span>
               </h3>
-              <button onClick={() => setIsDamageModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 ✕
               </button>
             </div>
@@ -4365,33 +4425,40 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <label className="block font-bold mb-1">Scan Barcode or Search & Select Damaged Product *</label>
                 <ProductSearchBar
                   products={products}
-                  onAddOrIncrementProduct={(prod) => setDamageProductId(prod.id)}
+                  onAddOrIncrementProduct={handleAddDamageItem}
                   placeholder="Scan Barcode or Search & Select Damaged Product..."
                   stock={stock}
                   selectedBranchId={damageBranchId}
                 />
-                {damageProductId && (
-                  <div className="mt-1.5 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-between font-mono text-xs">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      Selected: {products.find((p) => p.id === damageProductId)?.name}
-                    </span>
-                    <span className="text-[10px] text-slate-400">SKU: {products.find((p) => p.id === damageProductId)?.sku}</span>
-                  </div>
-                )}
               </div>
 
-              <div>
-                <label className="block font-bold mb-1">Damaged Quantity *</label>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={damageQty}
-                  onChange={(e) => setDamageQty(Number(e.target.value))}
-                  className={`w-full rounded-xl border p-2.5 font-mono ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                />
+              <div className="space-y-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold">Damaged Items ({damageItems.length}) *</label>
+                  <span className="text-[10px] text-slate-500">Add products above</span>
+                </div>
+                {damageItems.length === 0 ? (
+                  <p className="py-5 text-center text-xs text-slate-400">No damaged products added yet.</p>
+                ) : damageItems.map((item) => {
+                  const product = products.find((entry) => entry.id === item.productId);
+                  const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : false;
+                  return (
+                    <div key={item.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1"><strong>{item.productName}</strong><div className="text-[10px] font-mono text-slate-500">SKU: {item.sku}</div></div>
+                        <input type="number" min={1} value={item.quantity} onChange={(e) => updateDamageItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-20 rounded-lg border p-2 text-center font-mono" />
+                        <button type="button" onClick={() => setDamageItems((previous) => previous.filter((entry) => entry.id !== item.id))} className="text-rose-500"><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                      {isSerialized && <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">
+                        {item.deviceSerials?.map((entry, index) => <div key={index} className="grid grid-cols-[2rem_1fr_1fr] gap-2 items-center">
+                          <span className="text-[10px] font-mono">#{index + 1}</span>
+                          <input required value={entry.deviceSerial} onChange={(e) => updateDamageItemSerial(item.id, index, 'deviceSerial', e.target.value)} placeholder="Device Serial #" className="rounded-lg border p-2 font-mono" />
+                          <input required value={entry.ponSerial} onChange={(e) => updateDamageItemSerial(item.id, index, 'ponSerial', e.target.value)} placeholder="PON Serial #" className="rounded-lg border p-2 font-mono" />
+                        </div>)}
+                      </div>}
+                    </div>
+                  );
+                })}
               </div>
 
               <div>
@@ -4424,7 +4491,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setDamageQty(1);
+                    setDamageItems([]);
                     setDamageReason('');
                     setDamageInspector('Stores Quality Inspector');
                   }}
@@ -4437,7 +4504,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsDamageModalOpen(false)}
+                    onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }}
                     className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel

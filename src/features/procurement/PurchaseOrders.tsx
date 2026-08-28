@@ -58,6 +58,7 @@ interface PurchaseOrdersProps {
   onUpdatePO?: (poId: string, poData: Partial<PurchaseOrder>) => Promise<void>;
   onReceivePO: (poId: string) => Promise<void>;
   onUpdatePOStatus?: (poId: string, status: string) => Promise<void>;
+  onDeletePO?: (poId: string) => Promise<void>;
   isDarkMode?: boolean;
 }
 
@@ -86,6 +87,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onUpdatePO,
   onReceivePO,
   onUpdatePOStatus,
+  onDeletePO,
   isDarkMode = false,
 }) => {
   // Navigation Tabs: 'PO_LIST' | 'CREATE_PO' | 'VIEW_PO'
@@ -321,6 +323,12 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     return matchesBranch && matchesSupplier && matchesSearch;
   }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''));
 
+  const allowedBranches = getAllowedBranches(currentUser, branches).sort((a, b) => {
+    const aIsWarehouse = `${a.id} ${a.code} ${a.name}`.toLowerCase().includes('warehouse') || a.id.toLowerCase().startsWith('wh');
+    const bIsWarehouse = `${b.id} ${b.code} ${b.name}`.toLowerCase().includes('warehouse') || b.id.toLowerCase().startsWith('wh');
+    return Number(bIsWarehouse) - Number(aIsWarehouse);
+  });
+
   const addLine = () => {
     const existingIds = new Set(lines.map((l) => l.productId));
     const nextProd = products.find((p) => !existingIds.has(p.id)) || products[0];
@@ -406,7 +414,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         total: lineTotal + lineTax,
       };
     });
-
     if (editingPO) {
       if (onUpdatePO) {
         await onUpdatePO(editingPO.id, {
@@ -624,7 +631,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
                 Rs. {(filteredPOs
                   .filter((p) => p.status !== 'RECEIVED' && p.status !== 'CANCELLED')
-                  .reduce((s, p) => s + (p.totalAmount || 0), 0) ?? 0)
+                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
                   .toLocaleString('en-IN')}
               </div>
             </div>
@@ -634,7 +641,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
                 Rs. {(filteredPOs
                   .filter((p) => p.status === 'RECEIVED')
-                  .reduce((s, p) => s + (p.totalAmount || 0), 0) ?? 0)
+                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
                   .toLocaleString('en-IN')}
               </div>
             </div>
@@ -803,6 +810,22 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               >
                                 <Eye className="h-3.5 w-3.5" />
                               </button>
+
+                              {isOperationAllowed('po-delete', currentUser?.role) && <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!onDeletePO || !window.confirm(`Delete Purchase Order #${po.poNumber}?`)) return;
+                                  try {
+                                    await onDeletePO(po.id);
+                                  } catch (error: any) {
+                                    alert(error?.message || 'Unable to delete this purchase order.');
+                                  }
+                                }}
+                                title="Delete Purchase Order"
+                                className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>}
 
                               {/* Edit Action */}
                               {isPending && (
@@ -1045,7 +1068,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   onChange={(e) => setBranchId(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
                 >
-                  {getAllowedBranches(currentUser, branches).map((b) => (
+                                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name} ({b.code})
                     </option>
@@ -1357,7 +1380,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       {activeTab === 'VIEW_PO' && viewingPO && (
         <div
           id="po-detail-view-container"
-          className={`rounded-2xl border p-6 sm:p-8 shadow-lg space-y-6 ${
+          className={`printable-document rounded-2xl border p-6 sm:p-8 shadow-lg space-y-6 ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
