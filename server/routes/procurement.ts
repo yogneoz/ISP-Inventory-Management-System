@@ -73,23 +73,33 @@ const router = Router();
 
 router.get('/api/purchase-orders', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      const q =
-        'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAd", order_date_bs AS "orderDateBs", expected_delivery_date_ad AS "expectedDeliveryDateAd", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching POs from DB:', err);
-    }
-  }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(store.purchaseOrders.filter((po) => po.branchId === branchId));
-  }
-  res.json(store.purchaseOrders);
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'po.list',
+    sql:
+      `SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId",
+              order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS",
+              expected_delivery_date_ad AS "expectedDeliveryDateAD", status,
+              subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount",
+              total_amount AS "totalAmount", notes, items
+       FROM purchase_orders` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY created_at DESC NULLS LAST',
+    params: bf ? [bf] : [],
+    fallback: () => (bf ? store.purchaseOrders.filter((p) => p.branchId === bf) : store.purchaseOrders),
+    map: (r) => ({
+      ...r,
+      subtotalAmount: num(r.subtotalAmount),
+      taxAmount: num(r.taxAmount),
+      totalAmount: num(r.totalAmount),
+      items: typeof r.items === 'string' ? JSON.parse(r.items || '[]') : r.items || [],
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('purchaseOrders', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/purchase-orders', validateBody(poCreateSchema), async (req, res) => {
@@ -316,23 +326,38 @@ router.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'INVE
 // Purchase Invoices
 router.get('/api/purchase-invoices', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      const q =
-        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAd", invoice_date_bs AS "invoiceDateBs", due_date_ad AS "dueDateAd", due_date_bs AS "dueDateBs", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching purchase invoices from DB:', err);
-    }
-  }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(store.purchaseInvoices.filter((inv) => inv.branchId === branchId));
-  }
-  res.json(store.purchaseInvoices);
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'invoices.list',
+    sql:
+      `SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId",
+              supplier_name AS "supplierName", branch_id AS "branchId",
+              invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS",
+              due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS",
+              taxable_amount AS "taxableAmount", vat_amount AS "vatAmount",
+              non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal",
+              payment_status AS "paymentStatus", amount_paid AS "amountPaid", items, notes
+       FROM purchase_invoices` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY created_at DESC NULLS LAST',
+    params: bf ? [bf] : [],
+    fallback: () =>
+      bf ? store.purchaseInvoices.filter((i) => i.branchId === bf) : store.purchaseInvoices,
+    map: (r) => ({
+      ...r,
+      taxableAmount: num(r.taxableAmount),
+      vatAmount: num(r.vatAmount),
+      nonTaxableAmount: num(r.nonTaxableAmount),
+      grandTotal: num(r.grandTotal),
+      amountPaid: num(r.amountPaid),
+      items: typeof r.items === 'string' ? JSON.parse(r.items || '[]') : r.items || [],
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('purchaseInvoices', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/purchase-invoices', async (req, res) => {

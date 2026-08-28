@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -70,56 +71,40 @@ import type {
 const router = Router();
 
 router.get('/api/customer-devices', async (req, res) => {
-  const { branchId, query } = req.query;
-
-  if (isPgConnected) {
-    try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
-      const params: any[] = [];
-      const conditions: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conditions.push(`branch_id = $${params.length}`);
-      }
-
-      if (query && typeof query === 'string' && query.trim()) {
-        params.push(`%${query.trim().toLowerCase()}%`);
-        conditions.push(`(LOWER(device_serial) LIKE $${params.length} OR LOWER(pon_serial) LIKE $${params.length} OR LOWER(mac_address) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(customer_code) LIKE $${params.length} OR LOWER(contact_phone) LIKE $${params.length})`);
-      }
-
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
-      sql += ' ORDER BY created_at DESC';
-
-      const r = await pgPool.query(sql, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching customer devices from DB:', err);
-    }
-  }
-
-  let list = store.customerDeviceRecords;
-
-  if (branchId && branchId !== 'ALL') {
-    list = list.filter((c) => c.branchId === branchId);
-  }
-
-  if (query && typeof query === 'string' && query.trim()) {
-    const q = query.toLowerCase().trim();
-    list = list.filter(
-      (c) =>
-        c.deviceSerial.toLowerCase().includes(q) ||
-        c.ponSerial.toLowerCase().includes(q) ||
-        (c.macAddress && c.macAddress.toLowerCase().includes(q)) ||
-        c.customerName.toLowerCase().includes(q) ||
-        c.customerCode.toLowerCase().includes(q) ||
-        c.contactPhone.toLowerCase().includes(q)
+  const { branchId, query } = req.query as any;
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const q = (query || '').toString().trim().toLowerCase();
+  let rows = await readPgOrStore<any>({
+    label: 'customerDevices.list',
+    sql:
+      `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode",
+              contact_phone AS "contactPhone", installation_address AS "installationAddress",
+              branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial",
+              pon_serial AS "ponSerial", mac_address AS "macAddress", status,
+              issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS",
+              purchase_bill_ref AS "purchaseBillRef", notes
+       FROM customer_device_records` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY issued_date_ad DESC NULLS LAST',
+    params: bf ? [bf] : [],
+    fallback: () =>
+      bf ? store.customerDeviceRecords.filter((d) => d.branchId === bf) : store.customerDeviceRecords,
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('customerDeviceRecords', rows as any);
+    },
+  });
+  if (q) {
+    rows = rows.filter(
+      (d: any) =>
+        (d.customerName || '').toLowerCase().includes(q) ||
+        (d.deviceSerial || '').toLowerCase().includes(q) ||
+        (d.ponSerial || '').toLowerCase().includes(q) ||
+        (d.macAddress || '').toLowerCase().includes(q) ||
+        (d.customerCode || '').toLowerCase().includes(q)
     );
   }
-
-  res.json(list);
+  res.json(rows);
 });
 
 router.post('/api/customer-devices', async (req, res) => {
@@ -336,63 +321,41 @@ router.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'BRANCH
 
 // Customer Master Database Endpoints
 router.get('/api/customers', async (req, res) => {
-  const { branchId, query } = req.query;
-
-  if (isPgConnected) {
-    try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records`;
-      const params: any[] = [];
-      const conditions: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conditions.push(`branch_id = $${params.length}`);
-      }
-
-      if (query && typeof query === 'string' && query.trim()) {
-        params.push(`%${query.trim().toLowerCase()}%`);
-        conditions.push(`(LOWER(customer_id) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(username) LIKE $${params.length} OR LOWER(contact_number) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(address) LIKE $${params.length})`);
-      }
-
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
-      sql += ' ORDER BY customer_name ASC';
-
-      const r = await pgPool.query(sql, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching customers from DB:', err);
-    }
-  }
-
-  // Dynamically calculate assignedDevicesCount from customerDeviceRecords
-  store.customerMasterRecords.forEach((c) => {
-    c.assignedDevicesCount = store.customerDeviceRecords.filter(
-      (d) => d.customerCode === c.customerId || d.customerId === c.id || d.customerName.toLowerCase() === c.customerName.toLowerCase()
-    ).length;
+  const { branchId, query } = req.query as any;
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const q = (query || '').toString().trim().toLowerCase();
+  let rows = await readPgOrStore<any>({
+    label: 'customers.list',
+    sql:
+      `SELECT id, customer_id AS "customerId", customer_name AS "customerName", username,
+              contact_number AS "contactNumber", branch_id AS "branchId", address, email, status,
+              credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount"
+       FROM customer_records` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY customer_name ASC',
+    params: bf ? [bf] : [],
+    fallback: () =>
+      bf ? store.customerMasterRecords.filter((c) => c.branchId === bf) : store.customerMasterRecords,
+    map: (r) => ({
+      ...r,
+      creditLimit: num(r.creditLimit, 0),
+      assignedDevicesCount: num(r.assignedDevicesCount, 0),
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('customerMasterRecords', rows as any);
+    },
   });
-
-  let list = store.customerMasterRecords;
-
-  if (branchId && branchId !== 'ALL') {
-    list = list.filter((c) => c.branchId === branchId);
-  }
-
-  if (query && typeof query === 'string' && query.trim()) {
-    const q = query.toLowerCase().trim();
-    list = list.filter(
-      (c) =>
-        c.customerId?.toLowerCase().includes(q) ||
-        c.customerName?.toLowerCase().includes(q) ||
-        c.username?.toLowerCase().includes(q) ||
-        c.contactNumber?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.address?.toLowerCase().includes(q)
+  if (q) {
+    rows = rows.filter(
+      (c: any) =>
+        (c.customerName || '').toLowerCase().includes(q) ||
+        (c.customerId || '').toLowerCase().includes(q) ||
+        (c.username || '').toLowerCase().includes(q) ||
+        (c.contactNumber || '').includes(q)
     );
   }
-
-  res.json(list);
+  res.json(rows);
 });
 
 router.post('/api/customers', async (req, res) => {

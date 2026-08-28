@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -71,17 +72,21 @@ const router = Router();
 
 router.get('/api/company-profile', async (req, res) => {
   try {
-    if (isPgConnected) {
-      const dbRes = await pgPool.query(
-        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
-      );
-      if (dbRes.rows.length > 0) {
-        return res.json(dbRes.rows[0]);
-      }
-    }
-    res.json(store.companyProfile);
+    const rows = await readPgOrStore<any>({
+      label: 'company.profile',
+      sql: `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website,
+                   pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber",
+                   logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol",
+                   default_tax_rate AS "defaultTaxRate", notes
+            FROM company_profile LIMIT 1`,
+      fallback: () => [store.companyProfile],
+      map: (r) => ({ ...r, defaultTaxRate: num(r.defaultTaxRate, 13) }),
+      onRows: (rows) => {
+        if (isPgConnected && rows[0]) store.setCompanyProfile(rows[0]);
+      },
+    });
+    res.json(rows[0] || store.companyProfile);
   } catch (err: any) {
-    console.error('Error fetching company profile:', err);
     res.json(store.companyProfile);
   }
 });

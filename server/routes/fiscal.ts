@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -70,22 +71,16 @@ import type {
 const router = Router();
 
 router.get('/api/fiscal-years', async (req, res) => {
-  try {
-    const result = await pgPool.query(
-      `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-              start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-              is_current AS "isCurrent", is_closed AS "isClosed"
-       FROM fiscal_years ORDER BY code ASC;`
-    );
-    if (result.rows.length > 0) {
-      return res.json(result.rows);
-    }
-  } catch (e: any) {
-    if (e?.code !== 'ECONNREFUSED' && !e?.message?.includes('ECONNREFUSED')) {
-      console.warn('PostgreSQL fiscal_years read notice:', e.message);
-    }
-  }
-  res.json(store.fiscalYears);
+  const rows = await readPgOrStore<any>({
+    label: 'fiscalYears.list',
+    sql: `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed"
+          FROM fiscal_years ORDER BY code ASC`,
+    fallback: () => store.fiscalYears,
+    onRows: (rows) => { if (isPgConnected && rows.length) store.replaceCollection('fiscalYears', rows as any); },
+  });
+  res.json(rows);
 });
 
 router.post('/api/fiscal-years/:id/set-current', async (req, res) => {

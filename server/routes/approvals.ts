@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
 import { validateBody, approvalCreateSchema, approvalProcessSchema } from '../lib/validate';
 import {
   snapshotStore,
@@ -71,40 +72,44 @@ import type {
 const router = Router();
 
 router.get('/api/approval-requests', async (req, res) => {
-  const { branchId, status } = req.query;
-  if (isPgConnected) {
-    try {
-      let sql = `SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS", processed_by_email AS "processedByEmail", processed_by_name AS "processedByName", processed_by_role AS "processedByRole", processed_at_ad AS "processedAtAD", processed_at_bs AS "processedAtBS", rejection_reason AS "rejectionReason" FROM approval_requests`;
-      const params: any[] = [];
-      const conds: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conds.push(`branch_id = $${params.length}`);
-      }
-      if (status && typeof status === 'string' && status !== 'ALL') {
-        params.push(status);
-        conds.push(`status = $${params.length}`);
-      }
-      if (conds.length > 0) {
-        sql += ` WHERE ` + conds.join(' AND ');
-      }
-      sql += ` ORDER BY requested_at_ad DESC`;
-      const r = await pgPool.query(sql, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching approval requests from DB:', err);
-    }
-  }
-
-  let list = store.approvalRequests;
-  if (branchId && branchId !== 'ALL') {
-    list = list.filter((r) => r.branchId === branchId);
-  }
-  if (status && typeof status === 'string' && status !== 'ALL') {
-    list = list.filter((r) => r.status === status);
-  }
-  res.json(list);
+  const { branchId, status } = req.query as any;
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const st = status && status !== 'ALL' ? String(status) : null;
+  const params: any[] = [];
+  const where: string[] = [];
+  if (bf) { params.push(bf); where.push(`branch_id = $${params.length}`); }
+  if (st) { params.push(st); where.push(`status = $${params.length}`); }
+  const sql =
+    `SELECT id, request_number AS "requestNumber", type, target_id AS "targetId",
+            customer_name AS "customerName", customer_code AS "customerCode",
+            device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName",
+            current_status AS "currentStatus", requested_status AS "requestedStatus",
+            requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail",
+            requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName",
+            reason, restock_qty_on_approval AS "restockQtyOnApproval", status,
+            requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS",
+            processed_by_email AS "processedByEmail", processed_by_name AS "processedByName",
+            processed_by_role AS "processedByRole", processed_at_ad AS "processedAtAD",
+            processed_at_bs AS "processedAtBS", rejection_reason AS "rejectionReason"
+     FROM approval_requests` +
+    (where.length ? ' WHERE ' + where.join(' AND ') : '') +
+    ' ORDER BY requested_at_ad DESC NULLS LAST';
+  const rows = await readPgOrStore<any>({
+    label: 'approvals.list',
+    sql,
+    params,
+    fallback: () => {
+      let list = [...store.approvalRequests];
+      if (bf) list = list.filter((a) => a.branchId === bf);
+      if (st) list = list.filter((a) => a.status === st);
+      return list;
+    },
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf && !st) store.replaceCollection('approvalRequests', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/approval-requests', validateBody(approvalCreateSchema), async (req, res) => {

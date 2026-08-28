@@ -516,23 +516,35 @@ router.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'INVENTORY_
 // Fixed Assets
 router.get('/api/assets', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      const q =
-        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching assets from DB:', err);
-    }
-  }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(store.assetRegister.filter((a) => a.branchId === branchId));
-  }
-  res.json(store.assetRegister);
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'assets.list',
+    sql:
+      `SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId",
+              acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS",
+              acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod",
+              depreciation_rate_percent AS "depreciationRatePercent",
+              accumulated_depreciation AS "accumulatedDepreciation",
+              net_book_value AS "netBookValue", status, supplier_name AS "supplierName",
+              invoice_no AS "invoiceNo", product_id AS "productId"
+       FROM fixed_assets` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY tag_number ASC',
+    params: bf ? [bf] : [],
+    fallback: () => (bf ? store.assetRegister.filter((a) => a.branchId === bf) : store.assetRegister),
+    map: (r) => ({
+      ...r,
+      acquisitionCost: num(r.acquisitionCost),
+      depreciationRatePercent: num(r.depreciationRatePercent),
+      accumulatedDepreciation: num(r.accumulatedDepreciation),
+      netBookValue: num(r.netBookValue),
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('assetRegister', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/assets', async (req, res) => {

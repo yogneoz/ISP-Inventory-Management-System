@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -70,15 +71,13 @@ import type {
 const router = Router();
 
 router.get('/api/uom', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC');
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching UOM from DB:', err);
-    }
-  }
-  res.json(store.uomList);
+  const rows = await readPgOrStore<any>({
+    label: 'uom.list',
+    sql: 'SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC',
+    fallback: () => store.uomList,
+    onRows: (rows) => { if (isPgConnected) store.replaceCollection('uomList', rows as any); },
+  });
+  res.json(rows);
 });
 
 router.post('/api/uom', async (req, res) => {
@@ -164,20 +163,30 @@ router.delete('/api/uom/:id', async (req, res) => {
 // Locations
 router.get('/api/locations', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      const q = 'SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations' +
-                (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') + ' ORDER BY name ASC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching locations from DB:', err);
-    }
-  }
-  let list = store.locationRecords;
-  if (branchId && branchId !== 'ALL') list = list.filter((l) => l.branchId === branchId);
-  res.json(list);
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'locations.list',
+    sql:
+      'SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations' +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY name ASC',
+    params: bf ? [bf] : [],
+    fallback: () => (bf ? store.locationRecords.filter((l) => l.branchId === bf) : store.locationRecords),
+    map: (r) => ({
+      ...r,
+      coordinates: typeof r.coordinates === 'string' ? JSON.parse(r.coordinates || 'null') : r.coordinates,
+      activeAssetsCount: num(r.activeAssetsCount, 0),
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('locationRecords', rows as any);
+      else {
+        const others = store.locationRecords.filter((l) => l.branchId !== bf);
+        store.replaceCollection('locationRecords', [...others, ...(rows as any)]);
+      }
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/locations', async (req, res) => {
@@ -296,18 +305,17 @@ router.delete('/api/locations/:id', async (req, res) => {
 
 // Company Profile API
 router.get('/api/company-profile', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
-      if (r.rows.length > 0) {
-        store.setCompanyProfile(r.rows[0]);
-        return res.json(r.rows[0]);
-      }
-    } catch (err) {
-      console.error('Error fetching company profile from DB:', err);
-    }
-  }
-  res.json(store.companyProfile);
+  const rows = await readPgOrStore<any>({
+    label: 'company.profile.masters',
+    sql: `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website,
+                 pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber",
+                 logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol",
+                 default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`,
+    fallback: () => [store.companyProfile],
+    map: (r) => ({ ...r, defaultTaxRate: num(r.defaultTaxRate, 13) }),
+    onRows: (rows) => { if (isPgConnected && rows[0]) store.setCompanyProfile(rows[0]); },
+  });
+  res.json(rows[0] || store.companyProfile);
 });
 
 router.put('/api/company-profile', async (req, res) => {
@@ -372,15 +380,13 @@ router.put('/api/company-profile', async (req, res) => {
 
 // Branches
 router.get('/api/branches', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY name ASC');
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error querying branches from DB:', err);
-    }
-  }
-  res.json(store.branches);
+  const rows = await readPgOrStore<any>({
+    label: 'branches.list',
+    sql: 'SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY name ASC',
+    fallback: () => store.branches,
+    onRows: (rows) => { if (isPgConnected) store.replaceCollection('branches', rows as any); },
+  });
+  res.json(rows);
 });
 
 router.post('/api/branches', async (req, res) => {
@@ -475,15 +481,14 @@ router.delete('/api/branches/:id', async (req, res) => {
 
 // Suppliers
 router.get('/api/suppliers', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error querying suppliers from DB:', err);
-    }
-  }
-  res.json(store.suppliers);
+  const rows = await readPgOrStore<any>({
+    label: 'suppliers.list',
+    sql: 'SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC',
+    fallback: () => store.suppliers,
+    map: (r) => ({ ...r, rating: num(r.rating, 5) }),
+    onRows: (rows) => { if (isPgConnected) store.replaceCollection('suppliers', rows as any); },
+  });
+  res.json(rows);
 });
 
 router.post('/api/suppliers', async (req, res) => {
@@ -580,18 +585,12 @@ router.delete('/api/suppliers/:id', async (req, res) => {
 
 // Users
 router.get('/api/users', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query(
-        'SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC'
-      );
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching users from DB:', err);
-    }
-  }
-  const safeUsers = store.users.map(({ password: _, ...u }) => u);
-  res.json(safeUsers);
+  const rows = await readPgOrStore<any>({
+    label: 'users.list',
+    sql: 'SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC',
+    fallback: () => store.users.map(({ password: _p, ...u }) => u),
+  });
+  res.json(rows.map(({ password: _p, ...u }) => u));
 });
 
 router.post('/api/users', requireRole('SUPER_ADMIN'), async (req, res) => {

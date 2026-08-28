@@ -63,49 +63,9 @@ import {
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { ProductSearchBar } from './ProductSearchBar';
+import { resolveStockOpsTab, type StockOpsTab, type StockOperationsProps } from './stockOps/types';
 
-interface StockOperationsProps {
-  operations: StockOperation[];
-  products: Product[];
-  branches: Branch[];
-  stock?: InventoryStock[];
-  selectedBranchId: string;
-  dateMode: 'BS' | 'AD';
-  initialType?: string;
-  autoOpenModal?: boolean;
-  isDarkMode?: boolean;
-  currentUser?: User | null;
-  shipments?: Shipment[];
-  assets?: Asset[];
-  locations?: LocationRecord[];
-  customers?: CustomerRecord[];
-  customerDevices?: CustomerDeviceRecord[];
-  approvalRequests?: ApprovalRequest[];
-  onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
-  onReceiveOperation?: (id: string) => Promise<void>;
-  onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
-  onReceiveShipment?: (
-    id: string,
-    verificationData?: {
-      receivedItems?: {
-        itemId: string;
-        quantityReceived: number;
-        receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
-        itemDiscrepancyNotes?: string;
-      }[];
-      receivedByNotes?: string;
-    }
-  ) => Promise<void>;
-  onCancelReceiveShipment?: (id: string, reason?: string) => Promise<void>;
-  onRequestApproval?: (
-    requestData: Omit<
-      ApprovalRequest,
-      'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'
-    >
-  ) => Promise<void>;
-  onCancelApproval?: (id: string) => Promise<void>;
-  onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
-}
+
 
 export const StockOperations: React.FC<StockOperationsProps> = ({
   operations,
@@ -140,24 +100,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
-    if (initialType === 'DEVICE_EXCHANGE') return 'DEVICE_EXCHANGE';
-    if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
-    if (initialType === 'DAMAGE') return 'DAMAGE_TRACKING';
-    if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
-    if (initialType === 'CREATE_TRANSFER' || initialType === 'TRANSFER') return 'CREATE_TRANSFER';
-    if (initialType === 'ASSIGN_ASSET' || initialType === 'ASSIGN') return 'ASSIGN_ASSET';
-    if (initialType === 'STOCK_OUT' || initialType === 'PRODUCT_SALE') return 'PRODUCT_SALE';
-    if (initialType === 'LOGS') return 'LOGS';
-    return 'PULLOUT_BINS';
-  };
-
-  const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
-  >(getInitialTab());
+  const [activeTab, setActiveTab] = useState<StockOpsTab>(() => resolveStockOpsTab(initialType));
 
   useEffect(() => {
-    setActiveTab(getInitialTab());
+    setActiveTab(resolveStockOpsTab(initialType));
   }, [initialType]);
 
   // Filter state

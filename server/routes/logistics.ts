@@ -72,17 +72,35 @@ import type {
 const router = Router();
 
 router.get('/api/shipments', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query(
-        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
-      );
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching shipments from DB:', err);
-    }
-  }
-  res.json(store.shipments);
+  const { branchId } = req.query;
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'shipments.list',
+    sql:
+      `SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName",
+              destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName",
+              dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS",
+              estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items,
+              received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD",
+              received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy"
+       FROM shipments` +
+      (bf ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : '') +
+      ' ORDER BY created_at DESC NULLS LAST',
+    params: bf ? [bf] : [],
+    fallback: () =>
+      bf
+        ? store.shipments.filter((s) => s.sourceBranchId === bf || s.destinationBranchId === bf)
+        : store.shipments,
+    map: (r) => ({
+      ...r,
+      items: typeof r.items === 'string' ? JSON.parse(r.items || '[]') : r.items || [],
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('shipments', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/shipments', validateBody(shipmentCreateSchema), async (req, res) => {
@@ -354,25 +372,37 @@ router.post('/api/shipments/:id/cancel-receive', (req, res) => {
 // Stock Operations (Pullout Bins, Damage Tagging & Adjustments)
 router.get('/api/stock-operations', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      const q =
-        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1 OR destination_warehouse_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching stock ops from DB:', err);
-    }
-  }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(
-      store.stockOperations.filter((op) => op.branchId === branchId || op.destinationWarehouseId === branchId)
-    );
-  }
-  res.json(store.stockOperations);
+  const bf = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  const rows = await readPgOrStore<any>({
+    label: 'stockOps.list',
+    sql:
+      `SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName",
+              work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName",
+              destination_warehouse_id AS "destinationWarehouseId",
+              destination_warehouse_name AS "destinationWarehouseName",
+              product_id AS "productId", quantity_changed AS "quantityChanged",
+              cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason,
+              inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS",
+              fiscal_year AS "fiscalYear", status, items
+       FROM stock_operations` +
+      (bf ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY created_at DESC NULLS LAST',
+    params: bf ? [bf] : [],
+    fallback: () =>
+      bf ? store.stockOperations.filter((o) => o.branchId === bf) : store.stockOperations,
+    map: (r) => ({
+      ...r,
+      quantityChanged: num(r.quantityChanged),
+      costPerUnit: num(r.costPerUnit),
+      totalValue: num(r.totalValue),
+      items: typeof r.items === 'string' ? JSON.parse(r.items || 'null') : r.items,
+    }),
+    onRows: (rows) => {
+      if (!isPgConnected) return;
+      if (!bf) store.replaceCollection('stockOperations', rows as any);
+    },
+  });
+  res.json(rows);
 });
 
 router.post('/api/stock-operations', async (req, res) => {
