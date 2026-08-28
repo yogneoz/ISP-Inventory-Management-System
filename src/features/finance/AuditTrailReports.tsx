@@ -19,7 +19,6 @@ import {
   Receipt,
   Download,
   Printer,
-  Sparkles,
 } from 'lucide-react';
 
 interface AuditTrailReportsProps {
@@ -31,7 +30,6 @@ interface AuditTrailReportsProps {
   assets: Asset[];
   invoices: PurchaseInvoice[];
   dateMode: 'BS' | 'AD';
-  onOpenAiModal: () => void;
   isDarkMode?: boolean;
 }
 
@@ -44,7 +42,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   assets,
   invoices,
   dateMode,
-  onOpenAiModal,
   isDarkMode = false,
 }) => {
   const [subTab, setSubTab] = useState<
@@ -83,13 +80,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenAiModal}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-md hover:brightness-110 transition-all cursor-pointer"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-            <span>AI Activity Analysis</span>
-          </button>
           <button
             onClick={handlePrintReport}
             className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${

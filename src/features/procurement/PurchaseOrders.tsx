@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier, User } from '../../types';
+import { PurchaseOrder, PurchaseInvoice, Product, Branch, POLineItem, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
@@ -37,6 +37,8 @@ import {
 } from 'lucide-react';
 
 interface PurchaseOrdersProps {
+  companyProfile?: CompanyProfile | null;
+  purchaseInvoices?: PurchaseInvoice[];
   currentUser?: User | null;
   purchaseOrders: PurchaseOrder[];
   products: Product[];
@@ -68,6 +70,8 @@ export interface OrderFormLine {
 }
 
 export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
+  companyProfile,
+  purchaseInvoices = [],
   currentUser,
   purchaseOrders,
   products,
@@ -315,7 +319,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       (po?.poNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
       (po?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
     return matchesBranch && matchesSupplier && matchesSearch;
-  });
+  }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''));
 
   const addLine = () => {
     const existingIds = new Set(lines.map((l) => l.productId));
@@ -377,24 +381,29 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
     const todayAD = new Date().toISOString().split('T')[0];
     const bsObj = convertADToBS(todayAD);
+    const appliedBillDiscount = Math.min(grossSubtotal, Math.max(0, billWiseDiscount));
 
     const items: POLineItem[] = lines.map((l, idx) => {
       const prod = products.find((p) => p.id === l.productId);
       const lineTotal = l.quantity * l.unitPrice;
+      const lineDiscount = grossSubtotal > 0 ? (lineTotal / grossSubtotal) * appliedBillDiscount : 0;
+      const netLineTotal = Math.max(0, lineTotal - lineDiscount);
+      const lineTax = taxationType === 'TAX_EXEMPTED' ? 0 : (netLineTotal * 13) / 100;
       return {
         id: `poi-${Date.now()}-${idx}`,
         productId: l.productId,
+        productGroup: prod?.productGroup,
         productName: prod?.name || 'Item',
         sku: prod?.sku || 'SKU',
         unit: prod?.unit || 'Pcs',
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
-        discount: 0,
+        discount: lineDiscount,
         isTaxExempt: taxationType === 'TAX_EXEMPTED',
         taxRate: taxationType === 'TAX_EXEMPTED' ? 0 : 13,
-        subtotal: lineTotal,
-        taxAmount: 0,
-        total: lineTotal,
+        subtotal: netLineTotal,
+        taxAmount: lineTax,
+        total: lineTotal + lineTax,
       };
     });
 
@@ -698,6 +707,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <th className="p-3.5">Branch</th>
                     <th className="p-3.5">Order Date</th>
                     <th className="p-3.5">Expected Delivery</th>
+                    <th className="p-3.5">Vendor Bill #</th>
+                    <th className="p-3.5">Vendor Bill Date</th>
                     <th className="p-3.5 text-center">Items</th>
                     <th className="p-3.5 text-right">Subtotal</th>
                     <th className="p-3.5 text-right">13% VAT</th>
@@ -709,13 +720,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
                   {filteredPOs.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="p-10 text-center text-slate-400 italic">
+                      <td colSpan={13} className="p-10 text-center text-slate-400 italic">
                         No purchase orders found matching the filter criteria. Click "Create Purchase Order" above to issue a new PO.
                       </td>
                     </tr>
                   ) : (
                     filteredPOs.map((po) => {
                       const branch = branches.find((b) => b.id === po.branchId);
+                      const linkedInvoice = purchaseInvoices.find((invoice) => invoice.poReferenceId === po.id || invoice.poReferenceId === po.poNumber);
                       const isPending =
                         po.status === 'SENT' ||
                         po.status === 'APPROVED' ||
@@ -743,6 +755,12 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                           </td>
                           <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                             {formatDualDate(po.expectedDeliveryDateAD, dateMode)}
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-600 dark:text-slate-300">
+                            {linkedInvoice?.vendorBillNumber || '—'}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {linkedInvoice ? formatDualDate(linkedInvoice.invoiceDateAD, dateMode) : '—'}
                           </td>
                           <td className="p-3.5 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
                             {po.items.length} item(s)
@@ -1029,7 +1047,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 >
                   {getAllowedBranches(currentUser, branches).map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} ({b.location})
+                      {b.name} ({b.code})
                     </option>
                   ))}
                 </select>
@@ -1346,6 +1364,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
           {/* Top Document Header */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
+              <div className="mb-3">
+                <h2 className="text-lg font-serif font-extrabold text-slate-900 dark:text-white">{companyProfile?.name || 'Company profile not configured'}</h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">{companyProfile?.address || 'Registered address unavailable'}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">PAN/VAT: {companyProfile?.panVatNumber || 'Not configured'}{companyProfile?.phone ? ` | ${companyProfile.phone}` : ''}</p>
+              </div>
               <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">
                 <FileText className="h-4 w-4" />
                 <span>Official Purchase Order Document</span>

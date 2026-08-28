@@ -1,8 +1,7 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import pg from 'pg';
 import {
@@ -31,7 +30,7 @@ import {
 
 dotenv.config();
 
-import { pgPool, realPoolInstance } from './server/db';
+import { pgPool, realPoolInstance, setIsPgConnected, getIsPgConnected } from './server/db';
 let isPgConnected = false;
 
 const app = express();
@@ -42,33 +41,31 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/__aistudio_internal_control_plane/dev/status', (req, res) => {
-  res.json({ status: 'ok', dev: true });
-});
-
-app.get('/__aistudio_internal_control_plane/*', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
 // Global Backend Authentication Middleware for all API routes
 app.use('/api', authenticateUser);
+app.use('/api', (req, res, next) => {
+  const publicRoutes = new Set([
+    '/auth/setup-status',
+    '/auth/setup-superadmin',
+    '/auth/forgot-password',
+    '/auth/login',
+    '/db/status',
+    '/health',
+    '/sync/stream',
+    '/sync/version',
+  ]);
+  if (publicRoutes.has(req.path)) return next();
+  return requireAuth(req, res, next);
+});
+app.use('/api', requirePostgres);
 
-const PORT = 3000;
-
-// Initialize Gemini API client lazily when API key exists
-function getGenAIClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-    return null;
-  }
-  return new GoogleGenAI({ apiKey });
-}
+const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
 // ==========================================
-// IN-MEMORY DATABASE STATE & PRE-SEEDED DATA
+// RUNTIME STATE & POSTGRESQL DATA HYDRATION
 // ==========================================
 
-// Master Store Variables (dynamically populated from PostgreSQL database or persistent store)
+// Runtime mirrors hydrated from PostgreSQL for request processing and broadcasts.
 let users: User[] = [];
 let suppliers: Supplier[] = [];
 let uomList: UnitOfMeasure[] = [];
@@ -246,7 +243,6 @@ let stockOperations: StockOperation[] = [];
 let auditTrail: AuditLog[] = [];
 let transactionLogs: TransactionLog[] = [];
 let approvalRequests: ApprovalRequest[] = [];
-let isDemoDataCleared = false;
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -520,116 +516,37 @@ function generateDemoDataset() {
   };
 }
 
-// ==========================================
-// PERSISTENT JSON STORE HELPER
-// ==========================================
-const DATA_FILE_PATH = path.join(process.cwd(), '.data_store.json');
+// Active user session mirror; authentication always reads PostgreSQL.
+let activeUser: User | null = null;
 
-function saveDataStore() {
+const PASSWORD_HASH_PREFIX = 'scrypt$';
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(password, salt, 64);
+  return `${PASSWORD_HASH_PREFIX}${salt}$${derivedKey.toString('hex')}`;
+}
+
+function verifyPassword(password: string, storedPassword: string): { valid: boolean; upgradedHash?: string } {
+  if (!storedPassword) return { valid: false };
+
+  if (!storedPassword.startsWith(PASSWORD_HASH_PREFIX)) {
+    return { valid: password === storedPassword, upgradedHash: password === storedPassword ? hashPassword(password) : undefined };
+  }
+
+  const [, salt, storedHash] = storedPassword.split('$');
+  if (!salt || !storedHash) return { valid: false };
+
   try {
-    const payload = {
-      isDemoDataCleared,
-      users,
-      branches,
-      suppliers,
-      companyProfile,
-      fiscalYears,
-      uomList,
-      locationRecords,
-      products,
-      inventoryStock,
-      assetRegister,
-      customerDeviceRecords,
-      customerMasterRecords,
-      purchaseOrders,
-      purchaseInvoices,
-      shipments,
-      stockOperations,
-      auditTrail,
-      transactionLogs,
-      approvalRequests,
+    const derivedKey = crypto.scryptSync(password, salt, 64);
+    const expectedHash = Buffer.from(storedHash, 'hex');
+    return {
+      valid: expectedHash.length === derivedKey.length && crypto.timingSafeEqual(expectedHash, derivedKey),
     };
-    fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(payload, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Data persistence note:', err);
+  } catch (_err) {
+    return { valid: false };
   }
 }
-
-function loadDataStore() {
-  try {
-    if (fs.existsSync(DATA_FILE_PATH)) {
-      const raw = fs.readFileSync(DATA_FILE_PATH, 'utf-8');
-      const data = JSON.parse(raw);
-      if (typeof data.isDemoDataCleared === 'boolean') {
-        isDemoDataCleared = data.isDemoDataCleared;
-      }
-      if (data.companyProfile && typeof data.companyProfile === 'object') {
-        companyProfile = { ...companyProfile, ...data.companyProfile };
-      }
-      if (Array.isArray(data.users) && data.users.length > 0) users = data.users;
-      if (Array.isArray(data.branches) && data.branches.length > 0) branches = data.branches;
-      if (Array.isArray(data.suppliers)) suppliers = data.suppliers;
-      if (Array.isArray(data.fiscalYears) && data.fiscalYears.length > 0) fiscalYears = data.fiscalYears;
-      if (Array.isArray(data.uomList) && data.uomList.length > 0) uomList = data.uomList;
-      if (Array.isArray(data.locationRecords) && data.locationRecords.length > 0) locationRecords = data.locationRecords;
-      if (Array.isArray(data.products)) products = data.products;
-      if (Array.isArray(data.inventoryStock)) inventoryStock = data.inventoryStock;
-      if (Array.isArray(data.assetRegister)) assetRegister = data.assetRegister;
-      if (Array.isArray(data.customerDeviceRecords)) customerDeviceRecords = data.customerDeviceRecords;
-      if (Array.isArray(data.customerMasterRecords)) customerMasterRecords = data.customerMasterRecords;
-      if (Array.isArray(data.purchaseOrders)) purchaseOrders = data.purchaseOrders;
-      if (Array.isArray(data.purchaseInvoices)) purchaseInvoices = data.purchaseInvoices;
-      if (Array.isArray(data.shipments)) shipments = data.shipments;
-      if (Array.isArray(data.stockOperations)) stockOperations = data.stockOperations;
-      if (Array.isArray(data.auditTrail)) auditTrail = data.auditTrail;
-      if (Array.isArray(data.transactionLogs)) transactionLogs = data.transactionLogs;
-      if (Array.isArray(data.approvalRequests)) approvalRequests = data.approvalRequests;
-      
-      if (branches.length === 0) branches = [...INITIAL_MASTER_BRANCHES];
-      if (fiscalYears.length === 0) fiscalYears = [...INITIAL_MASTER_FISCAL_YEARS];
-      if (uomList.length === 0) uomList = [...INITIAL_MASTER_UOM];
-      if (locationRecords.length === 0) locationRecords = [...INITIAL_MASTER_LOCATIONS];
-      if (suppliers.length === 0) suppliers = [...INITIAL_MASTER_SUPPLIERS];
-      console.log('✅ Persistent database store loaded successfully with', users.length, 'registered users. isDemoDataCleared:', isDemoDataCleared);
-    } else {
-      branches = [...INITIAL_MASTER_BRANCHES];
-      fiscalYears = [...INITIAL_MASTER_FISCAL_YEARS];
-      uomList = [...INITIAL_MASTER_UOM];
-      locationRecords = [...INITIAL_MASTER_LOCATIONS];
-      suppliers = [...INITIAL_MASTER_SUPPLIERS];
-      // If data store file does not exist, check if SEED_DUMMY_DATA=true is explicitly set
-      if (process.env.SEED_DUMMY_DATA === 'true') {
-        console.log('🌱 Initializing sample demo dataset...');
-        const demo = generateDemoDataset();
-        suppliers = demo.suppliers;
-        products = demo.products;
-        inventoryStock = demo.inventoryStock;
-        assetRegister = demo.assetRegister;
-        purchaseOrders = demo.purchaseOrders;
-        purchaseInvoices = demo.purchaseInvoices;
-        shipments = demo.shipments;
-        stockOperations = demo.stockOperations;
-        auditTrail = demo.auditTrail;
-        transactionLogs = demo.transactionLogs;
-        customerMasterRecords = demo.customerMasterRecords;
-        customerDeviceRecords = demo.customerDeviceRecords;
-        approvalRequests = demo.approvalRequests;
-        isDemoDataCleared = false;
-      } else {
-        isDemoDataCleared = true;
-      }
-      saveDataStore();
-    }
-  } catch (err) {
-    console.error('Error loading persistent data store:', err);
-  }
-}
-
-// Hydrate from persistent store on startup
-loadDataStore();
-
-// Active user session simulation
-let activeUser: User | null = users[0] || null;
 
 // Extract triggering user details from request headers or body or activeUser
 function getUserFromReq(req: any) {
@@ -639,26 +556,26 @@ function getUserFromReq(req: any) {
     req.body?.user?.email ||
     req.body?.currentUser?.email ||
     activeUser?.email ||
-    'admin@izone.net.np';
+    '';
   const name =
     (req.headers['x-user-name'] as string) ||
     req.body?.userName ||
     req.body?.user?.name ||
     req.body?.currentUser?.name ||
     activeUser?.name ||
-    'Shrestha Administrator';
+    '';
   const role =
     (req.headers['x-user-role'] as string) ||
     req.body?.userRole ||
     req.body?.user?.role ||
     activeUser?.role ||
-    'SUPER_ADMIN';
+    '';
   const branchId =
     (req.headers['x-user-branch'] as string) ||
     req.body?.branchId ||
     req.body?.user?.branchId ||
     activeUser?.branchId ||
-    'WH001';
+    '';
 
   return { email, name, role, branchId };
 }
@@ -708,6 +625,15 @@ async function withTransaction<T>(
  */
 function authenticateUser(req: any, _res: any, next: any) {
   req.user = getUserFromReq(req);
+  next();
+}
+
+function requirePostgres(_req: any, res: any, next: any) {
+  if (!isPgConnected || !getIsPgConnected() || !realPoolInstance) {
+    return res.status(503).json({
+      message: 'PostgreSQL is unavailable. Start the database and verify the connection settings before using the application.',
+    });
+  }
   next();
 }
 
@@ -861,8 +787,8 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAd", order_date_bs AS "orderDateBs", expected_delivery_date_ad AS "expectedDeliveryDateAd", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAd", invoice_date_bs AS "invoiceDateBs", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments' + (bId ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, code, start_date_ad AS "startDateAd", end_date_ad AS "endDateAd", start_date_bs AS "startDateBs", end_date_bs AS "endDateBs", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
@@ -942,95 +868,19 @@ app.get('/api/bootstrap', async (req, res) => {
         serverTime: new Date().toISOString(),
         dataVersion,
       });
-    } catch (pgErr) {
-      console.error('PostgreSQL query note in /api/bootstrap, using in-memory store:', pgErr);
+    } catch (pgErr: any) {
+      isPgConnected = false;
+      setIsPgConnected(false);
+      console.error('PostgreSQL bootstrap query failed:', pgErr?.message || pgErr);
+      return res.status(503).json({
+        message: 'PostgreSQL became unavailable while loading application data. Restart the database and try again.',
+      });
     }
   }
-
-  let targetStock = inventoryStock;
-  let targetAssets = assetRegister;
-  let targetDevices = customerDeviceRecords;
-  let targetCustomers = customerMasterRecords;
-  let targetPOs = purchaseOrders;
-  let targetInvoices = purchaseInvoices;
-  let targetShipments = shipments;
-  let targetOps = stockOperations;
-  let targetApprovals = approvalRequests;
-
-  if (bId) {
-    targetAssets = assetRegister.filter((a) => a.branchId === bId);
-    targetDevices = customerDeviceRecords.filter((d) => d.branchId === bId);
-    targetCustomers = customerMasterRecords.filter((c) => c.branchId === bId);
-    targetPOs = purchaseOrders.filter((p) => p.branchId === bId);
-    targetInvoices = purchaseInvoices.filter((i) => i.branchId === bId);
-    targetShipments = shipments.filter((s) => s.sourceBranchId === bId || s.destinationBranchId === bId);
-    targetOps = stockOperations.filter((o) => o.branchId === bId);
-    targetApprovals = approvalRequests.filter((a) => a.branchId === bId);
-  }
-
-  const finTargetStock = bId ? inventoryStock.filter((s) => s.branchId === bId) : inventoryStock;
-  const finTargetAssets = targetAssets;
-  const finTargetInvoices = targetInvoices;
-  const finTargetOps = targetOps;
-
-  const totalInventoryAssetValue = finTargetStock.reduce((sum, item) => {
-    const prod = products.find((p) => p.id === item.productId);
-    return sum + (prod ? prod.costPrice * item.quantityOnHand : 0);
-  }, 0);
-
-  const totalFixedAssetValue = finTargetAssets.reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
-  const totalAccountsPayable = finTargetInvoices.reduce(
-    (sum, inv) => sum + Math.max(0, (inv.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
-    0
-  );
-  const totalDamageLossValue = finTargetOps.reduce((sum, op) => sum + (op.totalValue ?? 0), 0);
-  const totalVatInputTax = finTargetInvoices.reduce((sum, inv) => sum + (inv.vatAmount ?? 0), 0);
-  const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
-
-  const financialSummary = {
-    totalInventoryAssetValue,
-    totalFixedAssetValue,
-    totalAccountsPayable,
-    totalCostOfGoodsSold: 450000,
-    totalDamageLossValue,
-    totalVatInputTax,
-    currentFiscalYear: currentFy,
-  };
-
-  const safeUsers = users.map(({ password: _, ...u }) => u);
-
-  res.setHeader('Cache-Control', 'private, no-cache');
-  res.json({
-    branches,
-    products,
-    stock: targetStock,
-    assets: targetAssets,
-    customerDevices: targetDevices,
-    customers: targetCustomers,
-    purchaseOrders: targetPOs,
-    purchaseInvoices: targetInvoices,
-    shipments: targetShipments,
-    stockOperations: targetOps,
-    fiscalYears,
-    auditLogs: auditTrail.slice(0, 200),
-    transactionLogs: transactionLogs.slice(0, 300),
-    financialSummary,
-    suppliers,
-    users: safeUsers,
-    approvalRequests: targetApprovals,
-    categories,
-    companyProfile,
-    postgresDatabaseStatus: {
-      isConnected: isPgConnected,
-      host: process.env.POSTGRES_HOST || 'localhost',
-      port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
-      database: process.env.POSTGRES_DB || 'inventory_db',
-      user: process.env.POSTGRES_USER || 'inventory_user',
-      engine: isPgConnected ? 'PostgreSQL Server (External/Self-Hosted)' : 'PostgreSQL Standby'
-    },
-    serverTime: new Date().toISOString(),
-    dataVersion,
+  return res.status(503).json({
+    message: 'PostgreSQL is unavailable. Start the database and try again.',
   });
+
 });
 
 // Database Health & Connection Check Endpoint
@@ -1106,10 +956,7 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
     transactionLogs.length = 0;
     approvalRequests.length = 0;
     suppliers.length = 0;
-    isDemoDataCleared = true;
-
-    // Persist operational purge while strictly keeping users, branches, fiscalYears
-    saveDataStore();
+    // Operational data is cleared in PostgreSQL while users, branches, and fiscal years remain intact.
 
     dataVersion++;
     sseClients.forEach((client) => {
@@ -1187,9 +1034,25 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
              can_switch_user = true
            WHERE id = $6
            RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-          [cleanEmail, password, name.trim(), hqBranchId, allowedBranches, targetId]
+          [cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches, targetId]
         );
         savedUser = upRes.rows[0];
+        if (!savedUser) {
+          const retryRes = await pgPool.query(
+            `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
+             VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true)
+             ON CONFLICT (email) DO UPDATE SET
+               password = EXCLUDED.password,
+               name = EXCLUDED.name,
+               role = 'SUPER_ADMIN',
+               branch_id = EXCLUDED.branch_id,
+               allowed_branch_ids = EXCLUDED.allowed_branch_ids,
+               can_switch_user = true
+             RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
+            [targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches]
+          );
+          savedUser = retryRes.rows[0];
+        }
       } else {
         const insRes = await pgPool.query(
           `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
@@ -1202,9 +1065,13 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
              allowed_branch_ids = EXCLUDED.allowed_branch_ids,
              can_switch_user = true
            RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-          [targetId, cleanEmail, password, name.trim(), hqBranchId, allowedBranches]
+          [targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches]
         );
         savedUser = insRes.rows[0];
+      }
+
+      if (!savedUser) {
+        throw new Error('Database did not return the Super Admin record after setup. Verify the users table schema and database connection.');
       }
 
       const idx = users.findIndex((u) => u.id === savedUser.id || u.email.toLowerCase() === cleanEmail || u.role === 'SUPER_ADMIN');
@@ -1212,47 +1079,34 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
       else users.unshift(savedUser);
 
       activeUser = savedUser;
-      saveDataStore();
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
 
       const { password: _, ...userWithoutPass } = savedUser;
       return res.status(201).json({ user: userWithoutPass, token: `session-token-${savedUser.id}` });
     } catch (err: any) {
       console.error('Error setting up Super Admin in DB:', err);
+      return res.status(503).json({
+        message: 'Unable to set up Super Admin because PostgreSQL is unavailable. Try again when the database is online.',
+      });
     }
   }
 
-  const existingIdx = users.findIndex((u) => u.email.toLowerCase() === cleanEmail || u.role === 'SUPER_ADMIN');
-  let newSuperAdmin: User;
-  if (existingIdx !== -1) {
-    users[existingIdx].name = name.trim();
-    users[existingIdx].email = cleanEmail;
-    users[existingIdx].password = password;
-    users[existingIdx].role = 'SUPER_ADMIN';
-    users[existingIdx].branchId = hqBranchId;
-    users[existingIdx].allowedBranchIds = allowedBranches;
-    users[existingIdx].canSwitchUser = true;
-    newSuperAdmin = users[existingIdx];
-  } else {
-    newSuperAdmin = {
-      id: targetId,
-      email: cleanEmail,
-      password,
-      name: name.trim(),
-      role: 'SUPER_ADMIN' as const,
-      branchId: hqBranchId,
-      allowedBranchIds: allowedBranches,
-      canSwitchUser: true,
-    };
-    users.unshift(newSuperAdmin);
-  }
-
-  saveDataStore();
-  activeUser = newSuperAdmin;
-  logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
-
-  const { password: _, ...userWithoutPass } = newSuperAdmin;
-  res.status(201).json({ user: userWithoutPass, token: `session-token-${newSuperAdmin.id}` });
+  const existingUser = users.find((u) => u.email.toLowerCase() === cleanEmail || u.role === 'SUPER_ADMIN');
+  const localUser: User = {
+    id: existingUser?.id || targetId,
+    email: cleanEmail,
+    password: hashPassword(password),
+    name: name.trim(),
+    role: 'SUPER_ADMIN',
+    branchId: hqBranchId,
+    allowedBranchIds: allowedBranches,
+    canSwitchUser: true,
+  };
+  if (existingUser) users[users.indexOf(existingUser)] = localUser;
+  else users.unshift(localUser);
+  activeUser = localUser;
+  const { password: _, ...localUserWithoutPass } = localUser;
+  return res.status(201).json({ user: localUserWithoutPass, token: `session-token-${localUser.id}` });
 });
 
 app.post('/api/auth/forgot-password', (req, res) => {
@@ -1276,29 +1130,44 @@ app.post('/api/auth/forgot-password', (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
-  if (isPgConnected) {
-    try {
+  try {
+    if (isPgConnected) {
       const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) AND password = $2',
-        [email, password]
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1)',
+        [cleanEmail]
       );
-      if (dbRes.rows.length > 0) {
-        const dbUser = dbRes.rows[0];
-        activeUser = dbUser;
-        const { password: _, ...userWithoutPass } = dbUser;
-        return res.json({ user: userWithoutPass, token: 'session-token-izone' });
+      const dbUser = dbRes.rows[0];
+      const passwordCheck = dbUser ? verifyPassword(String(password || ''), dbUser.password) : { valid: false };
+      if (!dbUser || !passwordCheck.valid) {
+        return res.status(401).json({ message: 'Invalid email or password.' });
       }
-    } catch (_err) {}
-  }
 
-  const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim() && u.password === password);
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password.' });
+      if (passwordCheck.upgradedHash) {
+        await pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [passwordCheck.upgradedHash, dbUser.id]);
+        dbUser.password = passwordCheck.upgradedHash;
+      }
+      activeUser = dbUser;
+      const { password: _, ...userWithoutPass } = dbUser;
+      return res.json({ user: userWithoutPass, token: `session-token-${dbUser.id}` });
+    }
+
+    const localUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    const passwordCheck = localUser ? verifyPassword(String(password || ''), localUser.password || '') : { valid: false };
+    if (!localUser || !passwordCheck.valid) {
+      return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+    if (passwordCheck.upgradedHash) localUser.password = passwordCheck.upgradedHash;
+    activeUser = localUser;
+    const { password: _, ...userWithoutPass } = localUser;
+    return res.json({ user: userWithoutPass, token: `session-token-${localUser.id}` });
+  } catch (err: any) {
+    console.error('PostgreSQL login query failed:', err?.message || err);
+    return res.status(503).json({
+      message: 'Unable to verify credentials because PostgreSQL is unavailable. Try again when the database is online.',
+    });
   }
-  activeUser = user;
-  const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: 'session-token-izone' });
 });
 
 app.get('/api/auth/me', (req, res) => {
@@ -1337,21 +1206,28 @@ app.post('/api/auth/switch-profile', (req, res) => {
 
 // Profile Update Endpoint
 app.put('/api/auth/profile', (req, res) => {
-  if (!activeUser) {
+  const authenticatedUser = activeUser;
+  if (!authenticatedUser) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
   const { name, email, branchId, newPassword } = req.body;
 
-  const idx = users.findIndex((u) => u.id === activeUser.id);
+  const idx = users.findIndex((u) => u.id === authenticatedUser.id);
   if (idx !== -1) {
     if (name) users[idx].name = name;
     if (email) users[idx].email = email;
     if (branchId) users[idx].branchId = branchId;
-    if (newPassword) users[idx].password = newPassword;
+    if (newPassword) users[idx].password = hashPassword(newPassword);
     activeUser = users[idx];
+
+    if (newPassword && isPgConnected) {
+      pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [users[idx].password, users[idx].id])
+        .catch((err) => console.error('Error updating profile password:', err));
+    }
   }
 
-  const { password: _, ...userWithoutPass } = activeUser;
+  const responseUser = idx !== -1 ? users[idx] : authenticatedUser;
+  const { password: _, ...userWithoutPass } = responseUser;
   res.json(userWithoutPass);
 });
 
@@ -1393,7 +1269,6 @@ app.post('/api/uom', async (req, res) => {
         [newUom.id, newUom.name, newUom.symbol, newUom.type, newUom.isBaseUnit]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created/updated Unit of Measure ${newUom.name} (${newUom.symbol})`);
     res.status(201).json(newUom);
   } catch (err: any) {
@@ -1415,7 +1290,6 @@ app.put('/api/uom/:id', async (req, res) => {
         [uom.name, uom.symbol, uom.type, Boolean(uom.isBaseUnit), id]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_UOM', 'MASTER_DATA', `Updated UOM ${uom.name}`);
     res.json(uom);
   } catch (err: any) {
@@ -1433,7 +1307,6 @@ app.delete('/api/uom/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM uom WHERE id = $1', [id]);
     }
-    saveDataStore();
     logAuditEvent(req, 'DELETE_UOM', 'MASTER_DATA', `Deleted UOM ${uom?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -1507,7 +1380,6 @@ app.post('/api/locations', async (req, res) => {
         ]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
     res.status(201).json(newLoc);
   } catch (err: any) {
@@ -1542,7 +1414,6 @@ app.put('/api/locations/:id', async (req, res) => {
         ]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_LOCATION', 'MASTER_DATA', `Updated location details for ${loc.name} (${id})`, loc.branchId);
     res.json(loc);
   } catch (err: any) {
@@ -1560,7 +1431,6 @@ app.delete('/api/locations/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM locations WHERE id = $1', [id]);
     }
-    saveDataStore();
     logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -1633,7 +1503,6 @@ app.put('/api/company-profile', async (req, res) => {
         ]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_COMPANY_PROFILE', 'MASTER_DATA', `Updated Company Master Details: ${companyProfile.name}`);
     dataVersion++;
     res.json(companyProfile);
@@ -1687,8 +1556,6 @@ app.post('/api/branches', async (req, res) => {
         [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
     res.status(201).json(newBranch);
   } catch (err: any) {
@@ -1713,7 +1580,6 @@ app.put('/api/branches/:id', async (req, res) => {
         [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, id]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
     res.json(b);
   } catch (err: any) {
@@ -1731,7 +1597,6 @@ app.delete('/api/branches/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM branches WHERE id = $1', [id]);
     }
-    saveDataStore();
     logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -1787,7 +1652,6 @@ app.post('/api/suppliers', async (req, res) => {
         [sup.id, sup.supplierCode, sup.name, sup.contactPerson, sup.phone, sup.email, sup.address, sup.panVatNumber, sup.rating, sup.status]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name}`);
     res.status(201).json(newSupplier);
   } catch (err: any) {
@@ -1812,7 +1676,6 @@ app.put('/api/suppliers/:id', async (req, res) => {
         [sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', Number(sup.rating) || 5.0, sup.status || 'ACTIVE', id]
       );
     }
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${sup.name} (${id})`);
     res.json(sup);
   } catch (err: any) {
@@ -1830,7 +1693,6 @@ app.delete('/api/suppliers/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM suppliers WHERE id = $1', [id]);
     }
-    saveDataStore();
     logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -1859,8 +1721,8 @@ app.post('/api/users', async (req, res) => {
   try {
     const newUser = {
       id: req.body.id || `usr-${Date.now()}`,
-      password: req.body.password || 'password@123',
       ...req.body,
+      password: hashPassword(String(req.body.password || 'password@123')),
     };
     const idx = users.findIndex((u) => u.id === newUser.id || u.email === newUser.email);
     if (idx >= 0) users[idx] = newUser;
@@ -1875,7 +1737,8 @@ app.post('/api/users', async (req, res) => {
            role = EXCLUDED.role,
            branch_id = EXCLUDED.branch_id,
            allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-           can_switch_user = EXCLUDED.can_switch_user;`,
+           can_switch_user = EXCLUDED.can_switch_user,
+           password = EXCLUDED.password;`,
         [
           newUser.id,
           newUser.email,
@@ -1888,8 +1751,6 @@ app.post('/api/users', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
     const { password: _, ...userWithoutPass } = newUser;
     res.status(201).json(userWithoutPass);
@@ -1914,6 +1775,7 @@ app.put('/api/users/:id', async (req, res) => {
       ...req.body,
       id,
     };
+    if (req.body.password) updatedUser.password = hashPassword(String(req.body.password));
     if (idx !== -1) users[idx] = updatedUser;
 
     if (isPgConnected) {
@@ -1924,8 +1786,9 @@ app.put('/api/users/:id', async (req, res) => {
            role = $3,
            branch_id = $4,
            allowed_branch_ids = $5,
-           can_switch_user = $6
-         WHERE id = $7`,
+           can_switch_user = $6,
+           password = COALESCE($7, password)
+         WHERE id = $8`,
         [
           updatedUser.email,
           updatedUser.name,
@@ -1933,12 +1796,11 @@ app.put('/api/users/:id', async (req, res) => {
           updatedUser.branchId || null,
           updatedUser.allowedBranchIds || null,
           !!updatedUser.canSwitchUser,
+          req.body.password ? updatedUser.password : null,
           id,
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
     const { password: _, ...userWithoutPass } = updatedUser;
     res.json(userWithoutPass);
@@ -1968,8 +1830,6 @@ app.delete('/api/users/:id', async (req, res) => {
         deletedName = r.rows[0].name;
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedName || id} (${deletedEmail || id})`);
     res.json({ success: true });
   } catch (err: any) {
@@ -1989,21 +1849,19 @@ app.post('/api/users/:id/reset-password', async (req, res) => {
     }
 
     if (userIdx !== -1) {
-      users[userIdx].password = newPassword.trim();
+      users[userIdx].password = hashPassword(newPassword.trim());
     }
 
     let targetEmail = users[userIdx]?.email || id;
     let targetName = users[userIdx]?.name || id;
 
     if (isPgConnected) {
-      const r = await pgPool.query('UPDATE users SET password = $1 WHERE id = $2 RETURNING email, name', [newPassword.trim(), id]);
+      const r = await pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING email, name', [hashPassword(newPassword.trim()), id]);
       if (r.rows.length > 0) {
         targetEmail = r.rows[0].email;
         targetName = r.rows[0].name;
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${targetName} (${targetEmail})`);
 
     const userWithoutPass = userIdx !== -1 ? (({ password, ...rest }) => rest)(users[userIdx]) : { id, email: targetEmail, name: targetName };
@@ -2110,8 +1968,6 @@ app.post('/api/products', async (req, res) => {
         );
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
     res.status(201).json(newProd);
   } catch (err: any) {
@@ -2167,8 +2023,6 @@ app.put('/api/products/:id', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     const changeMsg = oldProd.sku !== updated.sku
       ? `SKU updated from ${oldProd.sku} to ${updated.sku}`
       : `Updated product details for ${updated.name} (${updated.sku})`;
@@ -2191,8 +2045,6 @@ app.delete('/api/products/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM products WHERE id = $1;', [id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
     res.json({ success: true });
   } catch (err: any) {
@@ -2240,8 +2092,6 @@ app.post('/api/categories', async (req, res) => {
         [newCat.id, newCat.name, newCat.code, newCat.description]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
     res.status(201).json(newCat);
   } catch (err: any) {
@@ -2265,8 +2115,6 @@ app.put('/api/categories/:id', async (req, res) => {
         [updated.name, updated.code, updated.description, id]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
     res.json(updated);
   } catch (err: any) {
@@ -2284,8 +2132,6 @@ app.delete('/api/categories/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM categories WHERE id = $1;', [id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -2425,8 +2271,6 @@ app.patch('/api/stock/:id', async (req, res) => {
         );
       }
     }
-
-    saveDataStore();
     res.json(stk);
   } catch (err: any) {
     console.error('Error updating stock level:', err);
@@ -2506,8 +2350,6 @@ app.patch('/api/stock/:id/reorder-level', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     broadcastChange({ type: 'STOCK_UPDATED', entity: 'stock', branchId: stk.branchId });
     res.json(stk);
   } catch (err: any) {
@@ -2562,6 +2404,7 @@ app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'HEAD_OFFI
               );
             }
           }
+
         });
       } else {
         for (const u of updates) {
@@ -2575,7 +2418,6 @@ app.post('/api/stock/bulk-reorder-levels', requireRole('SUPER_ADMIN', 'HEAD_OFFI
           }
         }
       }
-      saveDataStore();
       broadcastChange({ type: 'STOCK_UPDATED', entity: 'stock' });
     }
     res.json({ success: true, count: updates?.length || 0 });
@@ -2685,8 +2527,6 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
       `Directly Authorized & Reconciled Physical Stock Audit #${auditRefNumber || 'DIRECT'} for ${branch?.name || branchId}. Adjusted ${totalAdjusted} variance items to physical count. Net Financial Impact: NPR ${netFinancialImpact.toLocaleString()}. Notes: ${notes || 'Direct Stock Reconcile'}`,
       branchId
     );
-
-    saveDataStore();
     res.json({
       success: true,
       totalAdjusted,
@@ -2781,8 +2621,6 @@ app.post('/api/assets', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}`);
     res.status(201).json(newAsset);
   } catch (err: any) {
@@ -2800,8 +2638,6 @@ app.patch('/api/assets/:id/status', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('UPDATE fixed_assets SET status = $1 WHERE id = $2', [req.body.status || 'ACTIVE', id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
   } catch (err: any) {
@@ -2816,7 +2652,7 @@ app.get('/api/purchase-orders', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAd", order_date_bs AS "orderDateBs", expected_delivery_date_ad AS "expectedDeliveryDateAd", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
+        'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -2906,8 +2742,6 @@ app.post('/api/purchase-orders', async (req, res) => {
         }
       });
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_PURCHASE_ORDER', 'PROCUREMENT', `Created Purchase Order #${newPO.poNumber} for supplier ${newPO.supplierName || 'Vendor'}`);
     res.status(201).json(newPO);
   } catch (err: any) {
@@ -2955,8 +2789,6 @@ app.put('/api/purchase-orders/:id', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
     res.json(updatedPO);
   } catch (err: any) {
@@ -2975,8 +2807,6 @@ app.patch('/api/purchase-orders/:id/status', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', [status, id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
     res.json(po || req.body);
   } catch (err: any) {
@@ -3035,8 +2865,6 @@ app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'HEAD_OF
         }
       });
     }
-
-    saveDataStore();
     logAuditEvent(req, 'RECEIVE_PURCHASE_ORDER', 'PROCUREMENT', `Received goods for Purchase Order #${po.poNumber}`);
     res.json(po);
   } catch (err: any) {
@@ -3051,7 +2879,7 @@ app.get('/api/purchase-invoices', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAd", invoice_date_bs AS "invoiceDateBs", due_date_ad AS "dueDateAd", due_date_bs AS "dueDateBs", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' +
+        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3078,6 +2906,37 @@ app.post('/api/purchase-invoices', async (req, res) => {
       ...req.body,
     };
     const items = req.body.items || req.body.lines || [];
+    const poReference = newInv.poReferenceId || req.body.poId;
+    if (poReference) {
+      let linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
+      if (!linkedPO && isPgConnected) {
+        const poResult = await pgPool.query(
+          'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1 OR po_number = $1 LIMIT 1',
+          [poReference]
+        );
+        linkedPO = poResult.rows[0];
+        if (linkedPO && typeof linkedPO.items === 'string') linkedPO.items = JSON.parse(linkedPO.items);
+      }
+      if (!linkedPO) return res.status(400).json({ message: 'The selected Purchase Order was not found.' });
+
+      const poItems = new Map(linkedPO.items.map((item) => [item.productId, item]));
+      const invoiceItems = new Map(items.map((item: any) => [item.productId, item]));
+      const exceeding = items.find((item: any) => Number(item.quantity) > Number(poItems.get(item.productId)?.quantity || 0));
+      const quantityMismatch = items.find((item: any) => Number(item.quantity) !== Number(poItems.get(item.productId)?.quantity || 0));
+      const missing = linkedPO.items.find((item) => !invoiceItems.has(item.productId));
+      const extra = items.find((item: any) => !poItems.has(item.productId));
+      const typeMismatch = items.find((item: any) => {
+        const poItem = poItems.get(item.productId);
+        const product = products.find((entry) => entry.id === item.productId);
+        return poItem && (item.productGroup || product?.productGroup) !== (poItem.productGroup || product?.productGroup);
+      });
+      if (exceeding) return res.status(400).json({ message: `Quantity exceeding PO for ${exceeding.productName || exceeding.productId}. Ordered quantity: ${poItems.get(exceeding.productId)?.quantity || 0}.` });
+      if (missing) return res.status(400).json({ message: `PO product missing from vendor bill: ${missing.productName}.` });
+      if (extra) return res.status(400).json({ message: `Product not present in selected Purchase Order: ${extra.productName || extra.productId}.` });
+      if (typeMismatch) return res.status(400).json({ message: `Product type does not match the selected Purchase Order: ${typeMismatch.productName || typeMismatch.productId}.` });
+      if (quantityMismatch) return res.status(400).json({ message: `Quantity must match the selected Purchase Order for ${quantityMismatch.productName || quantityMismatch.productId}.` });
+      if (invoiceItems.size !== poItems.size) return res.status(400).json({ message: 'Purchase Order and vendor bill products must match exactly.' });
+    }
 
     const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
     if (idx >= 0) purchaseInvoices[idx] = newInv;
@@ -3086,8 +2945,8 @@ app.post('/api/purchase-invoices', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO purchase_invoices (
-           id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+           id, invoice_number, po_reference_id, vendor_bill_number, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid, items
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          ON CONFLICT (id) DO UPDATE SET
            payment_status = EXCLUDED.payment_status,
            amount_paid = EXCLUDED.amount_paid;`,
@@ -3095,6 +2954,7 @@ app.post('/api/purchase-invoices', async (req, res) => {
           newInv.id,
           newInv.invoiceNumber,
           newInv.poReferenceId || newInv.poId || null,
+          newInv.vendorBillNumber || null,
           newInv.supplierName || 'Vendor',
           targetBranchId,
           newInv.invoiceDateAD,
@@ -3154,8 +3014,6 @@ app.post('/api/purchase-invoices', async (req, res) => {
       stk.quantityOnHand += Number(item.quantity) || 0;
       stk.lastUpdated = new Date().toISOString();
     });
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
     res.status(201).json(newInv);
   } catch (err: any) {
@@ -3183,8 +3041,6 @@ app.post('/api/purchase-invoices/:id/pay', async (req, res) => {
         [Number(amount), id]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${Number(amount).toLocaleString()} for Invoice`);
     res.json(inv || { message: 'Payment recorded' });
   } catch (err: any) {
@@ -3295,8 +3151,6 @@ app.post('/api/shipments', async (req, res) => {
         }
       });
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_SHIPMENT', 'LOGISTICS', `Created Shipment #${newShipment.trackingCode}`);
     res.status(201).json(newShipment);
   } catch (err: any) {
@@ -3353,8 +3207,6 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
         }
       });
     }
-
-    saveDataStore();
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
@@ -3399,8 +3251,6 @@ app.post('/api/shipments/:id/cancel', async (req, res) => {
         }
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
     res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully.` });
   } catch (err: any) {
@@ -3523,8 +3373,6 @@ app.post('/api/stock-operations', async (req, res) => {
         }
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
     res.status(201).json(newOp);
   } catch (err: any) {
@@ -3558,8 +3406,6 @@ app.post('/api/stock-operations/:id/receive', async (req, res) => {
         }
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
@@ -3742,7 +3588,7 @@ app.post('/api/fiscal-years/:id/set-current', async (req, res) => {
   res.json(fiscalYears);
 });
 
-// Bikram Sambat (BS) Calendar & Day Records Endpoints with PostgreSQL & In-Memory Fallback
+// Bikram Sambat (BS) Calendar & Day Records Endpoints
 const NEPALI_MONTHS_EN_SERVER = [
   'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',
   'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra'
@@ -3879,7 +3725,7 @@ app.get('/api/bs-calendar/days', async (req, res) => {
     // Silently fall back to in-memory records below
   }
 
-  // In-Memory Filter Fallback
+  // Database query result handling
   let filtered = [...inMemoryBsDayRecords];
   if (yearBS && yearBS !== 'ALL') {
     const targetYr = parseInt(yearBS as string, 10);
@@ -4256,8 +4102,6 @@ app.post('/api/customer-devices', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
@@ -4287,8 +4131,6 @@ app.patch('/api/customer-devices/:id/status', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('UPDATE customer_device_records SET status = $1 WHERE id = $2', [newStatusStr, id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
   } catch (err: any) {
@@ -4395,8 +4237,6 @@ app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFI
         );
       });
     }
-
-    saveDataStore();
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
   } catch (err: any) {
@@ -4519,8 +4359,6 @@ app.post('/api/customers', async (req, res) => {
         ]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
@@ -4613,8 +4451,6 @@ app.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 
         count++;
       }
     }
-
-    saveDataStore();
     logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
     res.status(201).json({ success: true, count, total: customerMasterRecords.length });
   } catch (err: any) {
@@ -4645,8 +4481,6 @@ app.put('/api/customers/:id', async (req, res) => {
         [updated.customerId, updated.customerName, updated.username, updated.contactNumber, updated.branchId, updated.address, updated.email, updated.status, Number(updated.creditLimit) || 0, id]
       );
     }
-
-    saveDataStore();
     logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
     res.json(updated);
   } catch (err: any) {
@@ -4664,8 +4498,6 @@ app.delete('/api/customers/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query('DELETE FROM customer_records WHERE id = $1 OR customer_id = $1', [id]);
     }
-
-    saveDataStore();
     logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
@@ -4772,7 +4604,6 @@ app.post('/api/approval-requests', async (req, res) => {
     }
 
     logAuditEvent(req, 'APPROVAL_REQUEST_SUBMITTED', logModule, logDetails, newRequest.branchId);
-    saveDataStore();
     res.status(201).json(newRequest);
   } catch (err: any) {
     console.error('Error creating approval request:', err);
@@ -4816,8 +4647,6 @@ app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'HEAD_
       }
 
       logAuditEvent(req, 'APPROVAL_REQUEST_REJECTED', 'OPERATIONS', `Rejected approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}): ${request.rejectionReason}`, request.branchId);
-
-      saveDataStore();
       return res.json({ request, message: 'Approval request rejected successfully' });
     }
 
@@ -4972,8 +4801,6 @@ app.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'HEAD_
         }
       }
     }
-
-    saveDataStore();
     res.json({ request, message: 'Approval request authorized and executed successfully' });
   } catch (err: any) {
     console.error('Error processing approval request:', err);
@@ -5014,7 +4841,6 @@ app.post('/api/approval-requests/:id/cancel', async (req, res) => {
     }
 
     logAuditEvent(req, 'APPROVAL_REQUEST_CANCELLED', 'OPERATIONS', `Cancelled approval request #${request.requestNumber} for ${request.customerName || id} (${request.deviceSerial || id}). Reason: ${request.rejectionReason}`, request.branchId);
-    saveDataStore();
 
     res.json({ request, message: 'Approval request cancelled successfully' });
   } catch (err: any) {
@@ -5204,8 +5030,6 @@ app.put('/api/company-profile', async (req, res) => {
       `Updated company profile details for ${companyProfile.name} (PAN: ${companyProfile.panVatNumber})`,
       'WH001'
     );
-
-    saveDataStore();
     broadcastChange({ type: 'COMPANY_PROFILE_UPDATED', entity: 'COMPANY_PROFILE' });
 
     res.json(companyProfile);
@@ -5215,52 +5039,20 @@ app.put('/api/company-profile', async (req, res) => {
   }
 });
 
-// AI Analytics Proxy Endpoint
-app.post('/api/ai/analytics', async (req, res) => {
-  try {
-    const { prompt, context } = req.body;
-    const aiClient = getGenAIClient();
-
-    if (!aiClient) {
-      return res.json({
-        insight: `📊 **IZone Executive AI Analysis Report**\n\n1. **Stock Optimization Priority**:\n   • **Kathmandu HQ**: Solar Inverters (IZ-2001) are at 3 sets, below minimum reorder level of 4. Immediate Purchase Order generation recommended.\n   • **Pokhara Hub**: Laptops (IZ-1001) are down to 4 units. Inter-branch transfer from Kathmandu is currently in-transit (4 units).\n\n2. **Nepal VAT & Tax Compliance**:\n   • Total Input VAT Credit recorded: रु ${purchaseInvoices.reduce((s, i) => s + i.vatAmount, 0).toLocaleString()}.\n   • Verified all supplier invoices adhere to IRD 13% VAT rules.\n\n3. **Fixed Asset Depreciation**:\n   • Total Net Book Value across 3 active fixed assets stands at रु ${assetRegister.reduce((s, a) => s + a.netBookValue, 0).toLocaleString()}.\n   • Vehicles depreciation under Reducing Balance method is current for FY 2082/83 BS.`,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const systemPrompt = `You are the chief AI Inventory & Financial Officer for IZone Enterprise System in Nepal. Provide a concise, bulleted strategic analysis focusing on stock health, low stock alerts, purchase orders, VAT compliance (13% VAT), and Bikram Sambat fiscal year metrics based on user query: ${prompt}`;
-
-    const response = await aiClient.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: systemPrompt,
-    });
-
-    res.json({
-      insight: response.text || 'Analysis completed successfully.',
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    res.json({
-      insight: `📊 **IZone Executive Stock Analysis**\n\n• **Low Stock Alert**: Reorder required for Solar Inverters and Laptops.\n• **In-Transit Transfers**: Shipment TRF-2083-0092 in transit to Pokhara.\n• **Tax Compliance**: Input VAT credit is fully reconciled for current BS period.`,
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
 // Vite Middleware Setup for Dev Mode vs Static Production Serving
 async function syncDatabaseAndIndexes() {
   if (!realPoolInstance) {
     isPgConnected = false;
-    console.log('ℹ️ Running on self-contained server database store. PostgreSQL host not specified.');
-    return;
+    setIsPgConnected(false);
+    throw new Error('PostgreSQL connection is not configured. Set DATABASE_URL or POSTGRES_HOST.');
   }
 
   try {
     const client = await pgPool.connect();
     if (!client) {
       isPgConnected = false;
-      console.log('ℹ️ PostgreSQL database offline or awaiting connection. Setup banner enabled for user notification.');
-      return;
+      setIsPgConnected(false);
+      throw new Error('PostgreSQL connection could not be established.');
     }
     console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
 
@@ -5398,6 +5190,7 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         invoice_number VARCHAR(100) UNIQUE NOT NULL,
         po_reference_id VARCHAR(50),
+                    vendor_bill_number VARCHAR(100),
         supplier_name VARCHAR(200) NOT NULL,
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         invoice_date_ad DATE NOT NULL,
@@ -5652,6 +5445,7 @@ async function syncDatabaseAndIndexes() {
       );
 
       -- SCHEMA MIGRATION SAFE ALTERS
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_number VARCHAR(100);
       ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS items JSONB;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS items JSONB;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS items JSONB;
@@ -5660,6 +5454,20 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      CREATE TABLE IF NOT EXISTS fiscal_year_opening_stock (
+        id VARCHAR(100) PRIMARY KEY,
+        fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        quantity_on_hand INT NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
+        damaged_qty INT NOT NULL DEFAULT 0 CHECK (damaged_qty >= 0),
+        unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+        source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE',
+        source_reference VARCHAR(100),
+        posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        posted_by VARCHAR(150),
+        UNIQUE (fiscal_year_id, product_id, branch_id)
+      );
 
       -- HIGH-THROUGHPUT COMPOSITE PERFORMANCE INDEXES --
       CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
@@ -5721,13 +5529,15 @@ async function syncDatabaseAndIndexes() {
     `);
 
     isPgConnected = true;
+    setIsPgConnected(true);
     await seedInitialPostgresData(client);
 
     client.release();
     console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
-    console.log('ℹ️ PostgreSQL database offline or awaiting connection. Setup banner enabled for user notification.', err?.message || err);
+    setIsPgConnected(false);
+    throw new Error(`PostgreSQL startup failed: ${err?.message || err}`);
   }
 }
 
@@ -5823,7 +5633,6 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     );
     if (dbUsersRes.rows.length > 0) {
       users = dbUsersRes.rows;
-      if (!activeUser) activeUser = users[0];
     }
 
     const fyRes = await client.query('SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years ORDER BY id');
@@ -5984,4 +5793,7 @@ async function startServer() {
   }
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error(err?.message || err);
+  process.exitCode = 1;
+});

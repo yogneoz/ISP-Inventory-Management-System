@@ -52,6 +52,8 @@ import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagemen
 import { AuditTrailReports } from './features/finance/AuditTrailReports';
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
+
+const ACTIVE_TAB_STORAGE_KEY = 'izone_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
@@ -74,7 +76,6 @@ import { ExportStock } from './features/inventory/ExportStock';
 import { LocationsManagement } from './features/settings/LocationsManagement';
 import { ImportCustomers } from './features/sales/ImportCustomers';
 import { HelpDocumentation } from './components/common/HelpDocumentation';
-import { AiAssistantModal } from './components/common/AiAssistantModal';
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
@@ -89,11 +90,13 @@ export default function App() {
     return loadUserSession().rootUser;
   });
 
-  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    return savedTab && savedTab !== 'dashboard' ? (savedTab as NavTab) : 'dashboard';
+  });
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [dateMode, setDateMode] = useState<'BS' | 'AD'>('BS');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
@@ -106,6 +109,10 @@ export default function App() {
   useEffect(() => {
     setUserContext(currentUser);
   }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     const handlePermissionsUpdated = () => {
@@ -347,6 +354,7 @@ export default function App() {
     setUserContext(null);
     clearUserSession();
     clearRecentBootstrapCache();
+    localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
   };
 
   const handleSwitchProfile = async (targetUserId: string) => {
@@ -419,38 +427,6 @@ export default function App() {
     updates: { stockId: string; minReorderLevel: number }[]
   ) => {
     await api.bulkUpdateStockReorderLevels(updates);
-    refreshAllData();
-  };
-
-  const handleCreateStockTransfer = async (
-    sourceBranchId: string,
-    destBranchId: string,
-    productId: string,
-    qty: number
-  ) => {
-    const prod = products.find((p) => p.id === productId);
-    await api.createShipment({
-      type: 'INTER_BRANCH',
-      sourceBranchId,
-      destinationBranchId: destBranchId,
-      destinationBranchName:
-        branches.find((b) => b.id === destBranchId)?.name || 'Branch',
-      dispatchDateAD: new Date().toISOString().split('T')[0],
-      dispatchDateBS: '2083-04-16 BS',
-      estimatedArrivalAD: new Date(Date.now() + 3 * 86400000)
-        .toISOString()
-        .split('T')[0],
-      status: 'IN_TRANSIT',
-      items: [
-        {
-          id: `item-${Date.now()}`,
-          productId,
-          productName: prod?.name || 'Item',
-          sku: prod?.sku || 'SKU',
-          quantitySent: qty,
-        },
-      ],
-    });
     refreshAllData();
   };
 
@@ -743,7 +719,6 @@ export default function App() {
         dateMode={dateMode}
         onToggleDateMode={() => setDateMode(dateMode === 'BS' ? 'AD' : 'BS')}
         currentFiscalYear={activeFy}
-        onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
         onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
         onLogout={handleLogout}
@@ -846,7 +821,6 @@ export default function App() {
                   onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
                   onSelectBranch={handleSelectBranch}
-                  onOpenAiModal={() => setIsAiModalOpen(true)}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   isDarkMode={isDarkMode}
@@ -950,7 +924,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  onCreateStockTransfer={handleCreateStockTransfer}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1118,6 +1091,8 @@ export default function App() {
 
               {activeTab === 'create-po' && (
                 <PurchaseOrders
+                  companyProfile={companyProfile}
+                  purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
                   products={products}
@@ -1138,6 +1113,8 @@ export default function App() {
 
               {activeTab === 'po-list' && (
                 <PurchaseOrders
+                  companyProfile={companyProfile}
+                  purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
                   products={products}
@@ -1158,6 +1135,7 @@ export default function App() {
 
               {activeTab === 'create-purchase' && (
                 <PurchaseInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
                   invoices={purchaseInvoices}
                   products={products}
@@ -1176,6 +1154,7 @@ export default function App() {
 
               {activeTab === 'purchase-list' && (
                 <PurchaseInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
                   invoices={purchaseInvoices}
                   products={products}
@@ -1631,7 +1610,6 @@ export default function App() {
                   invoices={purchaseInvoices}
                   purchaseOrders={purchaseOrders}
                   dateMode={dateMode}
-                  onOpenAiModal={() => setIsAiModalOpen(true)}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1664,7 +1642,6 @@ export default function App() {
                   assets={assets}
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
-                  onOpenAiModal={() => setIsAiModalOpen(true)}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1725,7 +1702,6 @@ export default function App() {
                 <HelpDocumentation
                   currentUser={currentUser}
                   isDarkMode={isDarkMode}
-                  onOpenAiAssistant={() => setIsAiModalOpen(true)}
                   onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
                   onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
                   onNavigateTab={(tab) => {
@@ -1743,19 +1719,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {/* AI Strategist Modal */}
-      <AiAssistantModal
-        isOpen={isAiModalOpen}
-        onClose={() => setIsAiModalOpen(false)}
-        systemContext={{
-          branchCount: branches.length,
-          productCount: products.length,
-          lowStockCount,
-          pendingPoCount,
-          activeFy,
-        }}
-      />
 
       {/* Barcode & Serial Scanner / Printable Label Modal */}
       <BarcodeScannerModal

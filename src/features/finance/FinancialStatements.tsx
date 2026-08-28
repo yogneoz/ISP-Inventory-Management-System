@@ -8,7 +8,6 @@ import {
   FileText,
   Printer,
   Download,
-  Sparkles,
   Building,
   Package,
   Receipt,
@@ -25,7 +24,6 @@ interface FinancialStatementsProps {
   invoices: PurchaseInvoice[];
   purchaseOrders: PurchaseOrder[];
   dateMode: 'BS' | 'AD';
-  onOpenAiModal: () => void;
   isDarkMode?: boolean;
 }
 
@@ -35,7 +33,6 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   invoices,
   purchaseOrders,
   dateMode,
-  onOpenAiModal,
   isDarkMode = false,
 }) => {
   const [statementType, setStatementType] = useState<'BALANCE_SHEET' | 'PROFIT_LOSS'>('BALANCE_SHEET');
@@ -117,13 +114,6 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenAiModal}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-950/50 hover:brightness-110 transition-all cursor-pointer"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-            <span>AI Executive Analysis</span>
-          </button>
           <button
             onClick={handleExport}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${

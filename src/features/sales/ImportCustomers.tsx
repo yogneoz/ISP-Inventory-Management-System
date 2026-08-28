@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Branch, CustomerRecord } from '../../types';
 import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
 interface ImportCustomersProps {
   branches: Branch[];
@@ -20,6 +19,53 @@ interface ParsedCustomerRow {
   isValid: boolean;
   notes: string;
 }
+
+const parseCsvRows = (content: string): string[][] => {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    const nextCharacter = content[index + 1];
+
+    if (character === '"' && quoted && nextCharacter === '"') {
+      field += '"';
+      index += 1;
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (character === ',' && !quoted) {
+      row.push(field.trim());
+      field = '';
+    } else if ((character === '\n' || character === '\r') && !quoted) {
+      if (character === '\r' && nextCharacter === '\n') index += 1;
+      row.push(field.trim());
+      if (row.some((value) => value !== '')) rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += character;
+    }
+  }
+
+  row.push(field.trim());
+  if (row.some((value) => value !== '')) rows.push(row);
+  return rows;
+};
+
+const createCsv = (rows: Record<string, string>[]): string => {
+  if (rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const escape = (value: string) => {
+    const text = String(value ?? '');
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return [
+    headers.map(escape).join(','),
+    ...rows.map((row) => headers.map((header) => escape(row[header])).join(',')),
+  ].join('\n');
+};
 
 export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   branches,
@@ -71,27 +117,19 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     },
   ];
 
-  const parseCsvContent = (content: string | ArrayBuffer, filename: string) => {
+  const parseCsvContent = (content: string, filename: string) => {
     setSelectedFileName(filename);
     try {
-      let workbook;
-      if (typeof content === 'string') {
-        workbook = XLSX.read(content, { type: 'string' });
-      } else {
-        const data = new Uint8Array(content);
-        workbook = XLSX.read(data, { type: 'array' });
-      }
+      const csvRows = parseCsvRows(content);
+      const headers = csvRows.shift() || [];
+      const jsonRows = csvRows.map((values) =>
+        headers.reduce<Record<string, string>>((result, header, index) => {
+          result[header] = values[index] || '';
+          return result;
+        }, {})
+      );
 
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) {
-        alert('No worksheet/data found in CSV file');
-        setParsedRows([]);
-        return;
-      }
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonRows = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
-
-      if (!jsonRows || jsonRows.length === 0) {
+      if (headers.length === 0 || jsonRows.length === 0) {
         alert('Uploaded CSV file is empty');
         setParsedRows([]);
         return;
@@ -148,7 +186,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result;
-      if (result) {
+      if (typeof result === 'string' && result) {
         parseCsvContent(result, file.name);
       }
     };
@@ -156,14 +194,11 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   };
 
   const handleLoadSample = () => {
-    const ws = XLSX.utils.json_to_sheet(sampleCsvData);
-    const csvStr = XLSX.utils.sheet_to_csv(ws);
-    parseCsvContent(csvStr, 'Sample_Customer_Master_List.csv');
+    parseCsvContent(createCsv(sampleCsvData), 'Sample_Customer_Master_List.csv');
   };
 
   const handleDownloadSampleCSV = () => {
-    const ws = XLSX.utils.json_to_sheet(sampleCsvData);
-    const csvOutput = XLSX.utils.sheet_to_csv(ws);
+    const csvOutput = createCsv(sampleCsvData);
     const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

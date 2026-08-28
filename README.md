@@ -59,7 +59,6 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 ├── server.ts                     # Full-stack Node.js Express server with Vite middleware
 ├── ecosystem.config.js           # PM2 Process Manager Configuration for Production
 ├── Dockerfile                    # Production Docker Multi-Stage Build
-├── .data_store.json              # Local persistent JSON state store
 ├── .env.example                  # Environment configuration template
 └── package.json                  # Frontend Vite / React & Server Dependencies
 ```
@@ -72,7 +71,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Node.js**: `v20.x` or `v22.x` LTS recommended ([Download Node.js](https://nodejs.org/))
 - **npm**: `v10.x+` (comes bundled with Node.js)
 - **Git**: Installed and configured
-- **PostgreSQL** *(Optional, recommended for production)*: `v14+` or `v15+` (can be auto-installed via `npm run setup:pg`)
+- **PostgreSQL** *(required)*: `v14+` or `v15+` (can be auto-installed via `npm run setup:pg`)
 
 ---
 
@@ -132,7 +131,7 @@ npm run setup:pg
 3. Migrates all 19 relational tables, constraints, foreign keys, and indexes from `scripts/schema.sql`.
 4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
 
-*(Note: The system also includes resilient local file storage `.data_store.json`, so the app operates seamlessly even if PostgreSQL is offline or starting up).*
+The application requires PostgreSQL to be available. It does not use local file storage or an in-memory database fallback.
 
 ---
 
@@ -174,7 +173,7 @@ If demo data was previously loaded or tested, you can clear all operational demo
 1. Navigate to **System Settings** -> **Maintenance & Data Management**.
 2. Click **"Clear Demo Data"**.
 3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
-4. The system writes `isDemoDataCleared: true` to `.data_store.json`, guaranteeing that demo data will never reload on server restarts.
+4. The system persists the cleanup directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
 
 ---
 

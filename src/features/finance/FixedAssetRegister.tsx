@@ -450,7 +450,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
-                        {b.name}
+                        {b.name} ({b.code})
                       </option>
                     ))}
                   </select>

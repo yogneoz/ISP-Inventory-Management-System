@@ -6,7 +6,6 @@ import { NotificationCenter } from '../common/NotificationCenter';
 import {
   Building2,
   Calendar,
-  Sparkles,
   LogOut,
   ShieldCheck,
   Search,
@@ -40,7 +39,6 @@ interface HeaderProps {
   dateMode: 'BS' | 'AD';
   onToggleDateMode: () => void;
   currentFiscalYear: string;
-  onOpenAiModal: () => void;
   onOpenBarcodeModal?: () => void;
   onOpenSearchModal?: () => void;
   onLogout: () => void;
@@ -77,7 +75,6 @@ export const Header: React.FC<HeaderProps> = ({
   dateMode,
   onToggleDateMode,
   currentFiscalYear,
-  onOpenAiModal,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onLogout,
@@ -319,7 +316,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Theme Toggle, Date Toggle, Fiscal Year, AI Assistant, Logout */}
+      {/* Right: Theme Toggle, Date Toggle, Fiscal Year, Logout */}
       <div className="flex items-center gap-2">
         {/* Mobile Search Icon Button */}
         {onOpenSearchModal && (
@@ -394,15 +391,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Tag</span>
           </button>
         )}
-
-        {/* AI Inventory Assistant Button */}
-        <button
-          onClick={onOpenAiModal}
-          className="flex items-center gap-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-xs hover:brightness-110 transition-all cursor-pointer"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
-          <span className="hidden sm:inline">AI</span>
-        </button>
 
         {/* Help Center Button */}
         <button

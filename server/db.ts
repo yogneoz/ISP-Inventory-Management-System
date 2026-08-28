@@ -9,6 +9,10 @@ export function setIsPgConnected(status: boolean) {
   isPgConnected = status;
 }
 
+export function getIsPgConnected() {
+  return isPgConnected;
+}
+
 export let realPoolInstance: any = null;
 
 try {
@@ -29,25 +33,21 @@ try {
 
 export const pgPool = {
   async query(text: string, params?: any[]) {
-    if (isPgConnected && realPoolInstance) {
-      try {
-        return await realPoolInstance.query(text, params);
-      } catch (err: any) {
-        console.log('PostgreSQL query note:', err?.message || err);
-        isPgConnected = false;
-      }
+    if (!isPgConnected || !realPoolInstance) {
+      throw new Error('PostgreSQL is not connected. Database operations are unavailable.');
     }
-    // Self-contained server database fallback - returns clean safe result set when running on local server store
-    return { rows: [], rowCount: 0 };
+    try {
+      return await realPoolInstance.query(text, params);
+    } catch (err: any) {
+      isPgConnected = false;
+      console.error('PostgreSQL query failed:', err?.message || err);
+      throw err;
+    }
   },
   async connect() {
-    if (realPoolInstance) {
-      try {
-        return await realPoolInstance.connect();
-      } catch (_err: any) {
-        // Silent catch during initialization check
-      }
+    if (!realPoolInstance) {
+      throw new Error('PostgreSQL connection is not configured.');
     }
-    return null;
+    return realPoolInstance.connect();
   }
 };

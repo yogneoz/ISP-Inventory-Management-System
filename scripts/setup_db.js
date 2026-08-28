@@ -208,7 +208,7 @@ async function runSetup() {
   } catch (dbErr) {
     console.warn('⚠️ Could not connect directly to PostgreSQL on port 5432:');
     console.warn('  ', dbErr.message);
-    console.warn('ℹ️ Note: Express server will run with in-memory persistence and sync with PostgreSQL when available.');
+    console.warn('ℹ️ PostgreSQL is required before starting the Express server.');
   }
 }
 

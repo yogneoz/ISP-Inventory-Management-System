@@ -644,14 +644,6 @@ export const api = {
     });
   },
 
-  // Gemini AI Analysis
-  async generateAiInsight(prompt: string, context?: any): Promise<{ insight: string; timestamp: string }> {
-    return fetchJson('/api/ai/analytics', {
-      method: 'POST',
-      body: JSON.stringify({ prompt, context }),
-    });
-  },
-
   // Bikram Sambat (BS) Calendar PostgreSQL API
   async getBsCalendarYears(): Promise<{ yearBS: number; daysInMonths: number[]; startAD: string }[]> {
     return fetchJson('/api/bs-calendar/years');

@@ -141,7 +141,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         totalAfterPeriodQtyChanges += l.quantityChanged;
       } else {
         // Log is WITHIN period
-        if (l.changeType === 'INBOUND_PO' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
+        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || l.changeType === 'TRANSFER_IN' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
           receivedQty += Math.abs(l.quantityChanged);
         } else if (l.changeType === 'DAMAGE') {
           damagedQty += Math.abs(l.quantityChanged);
@@ -149,6 +149,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           l.changeType === 'PULLOUT' ||
           l.changeType === 'STOCK_OUT' ||
           l.changeType === 'CONSUMABLE_ISSUE' ||
+          l.changeType === 'TRANSFER_OUT' ||
           (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged < 0)
         ) {
           deliveredQty += Math.abs(l.quantityChanged);
@@ -492,7 +493,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               <option value="ALL">All Branch Locations</option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  {b.name} ({b.code})
                 </option>
               ))}
             </select>

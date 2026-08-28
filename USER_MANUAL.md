@@ -24,7 +24,7 @@ Welcome to the **Enterprise ERP & Inventory Management System** user guide. This
    - [4.10 Nepali Fiscal Calendar & Year Closing Wizard](#410-nepali-fiscal-calendar--year-closing-wizard)
    - [4.11 User & Permission Management](#411-user--permission-management)
    - [4.12 Audit Trail & System Logs](#412-audit-trail--system-logs)
-5. [AI Assistant & Barcode Scanner Tools](#5-ai-assistant--barcode-scanner-tools)
+5. [Barcode Scanner Tools](#5-barcode-scanner-tools)
 6. [Frequently Asked Questions & Troubleshooting](#6-frequently-asked-questions--troubleshooting)
 
 ---
@@ -80,7 +80,7 @@ The system enforces strict Role-Based Access Control (RBAC):
 
 ### 4.1 Dashboard & Quick Metrics
 - **Real-Time KPIs**: Total Stock Valuation, Low Stock Alerts, Damaged Goods Count, Pending Approvals, Active ONU Serial Allocations.
-- **Quick Action Bar**: One-click access to *Scan Barcode*, *New Purchase Order*, *Stock Audit*, *Transfer Request*, and *AI Assistant*.
+- **Quick Action Bar**: One-click access to *Scan Barcode*, *New Purchase Order*, *Stock Audit*, and *Transfer Request*.
 - **Visual Analytics**: Interactive stock movement charts and top categories distribution.
 
 ---
@@ -216,14 +216,7 @@ Requests requiring authorization (Device Returns, Stock Write-offs, High-Value P
 
 ---
 
-## 5. AI Assistant & Barcode Scanner Tools
-
-### 🤖 Gemini AI Inventory Assistant
-- Click the **Sparkles / AI Floating Icon** or press `Ctrl + Space`.
-- Ask natural language questions like:
-  - *"Which products are below reorder level in Pokhara branch?"*
-  - *"Generate a summary of total stock valuation."*
-  - *"Which customers have active Fiber ONU devices?"*
+## 5. Barcode Scanner Tools
 
 ### 📷 Barcode Scanner Modal
 - Click **"Scan Barcode"** in the top header.

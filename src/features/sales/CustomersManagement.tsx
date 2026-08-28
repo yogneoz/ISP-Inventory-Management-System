@@ -1211,7 +1211,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {b.name} ({b.code})
                       </option>
                     ))}
                   </select>

@@ -147,6 +147,7 @@ export interface Asset {
 export interface POLineItem {
   id: string;
   productId: string;
+  productGroup?: Product['productGroup'];
   productName: string;
   sku: string;
   unit?: string;
@@ -185,6 +186,7 @@ export interface DeviceSerialPair {
 export interface PurchaseInvoiceItem {
   id: string;
   productId: string;
+  productGroup?: Product['productGroup'];
   productName: string;
   sku: string;
   unit: string;

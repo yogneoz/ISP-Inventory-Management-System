@@ -23,7 +23,6 @@ import {
   Truck,
   ArrowUpRight,
   Plus,
-  Sparkles,
   Layers,
   ArrowDownRight,
   CheckCircle2,
@@ -62,7 +61,6 @@ interface DashboardProps {
   ) => Promise<void>;
   onNavigateTab: (tab: any) => void;
   onSelectBranch?: (branchId: string) => void;
-  onOpenAiModal: () => void;
   onGroupLowStockPO?: () => void;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
   isDarkMode?: boolean;
@@ -133,7 +131,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onProcessApproval,
   onNavigateTab,
   onSelectBranch,
-  onOpenAiModal,
   onGroupLowStockPO,
   onUpdateStockLevel,
   isDarkMode = false,
@@ -340,13 +337,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={onOpenAiModal}
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:brightness-110 transition-all cursor-pointer"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-              <span>AI Forecast</span>
-            </button>
             <button
               onClick={() => onNavigateTab('financial-statements')}
               className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white border border-white/20 backdrop-blur-xs transition-all cursor-pointer"

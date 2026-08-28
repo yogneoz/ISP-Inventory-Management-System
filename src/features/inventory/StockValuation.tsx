@@ -348,7 +348,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             <option value="ALL">All Branch Locations</option>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name}
+                {b.name} ({b.code})
               </option>
             ))}
           </select>

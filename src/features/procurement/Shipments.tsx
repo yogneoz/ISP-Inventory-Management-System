@@ -740,7 +740,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 >
                   {getAllowedBranches(currentUser, branches).map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name}
+                      {b.name} ({b.code})
                     </option>
                   ))}
                 </select>
@@ -757,7 +757,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 >
                   {branches.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name}
+                      {b.name} ({b.code})
                     </option>
                   ))}
                 </select>
@@ -1202,7 +1202,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   >
                     {getAllowedBranches(currentUser, branches).map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {b.name} ({b.code})
                       </option>
                     ))}
                   </select>
@@ -1219,7 +1219,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {b.name} ({b.code})
                       </option>
                     ))}
                   </select>

@@ -9,6 +9,7 @@ import {
   InventoryStock,
   DeviceSerialPair,
   User,
+  CompanyProfile,
 } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -50,6 +51,7 @@ import {
 } from 'lucide-react';
 
 interface PurchaseInvoicesProps {
+  companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
   invoices: PurchaseInvoice[];
   products: Product[];
@@ -79,6 +81,7 @@ interface InvoiceFormLine {
 }
 
 export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
+  companyProfile,
   currentUser,
   invoices,
   products,
@@ -183,6 +186,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   });
   const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
   const [notes, setNotes] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
 
   // Multi-Item Bill Lines (empty by default until scanned/searched)
   const [lines, setLines] = useState<InvoiceFormLine[]>([]);
@@ -192,6 +196,36 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     (po) => po.status !== 'RECEIVED' && po.status !== 'CANCELLED'
   );
   const activePO = purchaseOrders.find((po) => po.id === selectedPoId || po.poNumber === selectedPoId);
+
+  const poValidation = (() => {
+    if (!selectedPoId) return { valid: true, message: '' };
+    if (!activePO) return { valid: false, message: 'Select a valid Purchase Order before saving this vendor bill.' };
+
+    const poByProduct = new Map<string, PurchaseOrder['items'][number]>(activePO.items.map((item) => [item.productId, item]));
+    const invoiceByProduct = new Map(lines.map((line) => [line.productId, line]));
+    const missing = activePO.items.find((item) => !invoiceByProduct.has(item.productId));
+    const extra = lines.find((line) => !poByProduct.has(line.productId));
+    const exceeding = lines.find((line) => {
+      const poItem = poByProduct.get(line.productId);
+      return poItem && line.quantity > poItem.quantity;
+    });
+    const quantityMismatch = lines.find((line) => {
+      const poItem = poByProduct.get(line.productId);
+      return poItem && line.quantity !== poItem.quantity;
+    });
+    const typeMismatch = lines.find((line) => {
+      const poItem = poByProduct.get(line.productId);
+      const product = products.find((item) => item.id === line.productId);
+      return poItem?.productGroup && product?.productGroup !== poItem.productGroup;
+    });
+    if (exceeding) return { valid: false, message: `Quantity exceeding PO: ${exceeding.productName} allows only ${poByProduct.get(exceeding.productId)?.quantity}.` };
+    if (missing) return { valid: false, message: `PO product missing from bill: ${missing.productName}.` };
+    if (extra) return { valid: false, message: `Product not in selected PO: ${extra.productName}.` };
+    if (typeMismatch) return { valid: false, message: `Product type does not match the selected PO: ${typeMismatch.productName}.` };
+    if (quantityMismatch) return { valid: false, message: `Quantity must match the selected PO for ${quantityMismatch.productName}: ${poByProduct.get(quantityMismatch.productId)?.quantity} required.` };
+    if (invoiceByProduct.size !== poByProduct.size) return { valid: false, message: 'PO and vendor bill products must match exactly.' };
+    return { valid: true, message: '' };
+  })();
 
   const filteredPendingPOs = pendingPOs.filter(
     (po) =>
@@ -209,7 +243,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
       (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
     return matchesBranch && matchesVendor && matchesSearch;
-  });
+  }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''));
 
   // Financial Metrics
   const totalTaxable = filteredInvoices.reduce((s, i) => s + (i.taxableAmount ?? 0), 0);
@@ -386,6 +420,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       alert('Please search and add at least one product item to the purchase bill.');
       return;
     }
+    if (!poValidation.valid) {
+      setSaveMessage(poValidation.message);
+      return;
+    }
 
     const targetBranch = branches.find((b) => b.id === branchId);
     if (targetBranch && targetBranch.allowProcurement === false) {
@@ -402,6 +440,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     const items: PurchaseInvoiceItem[] = calculatedLines.map((l, idx) => ({
       id: `inv-item-${Date.now()}-${idx}`,
       productId: l.productId,
+      productGroup: products.find((product) => product.id === l.productId)?.productGroup,
       productName: l.productName,
       sku: l.sku,
       unit: l.unit,
@@ -439,8 +478,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       notes: `Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs.formattedBSShort}). ${notes}`,
     });
 
+    setSaveMessage('Vendor bill saved successfully and purchase quantities were posted.');
+    window.setTimeout(() => setSaveMessage(''), 3000);
     handleResetForm();
-    setActiveTab('INVOICE_LIST');
+    window.setTimeout(() => setActiveTab('INVOICE_LIST'), 3000);
   };
 
   const handleExportCSV = () => {
@@ -759,6 +800,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     <th className="p-3.5">Vendor Bill #</th>
                     <th className="p-3.5">Supplier / Vendor</th>
                     <th className="p-3.5">Branch</th>
+                    <th className="p-3.5">PO Order Date</th>
+                    <th className="p-3.5">Expected Delivery</th>
                     <th className="p-3.5">Bill Date</th>
                     <th className="p-3.5 text-right">Taxable</th>
                     <th className="p-3.5 text-right">13% VAT</th>
@@ -770,13 +813,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
                   {filteredInvoices.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="p-10 text-center text-slate-400 italic">
+                      <td colSpan={12} className="p-10 text-center text-slate-400 italic">
                         No purchase bills recorded. Click "New Purchase Bill" to record vendor transactions.
                       </td>
                     </tr>
                   ) : (
                     filteredInvoices.map((inv) => {
                       const branch = branches.find((b) => b.id === inv.branchId);
+                      const linkedPO = purchaseOrders.find((po) => po.id === inv.poReferenceId || po.poNumber === inv.poReferenceId);
                       return (
                         <tr
                           key={inv.id}
@@ -795,6 +839,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           </td>
                           <td className="p-3.5 text-slate-600 dark:text-slate-400">
                             {branch?.name || inv.branchId}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {linkedPO ? formatDualDate(linkedPO.orderDateAD, dateMode) : '—'}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {linkedPO ? formatDualDate(linkedPO.expectedDeliveryDateAD, dateMode) : '—'}
                           </td>
                           <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                             {formatDualDate(inv.invoiceDateAD, dateMode)}
@@ -1035,7 +1085,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 >
                   {getAllowedBranches(currentUser, branches).map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} ({b.location})
+                      {b.name} ({b.code})
                     </option>
                   ))}
                 </select>
@@ -1445,6 +1495,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     Rs. {(grandTotalCalculated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
+
+                {(poValidation.message || saveMessage) && (
+                  <div className={`mt-3 rounded-lg border px-3 py-2 text-[11px] font-semibold ${
+                    poValidation.message
+                      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  }`} role="status">
+                    {poValidation.message || saveMessage}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1478,7 +1538,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <button
                   type="submit"
                   id="btn-submit-purchase-invoice"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 cursor-pointer transition-all"
+                  disabled={lines.length === 0 || !poValidation.valid}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-400 disabled:shadow-none disabled:cursor-not-allowed px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 cursor-pointer transition-all"
                 >
                   Save Vendor Bill (Credit Mode)
                 </button>
@@ -1499,6 +1560,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           {/* Top Document Header */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
+              <div className="mb-3">
+                <h2 className="text-lg font-serif font-extrabold text-slate-900 dark:text-white">{companyProfile?.name || 'Company profile not configured'}</h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">{companyProfile?.address || 'Registered address unavailable'}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">PAN/VAT: {companyProfile?.panVatNumber || 'Not configured'}{companyProfile?.phone ? ` | ${companyProfile.phone}` : ''}</p>
+              </div>
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 mb-1">
                 <Receipt className="h-4 w-4" />
                 <span>Vendor Purchase Bill Document</span>

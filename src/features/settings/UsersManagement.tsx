@@ -438,7 +438,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name}
+                        {b.name} ({b.code})
                       </option>
                     ))}
                   </select>

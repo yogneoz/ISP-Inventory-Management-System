@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     id VARCHAR(50) PRIMARY KEY,
     invoice_number VARCHAR(100) UNIQUE NOT NULL,
     po_reference_id VARCHAR(50),
+    vendor_bill_number VARCHAR(100),
     supplier_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     invoice_date_ad DATE NOT NULL,
@@ -238,6 +239,24 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
 );
 
 -- ==========================================
+-- Fiscal-Year Opening Stock Balances
+-- ==========================================
+CREATE TABLE IF NOT EXISTS fiscal_year_opening_stock (
+    id VARCHAR(100) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+    product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    quantity_on_hand INT NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
+    damaged_qty INT NOT NULL DEFAULT 0 CHECK (damaged_qty >= 0),
+    unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+    source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE',
+    source_reference VARCHAR(100),
+    posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    posted_by VARCHAR(150),
+    UNIQUE (fiscal_year_id, product_id, branch_id)
+);
+
+-- ==========================================
 -- 13. Audit Trail Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -305,7 +324,7 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
     device_serial VARCHAR(100) NOT NULL,
     pon_serial VARCHAR(100) NOT NULL,
     mac_address VARCHAR(100),
-    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL', 'ROUTER_COLLECTED')),
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL', 'ROUTER_COLLECTED','IN_STOCK')),
     issued_date_ad DATE,
     issued_date_bs VARCHAR(20),
     purchase_bill_ref VARCHAR(100),

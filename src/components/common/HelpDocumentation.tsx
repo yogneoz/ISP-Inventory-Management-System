@@ -7,7 +7,6 @@ import {
   Search,
   Download,
   Printer,
-  Sparkles,
   ChevronRight,
   CheckCircle2,
   AlertCircle,
@@ -35,7 +34,6 @@ import { User } from '../../types';
 interface HelpDocumentationProps {
   currentUser: User | null;
   isDarkMode?: boolean;
-  onOpenAiAssistant?: () => void;
   onOpenBarcodeModal?: () => void;
   onOpenSearchModal?: () => void;
   onNavigateTab?: (tab: string) => void;
@@ -63,7 +61,6 @@ interface ProcessWorkflow {
 export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   currentUser,
   isDarkMode = false,
-  onOpenAiAssistant,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onNavigateTab,
@@ -366,7 +363,6 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
   // 3. Keyboard Shortcuts Data
   const shortcuts = [
-    { key: 'Ctrl + Space', description: 'Open Gemini AI Inventory Assistant', category: 'Global' },
     { key: 'Alt + B', description: 'Open Barcode Scanner Modal', category: 'Inventory' },
     { key: 'Alt + S', description: 'Open Global System Search', category: 'Navigation' },
     { key: 'Alt + H', description: 'Open In-App Help & Documentation', category: 'Navigation' },
@@ -446,15 +442,6 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
-            {onOpenAiAssistant && (
-              <button
-                onClick={onOpenAiAssistant}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 px-4 py-2.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer"
-              >
-                <Sparkles className="h-4 w-4 text-amber-300" />
-                <span>Ask AI Assistant</span>
-              </button>
-            )}
             <button
               onClick={() => window.print()}
               className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 px-3.5 py-2.5 text-xs font-semibold text-white backdrop-blur-sm border border-white/20 transition-all cursor-pointer"
@@ -731,7 +718,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                     <span>Quick Interactive Action</span>
                   </div>
                   <p className="text-slate-600 dark:text-slate-300">
-                    Would you like to open the interactive workflow for this module or ask the AI assistant for custom help?
+                    Would you like to open the interactive workflow for this module?
                   </p>
                   <div className="pt-2 flex gap-2">
                     <button
@@ -740,14 +727,6 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                     >
                       View Operating Workflows
                     </button>
-                    {onOpenAiAssistant && (
-                      <button
-                        onClick={onOpenAiAssistant}
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300 font-bold text-xs hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all cursor-pointer"
-                      >
-                        Ask Gemini AI
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
