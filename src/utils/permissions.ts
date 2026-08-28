@@ -110,16 +110,18 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
 
 export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>> => {
   try {
+    if (typeof localStorage === 'undefined') return DEFAULT_PERMISSIONS_MATRIX;
     const stored = localStorage.getItem('izone_permissions_matrix');
     if (stored) return JSON.parse(stored);
   } catch (e) {
-    console.error('Error reading permissions matrix from localStorage', e);
+    // Node / SSR / test environments may lack localStorage
   }
   return DEFAULT_PERMISSIONS_MATRIX;
 };
 
 export const savePermissionsMatrix = (matrix: Record<string, Record<UserRole, boolean>>) => {
   try {
+    if (typeof localStorage === 'undefined') return;
     localStorage.setItem('izone_permissions_matrix', JSON.stringify(matrix));
     // Dispatch custom event for real-time app update
     window.dispatchEvent(new Event('izone_permissions_updated'));

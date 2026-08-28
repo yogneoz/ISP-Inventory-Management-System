@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { validateBody, loginBodySchema, setupSuperAdminSchema } from '../lib/validate';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -91,7 +92,7 @@ router.get('/api/auth/setup-status', async (req, res) => {
   });
 });
 
-router.post('/api/auth/setup-superadmin', async (req: any, res: any) => {
+router.post('/api/auth/setup-superadmin', validateBody(setupSuperAdminSchema), async (req: any, res: any) => {
   const { name, email, password, branchId } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Name, email, and password are required.' });
@@ -217,7 +218,7 @@ router.post('/api/auth/forgot-password', (req, res) => {
   });
 });
 
-router.post('/api/auth/login', async (req: any, res: any) => {
+router.post('/api/auth/login', validateBody(loginBodySchema), async (req: any, res: any) => {
   const { email, password } = req.body;
   const cleanEmail = (email || '').toLowerCase().trim();
   if (!cleanEmail || !password) {
@@ -226,7 +227,7 @@ router.post('/api/auth/login', async (req: any, res: any) => {
 
   let candidate: User | null = null;
 
-  await writeThroughPg('DB_WRITE', async () => {
+  if (isPgConnected) {
     try {
       const dbRes = await pgPool.query(
         'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
@@ -236,7 +237,7 @@ router.post('/api/auth/login', async (req: any, res: any) => {
         candidate = dbRes.rows[0];
       }
     } catch (_err) {}
-  });
+  }
 
   if (!candidate) {
     candidate = store.users.find((u) => u.email.toLowerCase() === cleanEmail) || null;

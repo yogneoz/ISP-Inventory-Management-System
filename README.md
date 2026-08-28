@@ -352,6 +352,7 @@ docker run -d \
 | **Development Server** | `npm run dev` |
 | **Type Check & Lint** | `npm run lint` |
 | **Test Suite** | `npm test` |
+| **DB Migrations** | `npm run migrate` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
 | **Automated DB Setup** | `npm run setup:pg` |
@@ -362,6 +363,11 @@ docker run -d \
 
 ---
 
+
+## 🏭 Production
+
+See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for P0/P1/P2 hardening, Redis/Postgres, backups, and smoke tests.
+Status matrix: **[docs/ROADMAP_STATUS.md](docs/ROADMAP_STATUS.md)**.
 
 ## 🧪 Testing
 

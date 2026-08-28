@@ -4,6 +4,8 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
+import { validateBody, stockPatchSchema } from '../lib/validate';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -71,28 +73,56 @@ const router = Router();
 
 router.get('/api/stock', async (req, res) => {
   const { branchId } = req.query;
-  if (isPgConnected) {
-    try {
-      let sql = `SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel", last_updated AS "lastUpdated" FROM inventory_stock`;
-      const params: any[] = [];
-      if (branchId && branchId !== 'ALL') {
-        sql += ` WHERE branch_id = $1`;
-        params.push(branchId);
-      }
-      sql += ` ORDER BY branch_id, product_id`;
-      const r = await pgPool.query(sql, params);
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching stock from DB:', err);
+  const branchFilter = branchId && branchId !== 'ALL' ? String(branchId) : null;
+  try {
+    const rows = await readPgOrStore<any>({
+      label: 'stock.list',
+      sql:
+        `SELECT id, product_id AS "productId", branch_id AS "branchId",
+                quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty",
+                reserved_qty AS "reservedQty", incoming_qty AS "incomingQty",
+                min_reorder_level AS "minReorderLevel", last_updated AS "lastUpdated"
+         FROM inventory_stock` +
+        (branchFilter ? ' WHERE branch_id = $1' : '') +
+        ' ORDER BY branch_id, product_id',
+      params: branchFilter ? [branchFilter] : [],
+      fallback: () =>
+        branchFilter
+          ? store.inventoryStock.filter((s) => s.branchId === branchFilter)
+          : store.inventoryStock,
+      map: (r) => ({
+        ...r,
+        quantityOnHand: num(r.quantityOnHand),
+        damagedQty: num(r.damagedQty),
+        reservedQty: num(r.reservedQty),
+        incomingQty: num(r.incomingQty),
+        minReorderLevel: r.minReorderLevel != null ? num(r.minReorderLevel) : undefined,
+        lastUpdated: r.lastUpdated
+          ? new Date(r.lastUpdated).toISOString()
+          : new Date().toISOString(),
+      }),
+      onRows: (rows) => {
+        if (!isPgConnected) return;
+        if (!branchFilter) {
+          store.replaceCollection('inventoryStock', rows as any);
+        } else {
+          // merge branch slice
+          const others = store.inventoryStock.filter((s) => s.branchId !== branchFilter);
+          store.replaceCollection('inventoryStock', [...others, ...(rows as any)]);
+        }
+      },
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching stock:', err);
+    if (branchFilter) {
+      return res.json(store.inventoryStock.filter((s) => s.branchId === branchFilter));
     }
+    res.json(store.inventoryStock);
   }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(store.inventoryStock.filter((s) => s.branchId === branchId));
-  }
-  res.json(store.inventoryStock);
 });
 
-router.patch('/api/stock/:id', async (req, res) => {
+router.patch('/api/stock/:id', validateBody(stockPatchSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['inventoryStock', 'transactionLogs', 'assetRegister', 'stockOperations']);
   try {
     const { id } = req.params;

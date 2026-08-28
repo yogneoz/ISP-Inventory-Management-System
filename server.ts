@@ -10,6 +10,9 @@ import { initializeStore } from './server/store';
 import { createApp } from './server/createApp';
 import { syncDatabaseAndIndexes } from './server/lib/dbBootstrap';
 import { initSessionStore } from './server/lib/sessionStore';
+import { initSyncBus } from './server/lib/sync';
+import { runMigrations } from './server/lib/migrations';
+import { logger } from './server/lib/logger';
 
 dotenv.config();
 
@@ -20,6 +23,15 @@ async function startServer() {
   await initializeStore();
   await initSessionStore();
   await syncDatabaseAndIndexes();
+  try {
+    await runMigrations();
+  } catch (err: any) {
+    logger.error({ msg: 'startup_migrations_failed', error: err?.message || String(err) });
+    if (process.env.REQUIRE_MIGRATIONS === 'true') {
+      throw err;
+    }
+  }
+  await initSyncBus();
 
   // IMPORTANT: register Vite/static AFTER API routes so /api is never swallowed
   if (process.env.NODE_ENV !== 'production') {
@@ -41,11 +53,13 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
+    logger.info({ msg: 'server_listen', port: PORT, url: `http://localhost:${PORT}` });
     console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
   });
 }
 
 startServer().catch((err) => {
+  logger.error({ msg: 'server_start_failed', error: err?.message || String(err) });
   console.error('Failed to start server:', err);
   process.exit(1);
 });

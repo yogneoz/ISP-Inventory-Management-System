@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { validateBody, approvalCreateSchema, approvalProcessSchema } from '../lib/validate';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -106,7 +107,7 @@ router.get('/api/approval-requests', async (req, res) => {
   res.json(list);
 });
 
-router.post('/api/approval-requests', async (req, res) => {
+router.post('/api/approval-requests', validateBody(approvalCreateSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['approvalRequests', 'customerDeviceRecords', 'shipments', 'inventoryStock', 'transactionLogs']);
   try {
     const count = store.approvalRequests.length + 1;
@@ -176,7 +177,7 @@ router.post('/api/approval-requests', async (req, res) => {
   }
 });
 
-router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req, res) => {
+router.post('/api/approval-requests/:id/process', requireRole('SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), validateBody(approvalProcessSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['approvalRequests', 'customerDeviceRecords', 'shipments', 'inventoryStock', 'transactionLogs']);
   try {
     const { id } = req.params;

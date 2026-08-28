@@ -57,11 +57,26 @@ export async function verifyPassword(plain: string, stored: string | undefined |
 }
 
 export function validatePasswordStrength(password: string): { ok: boolean; message?: string } {
-  if (!password || password.trim().length < MIN_PASSWORD_LENGTH) {
+  const min = Number(process.env.MIN_PASSWORD_LENGTH || MIN_PASSWORD_LENGTH);
+  if (!password || password.trim().length < min) {
     return {
       ok: false,
-      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+      message: `Password must be at least ${min} characters long.`,
     };
+  }
+  if (process.env.STRICT_PASSWORD_POLICY === 'true') {
+    if (!/[A-Z]/.test(password)) {
+      return { ok: false, message: 'Password must include an uppercase letter.' };
+    }
+    if (!/[a-z]/.test(password)) {
+      return { ok: false, message: 'Password must include a lowercase letter.' };
+    }
+    if (!/[0-9]/.test(password)) {
+      return { ok: false, message: 'Password must include a number.' };
+    }
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      return { ok: false, message: 'Password must include a special character.' };
+    }
   }
   return { ok: true };
 }

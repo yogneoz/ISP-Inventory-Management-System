@@ -4,6 +4,8 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { readPgOrStore, num } from '../lib/pgReads';
+import { validateBody, productCreateSchema, productUpdateSchema } from '../lib/validate';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -70,20 +72,37 @@ import type {
 const router = Router();
 
 router.get('/api/products', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const r = await pgPool.query(
-        'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products ORDER BY created_at DESC'
-      );
-      return res.json(r.rows);
-    } catch (err) {
-      console.error('Error fetching products from DB:', err);
-    }
+  try {
+    const rows = await readPgOrStore<any>({
+      label: 'products.list',
+      sql: `SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit,
+                   cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate",
+                   min_reorder_level AS "minReorderLevel",
+                   requires_serial_tracking AS "requiresSerialTracking",
+                   tracking_type AS "trackingType", description, status
+            FROM products ORDER BY created_at DESC NULLS LAST, name ASC`,
+      fallback: () => store.products,
+      map: (r) => ({
+        ...r,
+        costPrice: num(r.costPrice),
+        sellingPrice: num(r.sellingPrice),
+        taxRate: num(r.taxRate, 13),
+        minReorderLevel: num(r.minReorderLevel, 0),
+      }),
+      onRows: (rows) => {
+        if (isPgConnected && rows.length >= 0) {
+          store.replaceCollection('products', rows as any);
+        }
+      },
+    });
+    res.json(rows);
+  } catch (err: any) {
+    console.error('Error fetching products:', err);
+    res.json(store.products);
   }
-  res.json(store.products);
 });
 
-router.post('/api/products', async (req, res) => {
+router.post('/api/products', validateBody(productCreateSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const newProd = {
@@ -172,7 +191,7 @@ router.post('/api/products', async (req, res) => {
   }
 });
 
-router.put('/api/products/:id', async (req, res) => {
+router.put('/api/products/:id', validateBody(productUpdateSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['products', 'categories', 'inventoryStock']);
   try {
     const { id } = req.params;
@@ -259,15 +278,19 @@ router.delete('/api/products/:id', async (req, res) => {
 
 // Categories API
 router.get('/api/categories', async (req, res) => {
-  if (isPgConnected) {
-    try {
-      const { rows } = await pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC');
-      return res.json(rows);
-    } catch (err: any) {
-      console.warn('Database note on GET /api/categories:', err?.message || err);
-    }
+  try {
+    const rows = await readPgOrStore<any>({
+      label: 'categories.list',
+      sql: 'SELECT id, name, code, description FROM categories ORDER BY name ASC',
+      fallback: () => store.categories,
+      onRows: (rows) => {
+        if (isPgConnected) store.replaceCollection('categories', rows as any);
+      },
+    });
+    res.json(rows);
+  } catch {
+    res.json(store.categories);
   }
-  res.json(store.categories);
 });
 
 router.post('/api/categories', async (req, res) => {

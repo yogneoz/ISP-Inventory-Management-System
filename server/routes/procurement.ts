@@ -4,6 +4,8 @@
 import { Router } from 'express';
 import * as store from '../store';
 import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { validateBody, poCreateSchema } from '../lib/validate';
+import { readPgOrStore, num } from '../lib/pgReads';
 import {
   snapshotStore,
   restoreSnapshot,
@@ -90,7 +92,7 @@ router.get('/api/purchase-orders', async (req, res) => {
   res.json(store.purchaseOrders);
 });
 
-router.post('/api/purchase-orders', async (req, res) => {
+router.post('/api/purchase-orders', validateBody(poCreateSchema), async (req, res) => {
   const __writeSnap = snapshotStore(['purchaseOrders', 'purchaseInvoices', 'inventoryStock', 'transactionLogs', 'assetRegister']);
   try {
     const items = req.body.items || [];
