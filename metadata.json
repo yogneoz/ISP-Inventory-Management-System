@@ -1,6 +1,0 @@
-{
-  "name": "IZone Inventory System",
-  "description": "Enterprise multi-branch inventory tracking, fixed asset register, purchase orders, shipments, stock operations, Nepali calendar conversion, fiscal year management, and real-time financial reporting.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

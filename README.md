@@ -31,8 +31,6 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 ---
 
 
-> **Note:** `backend_django/` is an optional/experimental Django REST parallel stack. The supported production path is the Express server under `server/` + `server.ts`. Prefer Express unless you are actively completing the Django backend.
-
 ## 📂 Project Architecture & Directory Structure
 
 ```

@@ -15,7 +15,7 @@
 | PG-first reads on list GETs | Done (masters, catalog, stock, logistics, procurement, customers, audit, approvals, fiscal, company) |
 | Migrations runner | Done (`npm run migrate`) |
 | Frontend modularization | Started (`stockOps/`, `useInventoryData`) — see `docs/FRONTEND_MODULARIZATION.md` |
-| Django dual-backend | Documented experimental |
+| Django dual-backend | Removed from repo |
 
 ## P2 — Quality & product — DONE (core)
 | Item | Status |

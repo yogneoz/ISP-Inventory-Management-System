@@ -49,13 +49,6 @@ export function createApp(): Express {
     });
   });
 
-  app.get('/__aistudio_internal_control_plane/dev/status', (_req, res) => {
-    res.json({ status: 'ok', dev: true });
-  });
-
-  app.get('/__aistudio_internal_control_plane/*', (_req, res) => {
-    res.json({ status: 'ok' });
-  });
 
   // Auth endpoints: brute-force protection
   app.use('/api/auth/login', loginRateLimiter);

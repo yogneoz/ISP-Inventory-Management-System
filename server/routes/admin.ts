@@ -3,69 +3,17 @@
  */
 import { Router } from 'express';
 import * as store from '../store';
-import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { pgPool } from '../lib/db';
 import {
   snapshotStore,
   restoreSnapshot,
   writeThroughPg,
   sendWriteFailure,
   commitLocalMirror,
-  isDurableWriteError,
 } from '../lib/writeGuard';
-import {
-  requireRole,
-  requireAuth,
-  logAuditEvent,
-  sanitizeUser,
-  findUserByIdOrEmail,
-  migrateUserPasswordIfNeeded,
-  getUserFromReq,
-} from '../lib/auth';
-import {
-  hashPassword,
-  verifyPassword,
-  validatePasswordStrength,
-  createSession,
-  destroySession,
-  destroyUserSessions,
-  extractBearerToken,
-  getTodayBsStamp,
-  normalizeRole,
-  MIN_PASSWORD_LENGTH,
-  getSession,
-} from '../lib/authUtils';
-import {
-  broadcastChange,
-  dataVersion,
-  setDataVersion,
-  bumpDataVersion,
-  addSseClient,
-  removeSseClient,
-  forEachSseClient,
-} from '../lib/sync';
-import { getGenAIClient } from '../lib/ai';
-import type {
-  User,
-  Supplier,
-  Branch,
-  Product,
-  CompanyProfile,
-  InventoryStock,
-  Asset,
-  PurchaseOrder,
-  PurchaseInvoice,
-  Shipment,
-  StockOperation,
-  FiscalYear,
-  AuditLog,
-  TransactionLog,
-  CustomerDeviceRecord,
-  CustomerRecord,
-  ApprovalRequest,
-  Category,
-  UnitOfMeasure,
-  LocationRecord,
-} from '../../src/types';
+import { requireRole } from '../lib/auth';
+
+import { dataVersion, bumpDataVersion, forEachSseClient } from '../lib/sync';
 
 const router = Router();
 

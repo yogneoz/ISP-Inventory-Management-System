@@ -3,24 +3,14 @@
  */
 import { Router } from 'express';
 import * as store from '../store';
-import { pgPool, isPgConnected, withTransaction } from '../lib/db';
+import { pgPool, isPgConnected } from '../lib/db';
 import { validateBody, loginBodySchema, setupSuperAdminSchema } from '../lib/validate';
+import { writeThroughPg, commitLocalMirror } from '../lib/writeGuard';
 import {
-  snapshotStore,
-  restoreSnapshot,
-  writeThroughPg,
-  sendWriteFailure,
-  commitLocalMirror,
-  isDurableWriteError,
-} from '../lib/writeGuard';
-import {
-  requireRole,
-  requireAuth,
   logAuditEvent,
   sanitizeUser,
   findUserByIdOrEmail,
   migrateUserPasswordIfNeeded,
-  getUserFromReq,
 } from '../lib/auth';
 import {
   hashPassword,
@@ -28,45 +18,12 @@ import {
   validatePasswordStrength,
   createSession,
   destroySession,
-  destroyUserSessions,
   extractBearerToken,
   getTodayBsStamp,
   normalizeRole,
-  MIN_PASSWORD_LENGTH,
-  getSession,
 } from '../lib/authUtils';
-import {
-  broadcastChange,
-  dataVersion,
-  setDataVersion,
-  bumpDataVersion,
-  addSseClient,
-  removeSseClient,
-  forEachSseClient,
-} from '../lib/sync';
-import { getGenAIClient } from '../lib/ai';
-import type {
-  User,
-  Supplier,
-  Branch,
-  Product,
-  CompanyProfile,
-  InventoryStock,
-  Asset,
-  PurchaseOrder,
-  PurchaseInvoice,
-  Shipment,
-  StockOperation,
-  FiscalYear,
-  AuditLog,
-  TransactionLog,
-  CustomerDeviceRecord,
-  CustomerRecord,
-  ApprovalRequest,
-  Category,
-  UnitOfMeasure,
-  LocationRecord,
-} from '../../src/types';
+
+import type { User } from '../../src/types';
 
 const router = Router();
 

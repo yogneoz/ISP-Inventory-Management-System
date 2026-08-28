@@ -80,7 +80,6 @@ redis-cli -u "$REDIS_URL" BGSAVE
 | PG-first reads | products, categories, stock lists |
 | Zod validation on writes | login, setup SA, products, stock patch, PO, shipment, approvals |
 | SQL migrations runner | `scripts/migrations/` + `npm run migrate` |
-| Django parallel stack | Documented experimental under `backend_django/` |
 
 ---
 

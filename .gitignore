@@ -4,8 +4,23 @@ dist/
 coverage/
 .DS_Store
 *.log
-.env*
-!.env.example
-.data_store.json
 logs/
 *.tsbuildinfo
+
+# env & local state
+.env
+.env.*
+!.env.example
+.data_store.json
+
+# locks from alternate package managers
+bun.lock
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+
+# editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
