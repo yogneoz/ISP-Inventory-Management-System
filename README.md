@@ -364,7 +364,7 @@ docker run -d \
 
 ## 🏭 Production
 
-See **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for P0/P1/P2 hardening, Redis/Postgres, backups, and smoke tests.
+See **[docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md)** (fail-closed Postgres) and **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for P0/P1/P2 hardening, Redis/Postgres, backups, and smoke tests.
 Status matrix: **[docs/ROADMAP_STATUS.md](docs/ROADMAP_STATUS.md)**.
 
 ## 🧪 Testing

@@ -1,3 +1,5 @@
+> **Deploy checklist (Node + Postgres fail-closed):** see [`docs/DEPLOY_CHECKLIST.md`](./DEPLOY_CHECKLIST.md).
+
 # Production Hardening Guide (P0 / P1 / P2)
 
 ## Architecture (durable mode)

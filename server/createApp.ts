@@ -6,7 +6,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { authenticateUser } from './lib/auth';
 import { registerRoutes } from './routes';
 import { getSessionStoreStats } from './lib/sessionStore';
-import { getDbHealth } from './lib/db';
+import { getDbHealth, isPostgresRequired, pingPostgres } from './lib/db';
 import { isSseRedisEnabled, getSseClientCount } from './lib/sync';
 import { requestContext } from './middleware/requestContext';
 import { apiRateLimiter, loginRateLimiter } from './middleware/rateLimit';
@@ -23,15 +23,53 @@ export function createApp(): Express {
   app.use(requestContext);
   app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '25mb' }));
 
-  // Health & control-plane endpoints BEFORE auth middleware
-  app.get('/api/health', async (_req, res) => {
-    const [sessions, database] = await Promise.all([
-      getSessionStoreStats(),
-      getDbHealth(),
-    ]);
-    res.json({
-      status: 'ok',
+  /**
+   * Liveness: process is up (always 200 if we can answer).
+   * Use for orchestrator "is the process alive?" checks.
+   */
+  app.get('/api/health/live', (_req, res) => {
+    res.status(200).json({ status: 'live', timestamp: new Date().toISOString() });
+  });
+
+  /**
+   * Readiness: dependencies required for serving traffic.
+   * Returns 503 when Postgres is required but not durable/ready.
+   */
+  app.get('/api/health/ready', async (_req, res) => {
+    const database = await getDbHealth();
+    const required = isPostgresRequired();
+    let pgPingOk = database.mode === 'postgres' ? await pingPostgres() : !required;
+
+    const ready = required ? database.durable && pgPingOk : true;
+    const body = {
+      status: ready ? 'ready' : 'not_ready',
       timestamp: new Date().toISOString(),
+      requirePostgres: required,
+      database: {
+        mode: database.mode,
+        durable: database.durable,
+        ready: database.ready && pgPingOk,
+        ping: database.ping || null,
+      },
+    };
+
+    res.status(ready ? 200 : 503).json(body);
+  });
+
+  /**
+   * Full health snapshot (auth not required).
+   * In production fail-closed mode, returns 503 if DB is not durable so load balancers can drain.
+   */
+  app.get('/api/health', async (_req, res) => {
+    const [sessions, database] = await Promise.all([getSessionStoreStats(), getDbHealth()]);
+    const required = isPostgresRequired();
+    const ready = required ? database.durable && database.ready : true;
+
+    const body = {
+      status: ready ? 'ok' : 'degraded',
+      timestamp: new Date().toISOString(),
+      requirePostgres: required,
+      ready,
       sessions: {
         backend: sessions.backend,
         memoryCount: sessions.memoryCount,
@@ -40,15 +78,18 @@ export function createApp(): Express {
       database: {
         mode: database.mode,
         durable: database.durable,
+        required: database.required,
+        ready: database.ready,
         ping: database.ping || null,
       },
       sync: {
         sseClients: getSseClientCount(),
         redisPubSub: isSseRedisEnabled(),
       },
-    });
-  });
+    };
 
+    res.status(ready ? 200 : 503).json(body);
+  });
 
   // Auth endpoints: brute-force protection
   app.use('/api/auth/login', loginRateLimiter);

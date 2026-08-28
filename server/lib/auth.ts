@@ -19,6 +19,8 @@ import { broadcastChange } from './sync';
 
 export const PUBLIC_API_PATHS = [
   '/api/health',
+  '/api/health/live',
+  '/api/health/ready',
   '/api/auth/login',
   '/api/auth/setup-status',
   '/api/auth/setup-superadmin',

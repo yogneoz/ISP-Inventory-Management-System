@@ -4,12 +4,17 @@
 import fs from 'fs';
 import path from 'path';
 import * as store from '../store';
-import { pgPool, isPgConnected, setPgConnected, setDbMode, getDbMode, initDatabaseConnection, getRealPool, withTransaction } from './db';
+import { pgPool, isPgConnected, setPgConnected, setDbMode, getDbMode, initDatabaseConnection, isPostgresRequired, getRealPool, withTransaction } from './db';
 
 export async function syncDatabaseAndIndexes() {
-  // Establish backend mode first (real PG preferred)
+  // Establish backend mode first (real PG preferred). Throws if Postgres required & missing.
   const mode = await initDatabaseConnection();
+  const requirePg = isPostgresRequired();
+
   if (mode === 'memory') {
+    if (requirePg) {
+      throw new Error('REQUIRE_POSTGRES: no SQL backend available after connection init.');
+    }
     console.log('ℹ️  No SQL backend available — using JSON/memory store only.');
     setPgConnected(false);
     return;
@@ -18,6 +23,9 @@ export async function syncDatabaseAndIndexes() {
   try {
     const client = await pgPool.connect();
     if (!client) {
+      if (requirePg) {
+        throw new Error('REQUIRE_POSTGRES: could not obtain a PostgreSQL client for schema sync.');
+      }
       console.log('ℹ️  Could not obtain SQL client — skipping schema sync.');
       return;
     }
@@ -495,8 +503,14 @@ export async function syncDatabaseAndIndexes() {
         : '✅ pg-mem schema synced (ephemeral).'
     );
   } catch (err: any) {
+    const requirePg = isPostgresRequired();
+    // Propagate hard failures when Postgres is mandatory
+    if (requirePg || (err?.message || '').includes('REQUIRE_POSTGRES')) {
+      setPgConnected(false);
+      console.error('❌ PostgreSQL required — schema sync failed:', err?.message || err);
+      throw err;
+    }
     if (getDbMode() === 'postgres') {
-      // Real PG was expected — surface the failure clearly
       console.error('❌ PostgreSQL primary sync failed:', err?.message || err);
       setPgConnected(false);
       setDbMode('memory');

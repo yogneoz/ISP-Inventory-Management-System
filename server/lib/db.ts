@@ -1,14 +1,15 @@
 /**
  * PostgreSQL connection layer.
  *
- * Modes (priority order):
- *  1. `postgres` — real PostgreSQL is reachable (PRIMARY source of truth)
- *  2. `pg-mem`   — in-process SQL engine for schema-compatible demos
- *  3. `memory`   — no SQL backend (routes use store arrays + JSON file only)
+ * Modes:
+ *  1. `postgres` — real PostgreSQL (PRIMARY source of truth)
+ *  2. `pg-mem`   — in-process SQL for demos (NOT durable)
+ *  3. `memory`   — arrays + JSON file only (NOT durable)
  *
- * When mode is `postgres`, writes must succeed against real PG. Silent
- * fall-through to empty results is disabled for that mode so data cannot
- * appear "saved" when it was not persisted.
+ * Production hardening:
+ *  - NODE_ENV=production OR REQUIRE_POSTGRES=true → fail closed (no silent fallback)
+ *  - ALLOW_DB_FALLBACK=true → explicitly permit pg-mem/memory even in production (not recommended)
+ *  - Tests use fallback unless REQUIRE_POSTGRES=true
  */
 import pg from 'pg';
 import { newDb } from 'pg-mem';
@@ -27,14 +28,23 @@ let realPoolInstance: pg.Pool | null = null;
 let memPgPool: any = null;
 let initDone = false;
 
+/** True when the process must not start without real Postgres. */
+export function isPostgresRequired(): boolean {
+  if (process.env.ALLOW_DB_FALLBACK === 'true') return false;
+  if (process.env.REQUIRE_POSTGRES === 'true') return true;
+  if (process.env.REQUIRE_POSTGRES === 'false') return false;
+  // Production defaults to fail-closed
+  return process.env.NODE_ENV === 'production';
+}
+
 function buildRealPool(): pg.Pool | null {
   try {
     const connectionString = process.env.DATABASE_URL;
-    if (connectionString && !connectionString.includes('://user:pass')) {
+    if (connectionString && connectionString.trim() && !connectionString.includes('://user:pass')) {
       return new RealPgPool({
         connectionString,
-        connectionTimeoutMillis: 3000,
-        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 5000),
+        idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
         max: Number(process.env.PG_POOL_MAX || 10),
       });
     }
@@ -44,8 +54,8 @@ function buildRealPool(): pg.Pool | null {
       database: process.env.POSTGRES_DB || 'inventory_db',
       user: process.env.POSTGRES_USER || 'inventory_user',
       password: process.env.POSTGRES_PASSWORD || 'securepassword',
-      connectionTimeoutMillis: 3000,
-      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 5000),
+      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
       max: Number(process.env.PG_POOL_MAX || 10),
     });
   } catch (err) {
@@ -58,7 +68,6 @@ function getMemPool() {
   if (!memPgPool) {
     try {
       const memDb = newDb({ autoCreateForeignKeyIndices: true });
-      // pg-mem lacks some PG extensions; ignore CREATE EXTENSION failures at query time
       const adapter = memDb.adapters.createPg();
       memPgPool = new adapter.Pool();
       console.log('✅ In-memory PostgreSQL engine initialized via pg-mem.');
@@ -72,10 +81,13 @@ function getMemPool() {
 realPoolInstance = buildRealPool();
 
 /**
- * Probe real Postgres and set dbMode. Safe to call repeatedly.
+ * Probe real Postgres and set dbMode.
+ * Throws if Postgres is required but unreachable.
  */
 export async function initDatabaseConnection(): Promise<DbMode> {
   if (initDone && dbMode === 'postgres') return dbMode;
+
+  const required = isPostgresRequired();
 
   // 1) Try real PostgreSQL
   if (realPoolInstance) {
@@ -94,21 +106,36 @@ export async function initDatabaseConnection(): Promise<DbMode> {
         client.release();
       }
     } catch (err: any) {
-      const msg = err?.code === 'ECONNREFUSED'
-        ? 'connection refused (is Postgres running?)'
-        : (err?.message || String(err));
+      const msg =
+        err?.code === 'ECONNREFUSED'
+          ? 'connection refused (is Postgres running?)'
+          : err?.message || String(err);
+      if (required) {
+        isPgConnected = false;
+        dbMode = 'memory';
+        initDone = true;
+        throw new Error(
+          `REQUIRE_POSTGRES: cannot reach PostgreSQL (${msg}). ` +
+            `Set DATABASE_URL / POSTGRES_* correctly, or set ALLOW_DB_FALLBACK=true only for demos.`
+        );
+      }
       console.warn(`⚠️  Real PostgreSQL unreachable — will use fallback. (${msg})`);
       isPgConnected = false;
     }
+  } else if (required) {
+    initDone = true;
+    throw new Error(
+      'REQUIRE_POSTGRES: PostgreSQL pool could not be created. Check DATABASE_URL / POSTGRES_* env vars.'
+    );
   }
 
-  // 2) pg-mem fallback (SQL-compatible offline demo)
+  // 2) pg-mem fallback (never in required-postgres mode — already thrown above)
   const allowMem = process.env.DISABLE_PG_MEM !== 'true';
   if (allowMem) {
     const mem = getMemPool();
     if (mem) {
       dbMode = 'pg-mem';
-      isPgConnected = false; // NOT real PG — routes that require durable writes should check isPgConnected
+      isPgConnected = false;
       initDone = true;
       console.log('ℹ️  Database mode: pg-mem (ephemeral SQL, not durable).');
       return dbMode;
@@ -132,11 +159,9 @@ export const pgPool = {
   /**
    * Run a SQL query against the active backend.
    * In `postgres` mode, errors are thrown (no silent empty result).
-   * In fallback modes, returns empty rows on failure to keep demos alive.
+   * In fallback modes, SELECT failures return empty rows for demo resilience.
    */
   async query(text: string, params?: any[]) {
-    const pool = activeSqlPool();
-
     if (dbMode === 'postgres' && realPoolInstance) {
       try {
         return await realPoolInstance.query(text, params);
@@ -146,16 +171,15 @@ export const pgPool = {
       }
     }
 
+    const pool = activeSqlPool();
     if (pool) {
       try {
         return await pool.query(text, params);
       } catch (memErr: any) {
-        // pg-mem often rejects extensions / some DDL — soft-warn
         const msg = memErr?.message || String(memErr);
         if (!/extension/i.test(msg)) {
           console.warn('Embedded SQL query warning:', msg);
         }
-        // For non-postgres modes, don't crash reads
         if (/^\s*(SELECT|WITH)\b/i.test(text)) {
           return { rows: [], rowCount: 0 };
         }
@@ -164,7 +188,7 @@ export const pgPool = {
     }
 
     console.warn('No SQL backend available for query:', text.slice(0, 60));
-    if (dbMode === 'postgres') {
+    if (dbMode === 'postgres' || isPostgresRequired()) {
       throw new Error('PostgreSQL primary backend is not connected');
     }
     return { rows: [], rowCount: 0 };
@@ -180,7 +204,7 @@ export const pgPool = {
         return await pool.connect();
       } catch (_e) {}
     }
-    if (dbMode === 'postgres') {
+    if (dbMode === 'postgres' || isPostgresRequired()) {
       throw new Error('PostgreSQL primary backend is not connected');
     }
     console.warn('SQL connection fallback: no client available');
@@ -257,23 +281,58 @@ export async function withTransaction<T>(
 export async function getDbHealth(): Promise<{
   mode: DbMode;
   durable: boolean;
+  required: boolean;
   ping?: string;
+  ready: boolean;
 }> {
-  const health: { mode: DbMode; durable: boolean; ping?: string } = {
+  const required = isPostgresRequired();
+  const health: {
+    mode: DbMode;
+    durable: boolean;
+    required: boolean;
+    ping?: string;
+    ready: boolean;
+  } = {
     mode: dbMode,
     durable: dbMode === 'postgres',
+    required,
+    ready: dbMode === 'postgres',
   };
+
   if (dbMode === 'postgres' && realPoolInstance) {
     try {
       const r = await realPoolInstance.query('SELECT 1 AS ok');
       health.ping = r?.rows?.[0]?.ok != null ? 'ok' : 'unknown';
+      health.ready = health.ping === 'ok';
     } catch (err: any) {
       health.ping = `error: ${err?.message || err}`;
+      health.ready = false;
     }
   } else if (dbMode === 'pg-mem') {
     health.ping = 'pg-mem';
+    health.ready = !required;
   } else {
     health.ping = 'memory-only';
+    health.ready = !required;
   }
   return health;
+}
+
+/**
+ * Re-check live connectivity (for readiness probes).
+ * Does not change dbMode unless reconnect succeeds from a failed state.
+ */
+export async function pingPostgres(): Promise<boolean> {
+  if (!realPoolInstance) return false;
+  try {
+    const client = await realPoolInstance.connect();
+    try {
+      const r = await client.query('SELECT 1 AS ok');
+      return r?.rows?.[0]?.ok === 1 || r?.rows?.[0]?.ok === '1';
+    } finally {
+      client.release();
+    }
+  } catch {
+    return false;
+  }
 }

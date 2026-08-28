@@ -3,14 +3,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files and install all dependencies
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code
 COPY . .
-
-# Build Vite frontend and bundled Node server (dist/server.cjs)
 RUN npm run build
 
 # Production runtime stage
@@ -20,16 +16,26 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
+# Fail closed: container must have reachable Postgres
+ENV REQUIRE_POSTGRES=true
+ENV REQUIRE_MIGRATIONS=true
+ENV SEED_DUMMY_DATA=false
+ENV LOG_LEVEL=info
 
-# Copy package files and install only production dependencies
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copy built dist directory and database scripts
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/scripts ./scripts
+# Bundled server may still resolve some runtime paths
+COPY --from=builder /app/server ./server
 COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/src/types ./src/types
 
 EXPOSE 3000
+
+# Simple Docker HEALTHCHECK against readiness (Postgres must be up)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/server.cjs"]
