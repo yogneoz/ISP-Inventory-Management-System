@@ -232,6 +232,33 @@ router.post('/api/shipments/:id/receive', async (req, res) => {
       });
     });
 
+    // Mirror receive into memory store (source already deducted on dispatch)
+    for (const item of sh.items as any[]) {
+      const actualQtyReceived = Number(item.quantityReceived || item.quantitySent || item.quantity || 1);
+      const qtySent = Number(item.quantitySent || item.quantity || 1);
+      if (sh.destinationBranchId) {
+        let destStk = store.inventoryStock.find(
+          (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+        );
+        if (!destStk) {
+          destStk = {
+            id: `stk-${String(sh.destinationBranchId).toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: sh.destinationBranchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          store.inventoryStock.push(destStk);
+        }
+        destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
+        destStk.quantityOnHand = (destStk.quantityOnHand || 0) + actualQtyReceived;
+        destStk.lastUpdated = new Date().toISOString();
+      }
+    }
+
     commitLocalMirror();
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
@@ -281,7 +308,32 @@ router.post('/api/shipments/:id/cancel', async (req, res) => {
     });
 
     commitLocalMirror();
-    logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
+    
+    // Offline / memory mirror: restore source stock and clear destination incoming
+    if (sh.sourceBranchId) {
+      for (const item of sh.items as any[]) {
+        const qtySent = Number(item.quantitySent || item.quantity || 1);
+        if (qtySent <= 0) continue;
+        const sourceStk = store.inventoryStock.find(
+          (s) => s.productId === item.productId && s.branchId === sh.sourceBranchId
+        );
+        if (sourceStk) {
+          sourceStk.quantityOnHand = (sourceStk.quantityOnHand || 0) + qtySent;
+          sourceStk.lastUpdated = new Date().toISOString();
+        }
+        if (sh.destinationBranchId) {
+          const destStk = store.inventoryStock.find(
+            (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+          );
+          if (destStk) {
+            destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
+            destStk.lastUpdated = new Date().toISOString();
+          }
+        }
+      }
+    }
+
+logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
     res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully.` });
   } catch (err: any) {
     restoreSnapshot(typeof __writeSnap !== 'undefined' ? __writeSnap : null);

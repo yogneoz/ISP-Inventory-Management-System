@@ -192,23 +192,26 @@ export function logAuditEvent(
     branchId: auditItem.branchId,
   });
 
-  pgPool
-    .query(
-      `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        auditItem.id,
-        auditItem.userEmail,
-        auditItem.userName,
-        auditItem.action,
-        auditItem.module,
-        auditItem.details,
-        auditItem.timestampBS,
-        auditItem.branchId,
-      ]
-    )
-    .catch(() => {});
+  // Best-effort durable audit mirror — never block the request path
+  if (isPgConnected) {
+    pgPool
+      .query(
+        `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          auditItem.id,
+          auditItem.userEmail,
+          auditItem.userName,
+          auditItem.action,
+          auditItem.module,
+          auditItem.details,
+          auditItem.timestampBS,
+          auditItem.branchId,
+        ]
+      )
+      .catch(() => {});
+  }
 
   return auditItem;
 }

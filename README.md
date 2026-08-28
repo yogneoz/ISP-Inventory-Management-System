@@ -30,6 +30,9 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ---
 
+
+> **Note:** `backend_django/` is an optional/experimental Django REST parallel stack. The supported production path is the Express server under `server/` + `server.ts`. Prefer Express unless you are actively completing the Django backend.
+
 ## 📂 Project Architecture & Directory Structure
 
 ```
@@ -371,6 +374,8 @@ The first suite covers:
 
 - **Unit:** password hashing, roles, BS dates, session store, write-guard rollback, stock movement invariants
 - **API:** auth/login/logout, header spoof rejection, product create, durable write 503 + memory rollback
+
+A ready-to-use GitHub Actions workflow lives at `docs/github-actions-ci.yml` — copy it to `.github/workflows/ci.yml` in the repo (requires workflow write permission on the GitHub App / PAT) to enable CI on push/PR.
 
 Tests force offline backends (`DISABLE_PG_MEM=true`, no Redis) and an isolated temp `DATA_STORE_PATH` so they never touch your real database or `.data_store.json`.
 
