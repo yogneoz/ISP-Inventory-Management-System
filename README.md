@@ -1,6 +1,6 @@
 # Enterprise ERP & Multi-Branch Inventory Management System
 
-A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL / Django REST Framework**.
+A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL**.
 
 ---
 

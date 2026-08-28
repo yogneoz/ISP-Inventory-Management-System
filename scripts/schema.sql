@@ -1,9 +1,12 @@
 -- IZone Enterprise Inventory & ERP System - Full PostgreSQL Database Schema
--- Version: 2.0 (Production-Ready Schema for Nepal Telecom & Fiber ISP Operations)
+-- Version: 2.1 (Production-Ready Schema for Nepal Telecom & Fiber ISP Operations)
+-- Includes all columns required by server.ts
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ==========================================
 -- 1. Branches Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS branches (
     id VARCHAR(50) PRIMARY KEY,
     code VARCHAR(20) UNIQUE NOT NULL,
@@ -16,13 +19,15 @@ CREATE TABLE IF NOT EXISTS branches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Users Table (Updated with missing columns)
+-- ==========================================
+-- 2. Users Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(50) PRIMARY KEY,
     email VARCHAR(150) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     name VARCHAR(150) NOT NULL,
-    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT')),
+    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR')),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
     allowed_branch_ids TEXT[],
     status VARCHAR(30) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'locked')),
@@ -31,9 +36,12 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Suppliers Table
+-- ==========================================
+-- 3. Suppliers Table (FIXED)
+-- ==========================================
 CREATE TABLE IF NOT EXISTS suppliers (
     id VARCHAR(50) PRIMARY KEY,
+    supplier_code VARCHAR(50) UNIQUE,
     name VARCHAR(200) NOT NULL,
     contact_person VARCHAR(150),
     phone VARCHAR(50),
@@ -41,10 +49,13 @@ CREATE TABLE IF NOT EXISTS suppliers (
     address TEXT,
     pan_vat_number VARCHAR(50),
     rating NUMERIC(3, 1) DEFAULT 5.0,
+    status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 4. Categories Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS categories (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(150) UNIQUE NOT NULL,
@@ -52,7 +63,9 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT
 );
 
+-- ==========================================
 -- 5. Products Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(50) PRIMARY KEY,
     sku VARCHAR(100) UNIQUE NOT NULL,
@@ -63,19 +76,22 @@ CREATE TABLE IF NOT EXISTS products (
     unit VARCHAR(30) DEFAULT 'Pcs',
     cost_price NUMERIC(12, 2) DEFAULT 0.00,
     selling_price NUMERIC(12, 2) DEFAULT 0.00,
-    tax_rate NUMERIC(5, 2) DEFAULT 13.00, -- 13% Nepal VAT
+    tax_rate NUMERIC(5, 2) DEFAULT 13.00,
     min_reorder_level INT DEFAULT 5,
     requires_serial_tracking BOOLEAN DEFAULT FALSE,
-    tracking_type VARCHAR(50) DEFAULT 'QUANTITY_ONLY',
+    tracking_type VARCHAR(50) DEFAULT 'QUANTITY_ONLY' CHECK (tracking_type IN ('QUANTITY_ONLY', 'SERIAL_MAC_PON', 'SERIAL_ONLY')),
     description TEXT,
     depreciation_method VARCHAR(50),
     depreciation_rate NUMERIC(5, 2),
     useful_life_years INT,
     salvage_value_percent NUMERIC(5, 2),
+    status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'DISCONTINUED')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 6. Inventory Stock Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS inventory_stock (
     id VARCHAR(100) PRIMARY KEY,
     product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -89,7 +105,9 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
     CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
 );
 
+-- ==========================================
 -- 7. Fixed Assets Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS fixed_assets (
     id VARCHAR(50) PRIMARY KEY,
     tag_number VARCHAR(100) UNIQUE NOT NULL,
@@ -111,7 +129,9 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 8. Purchase Orders Table
+-- ==========================================
+-- 8. Purchase Orders Table (with items JSONB)
+-- ==========================================
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id VARCHAR(50) PRIMARY KEY,
     po_number VARCHAR(100) UNIQUE NOT NULL,
@@ -125,10 +145,13 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     tax_amount NUMERIC(14, 2) DEFAULT 0.00,
     total_amount NUMERIC(14, 2) DEFAULT 0.00,
     notes TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. Purchase Invoices Table
+-- ==========================================
+-- 9. Purchase Invoices Table (with items JSONB)
+-- ==========================================
 CREATE TABLE IF NOT EXISTS purchase_invoices (
     id VARCHAR(50) PRIMARY KEY,
     invoice_number VARCHAR(100) UNIQUE NOT NULL,
@@ -145,10 +168,13 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     grand_total NUMERIC(14, 2) DEFAULT 0.00,
     payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
     amount_paid NUMERIC(14, 2) DEFAULT 0.00,
+    items JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 10. Shipments Table
+-- ==========================================
+-- 10. Shipments Table (with all required columns)
+-- ==========================================
 CREATE TABLE IF NOT EXISTS shipments (
     id VARCHAR(50) PRIMARY KEY,
     tracking_code VARCHAR(100) UNIQUE NOT NULL,
@@ -160,12 +186,19 @@ CREATE TABLE IF NOT EXISTS shipments (
     dispatch_date_ad DATE NOT NULL,
     dispatch_date_bs VARCHAR(20) NOT NULL,
     estimated_arrival_ad DATE,
-    status VARCHAR(30) DEFAULT 'IN_TRANSIT' CHECK (status IN ('DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RECEIVED', 'DISCREPANCY')),
+    status VARCHAR(30) DEFAULT 'IN_TRANSIT' CHECK (status IN ('DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RECEIVED', 'DISCREPANCY', 'CANCELLED')),
     notes TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    received_by_notes TEXT,
+    received_date_ad DATE,
+    received_date_bs VARCHAR(20),
+    has_discrepancy BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. Stock Operations Table
+-- ==========================================
+-- 11. Stock Operations Table (with items JSONB)
+-- ==========================================
 CREATE TABLE IF NOT EXISTS stock_operations (
     id VARCHAR(50) PRIMARY KEY,
     reference_number VARCHAR(100) UNIQUE NOT NULL,
@@ -185,11 +218,14 @@ CREATE TABLE IF NOT EXISTS stock_operations (
     date_ad DATE NOT NULL,
     date_bs VARCHAR(20) NOT NULL,
     fiscal_year VARCHAR(20) DEFAULT '2082/83',
-    status VARCHAR(30) DEFAULT 'LOGGED',
+    status VARCHAR(30) DEFAULT 'LOGGED' CHECK (status IN ('LOGGED', 'DISPATCHED', 'RECEIVED', 'CANCELLED')),
+    items JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 12. Fiscal Years Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS fiscal_years (
     id VARCHAR(50) PRIMARY KEY,
     code VARCHAR(20) UNIQUE NOT NULL,
@@ -201,20 +237,24 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
     is_closed BOOLEAN DEFAULT FALSE
 );
 
+-- ==========================================
 -- 13. Audit Trail Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS audit_logs (
     id VARCHAR(50) PRIMARY KEY,
     user_email VARCHAR(150) NOT NULL,
     user_name VARCHAR(150) NOT NULL,
     action VARCHAR(100) NOT NULL,
-    module VARCHAR(50) NOT NULL,
+    module VARCHAR(50) NOT NULL CHECK (module IN ('AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS', 'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY_AUDIT', 'OPERATIONS', 'BRANCH_OPERATIONS', 'SYSTEM')),
     details TEXT,
     timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     timestamp_bs VARCHAR(20),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL
 );
 
+-- ==========================================
 -- 14. Transaction Logs Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS transaction_logs (
     id VARCHAR(100) PRIMARY KEY,
     transaction_number VARCHAR(100) NOT NULL,
@@ -222,7 +262,7 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     product_sku VARCHAR(100),
     product_name VARCHAR(255),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    change_type VARCHAR(50) NOT NULL,
+    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')),
     quantity_before INT NOT NULL,
     quantity_changed INT NOT NULL,
     quantity_after INT NOT NULL,
@@ -232,7 +272,9 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     timestamp_bs VARCHAR(20)
 );
 
+-- ==========================================
 -- 15. Customer Records Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS customer_records (
     id VARCHAR(50) PRIMARY KEY,
     customer_id VARCHAR(50) UNIQUE NOT NULL,
@@ -242,13 +284,15 @@ CREATE TABLE IF NOT EXISTS customer_records (
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     address TEXT,
     email VARCHAR(150),
-    status VARCHAR(30) DEFAULT 'ACTIVE',
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
     credit_limit NUMERIC(12, 2) DEFAULT 0.00,
     assigned_devices_count INT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 16. Customer Device Records Table (ONUs/Routers)
+-- ==========================================
+-- 16. Customer Device Records Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS customer_device_records (
     id VARCHAR(50) PRIMARY KEY,
     customer_id VARCHAR(50),
@@ -261,7 +305,7 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
     device_serial VARCHAR(100) NOT NULL,
     pon_serial VARCHAR(100) NOT NULL,
     mac_address VARCHAR(100),
-    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND')),
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL', 'ROUTER_COLLECTED')),
     issued_date_ad DATE,
     issued_date_bs VARCHAR(20),
     purchase_bill_ref VARCHAR(100),
@@ -269,11 +313,13 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 17. Approval Requests Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS approval_requests (
     id VARCHAR(50) PRIMARY KEY,
     request_number VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('CUSTOMER_DEVICE_STATUS', 'CANCEL_TRANSFER', 'CANCEL_IN_TRANSIT_TRANSFER', 'CANCEL_RECEIVE_TRANSFER', 'STOCK_AUDIT_RECONCILIATION', 'BULK_STOCK_ADJUSTMENT')),
     target_id VARCHAR(50),
     customer_name VARCHAR(200),
     customer_code VARCHAR(50),
@@ -289,7 +335,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     branch_name VARCHAR(150),
     reason TEXT NOT NULL,
     restock_qty_on_approval BOOLEAN DEFAULT FALSE,
-    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')),
     requested_at_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     requested_at_bs VARCHAR(20),
     processed_by_email VARCHAR(150),
@@ -297,10 +343,13 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     processed_by_role VARCHAR(50),
     processed_at_ad TIMESTAMP WITH TIME ZONE,
     processed_at_bs VARCHAR(20),
-    rejection_reason TEXT
+    rejection_reason TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 18. BS Calendar Years Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS bs_calendar_years (
     year_bs INT PRIMARY KEY,
     days_in_months INT[] NOT NULL,
@@ -308,7 +357,9 @@ CREATE TABLE IF NOT EXISTS bs_calendar_years (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
 -- 19. BS Day Records Table
+-- ==========================================
 CREATE TABLE IF NOT EXISTS bs_day_records (
     ad_date DATE PRIMARY KEY,
     bs_date VARCHAR(20) NOT NULL,
@@ -325,72 +376,171 @@ CREATE TABLE IF NOT EXISTS bs_day_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes for high-performance multi-user querying and concurrency
+-- ==========================================
+-- 20. UOM (Unit of Measure) Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS uom (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    symbol VARCHAR(30) NOT NULL,
+    type VARCHAR(50) DEFAULT 'Count',
+    is_base_unit BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 21. Locations Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS locations (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('POP_SERVER_ROOM', 'WAREHOUSE', 'STORE', 'OFFICE', 'DEPOT')),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    address TEXT,
+    coordinates JSONB,
+    contact_person VARCHAR(150),
+    contact_phone VARCHAR(50),
+    notes TEXT,
+    active_assets_count INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 22. Company Profile Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS company_profile (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    legal_name VARCHAR(255),
+    tagline VARCHAR(255),
+    address TEXT NOT NULL,
+    city VARCHAR(100),
+    country VARCHAR(100),
+    phone VARCHAR(100),
+    email VARCHAR(100),
+    website VARCHAR(100),
+    pan_vat_number VARCHAR(100),
+    registration_number VARCHAR(100),
+    logo_url TEXT,
+    logo_preset VARCHAR(50),
+    currency_symbol VARCHAR(20),
+    default_tax_rate NUMERIC(5, 2) DEFAULT 13.00,
+    notes TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 23. Document Number Configurations Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS document_number_configs (
+    id VARCHAR(50) PRIMARY KEY,
+    document_type VARCHAR(150) NOT NULL,
+    prefix VARCHAR(50) DEFAULT '',
+    suffix VARCHAR(50) DEFAULT '',
+    min_digits INT DEFAULT 4,
+    starting_number INT DEFAULT 1,
+    next_number INT DEFAULT 1,
+    reset_every_fiscal_year BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- HIGH-PERFORMANCE INDEXES
+-- ==========================================
+
+-- Branches indexes
 CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
 CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
 
+-- Users indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 
+-- Suppliers indexes
+CREATE INDEX IF NOT EXISTS idx_suppliers_code ON suppliers(supplier_code);
 CREATE INDEX IF NOT EXISTS idx_suppliers_pan_vat ON suppliers(pan_vat_number);
+CREATE INDEX IF NOT EXISTS idx_suppliers_status ON suppliers(status);
 
+-- Products indexes
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_group ON products(product_group);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 
+-- Inventory Stock indexes
 CREATE INDEX IF NOT EXISTS idx_stock_product_branch ON inventory_stock(product_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
 CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
 
+-- Fixed Assets indexes
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_tag ON fixed_assets(tag_number);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_branch ON fixed_assets(branch_id);
 CREATE INDEX IF NOT EXISTS idx_fixed_assets_status ON fixed_assets(status);
 
+-- Purchase Orders indexes
 CREATE INDEX IF NOT EXISTS idx_po_number ON purchase_orders(po_number);
 CREATE INDEX IF NOT EXISTS idx_po_branch ON purchase_orders(branch_id);
 CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
 CREATE INDEX IF NOT EXISTS idx_po_date ON purchase_orders(order_date_ad DESC);
 
+-- Purchase Invoices indexes
 CREATE INDEX IF NOT EXISTS idx_invoices_number ON purchase_invoices(invoice_number);
 CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_payment_status ON purchase_invoices(payment_status);
 CREATE INDEX IF NOT EXISTS idx_invoices_date ON purchase_invoices(invoice_date_ad DESC);
 
+-- Shipments indexes
 CREATE INDEX IF NOT EXISTS idx_shipments_tracking ON shipments(tracking_code);
 CREATE INDEX IF NOT EXISTS idx_shipments_source_dest ON shipments(source_branch_id, destination_branch_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
 CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad DESC);
 
+-- Stock Operations indexes
 CREATE INDEX IF NOT EXISTS idx_stock_ops_ref ON stock_operations(reference_number);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_branch ON stock_operations(branch_id);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_type ON stock_operations(type);
 CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad DESC);
 
+-- Audit Logs indexes
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_email);
 CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module);
 CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_logs(branch_id);
 
+-- Transaction Logs indexes
 CREATE INDEX IF NOT EXISTS idx_txn_product ON transaction_logs(product_id);
 CREATE INDEX IF NOT EXISTS idx_txn_branch ON transaction_logs(branch_id);
 CREATE INDEX IF NOT EXISTS idx_txn_timestamp ON transaction_logs(timestamp_ad DESC);
+CREATE INDEX IF NOT EXISTS idx_txn_type ON transaction_logs(change_type);
 
+-- Customer Records indexes
 CREATE INDEX IF NOT EXISTS idx_customer_records_id ON customer_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customer_records_branch ON customer_records(branch_id);
 CREATE INDEX IF NOT EXISTS idx_customer_records_contact ON customer_records(contact_number);
 
+-- Customer Device Records indexes
 CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_records(device_serial, pon_serial, mac_address);
 CREATE INDEX IF NOT EXISTS idx_customer_devices_customer ON customer_device_records(customer_id, customer_code);
 CREATE INDEX IF NOT EXISTS idx_customer_devices_branch_status ON customer_device_records(branch_id, status);
 
+-- Approval Requests indexes
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_type ON approval_requests(type);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_date ON approval_requests(requested_at_ad DESC);
 
+-- BS Calendar indexes
 CREATE INDEX IF NOT EXISTS idx_bs_calendar_year ON bs_calendar_years(year_bs);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_date ON bs_day_records(bs_date);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_year_month ON bs_day_records(bs_year, bs_month);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year ON bs_day_records(fiscal_year);
+
+-- UOM indexes
+CREATE INDEX IF NOT EXISTS idx_uom_name ON uom(name);
+
+-- Locations indexes
+CREATE INDEX IF NOT EXISTS idx_locations_branch ON locations(branch_id);
+CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(type);
