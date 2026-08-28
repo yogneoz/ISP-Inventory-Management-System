@@ -1,388 +1,469 @@
-# Enterprise ERP & Multi-Branch Inventory Management System
+# IZone Enterprise ERP  
+### Multi-Branch ISP Inventory, Device Tracking, VAT & Fiscal Management
 
-A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL / Django REST Framework**.
+A full-stack **Node.js + React** enterprise inventory system built for fiber/ISP operators in Nepal.  
+It manages multi-branch stock, ONU/router serial tracking, purchase orders, inter-branch transfers, VAT (13%), Bikram Sambat (BS) dates, fixed assets, and fiscal year close.
 
----
+| | |
+|---|---|
+| **Backend** | Node.js 20 · Express · TypeScript |
+| **Frontend** | React 19 · Vite 6 · Tailwind CSS 4 |
+| **Database** | **PostgreSQL 14+** (required in production) |
+| **Sessions / SSE** | Redis (recommended for multi-instance) |
+| **License** | MIT |
 
-## 🌟 Key Features
-
-- **Clean Production Readiness**: Zero hardcoded mock operational data on first run. Starts with pristine, empty inventory registers while maintaining master branches and fiscal periods.
-- **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking, reorder levels, and inter-branch shipments.
-- **Physical Stock Count & Reconciliation Audit**:
-  - Perform stock counting across branches with variance calculation (shortage/excess).
-  - Financial impact calculation, discrepancy reasoning, and automated stock adjustment posting.
-  - CSV export for physical audit records.
-- **Fiscal Year Closing & Lock Wizard**:
-  - 5-Step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
-  - Super Admin authorization key check and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: Support for Super Admin, Inventory Manager, Branch Manager, Front Desk, and Accountant roles with permissions matrix.
-- **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
-- **Consumable & Fixed Asset Management**:
-  - Consumable Stock Out & Issue logging with work order and technician tagging.
-  - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
-- **Serial, MAC, PON & Customer Device Tracking**:
-  - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
-  - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
-- **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
-- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting.
-- **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 19 relational database tables.
+> **Not Django.** The supported production stack is **Express + PostgreSQL**.  
+> An experimental Django folder was removed; do not expect a Python API.
 
 ---
 
+## Table of contents
 
-## 📂 Project Architecture & Directory Structure
+1. [Features](#-features)  
+2. [Architecture](#-architecture)  
+3. [Requirements](#-requirements)  
+4. [Quick start](#-quick-start)  
+5. [PostgreSQL setup](#-postgresql-setup-required-for-real-data)  
+6. [Environment variables](#-environment-variables)  
+7. [Production (fail-closed)](#-production-fail-closed-postgres)  
+8. [Health probes](#-health-probes)  
+9. [Scripts](#-npm-scripts)  
+10. [Default login](#-default-login)  
+11. [Testing](#-testing)  
+12. [Project layout](#-project-layout)  
+13. [Documentation](#-documentation)  
+14. [Security notes](#-security-notes)  
+15. [Troubleshooting](#-troubleshooting)  
+
+---
+
+## Features
+
+- **Multi-branch & warehouse stock** — HQ + satellite branches, reorder levels, valuation  
+- **Physical stock audit** — count, variance, financial impact, approval-aware adjustments  
+- **Device tracking** — serial / MAC / PON, customer assignment, warranty, exchange workflows  
+- **Procurement** — purchase orders, VAT purchase invoices (13%), payments  
+- **Logistics** — inter-branch shipments/transfers with receive & cancel  
+- **Stock operations** — pullout, damage, consumable issue, stock-out, asset assign  
+- **Fixed assets** — register, depreciation (SLM / declining / WDV)  
+- **Nepali fiscal calendar** — AD↔BS conversion, FY periods, closing wizard  
+- **RBAC** — Super Admin, Inventory Manager, Branch Manager, Front Desk, Accountant  
+- **Approvals** — multi-tier device/status/transfer/audit workflows  
+- **Audit & stock ledger** — full movement and action trails  
+- **Security baseline** — bcrypt passwords, Bearer sessions, Zod validation, rate limits  
+- **Durable writes** — Postgres-first; failed DB writes return **503** and roll back memory  
+
+---
+
+## Architecture
 
 ```
-.
-├── src/                          # React 19 + TypeScript Frontend
-│   ├── components/               # UI Views and Modals
-│   ├── services/api.ts           # REST client (Bearer session tokens)
-│   ├── types/                    # Shared TypeScript Interfaces
-│   ├── utils/                    # BS/AD Calendar, permissions, session cache
-│   └── App.tsx                   # Main React Application shell
-│
-├── server/                       # Modular Express backend
-│   ├── store.ts                  # In-memory domain state + JSON persistence
-│   ├── lib/
-│   │   ├── auth.ts               # Session middleware, RBAC, audit helper
-│   │   ├── authUtils.ts          # bcrypt, BS date stamps, role aliases
-│   │   ├── sessionStore.ts       # Redis sessions (memory fallback)
-│   │   ├── db.ts                 # PG primary / pg-mem / memory modes
-│   │   ├── dbBootstrap.ts        # Schema sync, seed, store hydration
-│   │   ├── sync.ts               # SSE live broadcast
-│   │   └── ai.ts                 # Gemini client helper
-│   └── routes/                   # Domain route modules (auth, stock, POs, …)
-│
-├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql
-│   ├── setup_postgres.sh
-│   └── setup_db.js
-│
-├── server.ts                     # Thin entrypoint (Express + Vite middleware)
-├── ecosystem.config.js           # PM2 (cluster-ready when REDIS_URL is set)
-├── Dockerfile
-├── .env.example
-└── package.json
+Browser (React SPA)
+    │  same-origin /api/*
+    ▼
+Express (server.ts → server/)
+    ├── Auth (bcrypt + Bearer tokens)
+    ├── Domain routes (stock, PO, shipments, …)
+    ├── writeThroughPg / readPgOrStore
+    ▼
+PostgreSQL  ◄── primary source of truth (production)
+    │
+Redis (optional) ── sessions + multi-instance SSE
 ```
 
----
+| Mode | When | Durable? |
+|---|---|---|
+| **`postgres`** | Real DB reachable | **Yes — use this** |
+| **`pg-mem`** | Dev fallback only | No |
+| **`memory` + `.data_store.json`** | Offline demo only | File only |
 
-## 💾 Data Durability & Write Path
-
-| Backend | When used | Durable? |
-| :--- | :--- | :--- |
-| **PostgreSQL** | `DATABASE_URL` / `POSTGRES_*` reachable | **Yes — primary source of truth** |
-| **pg-mem** | Postgres offline, `DISABLE_PG_MEM` not set | No (process memory SQL) |
-| **JSON + arrays** | Always as local cache / last-resort | File-backed (`.data_store.json`) |
-
-On startup the server probes Postgres, syncs the 19-table schema, seeds masters if empty, then **hydrates the in-memory store from SQL**. Mutating API routes write through to Postgres whenever `isPgConnected` is true, then update memory and the JSON mirror.
-
-Check `/api/health` → `database.mode` (`postgres` | `pg-mem` | `memory`) and `database.durable`.
-
-**Write hardening:** Mutating routes snapshot memory, write through Postgres via `writeThroughPg`, and on failure **roll back memory** and return **HTTP 503** with `code: "DURABLE_WRITE_FAILED"` so clients never see a false success when the primary DB write fails. Offline modes skip SQL and keep the memory/JSON path.
+In **`NODE_ENV=production`** the app **does not** silently use pg-mem/JSON.  
+It **exits on startup** if PostgreSQL is unreachable (unless `ALLOW_DB_FALLBACK=true`).
 
 ---
 
-## 🚀 Complete Installation & Setup Guide
+## Requirements
 
-### 📋 Prerequisites
-- **Node.js**: `v20.x` or `v22.x` LTS recommended ([Download Node.js](https://nodejs.org/))
-- **npm**: `v10.x+` (comes bundled with Node.js)
-- **Git**: Installed and configured
-- **PostgreSQL** *(Optional, recommended for production)*: `v14+` or `v15+` (can be auto-installed via `npm run setup:pg`)
+| Software | Version |
+|---|---|
+| **Node.js** | 20.x or 22.x LTS |
+| **npm** | 10+ |
+| **PostgreSQL** | 14+ (15+ recommended) |
+| **Redis** | 6+ (recommended for production / PM2 cluster) |
+| **Git** | any recent |
 
 ---
 
-### Step 1: Clone the Repository & Install Dependencies
+## Quick start
+
+### 1. Clone & install
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-organization/izone-enterprise-erp.git
-cd izone-enterprise-erp
-
-# Install all npm dependencies
+git clone https://github.com/yogneoz/ISP-Inventory-Manamemnt-System.git
+cd ISP-Inventory-Manamemnt-System
 npm install
-```
-
----
-
-### Step 2: Configure Environment Variables
-
-Copy `.env.example` to create your local `.env` file:
-
-```bash
 cp .env.example .env
 ```
 
-Review or adjust `.env` parameters as needed:
+### 2. Start PostgreSQL and apply schema
+
+```bash
+# Install/configure local Postgres (may need sudo) + create DB/user
+npm run setup:postgres
+
+# Apply schema / seed helpers
+npm run setup:pg
+npm run migrate
+```
+
+### 3. Configure `.env`
 
 ```env
-# Server Port
-PORT=3000
 NODE_ENV=development
-
-# PostgreSQL Connection Settings
-DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
-POSTGRES_HOST="localhost"
-POSTGRES_PORT="5432"
-POSTGRES_DB="inventory_db"
-POSTGRES_USER="inventory_user"
-POSTGRES_PASSWORD="securepassword"
-
-# Optional: Set to "true" only if you want sample demo data seeded on first launch
+PORT=3000
+DATABASE_URL=postgres://inventory_user:securepassword@localhost:5432/inventory_db
+# Optional but recommended once DB works:
+# REQUIRE_POSTGRES=true
+# REDIS_URL=redis://localhost:6379/0
 SEED_DUMMY_DATA=false
 ```
 
----
-
-### Step 3: Database Setup & Migration (PostgreSQL)
-
-You can run the built-in automatic database setup engine:
-
-```bash
-npm run setup:pg
-```
-
-**What this script does:**
-1. Detects your OS (Ubuntu, Debian, CentOS, macOS, Docker) and installs/starts PostgreSQL if not running.
-2. Creates the database `inventory_db` and user `inventory_user`.
-3. Migrates all 19 relational tables, constraints, foreign keys, and indexes from `scripts/schema.sql`.
-4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
-
-*(Note: The system also includes resilient local file storage `.data_store.json`, so the app operates seamlessly even if PostgreSQL is offline or starting up).*
-
----
-
-### Step 4: Run Development Server
+### 4. Run
 
 ```bash
 npm run dev
 ```
 
-Open your browser and navigate to:
-```
-http://localhost:3000
-```
+Open **http://localhost:3000**
 
----
-
-## 🔑 Initial Super Admin Login Credentials
-
-On **first launch** (empty user store), the login screen opens a **Create Super Admin** wizard. Choose a strong password (**minimum 8 characters**). Passwords are stored as **bcrypt hashes**; API access requires a **Bearer session token** issued at login (spoofable `x-user-role` headers are no longer trusted).
-
-If a local data store already contains seed users, example accounts may look like:
-
-| Field | Example Value |
-| :--- | :--- |
-| **Email** | `superadmin@izone.net.np` |
-| **Password** | *(the password set for that account — change immediately)* |
-| **Role** | `SUPER_ADMIN` |
-| **Branch** | Head Office (Urlabari) |
-
-> **Security Note**: Change all default/demo passwords under **User Management**. Session tokens expire after 12 hours of activity (sliding). Set `REDIS_URL` to share sessions across PM2 workers; without Redis the server falls back to in-memory sessions automatically.
-
----
-
-## 🧹 Managing Demo vs. Clean Operational Data
-
-### Default Clean Mode
-By default, the application starts with **0 products, 0 stock records, 0 customer devices, 0 POs, and 0 transaction logs**. Master branches (19 actual telecom branches) and Fiscal Years are preserved so you can immediately begin importing your real products or entering stock.
-
-### Clearing Demo Data
-If demo data was previously loaded or tested, you can clear all operational demo records at any time:
-1. Navigate to **System Settings** -> **Maintenance & Data Management**.
-2. Click **"Clear Demo Data"**.
-3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
-4. The system writes `isDemoDataCleared: true` to `.data_store.json`, guaranteeing that demo data will never reload on server restarts.
-
----
-
-## 🏭 Production Deployment Guide (Ubuntu / Debian VPS)
-
-### 📋 Recommended Server Specifications
-- **OS**: Ubuntu 22.04 LTS / 24.04 LTS or Debian 12
-- **CPU**: 2 vCPUs minimum (4 vCPUs recommended)
-- **RAM**: 4 GB minimum (8 GB recommended)
-- **Disk**: 20 GB SSD / NVMe minimum
-
----
-
-### Step 1: Install Server Packages
+### 5. Confirm database mode
 
 ```bash
-# Update System Packages
-sudo apt update && sudo apt upgrade -y
-
-# Install Node.js 20 LTS & Build Tools
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs build-essential git nginx postgresql postgresql-contrib
-
-# Install PM2 Process Manager globally
-sudo npm install -g pm2
-
-# Install Certbot for SSL Certificates
-sudo apt install -y certbot python3-certbot-nginx
+curl -s http://localhost:3000/api/health | jq .database
 ```
+
+You want:
+
+```json
+{ "mode": "postgres", "durable": true, "ready": true, "ping": "ok" }
+```
+
+If you see `pg-mem` or `memory`, you are **not** on a real durable database.
 
 ---
 
-### Step 2: Configure PostgreSQL Database
+## PostgreSQL setup (required for real data)
+
+The app **connects** to Postgres; it does **not** embed a Postgres engine in Node.
+
+| Command | Purpose |
+|---|---|
+| `npm run setup:postgres` | Try to install/start Postgres (apt/yum/brew/docker), create DB + user |
+| `npm run setup:pg` | Node setup against the DB (schema helpers) |
+| `npm run migrate` | Apply `scripts/migrations/*.sql` |
+| `scripts/schema.sql` | Full baseline schema (19 tables) |
+
+### Manual Postgres (Ubuntu/Debian)
 
 ```bash
-# Switch to postgres user and open PostgreSQL prompt
-sudo -u postgres psql
-```
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
 
-Execute SQL commands:
-```sql
-CREATE DATABASE inventory_db;
-CREATE USER inventory_user WITH PASSWORD 'YourVeryStrongProductionPassword123!';
+sudo -u postgres psql <<'SQL'
+CREATE USER inventory_user WITH PASSWORD 'securepassword';
+CREATE DATABASE inventory_db OWNER inventory_user;
 GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory_user;
 \c inventory_db
 GRANT ALL ON SCHEMA public TO inventory_user;
-\q
+SQL
+
+PGPASSWORD=securepassword psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
 ```
 
-Import the database schema:
+### Docker Postgres
+
 ```bash
-cd /var/www/izone-enterprise-erp
-PGPASSWORD='YourVeryStrongProductionPassword123!' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
+docker run -d --name izone-pg \
+  -e POSTGRES_DB=inventory_db \
+  -e POSTGRES_USER=inventory_user \
+  -e POSTGRES_PASSWORD=securepassword \
+  -p 5432:5432 \
+  postgres:15-alpine
 ```
+
+Then set `DATABASE_URL` and run `npm run migrate`.
 
 ---
 
-### Step 3: Production Build
+## Environment variables
+
+Full template: **`.env.example`**
+
+### Critical
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Postgres connection string (preferred) |
+| `POSTGRES_HOST` / `PORT` / `DB` / `USER` / `PASSWORD` | Alternative to `DATABASE_URL` |
+| `NODE_ENV` | `production` → **fail-closed** (Postgres required) |
+| `REQUIRE_POSTGRES` | `true` forces Postgres in any environment |
+| `ALLOW_DB_FALLBACK` | `true` allows pg-mem/JSON in production (**not recommended**) |
+| `REQUIRE_MIGRATIONS` | `true` → migration failure aborts boot |
+| `REDIS_URL` | Shared sessions + SSE across PM2 workers |
+| `PORT` | HTTP port (default `3000`) |
+
+### Security / ops
+
+| Variable | Description |
+|---|---|
+| `STRICT_PASSWORD_POLICY` | Require upper/lower/digit/symbol |
+| `MIN_PASSWORD_LENGTH` | Default 8 (use 10+ in production) |
+| `LOGIN_RATE_LIMIT_MAX` | Login attempts per window |
+| `API_RATE_LIMIT_MAX` | General API throttle |
+| `TRUST_PROXY` | Set `true` behind Nginx |
+| `LOG_LEVEL` | pino level (`info`, `debug`, …) |
+| `SEED_DUMMY_DATA` | `true` only for demos |
+| `GEMINI_API_KEY` | Optional AI assistant |
+
+---
+
+## Production (fail-closed Postgres)
+
+**Full checklist:** [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md)  
+**Hardening notes:** [docs/PRODUCTION.md](docs/PRODUCTION.md)
+
+### Build & run
 
 ```bash
-cd /var/www/izone-enterprise-erp
-
-# Install dependencies (including dev tools for building)
-npm install
-
-# Build static Vite bundle and standalone server binary
+npm ci
+npm run migrate
 npm run build
-```
-
-This generates:
-- `dist/`: Optimized frontend static assets.
-- `dist/server.cjs`: Standalone bundled Node.js backend server with embedded source maps.
-
----
-
-### Step 4: Start & Manage with PM2
-
-```bash
-# Start the application using PM2 ecosystem file
+npm start
+# or
 pm2 start ecosystem.config.js
-
-# Save PM2 state and configure systemd auto-start on reboot
-pm2 save
-sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u $USER --hp /home/$USER
 ```
 
----
+### Expected boot log
 
-### Step 5: Configure Nginx Reverse Proxy & SSL
-
-1. Create Nginx site configuration:
-```bash
-sudo nano /etc/nginx/sites-available/enterprise-erp
+```text
+✅ Database mode: real PostgreSQL (primary write path).
+✅ PostgreSQL primary ready — schema synced, store hydrated from database.
+Database: mode=postgres durable=true requirePostgres=true
 ```
 
-2. Add the reverse proxy configuration (replace `erp.yourdomain.com` with your actual domain):
-```nginx
-server {
-    listen 80;
-    server_name erp.yourdomain.com;
+If Postgres is down, the process should **exit with code 1** — it must not serve fake storage as production.
 
-    client_max_body_size 25M;
+### PM2 / Docker defaults
 
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
+- `ecosystem.config.js` sets `REQUIRE_POSTGRES=true`, `REQUIRE_MIGRATIONS=true`  
+- `Dockerfile` same; includes `HEALTHCHECK` on `/api/health/ready`  
+- Only raise `PM2_INSTANCES` after `REDIS_URL` is configured  
 
-3. Enable site and test configuration:
-```bash
-sudo ln -s /etc/nginx/sites-available/enterprise-erp /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-4. Enable free Let's Encrypt SSL:
-```bash
-sudo certbot --nginx -d erp.yourdomain.com
-```
-
----
-
-### 🐳 Alternative: Docker Deployment
+### Docker run example
 
 ```bash
-# Build multi-stage Docker image
 docker build -t izone-erp:latest .
-
-# Run container
-docker run -d \
-  --name izone-erp-app \
-  --restart always \
+docker run -d --name izone-erp \
   -p 3000:3000 \
-  --env-file .env \
+  -e NODE_ENV=production \
+  -e DATABASE_URL=postgres://inventory_user:SECRET@host.docker.internal:5432/inventory_db \
+  -e REDIS_URL=redis://host.docker.internal:6379/0 \
+  -e REQUIRE_POSTGRES=true \
   izone-erp:latest
 ```
 
 ---
 
-## 🛠️ Operational Commands Reference
+## Health probes
 
-| Action | Command |
-| :--- | :--- |
-| **Development Server** | `npm run dev` |
-| **Type Check & Lint** | `npm run lint` |
-| **Test Suite** | `npm test` |
-| **DB Migrations** | `npm run migrate` |
-| **Production Build** | `npm run build` |
-| **Start Production Server** | `npm start` |
-| **Automated DB Setup** | `npm run setup:pg` |
-| **PM2 Process Status** | `pm2 status` |
-| **View Server Logs** | `pm2 logs enterprise-erp` |
-| **Restart Application** | `pm2 restart enterprise-erp` |
-| **PostgreSQL Backup** | `pg_dump -U inventory_user -h localhost inventory_db > backup_$(date +%Y%m%d).sql` |
+| Endpoint | Use | Success |
+|---|---|---|
+| `GET /api/health/live` | Process liveness | **200** |
+| `GET /api/health/ready` | Ready for traffic (Postgres when required) | **200** / **503** |
+| `GET /api/health` | Full status JSON | **200** ok / **503** degraded |
+
+```bash
+curl -s http://127.0.0.1:3000/api/health | jq '{status,ready,requirePostgres,database,sessions,sync}'
+npm run healthcheck
+```
+
+**Production pass:**
+
+```json
+{
+  "status": "ok",
+  "ready": true,
+  "requirePostgres": true,
+  "database": {
+    "mode": "postgres",
+    "durable": true,
+    "ready": true,
+    "ping": "ok"
+  },
+  "sessions": { "backend": "redis" }
+}
+```
 
 ---
 
+## npm scripts
 
-## 🏭 Production
+| Command | Description |
+|---|---|
+| `npm run dev` | Dev server (Express + Vite middleware) on `:3000` |
+| `npm run build` | Production Vite build + bundled `dist/server.cjs` |
+| `npm start` | Run production server |
+| `npm run setup:postgres` | Install/start Postgres & create DB/user (shell) |
+| `npm run setup:pg` | DB setup via Node |
+| `npm run migrate` | Apply SQL migrations |
+| `npm run lint` | TypeScript check (`tsc --noEmit`) |
+| `npm test` | Vitest suite (unit + API + integration) |
+| `npm run test:watch` | Vitest watch mode |
+| `npm run healthcheck` | Probe `/api/health/ready` |
+| `npm run clean` | Remove `dist` |
 
-See **[docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md)** (fail-closed Postgres) and **[docs/PRODUCTION.md](docs/PRODUCTION.md)** for P0/P1/P2 hardening, Redis/Postgres, backups, and smoke tests.
-Status matrix: **[docs/ROADMAP_STATUS.md](docs/ROADMAP_STATUS.md)**.
+---
 
-## 🧪 Testing
+## Default login
+
+On **first launch** (empty users), the UI opens **Create Super Admin**.  
+Use a strong password (min 8 characters; enable `STRICT_PASSWORD_POLICY` in production).
+
+If seed users already exist in a local data file, change those passwords immediately under **User Management**.
+
+| Field | Notes |
+|---|---|
+| Auth | bcrypt hashes + Bearer session token (12h sliding) |
+| Roles | `SUPER_ADMIN`, `INVENTORY_MANAGER`, `BRANCH_MANAGER`, `FRONT_DESK`, `ACCOUNTANT` |
+
+> Spoofable `x-user-role` headers are **not** trusted. API access requires a valid session token from login.
+
+---
+
+## Testing
 
 ```bash
-npm test           # run full Vitest suite once
-npm run test:watch # watch mode
+npm test
+npm run lint
 ```
 
-The first suite covers:
+Coverage includes:
 
-- **Unit:** password hashing, roles, BS dates, session store, write-guard rollback, stock movement invariants
-- **API:** auth/login/logout, header spoof rejection, product create, durable write 503 + memory rollback
+- Auth (login/logout, token required, header spoof rejected)  
+- Password hashing, roles, BS dates  
+- Session store  
+- Durable write rollback (`DURABLE_WRITE_FAILED` / 503)  
+- Stock movement invariants  
+- Catalog, logistics, procurement, approvals APIs  
+- Health / require-Postgres policy  
+- pg-mem SQL integration path  
 
-A ready-to-use GitHub Actions workflow lives at `docs/github-actions-ci.yml` — copy it to `.github/workflows/ci.yml` in the repo (requires workflow write permission on the GitHub App / PAT) to enable CI on push/PR.
+Tests force offline-safe backends and an isolated temp data file so they never touch your real DB.
 
-Tests force offline backends (`DISABLE_PG_MEM=true`, no Redis) and an isolated temp `DATA_STORE_PATH` so they never touch your real database or `.data_store.json`.
+**CI template:** copy [docs/github-actions-ci.yml](docs/github-actions-ci.yml) to `.github/workflows/ci.yml` (see [docs/CI.md](docs/CI.md)).
 
-## 📄 License
+---
 
-This project is licensed under the MIT License.
+## Project layout
+
+```
+.
+├── server.ts                 # Entrypoint (boot, Vite/static, listen)
+├── server/
+│   ├── createApp.ts          # Express app factory (routes, health, limits)
+│   ├── store.ts              # In-memory cache + JSON mirror
+│   ├── lib/
+│   │   ├── db.ts             # Postgres / pg-mem / fail-closed policy
+│   │   ├── dbBootstrap.ts    # Schema sync + hydrate from SQL
+│   │   ├── migrations.ts     # scripts/migrations runner
+│   │   ├── auth.ts           # Session middleware, RBAC, audit
+│   │   ├── authUtils.ts      # bcrypt, roles, BS stamps
+│   │   ├── sessionStore.ts   # Redis or memory sessions
+│   │   ├── writeGuard.ts     # snapshot + durable write / rollback
+│   │   ├── pgReads.ts        # Postgres-first list reads
+│   │   ├── validate.ts       # Zod schemas
+│   │   ├── sync.ts           # SSE (+ Redis pub/sub)
+│   │   └── logger.ts         # pino
+│   ├── middleware/           # rate limit, request id
+│   └── routes/               # domain HTTP modules
+├── src/                      # React SPA
+│   ├── App.tsx
+│   ├── components/
+│   ├── services/api.ts       # Bearer token client
+│   └── utils/
+├── scripts/
+│   ├── schema.sql
+│   ├── migrations/
+│   ├── setup_postgres.sh
+│   ├── setup_db.js
+│   └── migrate.mjs
+├── tests/                    # Vitest unit / API / integration
+├── docs/                     # Deploy, production, UAT, CI
+├── Dockerfile
+├── ecosystem.config.js       # PM2
+└── package.json
+```
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md) | **Start here for production deploy** |
+| [docs/PRODUCTION.md](docs/PRODUCTION.md) | Hardening, Redis, backups, smoke tests |
+| [docs/CI.md](docs/CI.md) | GitHub Actions enablement |
+| [docs/FISCAL_VAT_UAT.md](docs/FISCAL_VAT_UAT.md) | Accountant UAT for VAT / FY close |
+| [docs/FRONTEND_MODULARIZATION.md](docs/FRONTEND_MODULARIZATION.md) | UI split notes |
+| [docs/ROADMAP_STATUS.md](docs/ROADMAP_STATUS.md) | P0/P1/P2 status |
+| [USER_MANUAL.md](USER_MANUAL.md) | End-user operations guide |
+| [UPDATEPROCESS.md](UPDATEPROCESS.md) | Patch / rollback procedures |
+
+---
+
+## Security notes
+
+- Passwords are stored as **bcrypt** hashes (legacy plaintext is migrated on login).  
+- API authorization uses **Bearer session tokens**, not client-supplied roles.  
+- Login and general API routes are **rate-limited**.  
+- Zod validates critical write bodies (auth, products, stock, PO, shipments, approvals).  
+- Failed durable Postgres writes return **`503` + `DURABLE_WRITE_FAILED`** and roll back in-memory state.  
+- Change all default/demo credentials before go-live.  
+- Never commit `.env` or `.data_store.json`.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `database.mode` is `pg-mem` / `memory` | Install Postgres, set `DATABASE_URL`, restart; use `REQUIRE_POSTGRES=true` |
+| App exits immediately in production | Postgres not reachable — check service, firewall, credentials |
+| `/api/health/ready` → 503 | DB down or not durable while Postgres is required |
+| Login works but data vanishes after restart | You were on fallback storage — switch to real Postgres |
+| Multi-instance sessions lost | Set `REDIS_URL`; don’t cluster PM2 without Redis |
+| `npm run setup:postgres` fails | Needs sudo/Docker/brew; install Postgres manually instead |
+
+```bash
+# Is Postgres accepting connections?
+pg_isready -h localhost -p 5432
+psql "$DATABASE_URL" -c 'SELECT 1'
+
+# Force fail-closed even in dev
+REQUIRE_POSTGRES=true npm run dev
+```
+
+---
+
+## Stack summary
+
+**Frontend:** React 19, TypeScript, Vite, Tailwind, Lucide  
+**Backend:** Express, bcryptjs, Zod, pino, express-rate-limit  
+**Data:** `pg` (PostgreSQL), optional `ioredis`  
+**Dev/test:** tsx, Vitest, Supertest, pg-mem (tests/demos only)
+
+---
+
+## License
+
+MIT
