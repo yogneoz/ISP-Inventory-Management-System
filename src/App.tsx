@@ -424,37 +424,6 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleCreateStockTransfer = async (
-    sourceBranchId: string,
-    destBranchId: string,
-    productId: string,
-    qty: number
-  ) => {
-    const prod = products.find((p) => p.id === productId);
-    await api.createShipment({
-      type: 'INTER_BRANCH',
-      sourceBranchId,
-      destinationBranchId: destBranchId,
-      destinationBranchName:
-        branches.find((b) => b.id === destBranchId)?.name || 'Branch',
-      dispatchDateAD: new Date().toISOString().split('T')[0],
-      dispatchDateBS: '2083-04-16 BS',
-      estimatedArrivalAD: new Date(Date.now() + 3 * 86400000)
-        .toISOString()
-        .split('T')[0],
-      status: 'IN_TRANSIT',
-      items: [
-        {
-          id: `item-${Date.now()}`,
-          productId,
-          productName: prod?.name || 'Item',
-          sku: prod?.sku || 'SKU',
-          quantitySent: qty,
-        },
-      ],
-    });
-    refreshAllData();
-  };
 
   // Asset Actions
   const handleCreateAsset = async (
@@ -937,7 +906,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  onCreateStockTransfer={handleCreateStockTransfer}
                   isDarkMode={isDarkMode}
                 />
               )}

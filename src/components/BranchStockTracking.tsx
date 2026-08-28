@@ -1,16 +1,10 @@
 import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../types';
-import { isOperationAllowed } from '../utils/permissions';
 import { exportToCSV } from '../utils/exportUtils';
 import {
   Layers,
-  Building2,
   AlertTriangle,
-  ArrowLeftRight,
   CheckCircle2,
-  Plus,
-  RefreshCw,
-  X,
   Search,
   Filter,
   Download,
@@ -24,12 +18,6 @@ interface BranchStockTrackingProps {
   stock: InventoryStock[];
   selectedBranchId: string;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
-  onCreateStockTransfer: (
-    sourceBranchId: string,
-    destBranchId: string,
-    productId: string,
-    qty: number
-  ) => Promise<void>;
   isDarkMode?: boolean;
 }
 
@@ -39,21 +27,8 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   branches,
   stock,
   selectedBranchId,
-  onCreateStockTransfer,
   isDarkMode = false,
 }) => {
-  // Transfer state
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [transferSource, setTransferSource] = useState(
-    currentUser?.branchId && currentUser.branchId !== 'ALL' ? currentUser.branchId : branches[0]?.id || ''
-  );
-  const [transferDest, setTransferDest] = useState(
-    branches.find((b) => !b.isHeadquarters && b.id !== currentUser?.branchId)?.id || branches[1]?.id || ''
-  );
-  const [transferProduct, setTransferProduct] = useState(products[0]?.id || '');
-  const [transferQty, setTransferQty] = useState(1);
-  const [transferError, setTransferError] = useState('');
-
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');
@@ -152,25 +127,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
     });
   };
 
-  const handleTransferSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTransferError('');
-
-    if (transferSource === transferDest) {
-      setTransferError('Source and destination branches must be different.');
-      return;
-    }
-
-    const destBranch = branches.find((b) => b.id === transferDest);
-    if (destBranch?.isHeadquarters && currentUser?.role !== 'SUPER_ADMIN') {
-      setTransferError('Restricted: Direct stock transfers to Central Warehouse are not allowed for branch staff. Please log a Pullout or Damage in Stock Operations instead.');
-      return;
-    }
-
-    await onCreateStockTransfer(transferSource, transferDest, transferProduct, Number(transferQty));
-    setIsTransferModalOpen(false);
-  };
-
   return (
     <div className="space-y-6">
       {/* Header & Actions */}
@@ -183,7 +139,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             <span>Branch Stock Matrix & Location Tracking</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Realtime stock balances across branches with reorder status alerts and direct transfer dispatches.
+            Realtime stock balances across branches with reorder status alerts.
           </p>
         </div>
 
@@ -220,20 +176,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             )}
           </button>
 
-          {(() => {
-            const canTransfer = isOperationAllowed('branch-transfer-create', currentUser?.role);
-            if (!canTransfer) return null;
-            return (
-              <button
-                type="button"
-                onClick={() => setIsTransferModalOpen(true)}
-                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-              >
-                <ArrowLeftRight className="h-4 w-4" />
-                <span>Dispatch Stock Transfer</span>
-              </button>
-            );
-          })()}
         </div>
       </div>
 
@@ -434,131 +376,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
         </div>
       </div>
 
-      {/* Inter-Branch Transfer Modal */}
-      {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <ArrowLeftRight className="h-4 w-4 text-indigo-500" />
-                <span>Inter-Branch Stock Transfer</span>
-              </h3>
-              <button
-                onClick={() => setIsTransferModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleTransferSubmit} className="p-4 space-y-3">
-              {transferError && (
-                <div className="flex items-start gap-2 rounded-lg bg-rose-50 dark:bg-rose-950/80 p-3 text-xs text-rose-700 dark:text-rose-200 border border-rose-200 dark:border-rose-800">
-                  <AlertTriangle className="h-4 w-4 text-rose-500 flex-shrink-0 mt-0.5" />
-                  <span>{transferError}</span>
-                </div>
-              )}
-              <div>
-                <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                  Select Product to Transfer
-                </label>
-                <select
-                  value={transferProduct}
-                  onChange={(e) => setTransferProduct(e.target.value)}
-                  className={`w-full rounded-lg border px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                    Source Branch
-                  </label>
-                  <select
-                    value={transferSource}
-                    onChange={(e) => setTransferSource(e.target.value)}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
-                  >
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                    Destination Branch
-                  </label>
-                  <select
-                    value={transferDest}
-                    onChange={(e) => setTransferDest(e.target.value)}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
-                  >
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                  Quantity to Dispatch
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  value={transferQty}
-                  onChange={(e) => setTransferQty(Number(e.target.value))}
-                  className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div className={`pt-3 border-t flex items-center justify-end gap-2 ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => setIsTransferModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                    isDarkMode ? 'border-slate-700 text-slate-400 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md cursor-pointer"
-                >
-                  Create Shipment Transfer
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
