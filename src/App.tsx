@@ -731,6 +731,7 @@ export default function App() {
     >
       {/* Top App Header (Fixed at top) */}
       <Header
+        companyProfile={companyProfile}
         currentUser={currentUser}
         rootUser={rootUser}
         onSwitchBackToRoot={handleSwitchBackToRoot}
@@ -796,6 +797,7 @@ export default function App() {
           }`}
         >
           <Sidebar
+            companyProfile={companyProfile}
             currentUser={currentUser}
             activeTab={activeTab}
             onSelectTab={(tab) => {

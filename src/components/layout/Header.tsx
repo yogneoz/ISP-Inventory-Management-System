@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment } from '../../types';
+import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../../utils/permissions';
 import { NotificationCenter } from '../common/NotificationCenter';
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 
 interface HeaderProps {
+  companyProfile?: CompanyProfile | null;
   currentUser: User | null;
   rootUser?: User | null;
   onSwitchBackToRoot?: () => void;
@@ -64,6 +65,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  companyProfile,
   currentUser,
   rootUser,
   onSwitchBackToRoot,
@@ -168,14 +170,55 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-500/20 font-serif font-bold text-base tracking-tight border border-indigo-400/30">
-            iZ
+        <button
+          type="button"
+          onClick={() => onSelectTab && onSelectTab('company-setup')}
+          title={`Company Setup Database: ${companyProfile?.name || 'IZONE DIGITAL NETWORK PVT. LTD.'} (PAN/VAT: ${companyProfile?.panVatNumber || '609823412'}) - Click to manage setup`}
+          className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
+        >
+          {companyProfile?.logoUrl ? (
+            <img
+              src={companyProfile.logoUrl}
+              alt={companyProfile.name || 'Company Logo'}
+              referrerPolicy="no-referrer"
+              className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/30 shadow-xs group-hover:scale-105 transition-transform"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-500/20 font-serif font-bold text-sm tracking-tight border border-indigo-400/30 group-hover:scale-105 transition-transform">
+              {companyProfile?.name
+                ? companyProfile.name
+                    .split(' ')
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((w) => w[0].toUpperCase())
+                    .join('') || 'iZ'
+                : 'iZ'}
+            </div>
+          )}
+
+          <div className="hidden sm:flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[180px] md:max-w-[240px]">
+                {companyProfile?.name || 'IZone Inventory'}
+              </h1>
+              <span className="inline-flex items-center px-1 py-0.2 text-[8px] font-bold rounded bg-indigo-500/30 text-indigo-100 border border-indigo-300/40 group-hover:border-amber-300/60 group-hover:text-amber-200 transition-colors" title="Synced with PostgreSQL Database">
+                DB
+              </span>
+            </div>
+            {companyProfile?.tagline ? (
+              <span className="text-[9px] text-indigo-200/80 dark:text-slate-400 font-medium truncate max-w-[180px] md:max-w-[230px] mt-0.5">
+                {companyProfile.tagline}
+              </span>
+            ) : (
+              <span className="text-[9px] text-indigo-200/60 dark:text-slate-500 font-medium truncate max-w-[180px] mt-0.5">
+                Enterprise Setup Synced
+              </span>
+            )}
           </div>
-          <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight hidden sm:block">
-            IZone Inventory
-          </h1>
-        </div>
+        </button>
 
         <div className="hidden md:flex items-center gap-1.5 border-l border-white/20 pl-3 ml-1">
           <Building2 className="h-3.5 w-3.5 text-indigo-200" />

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiscalYear, DocumentNumberConfig } from '../../types';
+import { api } from '../../services/api';
 import {
   getDocumentNumberConfigs,
   saveDocumentNumberConfigs,
@@ -60,6 +61,21 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>(() =>
     getDocumentNumberConfigs()
   );
+
+  useEffect(() => {
+    api.getDocumentNumberConfigs()
+      .then((configs) => {
+        if (Array.isArray(configs) && configs.length > 0) {
+          setDocConfigs(configs);
+          try {
+            localStorage.setItem('izone_document_number_configs', JSON.stringify(configs));
+          } catch (_e) {}
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch document configs from DB backend:', err?.message || err);
+      });
+  }, []);
   const [selectedCategory, setSelectedCategory] = useState<DocCategory>('ALL');
   const [docSearchQuery, setDocSearchQuery] = useState<string>('');
   const [editingDocConfig, setEditingDocConfig] = useState<DocumentNumberConfig | null>(null);

@@ -26,6 +26,7 @@ import {
   Category,
   UnitOfMeasure,
   LocationRecord,
+  DocumentNumberConfig,
 } from './src/types';
 
 dotenv.config();
@@ -96,6 +97,29 @@ const INITIAL_COMPANY_PROFILE: CompanyProfile = {
 };
 
 let companyProfile: CompanyProfile = { ...INITIAL_COMPANY_PROFILE };
+
+const INITIAL_DOCUMENT_NUMBER_CONFIGS: DocumentNumberConfig[] = [
+  { id: 'PO', documentType: 'Purchase Order', prefix: 'PO-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for vendor purchase requisitions and official purchase orders.' },
+  { id: 'PI', documentType: 'Purchase Invoice / Bill', prefix: 'PI-2081-', suffix: '', minDigits: 4, startingNumber: 5001, nextNumber: 5001, resetEveryFiscalYear: true, notes: 'Used for supplier purchase invoices and tax bills.' },
+  { id: 'GRN', documentType: 'Goods Receipt Note (GRN)', prefix: 'GRN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used when warehouse receives inbound stock shipments.' },
+  { id: 'DN', documentType: 'Purchase Return & Debit Note', prefix: 'DN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for returning defective goods to vendors and supplier debit notes.' },
+  { id: 'INV', documentType: 'Sales & POS Invoice', prefix: 'INV-2081-', suffix: '', minDigits: 5, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for POS sales bills and customer sales tax invoices.' },
+  { id: 'QUO', documentType: 'Sales Quotation & Proforma Invoice', prefix: 'QUO-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for issuing formal price quotes and proforma invoices to clients.' },
+  { id: 'CN', documentType: 'Sales Return & Credit Note', prefix: 'CN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer product returns and VAT credit note adjustments.' },
+  { id: 'ST', documentType: 'Inter-Branch Stock Transfer', prefix: 'ST-2081-', suffix: '', minDigits: 4, startingNumber: 101, nextNumber: 101, resetEveryFiscalYear: true, notes: 'Used for branch-to-branch stock transfers and dispatches.' },
+  { id: 'SA', documentType: 'Stock Adjustment & Audit', prefix: 'SA-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used during physical stock audits and inventory reconciliations.' },
+  { id: 'DC', documentType: 'Damage & Pullout Claim', prefix: 'DC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for damaged stock write-offs and pullout dispatches.' },
+  { id: 'CPI', documentType: 'Consumable Product Issue', prefix: 'CPI-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for internal material consumption, office supplies, and store use requisitions.' },
+  { id: 'EXC', documentType: 'Device Exchange & Replacement', prefix: 'EXC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer device trade-ins, replacement swaps, and exchange vouchers.' },
+  { id: 'WC', documentType: 'Warranty Service & Repair Slip', prefix: 'WC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer repair jobs, device service intake, and warranty claims.' },
+  { id: 'FAA', documentType: 'Fixed Asset Assignment & Transfer', prefix: 'FAA-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for assigning company assets to staff, custody handovers, and department transfers.' },
+  { id: 'FAR', documentType: 'Fixed Asset Capitalization & Register', prefix: 'FAR-2081-', suffix: '', minDigits: 4, startingNumber: 101, nextNumber: 101, resetEveryFiscalYear: true, notes: 'Used for logging newly capitalized fixed assets into company asset register.' },
+  { id: 'JV', documentType: 'Journal Voucher', prefix: 'JV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for manual general ledger transactions and depreciation entries.' },
+  { id: 'PV', documentType: 'Payment Disbursement Voucher', prefix: 'PV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for supplier bill payments, operational expenses, and bank disbursements.' },
+  { id: 'RV', documentType: 'Cash & Bank Receipt Voucher', prefix: 'RV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for customer payments, advance collections, and bank deposits.' },
+];
+
+let docNumberConfigs: DocumentNumberConfig[] = JSON.parse(JSON.stringify(INITIAL_DOCUMENT_NUMBER_CONFIGS));
 
 // Master Initial Seed Specifications for PostgreSQL database initialization
 const INITIAL_MASTER_UOM: UnitOfMeasure[] = [
@@ -3545,6 +3569,145 @@ app.post('/api/stock-operations/:id/receive', async (req, res) => {
 });
 
 // Fiscal Years
+app.get('/api/document-number-configs', async (req, res) => {
+  try {
+    const result = await pgPool.query(
+      `SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits",
+              starting_number AS "startingNumber", next_number AS "nextNumber",
+              reset_every_fiscal_year AS "resetEveryFiscalYear", notes
+       FROM document_number_configs ORDER BY id ASC;`
+    );
+    if (result.rows.length > 0) {
+      docNumberConfigs = result.rows;
+      return res.json(result.rows);
+    }
+  } catch (e: any) {
+    if (e?.code !== 'ECONNREFUSED' && !e?.message?.includes('ECONNREFUSED')) {
+      console.warn('PostgreSQL document_number_configs read notice:', e.message);
+    }
+  }
+  res.json(docNumberConfigs);
+});
+
+app.put('/api/document-number-configs/:id', async (req, res) => {
+  const { id } = req.params;
+  const cfg = req.body;
+  try {
+    await pgPool.query(
+      `UPDATE document_number_configs
+       SET prefix = $1, suffix = $2, min_digits = $3, starting_number = $4,
+           next_number = $5, reset_every_fiscal_year = $6, notes = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8;`,
+      [cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '', id]
+    );
+  } catch (e: any) {
+    console.warn('PostgreSQL update document_number_configs notice:', e.message);
+  }
+
+  const idx = docNumberConfigs.findIndex((c) => c.id === id);
+  if (idx !== -1) {
+    docNumberConfigs[idx] = { ...docNumberConfigs[idx], ...cfg };
+  } else {
+    docNumberConfigs.push(cfg);
+  }
+  res.json(docNumberConfigs.find((c) => c.id === id) || cfg);
+});
+
+app.put('/api/document-number-configs', async (req, res) => {
+  const configs: DocumentNumberConfig[] = req.body;
+  if (Array.isArray(configs)) {
+    for (const cfg of configs) {
+      try {
+        await pgPool.query(
+          `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (id) DO UPDATE SET
+             prefix = EXCLUDED.prefix,
+             suffix = EXCLUDED.suffix,
+             min_digits = EXCLUDED.min_digits,
+             starting_number = EXCLUDED.starting_number,
+             next_number = EXCLUDED.next_number,
+             reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year,
+             notes = EXCLUDED.notes,
+             updated_at = CURRENT_TIMESTAMP;`,
+          [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
+        );
+      } catch (e: any) {
+        console.warn(`PostgreSQL bulk update document_number_configs notice for ${cfg.id}:`, e.message);
+      }
+    }
+    docNumberConfigs = configs;
+  }
+  res.json(docNumberConfigs);
+});
+
+app.post('/api/document-number-configs/generate-next', async (req, res) => {
+  const { docTypeId, autoIncrement } = req.body;
+  let config = docNumberConfigs.find((c) => c.id === docTypeId);
+
+  try {
+    const dbRes = await pgPool.query(
+      `SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits",
+              starting_number AS "startingNumber", next_number AS "nextNumber",
+              reset_every_fiscal_year AS "resetEveryFiscalYear", notes
+       FROM document_number_configs WHERE id = $1;`,
+      [docTypeId]
+    );
+    if (dbRes.rows.length > 0) {
+      config = dbRes.rows[0];
+    }
+  } catch (e: any) {
+    console.warn('PostgreSQL read document_number_config notice:', e.message);
+  }
+
+  if (!config) {
+    const fallbackSeq = Math.floor(1000 + Math.random() * 9000);
+    return res.json({ documentNumber: `${docTypeId || 'DOC'}-2081-${fallbackSeq}`, seqNum: fallbackSeq });
+  }
+
+  const seqNum = config.nextNumber;
+  const paddedNum = String(seqNum).padStart(config.minDigits || 4, '0');
+  const formattedDocNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
+
+  if (autoIncrement !== false) {
+    const nextSeq = seqNum + 1;
+    try {
+      await pgPool.query(
+        `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+        [nextSeq, docTypeId]
+      );
+    } catch (e: any) {
+      console.warn('PostgreSQL increment document_number_config notice:', e.message);
+    }
+    const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+    if (idx !== -1) docNumberConfigs[idx].nextNumber = nextSeq;
+  }
+
+  res.json({ documentNumber: formattedDocNum, seqNum });
+});
+
+app.post('/api/document-number-configs/reset-counter', async (req, res) => {
+  const { docTypeId, newStartNumber } = req.body;
+  const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+  const startNum = newStartNumber !== undefined ? Number(newStartNumber) : (idx !== -1 ? docNumberConfigs[idx].startingNumber : 1);
+
+  try {
+    await pgPool.query(
+      `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+      [startNum, docTypeId]
+    );
+  } catch (e: any) {
+    console.warn('PostgreSQL reset counter document_number_config notice:', e.message);
+  }
+
+  if (idx !== -1) {
+    docNumberConfigs[idx].nextNumber = startNum;
+  }
+
+  res.json({ status: 'ok', docTypeId, nextNumber: startNum });
+});
+
+// Fiscal Years
 app.get('/api/fiscal-years', async (req, res) => {
   try {
     const result = await pgPool.query(
@@ -5474,6 +5637,20 @@ async function syncDatabaseAndIndexes() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 23. Document Numbering Configurations
+      CREATE TABLE IF NOT EXISTS document_number_configs (
+        id VARCHAR(50) PRIMARY KEY,
+        document_type VARCHAR(150) NOT NULL,
+        prefix VARCHAR(50) DEFAULT '',
+        suffix VARCHAR(50) DEFAULT '',
+        min_digits INT DEFAULT 4,
+        starting_number INT DEFAULT 1,
+        next_number INT DEFAULT 1,
+        reset_every_fiscal_year BOOLEAN DEFAULT TRUE,
+        notes TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
       -- SCHEMA MIGRATION SAFE ALTERS
       ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS items JSONB;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS items JSONB;
@@ -5619,6 +5796,14 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       );
     }
 
+    for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
+      await client.query(
+        `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
+        [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
+      );
+    }
+
     if (users.length > 0) {
       for (const u of users) {
         await client.query(
@@ -5655,6 +5840,9 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
 
     const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
     if (compRes.rows.length > 0) companyProfile = compRes.rows[0];
+
+    const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');
+    if (docCfgRes.rows.length > 0) docNumberConfigs = docCfgRes.rows;
 
     // Only populate operational sample inventory/orders if SEED_DUMMY_DATA=true is explicitly set
     if (process.env.SEED_DUMMY_DATA !== 'true') {

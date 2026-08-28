@@ -21,6 +21,7 @@ import {
   Category,
   UnitOfMeasure,
   LocationRecord,
+  DocumentNumberConfig,
 } from '../types';
 import { generateNextDocumentNumber } from '../utils/documentNumbering';
 
@@ -485,6 +486,39 @@ export const api = {
   async setCurrentFiscalYear(id: string): Promise<FiscalYear[]> {
     return fetchJson(`/api/fiscal-years/${id}/set-current`, {
       method: 'POST',
+    });
+  },
+
+  // Document Numbering Configurations
+  async getDocumentNumberConfigs(): Promise<DocumentNumberConfig[]> {
+    return fetchJson('/api/document-number-configs');
+  },
+
+  async updateDocumentNumberConfig(config: DocumentNumberConfig): Promise<DocumentNumberConfig> {
+    return fetchJson(`/api/document-number-configs/${config.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async updateDocumentNumberConfigs(configs: DocumentNumberConfig[]): Promise<DocumentNumberConfig[]> {
+    return fetchJson('/api/document-number-configs', {
+      method: 'PUT',
+      body: JSON.stringify(configs),
+    });
+  },
+
+  async generateNextDocumentNumber(docTypeId: string, autoIncrement = true): Promise<{ documentNumber: string; seqNum: number }> {
+    return fetchJson('/api/document-number-configs/generate-next', {
+      method: 'POST',
+      body: JSON.stringify({ docTypeId, autoIncrement }),
+    });
+  },
+
+  async resetDocumentSequence(docTypeId: string, newStartNumber?: number): Promise<{ status: string; docTypeId: string; nextNumber: number }> {
+    return fetchJson('/api/document-number-configs/reset-counter', {
+      method: 'POST',
+      body: JSON.stringify({ docTypeId, newStartNumber }),
     });
   },
 

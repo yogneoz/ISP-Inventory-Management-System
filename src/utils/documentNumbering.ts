@@ -1,4 +1,5 @@
 import { DocumentNumberConfig } from '../types';
+import { api } from '../services/api';
 
 const STORAGE_KEY = 'izone_document_number_configs';
 
@@ -242,6 +243,11 @@ export function saveDocumentNumberConfigs(configs: DocumentNumberConfig[]): void
   } catch (e) {
     console.error('Failed to save document numbering config', e);
   }
+
+  // Asynchronously sync to PostgreSQL database
+  api.updateDocumentNumberConfigs(configs).catch((err) => {
+    console.warn('Background sync document numbering config to DB failed:', err?.message || err);
+  });
 }
 
 export function formatDocumentNumber(config: DocumentNumberConfig, seqNum?: number): string {
@@ -265,6 +271,9 @@ export function generateNextDocumentNumber(docTypeId: string, autoIncrement = fa
   if (autoIncrement) {
     configs[index].nextNumber = config.nextNumber + 1;
     saveDocumentNumberConfigs(configs);
+
+    // Call API generate-next asynchronously to ensure server state is also updated
+    api.generateNextDocumentNumber(docTypeId, true).catch((_e) => {});
   }
 
   return docNumber;
@@ -277,5 +286,7 @@ export function resetDocumentSequence(docTypeId: string, newStartNumber?: number
     const startNum = newStartNumber !== undefined ? newStartNumber : configs[index].startingNumber;
     configs[index].nextNumber = startNum;
     saveDocumentNumberConfigs(configs);
+
+    api.resetDocumentSequence(docTypeId, startNum).catch((_e) => {});
   }
 }

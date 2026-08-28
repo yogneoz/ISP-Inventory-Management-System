@@ -53,7 +53,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { User } from '../../types';
+import { User, CompanyProfile } from '../../types';
 
 export type NavTab =
   | 'dashboard'
@@ -109,6 +109,7 @@ export type NavTab =
   | 'clear-demo-data';
 
 interface SidebarProps {
+  companyProfile?: CompanyProfile | null;
   currentUser?: User | null;
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
@@ -139,6 +140,7 @@ interface NavGroupDef {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  companyProfile,
   currentUser,
   activeTab,
   onSelectTab,
@@ -654,30 +656,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Bottom Inventory Name & System Version */}
-          <div
-            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 ${
+          <button
+            type="button"
+            onClick={() => onSelectTab('company-setup')}
+            title={`Company Setup Database: ${companyProfile?.name || 'IZone Inventory'} - Click to manage setup`}
+            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm ${
               isDarkMode
-                ? 'bg-slate-900/90 border-slate-800/80 text-slate-300'
-                : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                ? 'bg-slate-900/90 border-slate-800/80 text-slate-300 hover:border-indigo-500/50'
+                : 'bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300'
             }`}
           >
-            <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 text-white font-serif font-black flex items-center justify-center text-xs shadow-xs border border-white/20">
-              iZ
-            </div>
+            {companyProfile?.logoUrl ? (
+              <img
+                src={companyProfile.logoUrl}
+                alt={companyProfile.name || 'Company Logo'}
+                referrerPolicy="no-referrer"
+                className="flex-shrink-0 w-8 h-8 rounded-xl object-contain bg-white/10 p-0.5 border border-slate-300/30 shadow-xs group-hover:scale-105 transition-transform"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 text-white font-serif font-black flex items-center justify-center text-xs shadow-xs border border-white/20 group-hover:scale-105 transition-transform">
+                {companyProfile?.name
+                  ? companyProfile.name
+                      .split(' ')
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((w) => w[0].toUpperCase())
+                      .join('') || 'iZ'
+                  : 'iZ'}
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
-                <p className="text-[11px] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight">
-                  IZone Inventory
+                <p className="text-[11px] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                  {companyProfile?.name || 'IZone Inventory'}
                 </p>
-                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  v2.5.0
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="PostgreSQL Database Connected">
+                  DB
                 </span>
               </div>
               <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate leading-tight mt-0.5">
-                Enterprise Multi-Branch Ed.
+                {companyProfile?.city || companyProfile?.country
+                  ? `${companyProfile.city || ''}${companyProfile.city && companyProfile.country ? ', ' : ''}${companyProfile.country || ''}`
+                  : 'Enterprise Multi-Branch Ed.'}
               </p>
             </div>
-          </div>
+          </button>
         </div>
       )}
     </aside>
