@@ -39,6 +39,9 @@ interface HeaderProps {
   dateMode: 'BS' | 'AD';
   onToggleDateMode: () => void;
   currentFiscalYear: string;
+  fiscalYears?: { id: string; code: string; isCurrent?: boolean; isClosed?: boolean }[];
+  onSelectFiscalYear?: (id: string) => void;
+  canEditFiscalYear?: boolean;
   onOpenBarcodeModal?: () => void;
   onOpenSearchModal?: () => void;
   onLogout: () => void;
@@ -75,6 +78,9 @@ export const Header: React.FC<HeaderProps> = ({
   dateMode,
   onToggleDateMode,
   currentFiscalYear,
+  fiscalYears = [],
+  onSelectFiscalYear,
+  canEditFiscalYear = false,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onLogout,
@@ -142,7 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`sticky top-0 z-30 flex h-13 w-full items-center justify-between px-3 backdrop-blur-md shadow-sm transition-colors duration-200 ${
+      className={`sticky top-0 z-30 flex min-h-13 w-full items-center justify-between gap-2 px-3 py-1.5 backdrop-blur-md shadow-sm transition-colors duration-200 ${
         isDarkMode
           ? 'border-b border-slate-800 bg-[#0a0c10]/95 text-slate-300'
           : 'bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900'

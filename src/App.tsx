@@ -122,9 +122,13 @@ export default function App() {
     return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
   }, []);
 
-  // Global search keyboard shortcut (Ctrl+K or Cmd+K)
+  // Global search keyboard shortcut (Ctrl+K or Cmd+K) — skip when typing in fields
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k') {
         e.preventDefault();
         setIsGlobalSearchOpen((prev) => !prev);
@@ -166,6 +170,7 @@ export default function App() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
+  const [viewFiscalYearId, setViewFiscalYearId] = useState<string>('');
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary>({
@@ -205,7 +210,20 @@ export default function App() {
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
     if (data.shipments) setShipments(data.shipments);
     if (data.stockOperations) setStockOperations(data.stockOperations);
-    if (data.fiscalYears) setFiscalYears(data.fiscalYears);
+    if (data.fiscalYears) {
+      const years = data.fiscalYears.map((fy: any) => ({
+        ...fy,
+        startDateAD: fy.startDateAD || fy.startDateAd,
+        endDateAD: fy.endDateAD || fy.endDateAd,
+        startDateBS: fy.startDateBS || fy.startDateBs,
+        endDateBS: fy.endDateBS || fy.endDateBs,
+      }));
+      setFiscalYears(years);
+      setViewFiscalYearId((prev) => {
+        if (prev && years.some((y: FiscalYear) => y.id === prev)) return prev;
+        return years.find((y: FiscalYear) => y.isCurrent)?.id || years[0]?.id || '';
+      });
+    }
     if (data.auditLogs) setAuditLogs(data.auditLogs);
     if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
     if (data.financialSummary) setFinancialSummary(data.financialSummary);
@@ -622,7 +640,18 @@ export default function App() {
   // Fiscal Year Actions
   const handleSetCurrentFiscalYear = async (id: string) => {
     await api.setCurrentFiscalYear(id);
+    setViewFiscalYearId(id);
     refreshAllData();
+  };
+
+  const handleCreateFiscalYear = async (fy: Partial<FiscalYear>) => {
+    await api.createFiscalYear(fy);
+    await refreshAllData();
+  };
+
+  const handleDeleteFiscalYear = async (id: string) => {
+    await api.deleteFiscalYear(id);
+    await refreshAllData();
   };
 
   // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
@@ -684,8 +713,30 @@ export default function App() {
           sh.sourceBranchId === activeBranchContext)
     ).length + pendingPulloutsCount;
 
-  const activeFy =
-    fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
+  const viewingFy =
+    fiscalYears.find((f) => f.id === viewFiscalYearId) ||
+    fiscalYears.find((f) => f.isCurrent);
+  const activeFy = viewingFy?.code || financialSummary.currentFiscalYear;
+  const canEditFiscalYear =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  const dateInViewFy = (dateStr?: string) => {
+    if (!viewingFy) return true;
+    if (!dateStr) return true;
+    const d = String(dateStr).slice(0, 10);
+    const start = String(viewingFy.startDateAD || '').slice(0, 10);
+    const end = String(viewingFy.endDateAD || '').slice(0, 10);
+    if (!start || !end) return true;
+    return d >= start && d <= end;
+  };
+
+  const filteredPurchaseOrders = purchaseOrders.filter((po) => dateInViewFy(po.orderDateAD || (po as any).orderDateAd));
+  const filteredPurchaseInvoices = purchaseInvoices.filter((inv) => dateInViewFy(inv.invoiceDateAD || (inv as any).invoiceDateAd));
+  const filteredShipments = shipments.filter((sh) => dateInViewFy(sh.dispatchDateAD || (sh as any).dispatchDateAd));
+  const filteredStockOperations = stockOperations.filter((op) => dateInViewFy(op.dateAD || (op as any).dateAd));
+  const filteredAssets = assets.filter((a) => dateInViewFy(a.acquisitionDateAD || (a as any).acquisitionDateAd));
+  const filteredTxnLogs = transactionLogs.filter((t) => dateInViewFy(t.timestampAD));
+  const filteredAuditLogs = auditLogs.filter((a) => dateInViewFy(a.timestampAD));
 
   const handleGroupLowStockPO = useCallback(() => {
     const activeBr =
@@ -781,6 +832,12 @@ export default function App() {
         dateMode={dateMode}
         onToggleDateMode={() => setDateMode(dateMode === 'BS' ? 'AD' : 'BS')}
         currentFiscalYear={activeFy}
+        fiscalYears={fiscalYears}
+        canEditFiscalYear={canEditFiscalYear}
+        onSelectFiscalYear={(id) => {
+          if (!canEditFiscalYear) return;
+          setViewFiscalYearId(id);
+        }}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
         onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
         onLogout={handleLogout}
@@ -796,8 +853,8 @@ export default function App() {
         products={products}
         stock={stock}
         approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
-        shipments={shipments}
+        purchaseOrders={filteredPurchaseOrders}
+        shipments={filteredShipments}
         onSelectTab={setActiveTab}
         onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
         onOpenProfileModal={() => setIsProfileModalOpen(true)}
@@ -872,10 +929,10 @@ export default function App() {
                   products={products}
                   stock={stock}
                   branches={branches}
-                  assets={assets}
-                  purchaseOrders={purchaseOrders}
-                  shipments={shipments}
-                  transactionLogs={transactionLogs}
+                  assets={filteredAssets}
+                  purchaseOrders={filteredPurchaseOrders}
+                  shipments={filteredShipments}
+                  transactionLogs={filteredTxnLogs}
                   financialSummary={financialSummary}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1032,13 +1089,13 @@ export default function App() {
 
               {activeTab === 'stock-ledger' && (
                 <StockMovementLedger
-                  transactionLogs={transactionLogs}
+                  transactionLogs={filteredTxnLogs}
                   products={products}
                   branches={branches}
                   stock={stock}
                   stockOperations={stockOperations}
-                  shipments={shipments}
-                  purchaseOrders={purchaseOrders}
+                  shipments={filteredShipments}
+                  purchaseOrders={filteredPurchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
@@ -1070,7 +1127,7 @@ export default function App() {
               {activeTab === 'fixed-assets' && (
                 <FixedAssetRegister
                   currentUser={currentUser}
-                  assets={assets}
+                  assets={filteredAssets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1156,7 +1213,7 @@ export default function App() {
                   companyProfile={companyProfile}
                   purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
+                  purchaseOrders={filteredPurchaseOrders}
                   products={products}
                   branches={branches}
                   suppliers={suppliers}
@@ -1179,7 +1236,7 @@ export default function App() {
                   companyProfile={companyProfile}
                   purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
+                  purchaseOrders={filteredPurchaseOrders}
                   products={products}
                   branches={branches}
                   suppliers={suppliers}
@@ -1201,12 +1258,12 @@ export default function App() {
                 <PurchaseInvoices
                   companyProfile={companyProfile}
                   currentUser={currentUser}
-                  invoices={purchaseInvoices}
+                  invoices={filteredPurchaseInvoices}
                   products={products}
                   branches={branches}
                   suppliers={suppliers}
                   stock={stock}
-                  purchaseOrders={purchaseOrders}
+                  purchaseOrders={filteredPurchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={false}
@@ -1221,12 +1278,12 @@ export default function App() {
                 <PurchaseInvoices
                   companyProfile={companyProfile}
                   currentUser={currentUser}
-                  invoices={purchaseInvoices}
+                  invoices={filteredPurchaseInvoices}
                   products={products}
                   branches={branches}
                   suppliers={suppliers}
                   stock={stock}
-                  purchaseOrders={purchaseOrders}
+                  purchaseOrders={filteredPurchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={false}
@@ -1241,7 +1298,7 @@ export default function App() {
                 <Shipments
                   currentUser={currentUser}
                   activeTab="create-shipment"
-                  shipments={shipments}
+                  shipments={filteredShipments}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1263,7 +1320,7 @@ export default function App() {
 
               {activeTab === 'create-transfer' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1275,8 +1332,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1295,8 +1352,8 @@ export default function App() {
               {activeTab === 'receive-shipment' && (
                 <ReceiveInboundWarehouse
                   currentUser={currentUser}
-                  operations={stockOperations}
-                  shipments={shipments}
+                  operations={filteredStockOperations}
+                  shipments={filteredShipments}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1311,7 +1368,7 @@ export default function App() {
 
               {activeTab === 'receive-branch-transfer' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1323,8 +1380,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1344,7 +1401,7 @@ export default function App() {
                 <Shipments
                   currentUser={currentUser}
                   activeTab={activeTab}
-                  shipments={shipments}
+                  shipments={filteredShipments}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1366,7 +1423,7 @@ export default function App() {
 
               {activeTab === 'pullout' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1378,8 +1435,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1397,7 +1454,7 @@ export default function App() {
 
               {activeTab === 'damage' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1409,8 +1466,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1428,7 +1485,7 @@ export default function App() {
 
               {activeTab === 'pullout-report' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1440,8 +1497,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1450,7 +1507,7 @@ export default function App() {
 
               {activeTab === 'damage-report' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1462,8 +1519,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                 />
@@ -1471,7 +1528,7 @@ export default function App() {
 
               {activeTab === 'stock-out' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1483,8 +1540,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1502,7 +1559,7 @@ export default function App() {
 
               {activeTab === 'assign-asset' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1514,8 +1571,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1533,7 +1590,7 @@ export default function App() {
 
               {activeTab === 'consumable-issue' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1545,8 +1602,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1564,7 +1621,7 @@ export default function App() {
 
               {activeTab === 'device-exchange' && (
                 <StockOperations
-                  operations={stockOperations}
+                  operations={filteredStockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -1576,8 +1633,8 @@ export default function App() {
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
+                  shipments={filteredShipments}
+                  assets={filteredAssets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
@@ -1596,7 +1653,7 @@ export default function App() {
               {activeTab === 'warranty-products' && (
                 <WarrantyProducts
                   customerDevices={customerDevices}
-                  assets={assets}
+                  assets={filteredAssets}
                   branches={branches}
                   products={products}
                   selectedBranchId={selectedBranchId}
@@ -1715,9 +1772,9 @@ export default function App() {
               {activeTab === 'financial-statements' && (
                 <FinancialStatements
                   financialSummary={financialSummary}
-                  assets={assets}
-                  invoices={purchaseInvoices}
-                  purchaseOrders={purchaseOrders}
+                  assets={filteredAssets}
+                  invoices={filteredPurchaseInvoices}
+                  purchaseOrders={filteredPurchaseOrders}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
@@ -1725,7 +1782,7 @@ export default function App() {
 
               {activeTab === 'vat-register' && (
                 <VatRegister
-                  invoices={purchaseInvoices}
+                  invoices={filteredPurchaseInvoices}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
@@ -1733,7 +1790,7 @@ export default function App() {
 
               {activeTab === 'depreciation-register' && (
                 <DepreciationRegister
-                  assets={assets}
+                  assets={filteredAssets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1743,13 +1800,13 @@ export default function App() {
 
               {activeTab === 'audit' && (
                 <AuditTrailReports
-                  auditLogs={auditLogs}
-                  transactionLogs={transactionLogs}
+                  auditLogs={filteredAuditLogs}
+                  transactionLogs={filteredTxnLogs}
                   financialSummary={financialSummary}
                   products={products}
                   branches={branches}
-                  assets={assets}
-                  invoices={purchaseInvoices}
+                  assets={filteredAssets}
+                  invoices={filteredPurchaseInvoices}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
@@ -1764,7 +1821,7 @@ export default function App() {
                   financialSummary={financialSummary}
                   products={products}
                   stock={stock}
-                  assets={assets}
+                  assets={filteredAssets}
                   purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
                   onRefreshData={refreshAllData}
@@ -1781,6 +1838,8 @@ export default function App() {
                 <FiscalYearManagement
                   fiscalYears={fiscalYears}
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  onCreateFiscalYear={handleCreateFiscalYear}
+                  onDeleteFiscalYear={handleDeleteFiscalYear}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
@@ -1795,9 +1854,9 @@ export default function App() {
               {activeTab === 'export-reports' && (
                 <ExportReports
                   currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
-                  invoices={purchaseInvoices}
-                  shipments={shipments}
+                  purchaseOrders={filteredPurchaseOrders}
+                  invoices={filteredPurchaseInvoices}
+                  shipments={filteredShipments}
                   customerDevices={customerDevices}
                   products={products}
                   branches={branches}
@@ -1843,10 +1902,10 @@ export default function App() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         products={products}
-        purchaseOrders={purchaseOrders}
-        invoices={purchaseInvoices}
-        shipments={shipments}
-        assets={assets}
+        purchaseOrders={filteredPurchaseOrders}
+        invoices={filteredPurchaseInvoices}
+        shipments={filteredShipments}
+        assets={filteredAssets}
         customerDevices={customerDevices}
         suppliers={suppliers}
         branches={branches}
@@ -1869,8 +1928,8 @@ export default function App() {
         products={products}
         stock={stock}
         approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
-        shipments={shipments}
+        purchaseOrders={filteredPurchaseOrders}
+        shipments={filteredShipments}
         branches={branches}
         selectedBranchId={selectedBranchId}
         isDarkMode={isDarkMode}

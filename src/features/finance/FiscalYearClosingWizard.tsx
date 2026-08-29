@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User } from '../../types';
-import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { api } from '../../services/api';
 import {
   Lock,
   Unlock,
@@ -49,9 +49,17 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   currentUser,
   onRefreshData,
 }) => {
-  const currentFy = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const [selectedFyId, setSelectedFyId] = useState<string>(
+    fiscalYears.find((fy) => fy.isCurrent)?.id || fiscalYears[0]?.id || ''
+  );
+  const currentFy = fiscalYears.find((fy) => fy.id === selectedFyId) || fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const nextFy = useMemo(() => {
+    const idx = fiscalYears.findIndex((f) => f.id === currentFy?.id);
+    return fiscalYears[idx + 1] || fiscalYears.find((f) => !f.isClosed && f.id !== currentFy?.id);
+  }, [fiscalYears, currentFy]);
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
+  const [stockActionMsg, setStockActionMsg] = useState<string>('');
   const [adminAuthKey, setAdminAuthKey] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
   const [isProcessingStep, setIsProcessingStep] = useState<boolean>(false);
@@ -59,6 +67,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const [step2Completed, setStep2Completed] = useState<boolean>(false);
   const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
+
+  useEffect(() => {
+    setIsLocked(Boolean(currentFy?.isClosed));
+  }, [currentFy?.id, currentFy?.isClosed]);
 
   // Financial Metrics for the Closing Year
   const closingMetrics = useMemo(() => {
@@ -207,13 +219,27 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <Calendar className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-serif font-bold tracking-tight">
                   Fiscal Year End Closing & Lock Wizard
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-500 font-mono text-xs font-bold">
-                  FY {currentFy?.code} BS
-                </span>
+                <label className="sr-only" htmlFor="close-fy-select">Fiscal year to close</label>
+                <select
+                  id="close-fy-select"
+                  value={selectedFyId}
+                  onChange={(e) => {
+                    setSelectedFyId(e.target.value);
+                    setCurrentStep(1);
+                    setStockActionMsg('');
+                  }}
+                  className="px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 font-mono text-xs font-bold"
+                >
+                  {fiscalYears.map((fy) => (
+                    <option key={fy.id} value={fy.id}>
+                      FY {fy.code} {fy.isCurrent ? '(Active)' : ''} {fy.isClosed ? '• Closed' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Guide for year-end inventory valuation, fixed asset depreciation posting, and IRD period locking.
@@ -245,6 +271,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
           {isLocked && (
             <button
+              type="button"
               onClick={handleUnlockPeriod}
               disabled={isProcessingStep}
               className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
@@ -464,14 +491,37 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             </div>
 
             <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-700 dark:text-indigo-300 space-y-2">
-              <p className="font-bold">Target Roll-forward Fiscal Period:</p>
-              <div className="flex items-center justify-between font-mono font-semibold">
-                <span>New FY Code: <strong>FY 2083/84 BS</strong></span>
-                <span>Starting Date: <strong>Shrawan 1, 2083 BS</strong></span>
+              <p className="font-bold">Closing / opening stock transfer</p>
+              <div className="flex items-center justify-between font-mono font-semibold gap-2 flex-wrap">
+                <span>From: <strong>FY {currentFy?.code}</strong></span>
+                <span>Into: <strong>FY {nextFy?.code || 'same year snapshot'}</strong></span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Opening quantities for all {products.length} catalog products will be locked from Ashadh 31 closing counts.
+                Push stores live inventory as opening balances. Pull applies a saved snapshot back onto live stock.
               </p>
+            </div>
+            {stockActionMsg && (
+              <div className="p-3 rounded-xl border text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+                {stockActionMsg}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handlePushClosing}
+                disabled={isProcessingStep}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer"
+              >
+                Push closing stock → opening
+              </button>
+              <button
+                type="button"
+                onClick={handlePullOpening}
+                disabled={isProcessingStep}
+                className="px-4 py-2 rounded-xl border border-indigo-400 text-indigo-600 dark:text-indigo-300 font-bold text-xs cursor-pointer"
+              >
+                Pull opening stock into live inventory
+              </button>
             </div>
           </div>
         )}
@@ -490,7 +540,13 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             </div>
 
             {!isLocked ? (
-              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4">
+              <form
+                className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
                 <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
                   <KeyRound className="h-4 w-4" />
                   <span>Super Admin Closing Authorization</span>
@@ -511,6 +567,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleAuthorizeLock}
                   disabled={isProcessingStep}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
@@ -518,7 +575,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                   <Lock className="h-4 w-4" />
                   <span>Authorize Year-End Closing & Lock Ledger</span>
                 </button>
-              </div>
+              </form>
             ) : (
               <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 space-y-4">
                 <div className="flex items-center gap-2 text-sm font-bold">
@@ -544,6 +601,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
         {/* STEPPER BOTTOM NAVIGATION */}
         <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-4">
           <button
+            type="button"
             onClick={handlePrevStep}
             disabled={currentStep === 1}
             className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${

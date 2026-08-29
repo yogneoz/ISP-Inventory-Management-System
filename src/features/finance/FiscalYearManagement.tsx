@@ -33,6 +33,7 @@ import {
   Filter,
   Wrench,
   Package,
+  Trash2,
 } from 'lucide-react';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
@@ -48,6 +49,8 @@ const getDocCategory = (id: string): DocCategory => {
 interface FiscalYearManagementProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
+  onCreateFiscalYear?: (fy: Partial<FiscalYear>) => Promise<void>;
+  onDeleteFiscalYear?: (id: string) => Promise<void>;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
 }
@@ -55,6 +58,8 @@ interface FiscalYearManagementProps {
 export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
+  onCreateFiscalYear,
+  onDeleteFiscalYear,
   isDarkMode = false,
 }) => {
   // Document Numbering State
@@ -148,17 +153,49 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
     }
   };
 
-  const handleCreateFiscalYearSubmit = (e: React.FormEvent) => {
+  const handleCreateFiscalYearSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFyCode.trim()) {
       setCreateFyMsg('Please enter a valid Fiscal Year code (e.g. 2083/84).');
       return;
     }
-    setCreateFyMsg(`Fiscal Year ${newFyCode} configured successfully!`);
-    setTimeout(() => {
-      setCreateFyMsg('');
-      setShowCreateModal(false);
-    }, 1500);
+    try {
+      if (onCreateFiscalYear) {
+        await onCreateFiscalYear({
+          code: newFyCode.trim(),
+          startDateAD: newStartAD,
+          endDateAD: newEndAD,
+          startDateBS: newStartBS,
+          endDateBS: newEndBS,
+          isCurrent: false,
+          isClosed: false,
+        });
+      }
+      setCreateFyMsg(`Fiscal Year ${newFyCode} saved to database.`);
+      setTimeout(() => {
+        setCreateFyMsg('');
+        setShowCreateModal(false);
+      }, 1200);
+    } catch (err: any) {
+      setCreateFyMsg(err?.message || 'Failed to create fiscal year');
+    }
+  };
+
+  const handleDeleteFy = async (fy: FiscalYear) => {
+    if (fy.isCurrent) {
+      alert('Cannot delete the active fiscal year. Set another year as active first.');
+      return;
+    }
+    if (!confirm(`Delete fiscal year ${fy.code} from the database? Opening-stock snapshots for this year will also be removed.`)) {
+      return;
+    }
+    try {
+      if (onDeleteFiscalYear) await onDeleteFiscalYear(fy.id);
+      setSaveSuccessMsg(`Deleted fiscal year ${fy.code}.`);
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete fiscal year');
+    }
   };
 
   return (

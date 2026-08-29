@@ -497,6 +497,43 @@ export const api = {
     });
   },
 
+  async createFiscalYear(fy: Partial<FiscalYear>): Promise<FiscalYear> {
+    return fetchJson('/api/fiscal-years', {
+      method: 'POST',
+      body: JSON.stringify(fy),
+    });
+  },
+
+  async deleteFiscalYear(id: string): Promise<{ success: boolean }> {
+    return fetchJson(`/api/fiscal-years/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async closeFiscalYear(id: string, isClosed = true): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ isClosed }),
+    });
+  },
+
+  async pushClosingStock(fiscalYearId: string, nextFiscalYearId?: string): Promise<{ success: boolean; count: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${fiscalYearId}/push-closing-stock`, {
+      method: 'POST',
+      body: JSON.stringify({ nextFiscalYearId }),
+    });
+  },
+
+  async pullOpeningStock(fiscalYearId: string): Promise<{ success: boolean; count: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${fiscalYearId}/pull-opening-stock`, {
+      method: 'POST',
+    });
+  },
+
+  async getOpeningStock(fiscalYearId: string): Promise<any[]> {
+    return fetchJson(`/api/fiscal-years/${fiscalYearId}/opening-stock`);
+  },
+
   // Document Numbering Configurations
   async getDocumentNumberConfigs(): Promise<DocumentNumberConfig[]> {
     return fetchJson('/api/document-number-configs');
