@@ -31,6 +31,23 @@ try {
   }
 } catch (_e) {}
 
+/**
+ * Rechecks a previously unavailable pool. This lets the API recover after
+ * PostgreSQL is started or briefly restarted without requiring an app restart.
+ */
+export async function ensurePostgresConnection(): Promise<boolean> {
+  if (!realPoolInstance) return false;
+
+  try {
+    await realPoolInstance.query('SELECT 1');
+    isPgConnected = true;
+    return true;
+  } catch (_e) {
+    isPgConnected = false;
+    return false;
+  }
+}
+
 export const pgPool = {
   async query(text: string, params?: any[]) {
     if (!isPgConnected || !realPoolInstance) {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile } from '../../types';
+import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../../utils/permissions';
 import { NotificationCenter } from '../common/NotificationCenter';
@@ -39,6 +39,9 @@ interface HeaderProps {
   dateMode: 'BS' | 'AD';
   onToggleDateMode: () => void;
   currentFiscalYear: string;
+  fiscalYears: FiscalYear[];
+  selectedFiscalYearId: string;
+  onSelectFiscalYear: (fiscalYearId: string) => void;
   onOpenBarcodeModal?: () => void;
   onOpenSearchModal?: () => void;
   onLogout: () => void;
@@ -75,6 +78,9 @@ export const Header: React.FC<HeaderProps> = ({
   dateMode,
   onToggleDateMode,
   currentFiscalYear,
+  fiscalYears,
+  selectedFiscalYearId,
+  onSelectFiscalYear,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onLogout,
@@ -374,11 +380,13 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </button>
 
-        {/* Fiscal Year Badge */}
-        <div className="hidden sm:flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-950/40 px-2 py-1 text-[11px] font-semibold text-emerald-300">
+        {/* Fiscal-year view context, loaded from PostgreSQL */}
+        <label className="hidden sm:flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-950/40 px-2 py-1 text-[11px] font-semibold text-emerald-300">
           <span className="text-[9px] text-emerald-400 font-normal">FY:</span>
-          <span>{currentFiscalYear} BS</span>
-        </div>
+          <select value={selectedFiscalYearId} onChange={(e) => onSelectFiscalYear(e.target.value)} aria-label="Select fiscal-year view" className="max-w-28 bg-transparent font-semibold text-emerald-200 outline-none cursor-pointer">
+            {fiscalYears.map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">{fiscalYear.code}{fiscalYear.isCurrent ? ' (Active)' : ''}</option>)}
+          </select>
+        </label>
 
         {/* Barcode & Serial Scanner Button */}
         {onOpenBarcodeModal && (

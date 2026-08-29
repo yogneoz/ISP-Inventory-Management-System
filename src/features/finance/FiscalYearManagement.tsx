@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiscalYear, DocumentNumberConfig } from '../../types';
+import { FiscalYear, DocumentNumberConfig, User } from '../../types';
 import { api } from '../../services/api';
 import {
   getDocumentNumberConfigs,
@@ -33,6 +33,7 @@ import {
   Filter,
   Wrench,
   Package,
+  Trash2,
 } from 'lucide-react';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
@@ -48,6 +49,9 @@ const getDocCategory = (id: string): DocCategory => {
 interface FiscalYearManagementProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
+  onUpdateFiscalYear: (fiscalYear: FiscalYear) => Promise<void>;
+  onDeleteFiscalYear: (id: string) => Promise<void>;
+  currentUser: User | null;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
 }
@@ -55,6 +59,9 @@ interface FiscalYearManagementProps {
 export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
+  onUpdateFiscalYear,
+  onDeleteFiscalYear,
+  currentUser,
   isDarkMode = false,
 }) => {
   // Document Numbering State
@@ -102,6 +109,8 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   const [newStartBS, setNewStartBS] = useState<string>('2083-01-01');
   const [newEndBS, setNewEndBS] = useState<string>('2083-12-30');
   const [createFyMsg, setCreateFyMsg] = useState<string>('');
+  const [editingFiscalYear, setEditingFiscalYear] = useState<FiscalYear | null>(null);
+  const [editFiscalYearError, setEditFiscalYearError] = useState<string>('');
 
   // Period Lock State
   const [periodLocks, setPeriodLocks] = useState<Record<string, boolean>>({
@@ -160,6 +169,38 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       setShowCreateModal(false);
     }, 1500);
   };
+
+  const handleDeleteFiscalYear = async (fiscalYear: FiscalYear) => {
+    if (fiscalYear.isCurrent) return;
+
+    const confirmed = window.confirm(
+      `Delete fiscal year ${fiscalYear.code}? This will also remove its opening-balance records and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await onDeleteFiscalYear(fiscalYear.id);
+      setSaveSuccessMsg(`Fiscal Year ${fiscalYear.code} was deleted.`);
+    } catch (error: any) {
+      setSaveSuccessMsg(error?.message || `Unable to delete Fiscal Year ${fiscalYear.code}.`);
+    }
+  };
+
+  const handleUpdateFiscalYear = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingFiscalYear) return;
+
+    setEditFiscalYearError('');
+    try {
+      await onUpdateFiscalYear(editingFiscalYear);
+      setEditingFiscalYear(null);
+      setSaveSuccessMsg(`Fiscal Year ${editingFiscalYear.code} was updated.`);
+    } catch (error: any) {
+      setEditFiscalYearError(error?.message || 'Unable to update this fiscal year.');
+    }
+  };
+
+  const canManageFiscalYears = currentUser?.role === 'SUPER_ADMIN';
 
   return (
     <div className="space-y-6">
@@ -231,18 +272,45 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   FY {fy.code}
                 </span>
 
-                {fy.isCurrent ? (
-                  <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Active
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => onSetCurrentFiscalYear(fy.id)}
-                    className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                  >
-                    Set Active
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {fy.isCurrent ? (
+                    <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Active
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onSetCurrentFiscalYear(fy.id)}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      Set Active
+                    </button>
+                  )}
+                  {canManageFiscalYears && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditFiscalYearError('');
+                        setEditingFiscalYear({ ...fy });
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
+                      title={`Edit fiscal year ${fy.code}`}
+                      aria-label={`Edit fiscal year ${fy.code}`}
+                    >
+                      <Edit3 className="h-3.5 w-3.5" /> Edit
+                    </button>
+                  )}
+                  {canManageFiscalYears && !fy.isCurrent && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFiscalYear(fy)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                      title={`Delete fiscal year ${fy.code}`}
+                      aria-label={`Delete fiscal year ${fy.code}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1.5 text-[11px]">
@@ -873,6 +941,57 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                 >
                   Create Fiscal Year
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingFiscalYear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Edit3 className="h-5 w-5 text-indigo-500" />
+                <h3 className="text-base font-bold">Edit Fiscal Year</h3>
+              </div>
+              <button type="button" onClick={() => setEditingFiscalYear(null)} className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400" aria-label="Close edit fiscal year dialog">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {editFiscalYearError && <div className="p-3 rounded-xl border text-xs font-semibold bg-rose-50 text-rose-800 border-rose-200">{editFiscalYearError}</div>}
+
+            <form onSubmit={handleUpdateFiscalYear} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold mb-1">Fiscal Year Code (YYYY/YY):</label>
+                <input type="text" required value={editingFiscalYear.code} onChange={(e) => setEditingFiscalYear({ ...editingFiscalYear, code: e.target.value })} className="w-full rounded-xl border p-2.5 text-xs font-mono font-bold bg-white dark:bg-slate-950 text-slate-900 dark:text-white" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold mb-1">Start Date BS:</label>
+                  <input type="text" required value={editingFiscalYear.startDateBS} onChange={(e) => setEditingFiscalYear({ ...editingFiscalYear, startDateBS: e.target.value })} className="w-full rounded-xl border p-2.5 text-xs font-mono bg-white dark:bg-slate-950" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">End Date BS:</label>
+                  <input type="text" required value={editingFiscalYear.endDateBS} onChange={(e) => setEditingFiscalYear({ ...editingFiscalYear, endDateBS: e.target.value })} className="w-full rounded-xl border p-2.5 text-xs font-mono bg-white dark:bg-slate-950" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold mb-1">Start Date AD:</label>
+                  <input type="date" required value={editingFiscalYear.startDateAD} onChange={(e) => setEditingFiscalYear({ ...editingFiscalYear, startDateAD: e.target.value })} className="w-full rounded-xl border p-2.5 text-xs font-mono bg-white dark:bg-slate-950" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">End Date AD:</label>
+                  <input type="date" required value={editingFiscalYear.endDateAD} onChange={(e) => setEditingFiscalYear({ ...editingFiscalYear, endDateAD: e.target.value })} className="w-full rounded-xl border p-2.5 text-xs font-mono bg-white dark:bg-slate-950" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onClick={() => setEditingFiscalYear(null)} className="px-4 py-2 rounded-xl border text-xs font-bold">Cancel</button>
+                <button type="submit" className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Save Changes</button>
               </div>
             </form>
           </div>

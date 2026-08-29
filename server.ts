@@ -30,7 +30,7 @@ import {
 
 dotenv.config();
 
-import { pgPool, realPoolInstance, setIsPgConnected, getIsPgConnected } from './server/db';
+import { pgPool, realPoolInstance, setIsPgConnected, getIsPgConnected, ensurePostgresConnection } from './server/db';
 let isPgConnected = false;
 
 const app = express();
@@ -58,6 +58,7 @@ app.use('/api', (req, res, next) => {
   return requireAuth(req, res, next);
 });
 app.use('/api', requirePostgres);
+app.use('/api', enforceFiscalYearWriteAccess);
 
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
@@ -628,13 +629,48 @@ function authenticateUser(req: any, _res: any, next: any) {
   next();
 }
 
-function requirePostgres(_req: any, res: any, next: any) {
+async function requirePostgres(req: any, res: any, next: any) {
+  // Keep the diagnostic endpoint reachable while the database is down.
+  if (req.path === '/db/status') return next();
+
+  if (!isPgConnected || !getIsPgConnected()) {
+    const isReconnected = await ensurePostgresConnection();
+    isPgConnected = isReconnected;
+    setIsPgConnected(isReconnected);
+  }
+
   if (!isPgConnected || !getIsPgConnected() || !realPoolInstance) {
     return res.status(503).json({
       message: 'PostgreSQL is unavailable. Start the database and verify the connection settings before using the application.',
     });
   }
   next();
+}
+
+/**
+ * Fiscal year chosen in the UI is a view context. Mutations against a closed
+ * context are restricted to the two roles permitted to make audited changes.
+ */
+async function enforceFiscalYearWriteAccess(req: any, res: any, next: any) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  if (req.path.startsWith('/auth/') || req.path.startsWith('/fiscal-years/') || req.path.startsWith('/sync/')) return next();
+
+  const fiscalYearId = typeof req.headers['x-fiscal-year-id'] === 'string' ? req.headers['x-fiscal-year-id'] : '';
+  if (!fiscalYearId) return next();
+
+  try {
+    const result = await pgPool.query('SELECT is_closed AS "isClosed" FROM fiscal_years WHERE id = $1;', [fiscalYearId]);
+    const fiscalYear = result.rows[0];
+    if (!fiscalYear?.isClosed) return next();
+
+    const role = (req.user || getUserFromReq(req)).role;
+    if (role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER') return next();
+    return res.status(423).json({
+      message: 'This fiscal year is closed. Only Super Admin or Inventory Manager can make an audited adjustment.',
+    });
+  } catch (error: any) {
+    return res.status(503).json({ message: `Unable to verify fiscal-year access: ${error.message}` });
+  }
 }
 
 /**
@@ -773,8 +809,9 @@ app.get('/api/sync/version', (req, res) => {
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
 app.get('/api/bootstrap', async (req, res) => {
-  const { branchId } = req.query;
+  const { branchId, fiscalYearId } = req.query;
   const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+  const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
 
   if (isPgConnected) {
     try {
@@ -791,7 +828,7 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments' + (bId ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : ''), bId ? [bId] : []),
         pgPool.query('SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, code, start_date_ad AS "startDateAd", end_date_ad AS "endDateAd", start_date_bs AS "startDateBs", end_date_bs AS "endDateBs", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
+        pgPool.query('SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
         pgPool.query('SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC LIMIT 200'),
         pgPool.query('SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC LIMIT 300'),
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
@@ -803,12 +840,35 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
       ]);
 
-      const pgStock = sRes.rows;
-      const pgProducts = pRes.rows;
-      const pgAssets = aRes.rows;
-      const pgInvoices = piRes.rows;
-      const pgOps = opRes.rows;
       const pgFiscalYears = fyRes.rows;
+      const selectedFiscalYear = fId ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId) : undefined;
+      const isWithinSelectedFiscalYear = (record: any, dateField: string) => {
+        if (!selectedFiscalYear) return true;
+        const dateValue = String(record[dateField] || '').slice(0, 10);
+        return Boolean(dateValue && dateValue >= selectedFiscalYear.startDateAD && dateValue <= selectedFiscalYear.endDateAD);
+      };
+
+      let pgStock = sRes.rows;
+      if (selectedFiscalYear && !selectedFiscalYear.isCurrent) {
+        const openingStockResult = await pgPool.query(
+          `SELECT 'opening-' || fiscal_year_id || '-' || product_id || '-' || branch_id AS id,
+                  product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand",
+                  damaged_qty AS "damagedQty", 0 AS "reservedQty", 0 AS "incomingQty", 0 AS "minReorderLevel"
+           FROM fiscal_year_opening_stock WHERE fiscal_year_id = $1${bId ? ' AND branch_id = $2' : ''};`,
+          bId ? [selectedFiscalYear.id, bId] : [selectedFiscalYear.id]
+        );
+        pgStock = openingStockResult.rows;
+      }
+      const pgProducts = pRes.rows;
+      const pgAssets = aRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'acquisitionDateAd'));
+      const pgCustomerDevices = dRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'issuedDateAd'));
+      const pgPurchaseOrders = poRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'orderDateAD'));
+      const pgInvoices = piRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'invoiceDateAD'));
+      const pgShipments = shRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'dispatchDateAd'));
+      const pgOps = opRes.rows.filter((row: any) => !selectedFiscalYear || row.fiscalYear === selectedFiscalYear.code || isWithinSelectedFiscalYear(row, 'dateAd'));
+      const pgAuditLogs = auditRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
+      const pgTransactionLogs = txnRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
+      const pgApprovalRequests = appRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'requestedAtAd'));
 
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
         const prod = pgProducts.find((p: any) => p.id === item.productId);
@@ -840,19 +900,19 @@ app.get('/api/bootstrap', async (req, res) => {
         products: pgProducts,
         stock: pgStock,
         assets: pgAssets,
-        customerDevices: dRes.rows,
+        customerDevices: pgCustomerDevices,
         customers: cRes.rows,
-        purchaseOrders: poRes.rows,
+        purchaseOrders: pgPurchaseOrders,
         purchaseInvoices: pgInvoices,
-        shipments: shRes.rows,
+        shipments: pgShipments,
         stockOperations: pgOps,
         fiscalYears: pgFiscalYears,
-        auditLogs: auditRes.rows,
-        transactionLogs: txnRes.rows,
+        auditLogs: pgAuditLogs,
+        transactionLogs: pgTransactionLogs,
         financialSummary,
         suppliers: supRes.rows,
         users: uRes.rows,
-        approvalRequests: appRes.rows,
+        approvalRequests: pgApprovalRequests,
         categories: catRes.rows,
         uom: uomRes.rows,
         locations: locRes.rows,
@@ -885,20 +945,23 @@ app.get('/api/bootstrap', async (req, res) => {
 
 // Database Health & Connection Check Endpoint
 app.get('/api/db/status', async (req, res) => {
-  let isConnected = false;
+  let isConnected = await ensurePostgresConnection();
   let errorDetails = '';
   let tableCount = 0;
 
-  if (realPoolInstance) {
+  if (isConnected && realPoolInstance) {
     try {
       const client = await realPoolInstance.connect();
       const testRes = await client.query('SELECT current_database(), version(), (SELECT count(*) FROM information_schema.tables WHERE table_schema = \'public\') as tables');
       client.release();
       isConnected = true;
       isPgConnected = true;
+      setIsPgConnected(true);
       tableCount = parseInt(testRes.rows[0]?.tables || '0', 10);
     } catch (err: any) {
       isConnected = false;
+      isPgConnected = false;
+      setIsPgConnected(false);
       errorDetails = err?.message || 'Failed to connect to PostgreSQL server';
     }
   }
@@ -3760,6 +3823,199 @@ app.post('/api/fiscal-years/:id/set-current', async (req, res) => {
   res.json(fiscalYears);
 });
 
+app.put('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
+  const values = [code, startDateAD, endDateAD, startDateBS, endDateBS];
+
+  if (!values.every((value) => typeof value === 'string' && value.trim())) {
+    return res.status(400).json({ message: 'Fiscal year code and all BS/AD period dates are required.' });
+  }
+  if (Number.isNaN(Date.parse(startDateAD)) || Number.isNaN(Date.parse(endDateAD)) || startDateAD > endDateAD) {
+    return res.status(400).json({ message: 'Enter a valid AD period with an end date on or after the start date.' });
+  }
+
+  try {
+    const result = await pgPool.query(
+      `UPDATE fiscal_years
+       SET code = $1, start_date_ad = $2, end_date_ad = $3, start_date_bs = $4, end_date_bs = $5
+       WHERE id = $6
+       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed";`,
+      [code.trim(), startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim(), id]
+    );
+    const fiscalYear = result.rows[0];
+    if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+    const index = fiscalYears.findIndex((item) => item.id === id);
+    if (index >= 0) fiscalYears[index] = fiscalYear;
+    logAuditEvent(req, 'UPDATE_FISCAL_YEAR', 'FISCAL_YEAR', `Updated fiscal year ${fiscalYear.code}`);
+    return res.json(fiscalYear);
+  } catch (error: any) {
+    if (error?.code === '23505') return res.status(409).json({ message: 'That fiscal year code already exists.' });
+    console.error('Error updating fiscal year:', error);
+    return res.status(500).json({ message: `Unable to update fiscal year: ${error.message}` });
+  }
+});
+
+app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pgPool.query(
+      `UPDATE fiscal_years
+       SET is_closed = TRUE
+       WHERE id = $1 AND end_date_ad < CURRENT_DATE
+       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed";`,
+      [id]
+    );
+    const fiscalYear = result.rows[0];
+    if (!fiscalYear) {
+      const existing = await pgPool.query('SELECT end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1;', [id]);
+      if (!existing.rows[0]) return res.status(404).json({ message: 'Fiscal year not found.' });
+      return res.status(400).json({ message: `Fiscal year closing is available only after ${existing.rows[0].endDateAD}.` });
+    }
+
+    const index = fiscalYears.findIndex((item) => item.id === id);
+    if (index >= 0) fiscalYears[index] = fiscalYear;
+    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code}`);
+    return res.json(fiscalYear);
+  } catch (error: any) {
+    console.error('Error closing fiscal year:', error);
+    return res.status(500).json({ message: `Unable to close fiscal year: ${error.message}` });
+  }
+});
+
+app.post('/api/fiscal-years/:id/reopen', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pgPool.query(
+      `UPDATE fiscal_years SET is_closed = FALSE WHERE id = $1
+       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed";`,
+      [id]
+    );
+    const fiscalYear = result.rows[0];
+    if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
+    const index = fiscalYears.findIndex((item) => item.id === id);
+    if (index >= 0) fiscalYears[index] = fiscalYear;
+    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code}`);
+    return res.json(fiscalYear);
+  } catch (error: any) {
+    console.error('Error reopening fiscal year:', error);
+    return res.status(500).json({ message: `Unable to reopen fiscal year: ${error.message}` });
+  }
+});
+
+app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await withTransaction(async (client) => {
+      const sourceResult = await client.query(
+        'SELECT id, code, end_date_ad, is_closed FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+        [id]
+      );
+      const sourceFiscalYear = sourceResult.rows[0];
+      if (!sourceFiscalYear) {
+        const error: any = new Error('Source fiscal year not found.');
+        error.statusCode = 404;
+        throw error;
+      }
+      if (!sourceFiscalYear.is_closed) {
+        const error: any = new Error('Close and lock the source fiscal year before creating opening stock.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const targetResult = await client.query(
+        `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                is_current AS "isCurrent", is_closed AS "isClosed"
+         FROM fiscal_years WHERE start_date_ad > $1 ORDER BY start_date_ad ASC LIMIT 1 FOR UPDATE;`,
+        [sourceFiscalYear.end_date_ad]
+      );
+      const targetFiscalYear = targetResult.rows[0];
+      if (!targetFiscalYear) {
+        const error: any = new Error('Create the next fiscal year before initializing its opening stock.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO fiscal_year_opening_stock (
+           id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost, source_type, source_reference, posted_by
+         )
+         SELECT
+           'open-' || $1 || '-' || inventory_stock.product_id || '-' || inventory_stock.branch_id,
+           $1, inventory_stock.product_id, inventory_stock.branch_id,
+           inventory_stock.quantity_on_hand, inventory_stock.damaged_qty, products.cost_price,
+           'FISCAL_CLOSE', $2, $3
+         FROM inventory_stock
+         INNER JOIN products ON products.id = inventory_stock.product_id
+         ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
+           quantity_on_hand = EXCLUDED.quantity_on_hand,
+           damaged_qty = EXCLUDED.damaged_qty,
+           unit_cost = EXCLUDED.unit_cost,
+           source_type = EXCLUDED.source_type,
+           source_reference = EXCLUDED.source_reference,
+           posted_at = CURRENT_TIMESTAMP,
+           posted_by = EXCLUDED.posted_by;`,
+        [targetFiscalYear.id, sourceFiscalYear.code, (req.user || getUserFromReq(req)).email || 'system']
+      );
+      return { targetFiscalYear, recordsCreated: inserted.rowCount || 0 };
+    });
+
+    logAuditEvent(req, 'INITIALIZE_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', `Initialized ${result.recordsCreated} opening-stock records for ${result.targetFiscalYear.code}`);
+    return res.json(result);
+  } catch (error: any) {
+    if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+    console.error('Error initializing fiscal-year opening stock:', error);
+    return res.status(500).json({ message: `Unable to initialize fiscal-year opening stock: ${error.message}` });
+  }
+});
+
+app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const fiscalYearResult = await client.query(
+        'SELECT id, code, is_current AS "isCurrent" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+        [id]
+      );
+      const fiscalYear = fiscalYearResult.rows[0];
+
+      if (!fiscalYear) {
+        const error: any = new Error('Fiscal year not found.');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (fiscalYear.isCurrent) {
+        const error: any = new Error('The active fiscal year cannot be deleted. Set another fiscal year as active first.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await client.query('DELETE FROM fiscal_years WHERE id = $1;', [id]);
+      return fiscalYear;
+    });
+
+    fiscalYears = fiscalYears.filter((fiscalYear) => fiscalYear.id !== id);
+    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code}`);
+    return res.json({ message: `Fiscal year ${result.code} deleted successfully.`, id });
+  } catch (error: any) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    console.error('Error deleting fiscal year:', error);
+    return res.status(500).json({ message: `Unable to delete fiscal year: ${error.message}` });
+  }
+});
+
 // Bikram Sambat (BS) Calendar & Day Records Endpoints
 const NEPALI_MONTHS_EN_SERVER = [
   'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',
@@ -5626,6 +5882,12 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_module_check;
+      ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
+        'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
+        'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY_AUDIT',
+        'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM'
+      ));
       CREATE TABLE IF NOT EXISTS fiscal_year_opening_stock (
         id VARCHAR(100) PRIMARY KEY,
         fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,

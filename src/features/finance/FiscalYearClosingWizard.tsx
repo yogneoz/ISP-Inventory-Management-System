@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User } from '../../types';
 import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import {
@@ -25,6 +25,9 @@ import {
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
+  onCloseFiscalYear: (id: string) => Promise<void>;
+  onReopenFiscalYear: (id: string) => Promise<void>;
+  onInitializeOpeningStock: (id: string) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }>;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
   financialSummary: FinancialSummary;
@@ -39,6 +42,9 @@ interface FiscalYearClosingWizardProps {
 export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
+  onCloseFiscalYear,
+  onReopenFiscalYear,
+  onInitializeOpeningStock,
   dateMode,
   isDarkMode = false,
   financialSummary,
@@ -49,7 +55,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   currentUser,
   onRefreshData,
 }) => {
-  const currentFy = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const defaultFiscalYear = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(defaultFiscalYear?.id || '');
+  const currentFy = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
   const [adminAuthKey, setAdminAuthKey] = useState<string>('');
@@ -59,6 +67,22 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const [step2Completed, setStep2Completed] = useState<boolean>(false);
   const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
+  const [openingStockMessage, setOpeningStockMessage] = useState<string>('');
+
+  const now = new Date();
+  const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isClosingEligible = Boolean(currentFy?.endDateAD && currentFy.endDateAD < todayAD);
+
+  useEffect(() => {
+    if (!currentFy && defaultFiscalYear) setSelectedFiscalYearId(defaultFiscalYear.id);
+  }, [currentFy, defaultFiscalYear]);
+
+  useEffect(() => {
+    setIsLocked(currentFy?.isClosed || false);
+    setCurrentStep(1);
+    setAdminAuthKey('');
+    setAuthError('');
+  }, [currentFy?.id, currentFy?.isClosed]);
 
   // Financial Metrics for the Closing Year
   const closingMetrics = useMemo(() => {
@@ -118,6 +142,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
 
   const handleAuthorizeLock = async () => {
     setAuthError('');
+    if (!currentFy || !isClosingEligible) {
+      setAuthError(`Fiscal year ${currentFy?.code || ''} cannot be closed until after its AD end date (${currentFy?.endDateAD || 'not configured'}).`);
+      return;
+    }
     if (!adminAuthKey.trim()) {
       setAuthError('Please enter Super Admin authorization PIN or password.');
       return;
@@ -129,13 +157,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
 
     setIsProcessingStep(true);
     try {
-      if (currentFy) {
-        currentFy.isClosed = true;
-      }
+      await onCloseFiscalYear(currentFy.id);
       setIsLocked(true);
-      if (onRefreshData) await onRefreshData();
     } catch (err) {
-      console.error(err);
+      setAuthError(err instanceof Error ? err.message : 'Unable to close the fiscal year.');
     } finally {
       setIsProcessingStep(false);
     }
@@ -144,13 +169,26 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const handleUnlockPeriod = async () => {
     setIsProcessingStep(true);
     try {
-      if (currentFy) {
-        currentFy.isClosed = false;
-      }
+      if (!currentFy) return;
+      await onReopenFiscalYear(currentFy.id);
       setIsLocked(false);
-      if (onRefreshData) await onRefreshData();
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsProcessingStep(false);
+    }
+  };
+
+  const handleInitializeOpeningStock = async () => {
+    if (!currentFy) return;
+    setOpeningStockMessage('');
+    setIsProcessingStep(true);
+    try {
+      const result = await onInitializeOpeningStock(currentFy.id);
+      setStep4Completed(true);
+      setOpeningStockMessage(`${result.recordsCreated} opening-stock records prepared for FY ${result.targetFiscalYear.code}.`);
+    } catch (error) {
+      setOpeningStockMessage(error instanceof Error ? error.message : 'Unable to initialize opening stock.');
     } finally {
       setIsProcessingStep(false);
     }
@@ -223,6 +261,18 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
         </div>
 
         <div className="flex items-center gap-3">
+          <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
+            Closing year
+            <select
+              value={currentFy?.id || ''}
+              onChange={(event) => setSelectedFiscalYearId(event.target.value)}
+              className="ml-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
+            >
+              {fiscalYears.map((fiscalYear) => (
+                <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
+              ))}
+            </select>
+          </label>
           <div
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
               isLocked
@@ -254,6 +304,12 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           )}
         </div>
       </div>
+
+      {!isClosingEligible && currentFy && !isLocked && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
+          <span className="font-bold">Closing unavailable:</span> FY {currentFy.code} ends on {currentFy.endDateAD}. It can only be closed after that date has passed.
+        </div>
+      )}
 
       {/* STEPPER NAV BAR */}
       <div
@@ -459,20 +515,29 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 <span>Step 4: Create & Initialize New Fiscal Year Opening Balances</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Automatically instantiate opening stock ledger for FY 2083/84 BS starting Shrawan 1.
+                Automatically instantiate opening stock ledger for the fiscal period that follows FY {currentFy?.code} BS.
               </p>
             </div>
 
             <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-700 dark:text-indigo-300 space-y-2">
               <p className="font-bold">Target Roll-forward Fiscal Period:</p>
               <div className="flex items-center justify-between font-mono font-semibold">
-                <span>New FY Code: <strong>FY 2083/84 BS</strong></span>
-                <span>Starting Date: <strong>Shrawan 1, 2083 BS</strong></span>
+                <span>Closing FY: <strong>FY {currentFy?.code || '—'} BS</strong></span>
+                <span>Closing Date: <strong>{currentFy?.endDateBS || '—'}</strong></span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Opening quantities for all {products.length} catalog products will be locked from Ashadh 31 closing counts.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={handleInitializeOpeningStock}
+              disabled={!isLocked || isProcessingStep || step4Completed}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 text-white text-xs font-bold"
+            >
+              {step4Completed ? 'Opening Stock Initialized' : 'Pull Closing Stock into Next Fiscal Year'}
+            </button>
+            {openingStockMessage && <p className={`text-xs font-semibold ${step4Completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{openingStockMessage}</p>}
           </div>
         )}
 
@@ -512,11 +577,11 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
                 <button
                   onClick={handleAuthorizeLock}
-                  disabled={isProcessingStep}
+                  disabled={isProcessingStep || !isClosingEligible}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Lock className="h-4 w-4" />
-                  <span>Authorize Year-End Closing & Lock Ledger</span>
+                  <span>{isClosingEligible ? 'Authorize Year-End Closing & Lock Ledger' : 'Fiscal Year End Date Not Reached'}</span>
                 </button>
               </div>
             ) : (

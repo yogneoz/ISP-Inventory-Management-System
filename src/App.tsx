@@ -20,7 +20,7 @@ import {
   ApprovalRequest,
   Category,
 } from './types';
-import { api, setUserContext, subscribeToSyncStream } from './services/api';
+import { api, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
 import {
   saveUserSession,
   loadUserSession,
@@ -95,6 +95,7 @@ export default function App() {
     return savedTab && savedTab !== 'dashboard' ? (savedTab as NavTab) : 'dashboard';
   });
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
   const [dateMode, setDateMode] = useState<'BS' | 'AD'>('BS');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
@@ -111,6 +112,10 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    setFiscalYearContext(selectedFiscalYearId || null);
+  }, [selectedFiscalYearId]);
+
+  useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
@@ -120,18 +125,6 @@ export default function App() {
     };
     window.addEventListener('izone_permissions_updated', handlePermissionsUpdated);
     return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
-  }, []);
-
-  // Global search keyboard shortcut (Ctrl+K or Cmd+K)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsGlobalSearchOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Theme State: default to light mode (false) as requested, with localStorage persistence
@@ -229,9 +222,12 @@ export default function App() {
   // Load state from API via atomic unified bootstrap (1 roundtrip)
   const refreshAllData = async () => {
     try {
-      const data = await api.getBootstrapState(selectedBranchId);
+      const data = await api.getBootstrapState(selectedBranchId, selectedFiscalYearId || undefined);
       if (data) {
         applyBootstrapData(data);
+        if (!selectedFiscalYearId && data.fiscalYears?.length) {
+          setSelectedFiscalYearId(data.fiscalYears.find((f: FiscalYear) => f.isCurrent)?.id || data.fiscalYears[0].id);
+        }
         saveRecentBootstrapCache(data);
       }
     } catch (err) {
@@ -262,10 +258,10 @@ export default function App() {
     await refreshAllData();
   };
 
-  // Fetch data on initial mount and whenever selectedBranchId changes
+  // Fetch data on initial mount and whenever branch/fiscal view changes.
   useEffect(() => {
     refreshAllData();
-  }, [selectedBranchId]);
+  }, [selectedBranchId, selectedFiscalYearId]);
 
   // Real-time synchronization stream: listen for background changes from any user/branch
   useEffect(() => {
@@ -304,6 +300,10 @@ export default function App() {
   // Global Keyboard Shortcuts (Alt+H for Help, Alt+B for Barcode, Alt+S/Ctrl+K for Search, Alt+D for Date Mode)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditingField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '');
+      if (isEditingField) return;
+
       // Alt + H -> In-App Help & Documentation Center
       if (e.altKey && (e?.key || '').toLowerCase() === 'h') {
         e.preventDefault();
@@ -578,6 +578,32 @@ export default function App() {
     refreshAllData();
   };
 
+  const handleUpdateFiscalYear = async (fiscalYear: FiscalYear) => {
+    await api.updateFiscalYear(fiscalYear);
+    refreshAllData();
+  };
+
+  const handleCloseFiscalYear = async (id: string) => {
+    await api.closeFiscalYear(id);
+    await refreshAllData();
+  };
+
+  const handleReopenFiscalYear = async (id: string) => {
+    await api.reopenFiscalYear(id);
+    await refreshAllData();
+  };
+
+  const handleInitializeFiscalYearOpeningStock = async (id: string) => {
+    const result = await api.initializeFiscalYearOpeningStock(id);
+    await refreshAllData();
+    return result;
+  };
+
+  const handleDeleteFiscalYear = async (id: string) => {
+    await api.deleteFiscalYear(id);
+    refreshAllData();
+  };
+
   // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
   const lowStockCount = products.filter((prod) => {
     const activeBr =
@@ -729,6 +755,9 @@ export default function App() {
         dateMode={dateMode}
         onToggleDateMode={() => setDateMode(dateMode === 'BS' ? 'AD' : 'BS')}
         currentFiscalYear={activeFy}
+        fiscalYears={fiscalYears}
+        selectedFiscalYearId={selectedFiscalYearId}
+        onSelectFiscalYear={setSelectedFiscalYearId}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
         onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
         onLogout={handleLogout}
@@ -1707,6 +1736,9 @@ export default function App() {
                 <FiscalYearClosingWizard
                   fiscalYears={fiscalYears}
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  onCloseFiscalYear={handleCloseFiscalYear}
+                  onReopenFiscalYear={handleReopenFiscalYear}
+                  onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                   financialSummary={financialSummary}
@@ -1729,6 +1761,9 @@ export default function App() {
                 <FiscalYearManagement
                   fiscalYears={fiscalYears}
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  onUpdateFiscalYear={handleUpdateFiscalYear}
+                  onDeleteFiscalYear={handleDeleteFiscalYear}
+                  currentUser={currentUser}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />

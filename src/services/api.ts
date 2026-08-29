@@ -28,9 +28,14 @@ import { generateNextDocumentNumber } from '../utils/documentNumbering';
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
 let currentUserContext: User | null = null;
+let currentFiscalYearId: string | null = null;
 
 export const setUserContext = (user: User | null) => {
   currentUserContext = user;
+};
+
+export const setFiscalYearContext = (fiscalYearId: string | null) => {
+  currentFiscalYearId = fiscalYearId;
 };
 
 // In-flight promise cache to deduplicate simultaneous duplicate requests
@@ -52,6 +57,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
     userHeaders['x-user-role'] = currentUserContext.role;
     userHeaders['x-user-branch'] = currentUserContext.branchId;
   }
+  if (currentFiscalYearId) userHeaders['x-fiscal-year-id'] = currentFiscalYearId;
 
   const promise = (async () => {
     try {
@@ -125,9 +131,10 @@ export function subscribeToSyncStream(onEvent: (data: any) => void): () => void 
 
 export const api = {
   // Unified Bootstrap for zero-lag instant UI loading & sync
-  async getBootstrapState(branchId?: string): Promise<BootstrapState> {
+  async getBootstrapState(branchId?: string, fiscalYearId?: string): Promise<BootstrapState> {
     const params = new URLSearchParams();
     if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
+    if (fiscalYearId) params.append('fiscalYearId', fiscalYearId);
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return fetchJson<BootstrapState>(`/api/bootstrap${queryString}`);
   },
@@ -494,6 +501,31 @@ export const api = {
   async setCurrentFiscalYear(id: string): Promise<FiscalYear[]> {
     return fetchJson(`/api/fiscal-years/${id}/set-current`, {
       method: 'POST',
+    });
+  },
+
+  async updateFiscalYear(fiscalYear: FiscalYear): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${fiscalYear.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(fiscalYear),
+    });
+  },
+
+  async closeFiscalYear(id: string): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/close`, { method: 'POST' });
+  },
+
+  async reopenFiscalYear(id: string): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/reopen`, { method: 'POST' });
+  },
+
+  async initializeFiscalYearOpeningStock(id: string): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }> {
+    return fetchJson(`/api/fiscal-years/${id}/initialize-opening-stock`, { method: 'POST' });
+  },
+
+  async deleteFiscalYear(id: string): Promise<{ message: string; id: string }> {
+    return fetchJson(`/api/fiscal-years/${id}`, {
+      method: 'DELETE',
     });
   },
 
