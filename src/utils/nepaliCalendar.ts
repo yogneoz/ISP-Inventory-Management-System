@@ -130,22 +130,66 @@ const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = {
 
 const STORAGE_KEY = 'izone_bs_calendar_data';
 
+// ---------------------------------------------------------------------------
+// Module-level memoization. Building the full day-by-day DB (~2,900 records)
+// and JSON-parsing localStorage on EVERY call is a major hot path (these
+// functions are invoked dozens of times per render across the app). We cache
+// the parsed calendar data, the sorted year list, and the generated day DB,
+// invalidating them only when the underlying localStorage payload changes.
+// ---------------------------------------------------------------------------
+let _calendarDataCache: { raw: string | null; data: Record<number, BSYearData> } | null = null;
+let _sortedYearsCache: { data: Record<number, BSYearData>; sorted: BSYearData[] } | null = null;
+let _calendarDbCache: { raw: string | null; records: BSDayRecord[] } | null = null;
+let _calendarBoundsCache: { raw: string | null; bounds: CalendarBounds } | null = null;
+
 /**
- * Loads BS Calendar Dataset from Local Storage or returns initial defaults
+ * Reads the raw localStorage payload (or null). Safe on server/SSG where
+ * `window` is undefined.
+ */
+function readCalendarRaw(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Loads BS Calendar Dataset from Local Storage or returns initial defaults.
+ * Cached until the localStorage payload changes (e.g. after seeding).
  */
 export function getBsCalendarData(): Record<number, BSYearData> {
-  if (typeof window === 'undefined') return { ...INITIAL_BS_CALENDAR_DATA };
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...INITIAL_BS_CALENDAR_DATA, ...parsed };
-    }
-  } catch (e) {
-    console.error('Failed to load bsCalendarData from storage:', e);
+  const raw = readCalendarRaw();
+  if (_calendarDataCache && _calendarDataCache.raw === raw) {
+    return _calendarDataCache.data;
   }
-  return { ...INITIAL_BS_CALENDAR_DATA };
+
+  const merged: Record<number, BSYearData> = { ...INITIAL_BS_CALENDAR_DATA };
+  if (raw) {
+    try {
+      Object.assign(merged, JSON.parse(raw));
+    } catch (e) {
+      console.error('Failed to load bsCalendarData from storage:', e);
+    }
+  }
+
+  _calendarDataCache = { raw, data: merged };
+  return merged;
+}
+
+/**
+ * Returns the calendar years sorted by BS year, cached on the parsed data.
+ * Avoids re-sorting on every `convertADToBS` call.
+ */
+function getSortedCalendarYears(): BSYearData[] {
+  const data = getBsCalendarData();
+  if (_sortedYearsCache && _sortedYearsCache.data === data) {
+    return _sortedYearsCache.sorted;
+  }
+  const sorted = Object.values(data).sort((a, b) => a.yearBS - b.yearBS);
+  _sortedYearsCache = { data, sorted };
+  return sorted;
 }
 
 /**
@@ -304,8 +348,13 @@ export function getNepaliQuarter(monthBS: number): string {
  * for all mapped BS years.
  */
 export function generateCalendarDatabase(): BSDayRecord[] {
+  const raw = readCalendarRaw();
+  if (_calendarDbCache && _calendarDbCache.raw === raw) {
+    return _calendarDbCache.records;
+  }
+
   const calendarData = getBsCalendarData();
-  const sortedYears = Object.values(calendarData).sort((a, b) => a.yearBS - b.yearBS);
+  const sortedYears = getSortedCalendarYears();
   const records: BSDayRecord[] = [];
 
   for (const yData of sortedYears) {
@@ -348,6 +397,7 @@ export function generateCalendarDatabase(): BSDayRecord[] {
     }
   }
 
+  _calendarDbCache = { raw, records };
   return records;
 }
 
@@ -355,9 +405,15 @@ export function generateCalendarDatabase(): BSDayRecord[] {
  * Retrieves the current bounds of the mapped Nepali Calendar database
  */
 export function getCalendarBounds(): CalendarBounds {
+  const raw = readCalendarRaw();
+  if (_calendarBoundsCache && _calendarBoundsCache.raw === raw) {
+    return _calendarBoundsCache.bounds;
+  }
+
   const db = generateCalendarDatabase();
+  let bounds: CalendarBounds;
   if (db.length === 0) {
-    return {
+    bounds = {
       minAD: '2021-04-14',
       maxAD: '2029-04-12',
       minBS: '2078-01-01',
@@ -366,24 +422,26 @@ export function getCalendarBounds(): CalendarBounds {
       mappedYearsCount: 0,
       mappedYears: [],
     };
+  } else {
+    const minAD = db[0].adDate;
+    const maxAD = db[db.length - 1].adDate;
+    const minBS = db[0].bsDate;
+    const maxBS = db[db.length - 1].bsDate;
+    const yearsSet = Array.from(new Set(db.map((r) => r.bsYear))).sort((a, b) => a - b);
+
+    bounds = {
+      minAD,
+      maxAD,
+      minBS,
+      maxBS,
+      totalDaysMapped: db.length,
+      mappedYearsCount: yearsSet.length,
+      mappedYears: yearsSet,
+    };
   }
 
-  const minAD = db[0].adDate;
-  const maxAD = db[db.length - 1].adDate;
-  const minBS = db[0].bsDate;
-  const maxBS = db[db.length - 1].bsDate;
-
-  const yearsSet = Array.from(new Set(db.map((r) => r.bsYear))).sort((a, b) => a - b);
-
-  return {
-    minAD,
-    maxAD,
-    minBS,
-    maxBS,
-    totalDaysMapped: db.length,
-    mappedYearsCount: yearsSet.length,
-    mappedYears: yearsSet,
-  };
+  _calendarBoundsCache = { raw, bounds };
+  return bounds;
 }
 
 /**
@@ -489,8 +547,7 @@ export function convertADToBS(adDateStr: string): {
     };
   }
 
-  const calendarData = getBsCalendarData();
-  const sortedYears = Object.values(calendarData).sort((a, b) => a.yearBS - b.yearBS);
+  const sortedYears = getSortedCalendarYears();
 
   if (sortedYears.length === 0) {
     throw new Error('No BS Calendar years seeded in database.');
@@ -686,10 +743,16 @@ export function getTodayBSDateTime(): string {
  */
 export function getExportMetadata(reportName: string, branchName?: string, generatedBy?: string) {
   const now = new Date();
-  const bsDateTime = getTodayBSDateTime();
-  const bsDate = getTodayBS();
   const adDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
   const adDate = now.toISOString().split('T')[0];
+
+  // Compute the BS date once and derive both the date & datetime forms from it,
+  // avoiding a duplicate calendar lookup per export.
+  const bsDate = formatBSDate(adDate);
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const secs = String(now.getSeconds()).padStart(2, '0');
+  const bsDateTime = `${bsDate} ${hours}:${mins}:${secs}`;
 
   return {
     reportName,

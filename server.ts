@@ -36,6 +36,19 @@ let isPgConnected = false;
 const app = express();
 app.use(express.json());
 
+// Routes reachable without authentication, hoisted to module scope so the Set
+// is not re-allocated on every request.
+const PUBLIC_ROUTES = new Set([
+  '/auth/setup-status',
+  '/auth/setup-superadmin',
+  '/auth/forgot-password',
+  '/auth/login',
+  '/db/status',
+  '/health',
+  '/sync/stream',
+  '/sync/version',
+]);
+
 // Health & Control Plane Endpoints FIRST before any other routes or middleware
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -44,17 +57,7 @@ app.get('/api/health', (req, res) => {
 // Global Backend Authentication Middleware for all API routes
 app.use('/api', authenticateUser);
 app.use('/api', (req, res, next) => {
-  const publicRoutes = new Set([
-    '/auth/setup-status',
-    '/auth/setup-superadmin',
-    '/auth/forgot-password',
-    '/auth/login',
-    '/db/status',
-    '/health',
-    '/sync/stream',
-    '/sync/version',
-  ]);
-  if (publicRoutes.has(req.path)) return next();
+  if (PUBLIC_ROUTES.has(req.path)) return next();
   return requireAuth(req, res, next);
 });
 app.use('/api', requirePostgres);
@@ -810,9 +813,15 @@ app.get('/api/bootstrap', async (req, res) => {
       const pgOps = opRes.rows;
       const pgFiscalYears = fyRes.rows;
 
+      // Index products by id once so the valuation below is O(stock + products)
+      // instead of the previous O(stock * products) repeated find().
+      const productCostById = new Map<string, number>();
+      for (const p of pgProducts) {
+        productCostById.set(p.id, Number(p.costPrice || 0));
+      }
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
-        const prod = pgProducts.find((p: any) => p.id === item.productId);
-        return sum + (prod ? Number(prod.costPrice) * Number(item.quantityOnHand) : 0);
+        const cost = productCostById.get(item.productId) || 0;
+        return sum + cost * Number(item.quantityOnHand || 0);
       }, 0);
 
       const totalFixedAssetValue = pgAssets.reduce((sum: number, a: any) => sum + Number(a.netBookValue || 0), 0);
@@ -5088,9 +5097,13 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     targetOps = stockOperations.filter((op) => op.branchId === branchId);
   }
 
+  const productCostById = new Map<string, number>();
+  for (const p of products) {
+    productCostById.set(p.id, Number(p.costPrice || 0));
+  }
   const totalInventoryAssetValue = targetStock.reduce((sum, item) => {
-    const prod = products.find((p) => p.id === item.productId);
-    return sum + (prod ? prod.costPrice * item.quantityOnHand : 0);
+    const cost = productCostById.get(item.productId) || 0;
+    return sum + cost * (item.quantityOnHand || 0);
   }, 0);
 
   const totalFixedAssetValue = targetAssets.reduce(

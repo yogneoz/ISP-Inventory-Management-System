@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   User,
   Supplier,
@@ -194,7 +194,7 @@ export default function App() {
   });
 
   // Hydrate state from recent cache for instant 0ms load speed
-  const applyBootstrapData = (data: any) => {
+  const applyBootstrapData = useCallback((data: any) => {
     if (data.branches) setBranches(data.branches);
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
@@ -215,7 +215,13 @@ export default function App() {
     if (data.categories) setCategories(data.categories);
     if (data.companyProfile) setCompanyProfile(data.companyProfile);
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
-  };
+  }, []);
+
+  // Tracks the last known server data version so background SSE refreshes can
+  // be skipped when nothing has actually changed.
+  const lastDataVersionRef = useRef<number | null>(null);
+  // Coalesces rapid overlapping refresh calls so only one bootstrap fetch runs.
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   // Instant pre-hydration from recent cache
   useEffect(() => {
@@ -224,57 +230,95 @@ export default function App() {
       applyBootstrapData(cached);
       setLoading(false);
     }
-  }, []);
+  }, [applyBootstrapData]);
 
   // Load state from API via atomic unified bootstrap (1 roundtrip)
-  const refreshAllData = async () => {
-    try {
-      const data = await api.getBootstrapState(selectedBranchId);
-      if (data) {
-        applyBootstrapData(data);
-        saveRecentBootstrapCache(data);
+  const refreshAllData = useCallback(
+    async (opts?: { persistCache?: boolean }) => {
+      if (refreshInFlightRef.current) {
+        return refreshInFlightRef.current;
       }
-    } catch (err) {
-      console.error('Error fetching data from backend:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      const run = (async () => {
+        try {
+          const data = await api.getBootstrapState(selectedBranchId);
+          if (data) {
+            if (typeof data.dataVersion === 'number') {
+              lastDataVersionRef.current = data.dataVersion;
+            }
+            applyBootstrapData(data);
+            // Background syncs (SSE) don't need to rewrite the saved snapshot;
+            // only explicit/manual refreshes persist it. This avoids a full
+            // localStorage serialize on every broadcast.
+            if (opts?.persistCache !== false) {
+              saveRecentBootstrapCache(data);
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching data from backend:', err);
+        } finally {
+          setLoading(false);
+        }
+      })();
+      refreshInFlightRef.current = run;
+      try {
+        await run;
+      } finally {
+        refreshInFlightRef.current = null;
+      }
+    },
+    [applyBootstrapData, selectedBranchId]
+  );
 
-  const handleCreateApprovalRequest = async (
-    requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
-  ) => {
-    await api.createApprovalRequest(requestData);
-    await refreshAllData();
-  };
+  const handleCreateApprovalRequest = useCallback(
+    async (
+      requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
+    ) => {
+      await api.createApprovalRequest(requestData);
+      await refreshAllData();
+    },
+    [refreshAllData]
+  );
 
-  const handleProcessApprovalRequest = async (
-    id: string,
-    status: 'APPROVED' | 'REJECTED',
-    rejectionReason?: string
-  ) => {
-    await api.processApprovalRequest(id, status, currentUser, rejectionReason);
-    await refreshAllData();
-  };
+  const handleProcessApprovalRequest = useCallback(
+    async (
+      id: string,
+      status: 'APPROVED' | 'REJECTED',
+      rejectionReason?: string
+    ) => {
+      await api.processApprovalRequest(id, status, currentUser, rejectionReason);
+      await refreshAllData();
+    },
+    [currentUser, refreshAllData]
+  );
 
-  const handleCancelApprovalRequest = async (id: string, reason?: string) => {
-    await api.cancelApprovalRequest(id, currentUser, reason);
-    await refreshAllData();
-  };
+  const handleCancelApprovalRequest = useCallback(
+    async (id: string, reason?: string) => {
+      await api.cancelApprovalRequest(id, currentUser, reason);
+      await refreshAllData();
+    },
+    [currentUser, refreshAllData]
+  );
 
   // Fetch data on initial mount and whenever selectedBranchId changes
   useEffect(() => {
     refreshAllData();
-  }, [selectedBranchId]);
+  }, [selectedBranchId, refreshAllData]);
 
-  // Real-time synchronization stream: listen for background changes from any user/branch
+  // Real-time synchronization stream: listen for background changes from any user/branch.
+  // Refreshes with persistCache:false so we don't rewrite the full snapshot on
+  // every broadcast, and skips when dataVersion is unchanged.
   useEffect(() => {
     let debounceTimer: any = null;
     const unsubscribe = subscribeToSyncStream((event) => {
+      // Ignore pings, handshakes and any event that doesn't carry a newer
+      // dataVersion than what we already have.
+      if (event?.dataVersion !== undefined && lastDataVersionRef.current === event.dataVersion) {
+        return;
+      }
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        refreshAllData();
+        refreshAllData({ persistCache: false });
       }, 250);
     });
 
@@ -282,7 +326,7 @@ export default function App() {
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribe();
     };
-  }, [selectedBranchId]);
+  }, [selectedBranchId, refreshAllData]);
 
   // React to currentUser state changes & enforce branch/tab restrictions
   useEffect(() => {
@@ -331,13 +375,16 @@ export default function App() {
   }, []);
 
   // Handle Branch Selection with restriction for branch users
-  const handleSelectBranch = (bId: string) => {
-    if (currentUser?.branchId && currentUser.branchId !== 'ALL' && currentUser.role !== 'SUPER_ADMIN') {
-      setSelectedBranchId(currentUser.branchId);
-    } else {
-      setSelectedBranchId(bId);
-    }
-  };
+  const handleSelectBranch = useCallback(
+    (bId: string) => {
+      if (currentUser?.branchId && currentUser.branchId !== 'ALL' && currentUser.role !== 'SUPER_ADMIN') {
+        setSelectedBranchId(currentUser.branchId);
+      } else {
+        setSelectedBranchId(bId);
+      }
+    },
+    [currentUser]
+  );
 
   // Auth actions
   const handleLogin = async (e: string, p: string) => {
@@ -640,7 +687,7 @@ export default function App() {
   const activeFy =
     fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
 
-  const handleGroupLowStockPO = () => {
+  const handleGroupLowStockPO = useCallback(() => {
     const activeBr =
       selectedBranchId === 'ALL'
         ? branches
@@ -685,7 +732,12 @@ export default function App() {
 
     setPrepopulatedPOLines(lines);
     setActiveTab('create-po');
-  };
+  }, [
+    selectedBranchId,
+    branches,
+    products,
+    stock,
+  ]);
 
   if (!currentUser) {
     return (
