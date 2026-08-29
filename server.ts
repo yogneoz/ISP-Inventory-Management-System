@@ -631,7 +631,11 @@ function authenticateUser(req: any, _res: any, next: any) {
   next();
 }
 
-function requirePostgres(_req: any, res: any, next: any) {
+function requirePostgres(req: any, res: any, next: any) {
+  // Public routes carry their own PG-aware in-memory fallbacks, so allow them
+  // through even when PostgreSQL is not yet connected. This keeps setup, login,
+  // health and DB-status usable (with a clear banner) instead of a hard 503.
+  if (PUBLIC_ROUTES.has(req.path)) return next();
   if (!isPgConnected || !getIsPgConnected() || !realPoolInstance) {
     return res.status(503).json({
       message: 'PostgreSQL is unavailable. Start the database and verify the connection settings before using the application.',
@@ -5957,7 +5961,14 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
 }
 
 async function startServer() {
-  await syncDatabaseAndIndexes();
+  const pgConnected = await tryConnectPostgres();
+  if (!pgConnected) {
+    console.warn(
+      '➡️  Running in degraded mode: the server is up, but PostgreSQL is not connected. ' +
+        'Data endpoints will return 503 until a database is available. An automatic reconnect will be attempted.'
+    );
+    schedulePgReconnect();
+  }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
@@ -5965,7 +5976,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -5976,6 +5987,46 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+}
+
+// Tracks whether a background PostgreSQL reconnect attempt is already in flight.
+let pgReconnectTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Attempts to sync schema, seed master data and connect the pool. Never throws:
+ * returns true on success, logs a clear warning and returns false otherwise so
+ * the server can keep running in a degraded mode instead of crashing at boot.
+ */
+async function tryConnectPostgres(): Promise<boolean> {
+  try {
+    await syncDatabaseAndIndexes();
+    return true;
+  } catch (err: any) {
+    isPgConnected = false;
+    setIsPgConnected(false);
+    console.warn('⚠️  PostgreSQL connection failed:', err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * If PostgreSQL is configured but not yet reachable at boot, retry periodically
+ * in the background. No-op when there is no connection config to retry.
+ */
+function schedulePgReconnect() {
+  if (pgReconnectTimer || !realPoolInstance) return;
+  pgReconnectTimer = setInterval(async () => {
+    if (!isPgConnected) {
+      const ok = await tryConnectPostgres();
+      if (ok && pgReconnectTimer) {
+        console.log('✅ PostgreSQL connected during runtime.');
+        clearInterval(pgReconnectTimer);
+        pgReconnectTimer = null;
+      }
+    }
+  }, 15000);
+  // Don't let the timer keep the process alive on its own.
+  if (pgReconnectTimer.unref) pgReconnectTimer.unref();
 }
 
 startServer().catch((err) => {
