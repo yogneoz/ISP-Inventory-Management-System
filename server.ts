@@ -294,228 +294,6 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
   return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
 }
 
-// Optional Helper to generate sample demo dataset when explicitly requested (e.g., SEED_DUMMY_DATA=true)
-function generateDemoDataset() {
-  const EXCEL_ITEMS = [
-    { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
-    { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
-    { code: 'SLV001', group: 'CONSUMABLE ITEM', type: 'Sleeves', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', uom: 'Box', qty: 100, val: 250 },
-    { code: 'CPL001', group: 'CONSUMABLE ITEM', type: 'Coupler', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', uom: 'Pcs', qty: 200, val: 35 },
-    { code: 'FCN001', group: 'CONSUMABLE ITEM', type: 'Fast Connector', name: 'Fast Connector SC/UPC Fiber Optical', uom: 'Pcs', qty: 150, val: 45 },
-    { code: 'PTC001', group: 'CONSUMABLE ITEM', type: 'Patch Cord', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', uom: 'Pcs', qty: 80, val: 180 },
-    { code: 'ADP001', group: 'CONSUMABLE ITEM', type: 'Adaptor', name: '0 DB ADAPTAR SC/APC', uom: 'Pcs', qty: 100, val: 25 },
-    { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
-    { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
-    { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
-    { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
-    { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
-  ];
-
-  const NON_SERIALIZED_CATEGORIES = [
-    'Drop Cable', 'Cat6 Cable', 'Fiber', 'Dac Cable', 'Patch Cord',
-    'Fast Connector', 'Coupler', 'Splitter', 'Distribution Box',
-    'Av Jack', 'Binding Wire', 'Adaptor', 'Sleeves', 'Tiffin Bod', 'Cassettte'
-  ];
-
-  const demoSuppliers: Supplier[] = [
-    {
-      id: 'sup-1',
-      name: 'Himalayan Tech Distributors Pvt. Ltd.',
-      contactPerson: 'Ramesh Adhikari',
-      phone: '+977-1-4265890',
-      email: 'orders@himalayantech.com.np',
-      address: 'Putalisadak, Kathmandu',
-      panVatNumber: '302918273',
-      rating: 4.8,
-    },
-    {
-      id: 'sup-2',
-      name: 'Nepal Optical & Fiber Optics Importers',
-      contactPerson: 'Sunita Sharma',
-      phone: '+977-1-5541209',
-      email: 'sales@nepaloptics.com.np',
-      address: 'Patan Industrial Estate, Lalitpur',
-      panVatNumber: '601239845',
-      rating: 4.6,
-    },
-    {
-      id: 'sup-3',
-      name: 'Apex Networking Hardware Traders',
-      contactPerson: 'Binod Shrestha',
-      phone: '+977-1-4432100',
-      email: 'info@apexnet.com.np',
-      address: 'New Road, Kathmandu',
-      panVatNumber: '300129841',
-      rating: 4.9,
-    },
-  ];
-
-  const demoProducts: Product[] = EXCEL_ITEMS.map((item, idx) => {
-    const isConsumableOrCable =
-      item.group === 'CONSUMABLE ITEM' ||
-      NON_SERIALIZED_CATEGORIES.includes(item.type) ||
-      ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
-      item.name.includes('CABLE') ||
-      item.name.includes('WIRE') ||
-      item.name.includes('CONNECTOR') ||
-      item.name.includes('SPLITTER') ||
-      item.name.includes('SLEEVE') ||
-      item.name.includes('COUPLER') ||
-      item.name.includes('ADAPTAR');
-
-    const requiresSerialTracking = !isConsumableOrCable && item.group !== 'CONSUMABLE ITEM';
-
-    let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
-    if (item.group === 'FIXED ASSET') {
-      productGroup = 'Fixed Asset';
-    } else if (isConsumableOrCable) {
-      productGroup = 'Consumable Item';
-    }
-
-    return {
-      id: `prod-${item.code.toLowerCase()}`,
-      sku: item.code,
-      barcode: `890${String(100000000 + idx).slice(1)}`,
-      name: item.name,
-      category: item.type,
-      productGroup,
-      unit: item.uom,
-      costPrice: item.val > 0 ? item.val : 1500,
-      sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
-      taxRate: 13,
-      minReorderLevel: productGroup === 'Consumable Item' ? 20 : (productGroup === 'Fixed Asset' ? 0 : 5),
-      requiresSerialTracking,
-      trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
-      description: `[${productGroup}] ${item.type} - ${item.name}`,
-      ...(productGroup === 'Fixed Asset'
-        ? {
-            depreciationMethod: 'STRAIGHT_LINE' as const,
-            depreciationRate: 15,
-            usefulLifeYears: 5,
-            salvageValuePercent: 10,
-          }
-        : {}),
-    };
-  });
-
-  const demoInventoryStock: InventoryStock[] = [];
-  let seededDamagedCount = 0;
-
-  demoProducts.forEach((p, index) => {
-    branches.forEach((branch, bIdx) => {
-      const isConsumable = p.productGroup === 'Consumable Item';
-      const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
-      const qty = baseQty;
-
-      let damagedQty = 0;
-      if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
-        damagedQty = 1;
-        seededDamagedCount++;
-      }
-
-      const branchMinReorder = branch.isHeadquarters
-        ? p.minReorderLevel * 2
-        : (bIdx % 3 === 0 ? p.minReorderLevel : Math.max(1, Math.floor(p.minReorderLevel / 2)));
-
-      demoInventoryStock.push({
-        id: `stk-${branch.id.toLowerCase()}-${p.id}`,
-        productId: p.id,
-        branchId: branch.id,
-        quantityOnHand: qty,
-        damagedQty: damagedQty,
-        reservedQty: 0,
-        incomingQty: 0,
-        minReorderLevel: branchMinReorder,
-        lastUpdated: new Date().toISOString(),
-      });
-    });
-  });
-
-  const demoAssetRegister: Asset[] = EXCEL_ITEMS
-    .filter((item) => item.group === 'FIXED ASSET')
-    .map((item, idx) => {
-      let cat: Asset['category'] = 'IT Equipment';
-      if (item.type === 'Furniture') cat = 'Furniture';
-      else if (item.type === 'Air Conditioner' || item.type === 'Tiffin Bod') cat = 'Fixtures';
-      else if (item.type === 'Fiber Fusion Splicer' || item.type === 'Cutter' || item.type === 'Ladder') cat = 'Machinery';
-
-      const cost = item.val > 0 ? item.val * 1000 : 25000;
-      const accum = Math.round(cost * 0.15);
-      const assignedBranch = branches[idx % branches.length].id;
-
-      return {
-        id: `ast-${item.code.toLowerCase()}`,
-        tagNumber: `AST-${item.code}`,
-        name: item.name,
-        category: cat,
-        branchId: assignedBranch,
-        acquisitionDateAD: '2024-04-15',
-        acquisitionDateBS: '2081-01-03 BS',
-        acquisitionCost: cost,
-        depreciationMethod: 'STRAIGHT_LINE',
-        depreciationRatePercent: 15,
-        accumulatedDepreciation: accum,
-        netBookValue: cost - accum,
-        status: 'ACTIVE',
-      };
-    });
-
-  const demoPurchaseOrders: PurchaseOrder[] = [
-    {
-      id: 'po-101',
-      poNumber: 'PO-2083-001',
-      supplierName: 'Himalayan Tech Distributors Pvt. Ltd.',
-      branchId: 'WH001',
-      orderDateAD: '2026-07-20',
-      orderDateBS: '2083-04-05 BS',
-      expectedDeliveryDateAD: '2026-08-05',
-      status: 'SENT',
-      items: [
-        {
-          id: 'poi-1',
-          productId: 'prod-onu001',
-          productName: 'ONU ROUTER 2.4G',
-          sku: 'ONU001',
-          quantity: 50,
-          unitPrice: 2500,
-          taxRate: 13,
-          subtotal: 125000,
-          taxAmount: 16250,
-          total: 141250,
-        },
-      ],
-      subtotalAmount: 125000,
-      taxAmount: 16250,
-      totalAmount: 141250,
-      notes: 'Sample purchase order.',
-    },
-  ];
-
-  const demoPurchaseInvoices: PurchaseInvoice[] = [];
-  const demoShipments: Shipment[] = [];
-  const demoStockOperations: StockOperation[] = [];
-  const demoAuditTrail: AuditLog[] = [];
-  const demoTransactionLogs: TransactionLog[] = [];
-  const demoCustomerMasterRecords: CustomerRecord[] = [];
-  const demoCustomerDeviceRecords: CustomerDeviceRecord[] = [];
-  const demoApprovalRequests: ApprovalRequest[] = [];
-
-  return {
-    suppliers: demoSuppliers,
-    products: demoProducts,
-    inventoryStock: demoInventoryStock,
-    assetRegister: demoAssetRegister,
-    purchaseOrders: demoPurchaseOrders,
-    purchaseInvoices: demoPurchaseInvoices,
-    shipments: demoShipments,
-    stockOperations: demoStockOperations,
-    auditTrail: demoAuditTrail,
-    transactionLogs: demoTransactionLogs,
-    customerMasterRecords: demoCustomerMasterRecords,
-    customerDeviceRecords: demoCustomerDeviceRecords,
-    approvalRequests: demoApprovalRequests,
-  };
-}
 
 // Active user session mirror; authentication always reads PostgreSQL.
 let activeUser: User | null = null;
@@ -1069,44 +847,42 @@ app.get('/api/db/status', async (req, res) => {
 // ==========================================
 
 // Clear Demo/Dummy Data Endpoint
+// Removes ONLY rows marked is_demo = TRUE (the dataset created by
+// `npm run setup:pg`). Real business data (is_demo = FALSE), users,
+// branches and fiscal years are never touched.
 app.post('/api/admin/clear-demo-data', async (req, res) => {
   try {
-    if (isPgConnected) {
-      await pgPool.query(`
-        TRUNCATE TABLE 
-          approval_requests,
-          customer_device_records,
-          customer_records,
-          purchase_invoices,
-          purchase_orders,
-          shipments,
-          stock_operations,
-          inventory_stock,
-          fixed_assets,
-          products,
-          categories,
-          suppliers,
-          audit_logs,
-          transaction_logs
-        CASCADE;
-      `);
+    // Child/detail tables first so their is_demo rows are counted before
+    // parent rows are removed (FK cascades would otherwise hide them).
+    const demoTables = [
+      'transaction_logs',
+      'audit_logs',
+      'stock_operations',
+      'approval_requests',
+      'customer_device_records',
+      'purchase_invoices',
+      'shipments',
+      'inventory_stock',
+      'fixed_assets',
+      'purchase_orders',
+      'customer_records',
+      'products',
+      'categories',
+      'suppliers',
+    ];
+    const removed: Record<string, number> = {};
+    for (const table of demoTables) {
+      const result = await pgPool.query(`DELETE FROM ${table} WHERE is_demo = TRUE`);
+      removed[table] = result.rowCount || 0;
     }
 
-    // Operational tables to clear
-    products.length = 0;
-    inventoryStock.length = 0;
-    assetRegister.length = 0;
-    customerDeviceRecords.length = 0;
-    customerMasterRecords.length = 0;
-    purchaseOrders.length = 0;
-    purchaseInvoices.length = 0;
-    shipments.length = 0;
-    stockOperations.length = 0;
-    auditTrail.length = 0;
-    transactionLogs.length = 0;
-    approvalRequests.length = 0;
-    suppliers.length = 0;
-    // Operational data is cleared in PostgreSQL while users, branches, and fiscal years remain intact.
+    // Re-hydrate the runtime caches so memory matches the database again.
+    const client = await pgPool.connect();
+    try {
+      await hydrateOperationalData(client);
+    } finally {
+      client.release();
+    }
 
     dataVersion++;
     sseClients.forEach((client) => {
@@ -1115,8 +891,11 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
       } catch (_e) {}
     });
 
+    const totalRemoved = Object.values(removed).reduce((a, b) => a + b, 0);
     return res.json({
-      message: 'All demo and dummy operational data cleared successfully. Master users, branches, and fiscal years are intact.',
+      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, branches, and fiscal years are intact.`,
+      removedRows: removed,
+      totalRemoved,
       userCount: users.length,
       superAdminCount: users.filter((u) => u.role === 'SUPER_ADMIN').length,
     });
@@ -5612,7 +5391,7 @@ async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (24 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -6110,15 +5889,106 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_devices_issued_date ON customer_device_records(issued_date_ad);
       CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad);
       CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
+
+      -- v3.0 enterprise migration: demo tracking (is_demo), audit columns
+      -- (created_by/updated_by/updated_at) and fiscal_year_id FKs tying every
+      -- transactional document to the fiscal_years master table.
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- v3.0 partial indexes: demo-row fast paths and fiscal-year scoping
+      CREATE INDEX IF NOT EXISTS idx_suppliers_demo ON suppliers(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_categories_demo ON categories(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_products_demo ON products(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_inventory_stock_demo ON inventory_stock(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_demo ON fixed_assets(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_demo ON purchase_orders(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_purchase_invoices_demo ON purchase_invoices(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_shipments_demo ON shipments(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_demo ON audit_logs(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_customer_records_demo ON customer_records(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_customer_device_records_demo ON customer_device_records(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_demo ON approval_requests(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_fiscal_year_id ON fixed_assets(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_fiscal_year_id ON purchase_orders(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_purchase_invoices_fiscal_year_id ON purchase_invoices(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_shipments_fiscal_year_id ON shipments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_stock_operations_fiscal_year_id ON stock_operations(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_fiscal_year_id ON audit_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_transaction_logs_fiscal_year_id ON transaction_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_customer_device_records_fiscal_year_id ON customer_device_records(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_fiscal_year_id ON approval_requests(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year_id ON bs_day_records(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
     `);
 
     isPgConnected = true;
     setIsPgConnected(true);
     await seedInitialPostgresData(client);
+    await hydrateOperationalData(client);
     await hydrateBsCalendarFromDb(client);
 
     client.release();
-    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
+    console.log('✅ All 24 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
     setIsPgConnected(false);
@@ -6199,16 +6069,6 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       );
     }
 
-    if (users.length > 0) {
-      for (const u of users) {
-        await client.query(
-          `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-          [u.id, u.email, u.password, u.name, u.role, u.branchId, u.allowedBranchIds || [], u.canSwitchUser || false]
-        );
-      }
-    }
-
     // Hydrate all master data from PostgreSQL
     const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code');
     if (bRes.rows.length > 0) branches = bRes.rows;
@@ -6238,123 +6098,100 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');
     if (docCfgRes.rows.length > 0) docNumberConfigs = docCfgRes.rows;
 
-    // Only populate operational sample inventory/orders if SEED_DUMMY_DATA=true is explicitly set
-    if (process.env.SEED_DUMMY_DATA !== 'true') {
-      console.log('ℹ️ Clean DB mode active (SEED_DUMMY_DATA is not set). Operational tables initialized empty.');
-      return;
-    }
-
-    for (const s of suppliers) {
-      const sup = s as any;
-      await client.query(
-        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
-        [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
-      );
-    }
-    const categoryList = Array.from(new Set(products.map((p) => p.category))).map((cat, idx) => ({
-      id: `cat-${idx + 1}`,
-      name: cat,
-      code: cat.toUpperCase().replace(/\s+/g, '_').slice(0, 10),
-      description: `${cat} Inventory Category`,
-    }));
-    for (const c of categoryList) {
-      await client.query(
-        `INSERT INTO categories (id, name, code, description)
-         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.name, c.code, c.description]
-      );
-    }
-    for (const p of products) {
-      const prod = p as any;
-      await client.query(
-        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
-        [
-          prod.id, prod.sku, prod.barcode || '', prod.name, prod.category, prod.productGroup || 'Product Item', prod.unit || 'Pcs',
-          prod.costPrice || 0, prod.sellingPrice || 0, prod.taxRate || 13.0, prod.minReorderLevel || 5, prod.requiresSerialTracking || false,
-          prod.trackingType || 'QUANTITY_ONLY', prod.description || '', prod.status || 'ACTIVE'
-        ]
-      );
-    }
-    for (const st of inventoryStock) {
-      await client.query(
-        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-        [st.id, st.productId, st.branchId, st.quantityOnHand || 0, st.damagedQty || 0, st.reservedQty || 0, st.incomingQty || 0, st.minReorderLevel || 5]
-      );
-    }
-    for (const a of assetRegister) {
-      await client.query(
-        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
-        [
-          a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD || '2025-01-01', a.acquisitionDateBS || '2081-09-17',
-          a.acquisitionCost || 0, a.depreciationMethod || 'STRAIGHT_LINE', a.depreciationRatePercent || 15.0,
-          a.accumulatedDepreciation || 0, a.netBookValue || 0, a.status || 'ACTIVE', a.supplierName || '', a.invoiceNo || ''
-        ]
-      );
-    }
-    for (const po of purchaseOrders) {
-      await client.query(
-        `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING`,
-        [
-          po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAD || '2025-01-01', po.orderDateBS || '2081-09-17',
-          po.expectedDeliveryDateAD || '2025-01-10', po.status || 'DRAFT', po.subtotalAmount || 0, po.taxAmount || 0,
-          po.totalAmount || 0, po.notes || ''
-        ]
-      );
-    }
-    for (const inv of purchaseInvoices) {
-      await client.query(
-        `INSERT INTO purchase_invoices (id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
-        [
-          inv.id, inv.invoiceNumber, inv.poReferenceId || '', inv.supplierName, inv.branchId, inv.invoiceDateAD || '2025-01-01',
-          inv.invoiceDateBS || '2081-09-17', inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
-          inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.amountPaid || 0
-        ]
-      );
-    }
-    for (const cust of customerMasterRecords) {
-      await client.query(
-        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING`,
-        [
-          cust.id, cust.customerId, cust.customerName, cust.username || '', cust.contactNumber || '', cust.branchId,
-          cust.address || '', cust.email || '', cust.status || 'ACTIVE', cust.creditLimit || 0, cust.assignedDevicesCount || 0
-        ]
-      );
-    }
-    for (const dev of customerDeviceRecords) {
-      await client.query(
-        `INSERT INTO customer_device_records (id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) ON CONFLICT (id) DO NOTHING`,
-        [
-          dev.id, dev.customerId || '', dev.customerName, dev.customerCode, dev.contactPhone || '', dev.installationAddress || '',
-          dev.branchId, dev.productName, dev.deviceSerial, dev.ponSerial, dev.macAddress || '', dev.status || 'ACTIVE',
-          dev.issuedDateAD || '2025-01-01', dev.issuedDateBS || '2081-09-17', dev.purchaseBillRef || '', dev.notes || ''
-        ]
-      );
-    }
-    for (const app of approvalRequests) {
-      await client.query(
-        `INSERT INTO approval_requests (id, request_number, type, target_id, customer_name, customer_code, device_serial, pon_serial, product_name, current_status, requested_status, requested_by_role, requested_by_email, requested_by_name, branch_id, branch_name, reason, restock_qty_on_approval, status, requested_at_ad, requested_at_bs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) ON CONFLICT (id) DO NOTHING`,
-        [
-          app.id, app.requestNumber, app.type, app.targetId || '', app.customerName || '', app.customerCode || '',
-          app.deviceSerial || '', app.ponSerial || '', app.productName || '', app.currentStatus || '', app.requestedStatus || '',
-          app.requestedByRole || '', app.requestedByEmail || '', app.requestedByName || '', app.branchId, app.branchName || '',
-          app.reason || '', app.restockQtyOnApproval || false, app.status || 'PENDING', app.requestedAtAD || new Date().toISOString(), app.requestedAtBS || '2081-09-17'
-        ]
-      );
-    }
-    console.log('✅ Initial PostgreSQL seed data loaded successfully.');
+    console.log('✅ Master data seeded and hydrated. Operational data is always served from PostgreSQL (single source of truth).');
   } catch (seedErr: any) {
     console.log('PostgreSQL initial seed note:', seedErr?.message || seedErr);
   }
 }
+
+// Re-hydrates the operational runtime caches directly from PostgreSQL so the
+// server always starts with a mirror of the database (PostgreSQL is the
+// single source of truth). Each table is loaded independently; a failure on
+// one table keeps the previously loaded caches intact.
+async function hydrateOperationalData(client: pg.PoolClient) {
+  const loads: Array<{ name: string; query: string; apply: (rows: any[]) => void }> = [
+    {
+      name: 'products',
+      query: 'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products',
+      apply: (rows) => { products = rows; },
+    },
+    {
+      name: 'categories',
+      query: 'SELECT id, name, code, description FROM categories ORDER BY name ASC',
+      apply: (rows) => { categories = rows; },
+    },
+    {
+      name: 'inventory_stock',
+      query: 'SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock',
+      apply: (rows) => { inventoryStock = rows; },
+    },
+    {
+      name: 'fixed_assets',
+      query: 'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets',
+      apply: (rows) => { assetRegister = rows; },
+    },
+    {
+      name: 'purchase_orders',
+      query: 'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders',
+      apply: (rows) => { purchaseOrders = rows; },
+    },
+    {
+      name: 'purchase_invoices',
+      query: 'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices',
+      apply: (rows) => { purchaseInvoices = rows; },
+    },
+    {
+      name: 'shipments',
+      query: 'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments',
+      apply: (rows) => { shipments = rows; },
+    },
+    {
+      name: 'stock_operations',
+      query: 'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations',
+      apply: (rows) => { stockOperations = rows; },
+    },
+    {
+      name: 'audit_logs',
+      query: 'SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC',
+      apply: (rows) => { auditTrail = rows; },
+    },
+    {
+      name: 'transaction_logs',
+      query: 'SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC',
+      apply: (rows) => { transactionLogs = rows; },
+    },
+    {
+      name: 'customer_records',
+      query: 'SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records',
+      apply: (rows) => { customerMasterRecords = rows; },
+    },
+    {
+      name: 'customer_device_records',
+      query: 'SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records',
+      apply: (rows) => { customerDeviceRecords = rows; },
+    },
+    {
+      name: 'approval_requests',
+      query: 'SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests',
+      apply: (rows) => { approvalRequests = rows; },
+    },
+  ];
+
+  for (const load of loads) {
+    try {
+      const result = await client.query(load.query);
+      load.apply(result.rows);
+    } catch (e: any) {
+      console.warn(`Operational cache hydration skipped for ${load.name}:`, e?.message || e);
+    }
+  }
+  console.log(
+    `✅ Operational caches hydrated from PostgreSQL: ` +
+    `${products.length} products, ${inventoryStock.length} stock rows, ${purchaseOrders.length} POs, ` +
+    `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops.`
+  );
+}
+
 
 async function startServer() {
   await syncDatabaseAndIndexes();

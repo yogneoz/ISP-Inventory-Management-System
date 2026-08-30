@@ -821,6 +821,7 @@ export default function App() {
       <DatabaseSetupBanner
         isDarkMode={isDarkMode}
         onRefresh={refreshAllData}
+        loading={loading}
         postgresConfig={{
           host: postgresStatus.host,
           port: postgresStatus.port,

@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X, ExternalLink } from 'lucide-react';
 
 interface DatabaseSetupBannerProps {
   isDarkMode?: boolean;
   onRefresh?: () => void;
+  /** True while the app is still loading its initial bootstrap data. */
+  loading?: boolean;
   postgresConfig?: {
     host: string;
     port: number;
@@ -17,6 +19,7 @@ interface DatabaseSetupBannerProps {
 export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   isDarkMode = false,
   onRefresh,
+  loading = false,
   postgresConfig = {
     host: 'localhost',
     port: 5432,
@@ -28,6 +31,19 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [copiedStep, setCopiedStep] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState<boolean>(false);
+  const [isConnectedDismissed, setIsConnectedDismissed] = useState<boolean>(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Connected state: stay visible while the app is loading data, then fade
+  // away after a short delay (or immediately on manual dismiss).
+  useEffect(() => {
+    if (!postgresConfig.isConnected || isConnectedDismissed) return;
+    if (loading) return;
+    hideTimerRef.current = setTimeout(() => setIsConnectedDismissed(true), 1800);
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [postgresConfig.isConnected, loading, isConnectedDismissed]);
 
   const handleCopy = (text: string, stepId: string) => {
     navigator.clipboard.writeText(text);
@@ -47,7 +63,50 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
   };
 
   if (postgresConfig.isConnected) {
-    return null;
+    if (isConnectedDismissed) return null;
+    return (
+      <div
+        id="db-connected-notification-banner"
+        className={`border-b shadow-xs ${
+          isDarkMode
+            ? 'bg-emerald-950/50 border-emerald-800/60 text-emerald-200'
+            : 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex-shrink-0 p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-400/40">
+                <Database className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-xs sm:text-sm tracking-tight flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    Database Connected
+                  </span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-400/40">
+                    PostgreSQL Online
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs opacity-90 mt-0.5 truncate">
+                  Connected to PostgreSQL {postgresConfig.host}:{postgresConfig.port}/{postgresConfig.database}
+                  {loading ? ' — synchronizing inventory data…' : ''}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsConnectedDismissed(true)}
+              aria-label="Dismiss database status banner"
+              className="flex-shrink-0 p-1.5 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer text-emerald-700 dark:text-emerald-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const bashCommand = `npm run setup:postgres`;

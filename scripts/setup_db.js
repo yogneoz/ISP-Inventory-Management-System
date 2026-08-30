@@ -1,7 +1,26 @@
+// ============================================================================
+// IZone Automated PostgreSQL Setup Engine (Node.js/pg)
+//
+// Responsibilities:
+//   1. Ensure the PostgreSQL server is reachable (falls back to the shell
+//      installer script on Linux/macOS when it is not).
+//   2. Apply scripts/schema.sql (idempotent - safe to re-run).
+//   3. Seed master data (fiscal years, BS calendar, UOMs, doc number configs,
+//      company profile, branches) as real data (is_demo = FALSE).
+//   4. Seed the dummy operational dataset with is_demo = TRUE (products,
+//      stock, fixed assets, purchase orders, suppliers, categories).
+//   5. Backfill fiscal_year_id on transactional rows from their AD dates.
+//
+// Safety: if a table already contains REAL (is_demo = FALSE) rows the demo
+// seeder skips that table unless you pass --force. The server itself never
+// seeds dummy data at runtime; this script is the only demo-data entry point.
+// ============================================================================
+
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import pg from 'pg';
+import { buildDemoDataset } from './demo_dataset.js';
 
 const { Pool } = pg;
 
@@ -12,6 +31,8 @@ const DB_CONFIG = {
   user: process.env.POSTGRES_USER || 'inventory_user',
   password: process.env.POSTGRES_PASSWORD || 'securepassword',
 };
+
+const FORCE = process.argv.includes('--force');
 
 const NEPALI_MONTHS_EN = [
   'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',
@@ -28,10 +49,10 @@ const DAYS_OF_WEEK_EN = [
 ];
 
 const DAYS_OF_WEEK_NP = [
-  'आइतबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहीबार', 'शुक्रबार', 'शनिबार'
+  'आईटबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहिबार', 'शुक्रबार', 'शनिबार'
 ];
 
-// Updated BS Years data with correct calendar for 2078-2085
+// BS calendar coverage 2078-2085 (kept in sync with the server calendar).
 const DEFAULT_BS_YEARS = [
   { yearBS: 2078, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2021-04-14' },
   { yearBS: 2079, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2022-04-14' },
@@ -39,16 +60,44 @@ const DEFAULT_BS_YEARS = [
   { yearBS: 2081, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2024-04-13' },
   { yearBS: 2082, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2025-04-14' },
   { yearBS: 2083, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2026-04-14' },
-  { yearBS: 2084, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2027-04-14' },
+  { yearBS: 2084, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 30, 30, 30], startAD: '2027-04-14' },
   { yearBS: 2085, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2028-04-13' },
 ];
 
-// Updated Fiscal Years
+// Fiscal years. isCurrent is intentionally left for the seeder to compute:
+// exactly one row may carry is_current = TRUE (enforced by the
+// uq_fiscal_years_single_current partial unique index).
 const DEFAULT_FISCAL_YEARS = [
-  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2080-12-31 BS', isCurrent: false, isClosed: true },
-  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isCurrent: false, isClosed: true },
-  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-16', endDateAD: '2026-07-15', startDateBS: '2082-04-01 BS', endDateBS: '2082-12-31 BS', isCurrent: true, isClosed: false },
-  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isCurrent: false, isClosed: false },
+  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2080-12-31 BS', isClosed: true },
+  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isClosed: true },
+  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-16', endDateAD: '2026-07-15', startDateBS: '2082-04-01 BS', endDateBS: '2082-12-31 BS', isClosed: false },
+  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isClosed: false },
+  { id: 'fy-5', code: '2084-85', startDateAD: '2027-07-16', endDateAD: '2028-07-15', startDateBS: '2084-04-01 BS', endDateBS: '2084-12-31 BS', isClosed: false },
+  { id: 'fy-6', code: '2085-86', startDateAD: '2028-07-16', endDateAD: '2029-07-15', startDateBS: '2085-04-01 BS', endDateBS: '2085-12-31 BS', isClosed: false },
+];
+
+// Mirrors the server's INITIAL_MASTER_BRANCHES so demo rows have valid branch
+// foreign keys even on a database that has never run the server.
+const DEFAULT_BRANCHES = [
+  { id: 'WH001', code: 'WH001', name: 'Head Office', location: 'Urlabari', phone: '9800000000', isHeadquarters: true },
+  { id: 'BRC01', code: 'BRC01', name: 'Biratchowk', location: 'Biratchowk', phone: '9800000001', isHeadquarters: false },
+  { id: 'BTM01', code: 'BTM01', name: 'Birtamode', location: 'Birtamode', phone: '9800000002', isHeadquarters: false },
+  { id: 'CHU01', code: 'CHU01', name: 'Chulachuli', location: 'Chulachuli', phone: '9800000003', isHeadquarters: false },
+  { id: 'DHU01', code: 'DHU01', name: 'Dudhe', location: 'Dudhe', phone: '9800000004', isHeadquarters: false },
+  { id: 'INR01', code: 'INR01', name: 'Inaruwa', location: 'Inaruwa', phone: '9800000005', isHeadquarters: false },
+  { id: 'ITH01', code: 'ITH01', name: 'Itahari', location: 'Itahari', phone: '9800000006', isHeadquarters: false },
+  { id: 'JTR01', code: 'JTR01', name: 'Jitpur', location: 'Jitpur', phone: '9800000007', isHeadquarters: false },
+  { id: 'HLE01', code: 'HLE01', name: 'Hile', location: 'Hile', phone: '9800000008', isHeadquarters: false },
+  { id: 'LTG01', code: 'LTG01', name: 'Letang', location: 'Letang', phone: '9800000009', isHeadquarters: false },
+  { id: 'MDL01', code: 'MDL01', name: 'Madhumalla', location: 'Madhumalla', phone: '9800000010', isHeadquarters: false },
+  { id: 'PTH01', code: 'PTH01', name: 'Pathari', location: 'Pathari', phone: '9800000011', isHeadquarters: false },
+  { id: 'PDM01', code: 'PDM01', name: 'Phidim', location: 'Phidim', phone: '9800000012', isHeadquarters: false },
+  { id: 'RJB01', code: 'RJB01', name: 'Rajbiraj', location: 'Rajbiraj', phone: '9800000013', isHeadquarters: false },
+  { id: 'RML01', code: 'RML01', name: 'Ramailo', location: 'Ramailo', phone: '9800000014', isHeadquarters: false },
+  { id: 'RTW01', code: 'RTW01', name: 'Ratuwamai', location: 'Ratuwamai', phone: '9800000015', isHeadquarters: false },
+  { id: 'SHV01', code: 'SHV01', name: 'Shivasatakshi', location: 'Shivasatakshi', phone: '9800000016', isHeadquarters: false },
+  { id: 'TND01', code: 'TND01', name: 'Tandi', location: 'Tandi', phone: '9800000017', isHeadquarters: false },
+  { id: 'URL01', code: 'URL01', name: 'Urlabari', location: 'Urlabari', phone: '9800000018', isHeadquarters: false },
 ];
 
 function formatNepaliFiscalYearCode(yearBS, monthBS) {
@@ -67,245 +116,495 @@ function getNepaliQuarter(monthBS) {
   return 'Q4';
 }
 
+const FISCAL_YEAR_CODE_TO_ID = Object.fromEntries(DEFAULT_FISCAL_YEARS.map((fy) => [fy.code, fy.id]));
+
+function todayADString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function tryConnect(retries = 3, delayMs = 1500) {
+  const pool = new Pool({ ...DB_CONFIG, connectionTimeoutMillis: 4000 });
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      await pool.query('SELECT 1');
+      return pool;
+    } catch (err) {
+      if (attempt === retries) {
+        await pool.end().catch(() => {});
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
+}
+
+// Last-resort attempt to provision the PostgreSQL server itself. Only useful
+// on Linux/macOS hosts (or Windows with an available bash); the call is
+// wrapped in a try/catch so it can never crash the Node-based setup.
+function runShellInstaller() {
+  const scriptPath = path.join(process.cwd(), 'scripts', 'setup_postgres.sh');
+  if (!fs.existsSync(scriptPath)) return false;
+  try {
+    console.log('🔧 Attempting automated shell installer (scripts/setup_postgres.sh)...');
+    execSync(`bash "${scriptPath}"`, { stdio: 'inherit', timeout: 600000 });
+    return true;
+  } catch (err) {
+    console.warn('⚠️ Shell installer notice:', err?.message || err);
+    return false;
+  }
+}
+
+async function applySchema(client) {
+  const schemaPath = path.join(process.cwd(), 'scripts', 'schema.sql');
+  if (!fs.existsSync(schemaPath)) {
+    throw new Error(`schema.sql not found at ${schemaPath}`);
+  }
+  const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+  // The entire schema file is sent to PostgreSQL as ONE multi-statement
+  // simple query. The server parses the SQL natively, so semicolons inside
+  // comments or string literals can never break client-side statement
+  // splitting. The script is fully idempotent (CREATE ... IF NOT EXISTS,
+  // ALTER TABLE ... ADD COLUMN IF NOT EXISTS) and is applied atomically:
+  // either the complete v3.0 schema lands or nothing does, so a partially
+  // migrated schema state can never occur.
+  try {
+    await client.query(schemaSql);
+    console.log('✅ Database schema applied (scripts/schema.sql, single atomic multi-statement query).');
+  } catch (err) {
+    console.error('❌ Schema application failed:', err.message);
+    throw new Error(`Failed to apply scripts/schema.sql: ${err.message}`);
+  }
+}
+
+// Verifies the v3.0 enterprise columns exist so a stale schema fails loudly.
+async function ensureEnterpriseColumns(client) {
+  const checks = [
+    { table: 'products', column: 'is_demo', label: 'demo tracking' },
+    { table: 'stock_operations', column: 'fiscal_year_id', label: 'fiscal-year FK' },
+    { table: 'purchase_orders', column: 'is_demo', label: 'demo tracking' },
+  ];
+  for (const c of checks) {
+    const res = await client.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+      [c.table, c.column]
+    );
+    if (res.rows.length === 0) {
+      throw new Error(`Schema check failed: ${c.table}.${c.column} missing (${c.label}). Re-run schema migration.`);
+    }
+  }
+}
+
+// Upserts the fiscal-year master rows (structural fields only) and makes sure
+// exactly one fiscal year is flagged current: the one containing today. If an
+// admin already chose a current year in the app, that choice is respected.
+async function seedFiscalYears(client) {
+  for (const fy of DEFAULT_FISCAL_YEARS) {
+    await client.query(
+      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         code = EXCLUDED.code,
+         start_date_ad = EXCLUDED.start_date_ad,
+         end_date_ad = EXCLUDED.end_date_ad,
+         start_date_bs = EXCLUDED.start_date_bs,
+         end_date_bs = EXCLUDED.end_date_bs`,
+      [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isClosed]
+    );
+  }
+
+  const alreadyCurrent = await client.query('SELECT COUNT(*) AS count FROM fiscal_years WHERE is_current = TRUE');
+  if (parseInt(alreadyCurrent.rows[0].count, 10) > 0) {
+    console.log('✅ Fiscal years present and a current fiscal year is already set (left untouched).');
+    return;
+  }
+
+  const today = todayADString();
+  const current = await client.query(
+    `SELECT id FROM fiscal_years
+     WHERE $1::date BETWEEN start_date_ad AND end_date_ad
+     ORDER BY start_date_ad DESC LIMIT 1`,
+    [today]
+  );
+  const fallback = current.rows[0]
+    ? current.rows[0]
+    : (await client.query('SELECT id FROM fiscal_years ORDER BY end_date_ad DESC LIMIT 1')).rows[0];
+
+  if (fallback) {
+    await client.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1', [fallback.id]);
+    const detail = await client.query('SELECT code FROM fiscal_years WHERE id = $1', [fallback.id]);
+    console.log(`✅ Flagged fiscal year ${detail.rows[0].code} as current (contains ${today}).`);
+  }
+}
+
+// Seeds the BS calendar year summaries + day-by-day records. The
+// fiscal_year_id FK is populated when the derived code has a matching
+// fiscal-year master row (NULL for years outside the seeded FY range).
+async function seedBsCalendar(client) {
+  for (const yData of DEFAULT_BS_YEARS) {
+    await client.query(
+      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (year_bs) DO UPDATE SET
+         days_in_months = EXCLUDED.days_in_months,
+         start_ad = EXCLUDED.start_ad`,
+      [yData.yearBS, yData.daysInMonths, yData.startAD]
+    );
+
+    let runningDate = new Date(`${yData.startAD}T00:00:00Z`);
+    for (let monthIdx = 0; monthIdx < 12; monthIdx += 1) {
+      const monthBS = monthIdx + 1;
+      const daysInMonth = yData.daysInMonths[monthIdx] || 30;
+
+      for (let dayBS = 1; dayBS <= daysInMonth; dayBS += 1) {
+        const adDateStr = runningDate.toISOString().split('T')[0];
+        const dayOfWeekIndex = runningDate.getUTCDay();
+
+        const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+        const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+        const bsDateStr = `${yData.yearBS}-${padMonth}-${padDay}`;
+
+        const fyCode = formatNepaliFiscalYearCode(yData.yearBS, monthBS);
+        const fyId = FISCAL_YEAR_CODE_TO_ID[fyCode] || null;
+        const qtr = getNepaliQuarter(monthBS);
+
+        await client.query(
+          `INSERT INTO bs_day_records (
+             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, fiscal_year_id, quarter, is_weekend
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (ad_date) DO UPDATE SET
+             bs_date = EXCLUDED.bs_date,
+             bs_year = EXCLUDED.bs_year,
+             bs_month = EXCLUDED.bs_month,
+             bs_month_name = EXCLUDED.bs_month_name,
+             bs_month_name_np = EXCLUDED.bs_month_name_np,
+             bs_day = EXCLUDED.bs_day,
+             day_of_week_name = EXCLUDED.day_of_week_name,
+             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+             fiscal_year = EXCLUDED.fiscal_year,
+             fiscal_year_id = EXCLUDED.fiscal_year_id,
+             quarter = EXCLUDED.quarter,
+             is_weekend = EXCLUDED.is_weekend`,
+          [
+            adDateStr,
+            bsDateStr,
+            yData.yearBS,
+            monthBS,
+            NEPALI_MONTHS_EN[monthIdx],
+            NEPALI_MONTHS_NP[monthIdx],
+            dayBS,
+            DAYS_OF_WEEK_EN[dayOfWeekIndex],
+            DAYS_OF_WEEK_NP[dayOfWeekIndex],
+            fyCode,
+            fyId,
+            qtr,
+            dayOfWeekIndex === 6,
+          ]
+        );
+
+        runningDate.setUTCDate(runningDate.getUTCDate() + 1);
+      }
+    }
+  }
+  console.log('✅ BS calendar years & day records populated (with fiscal_year_id links).');
+}
+
+async function seedUnitOfMeasures(client) {
+  const defaultUOMs = [
+    { id: 'uom-pcs', name: 'Pieces', symbol: 'Pcs', type: 'Count', isBaseUnit: true },
+    { id: 'uom-kg', name: 'Kilogram', symbol: 'Kg', type: 'Weight', isBaseUnit: true },
+    { id: 'uom-gm', name: 'Gram', symbol: 'Gm', type: 'Weight', isBaseUnit: false },
+    { id: 'uom-mt', name: 'Meter', symbol: 'Mt', type: 'Length', isBaseUnit: true },
+    { id: 'uom-cm', name: 'Centimeter', symbol: 'Cm', type: 'Length', isBaseUnit: false },
+    { id: 'uom-ltr', name: 'Liter', symbol: 'Ltr', type: 'Volume', isBaseUnit: true },
+    { id: 'uom-ml', name: 'Milliliter', symbol: 'Ml', type: 'Volume', isBaseUnit: false },
+    { id: 'uom-box', name: 'Box', symbol: 'Box', type: 'Count', isBaseUnit: false },
+  ];
+  for (const uom of defaultUOMs) {
+    const byId = await client.query('SELECT 1 FROM uom WHERE id = $1', [uom.id]);
+    if (byId.rows.length > 0) continue;
+    const byName = await client.query('SELECT id FROM uom WHERE name = $1', [uom.name]);
+    if (byName.rows.length > 0) {
+      // The server may already have seeded this UOM under its own id (e.g.
+      // uom-1). Adopt the existing row instead of violating name uniqueness.
+      await client.query(
+        'UPDATE uom SET symbol = $2, type = $3, is_base_unit = $4 WHERE id = $1',
+        [byName.rows[0].id, uom.symbol, uom.type, uom.isBaseUnit]
+      );
+      continue;
+    }
+    await client.query(
+      `INSERT INTO uom (id, name, symbol, type, is_base_unit)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [uom.id, uom.name, uom.symbol, uom.type, uom.isBaseUnit]
+    );
+  }
+  console.log('✅ Default Units of Measure seeded.');
+}
+
+async function seedDocumentConfigs(client) {
+  const defaultDocConfigs = [
+    { id: 'doc-po', documentType: 'PURCHASE_ORDER', prefix: 'PO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    { id: 'doc-pi', documentType: 'PURCHASE_INVOICE', prefix: 'PI-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    { id: 'doc-ship', documentType: 'SHIPMENT', prefix: 'SHIP-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    { id: 'doc-stockop', documentType: 'STOCK_OPERATION', prefix: 'SO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    { id: 'doc-appreq', documentType: 'APPROVAL_REQUEST', prefix: 'AR-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+  ];
+  for (const config of defaultDocConfigs) {
+    await client.query(
+      `INSERT INTO document_number_configs (
+         id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (id) DO UPDATE SET
+         document_type = EXCLUDED.document_type,
+         prefix = EXCLUDED.prefix,
+         suffix = EXCLUDED.suffix,
+         min_digits = EXCLUDED.min_digits,
+         starting_number = EXCLUDED.starting_number,
+         next_number = EXCLUDED.next_number,
+         reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year`,
+      [config.id, config.documentType, config.prefix, config.suffix, config.minDigits, config.startingNumber, config.nextNumber, config.resetEveryFiscalYear]
+    );
+  }
+  console.log('✅ Document number configurations seeded.');
+}
+
+async function seedCompanyProfile(client) {
+  const companyCheck = await client.query('SELECT COUNT(*) AS count FROM company_profile');
+  if (parseInt(companyCheck.rows[0].count, 10) > 0) return;
+  await client.query(
+    `INSERT INTO company_profile (
+       id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
+     )
+     VALUES ('comp-1', 'IZone Enterprise', 'IZone Enterprise Pvt. Ltd.', 'Kathmandu, Nepal', '+977-1-1234567', 'info@izonenepal.com', 'Rs.', 13.00)
+     ON CONFLICT (id) DO NOTHING`
+  );
+  console.log('✅ Default company profile seeded.');
+}
+
+async function seedBranches(client) {
+  for (const b of DEFAULT_BRANCHES) {
+    await client.query(
+      `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE) ON CONFLICT (id) DO NOTHING`,
+      [b.id, b.code, b.name, b.location, b.phone, b.isHeadquarters]
+    );
+  }
+  console.log(`✅ Branch master data ensured (${DEFAULT_BRANCHES.length} branches).`);
+}
+
+// Real-data guard: returns the number of non-demo rows in a table.
+async function countRealRows(client, table) {
+  const res = await client.query(`SELECT COUNT(*) AS count FROM ${table} WHERE is_demo = FALSE`);
+  return parseInt(res.rows[0].count, 10);
+}
+
+// Seeds the dummy operational dataset (is_demo = TRUE). Each table is only
+// seeded when it contains no real (is_demo = FALSE) rows, unless --force is
+// passed. Demo rows use their own id namespace so they can coexist with real
+// data without collisions.
+async function seedDemoData(client) {
+  const summary = {};
+  const skipTable = async (table) => {
+    const real = await countRealRows(client, table);
+    if (real > 0 && !FORCE) {
+      console.log(`⏭️  ${table}: ${real} real row(s) present - demo seed skipped (use --force to override).`);
+      return true;
+    }
+    return false;
+  };
+
+  const dataset = buildDemoDataset(DEFAULT_BRANCHES);
+
+  if (!(await skipTable('suppliers'))) {
+    for (const s of dataset.suppliers) {
+      await client.query(
+        `INSERT INTO suppliers (id, name, contact_person, phone, email, address, pan_vat_number, rating, status, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE', TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [s.id, s.name, s.contactPerson, s.phone, s.email, s.address, s.panVatNumber, s.rating]
+      );
+    }
+    summary.suppliers = dataset.suppliers.length;
+  }
+
+  if (!(await skipTable('categories'))) {
+    for (const c of dataset.categories) {
+      await client.query(
+        `INSERT INTO categories (id, name, code, description, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.name, c.code, c.description]
+      );
+    }
+    summary.categories = dataset.categories.length;
+  }
+
+  if (!(await skipTable('products'))) {
+    for (const p of dataset.products) {
+      await client.query(
+        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ACTIVE', TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [p.id, p.sku, p.barcode, p.name, p.category, p.productGroup, p.unit, p.costPrice, p.sellingPrice, p.taxRate, p.minReorderLevel, p.requiresSerialTracking, p.trackingType, p.description]
+      );
+    }
+    summary.products = dataset.products.length;
+  }
+
+  if (!(await skipTable('inventory_stock'))) {
+    for (const st of dataset.inventoryStock) {
+      await client.query(
+        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [st.id, st.productId, st.branchId, st.quantityOnHand, st.damagedQty, st.reservedQty, st.incomingQty, st.minReorderLevel]
+      );
+    }
+    summary.inventory_stock = dataset.inventoryStock.length;
+  }
+
+  if (!(await skipTable('fixed_assets'))) {
+    for (const a of dataset.assetRegister) {
+      await client.query(
+        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD, a.acquisitionDateBS, a.acquisitionCost, a.depreciationMethod, a.depreciationRatePercent, a.accumulatedDepreciation, a.netBookValue]
+      );
+    }
+    summary.fixed_assets = dataset.assetRegister.length;
+  }
+
+  if (!(await skipTable('purchase_orders'))) {
+    for (const po of dataset.purchaseOrders) {
+      await client.query(
+        `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAD, po.orderDateBS, po.expectedDeliveryDateAD, po.status, po.subtotalAmount, po.taxAmount, po.totalAmount, po.notes, JSON.stringify(po.items)]
+      );
+    }
+    summary.purchase_orders = dataset.purchaseOrders.length;
+  }
+
+  if (Object.keys(summary).length === 0) {
+    console.log('⏭️  Demo data seeding skipped: all operational tables already contain real data (no --force).');
+  } else {
+    console.log(`✅ Demo dataset seeded with is_demo = TRUE: ${JSON.stringify(summary)}`);
+  }
+}
+
+// Fills fiscal_year_id on every transactional row that has none yet, deriving
+// the fiscal year from the record's AD date. Safe to re-run (only touches
+// rows where fiscal_year_id IS NULL).
+async function backfillFiscalYearIds(client) {
+  const tables = [
+    { table: 'fixed_assets', dateCol: 'acquisition_date_ad' },
+    { table: 'purchase_orders', dateCol: 'order_date_ad' },
+    { table: 'purchase_invoices', dateCol: 'invoice_date_ad' },
+    { table: 'shipments', dateCol: 'dispatch_date_ad' },
+    { table: 'stock_operations', dateCol: 'date_ad' },
+    { table: 'customer_device_records', dateCol: 'issued_date_ad' },
+    { table: 'approval_requests', dateCol: 'requested_at_ad' },
+    { table: 'transaction_logs', dateCol: 'timestamp_ad' },
+    { table: 'audit_logs', dateCol: 'timestamp_ad' },
+  ];
+  let total = 0;
+  for (const { table, dateCol } of tables) {
+    const res = await client.query(
+      `UPDATE ${table} t
+       SET fiscal_year_id = fy.id
+       FROM fiscal_years fy
+       WHERE t.fiscal_year_id IS NULL
+         AND t.${dateCol} IS NOT NULL
+         AND t.${dateCol}::date >= fy.start_date_ad
+         AND t.${dateCol}::date <= fy.end_date_ad`,
+    );
+    total += res.rowCount || 0;
+  }
+  console.log(`✅ fiscal_year_id backfilled on ${total} row(s).`);
+}
+
 console.log('------------------------------------------------------------------');
 console.log('🛠️  IZone Automated PostgreSQL Setup Engine (Node.js/pg)');
+console.log(FORCE ? '⚠️  Running with --force: demo data will be seeded even alongside real data' : '');
+console.log(`🎯 Target: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
 console.log('------------------------------------------------------------------');
 
 async function runSetup() {
-  // First attempt: try executing bash installer script to guarantee PostgreSQL server installation
+  // 1. Connect (with a shell-installer fallback for bare Linux/macOS hosts).
+  let pool;
   try {
-    const scriptPath = path.join(process.cwd(), 'scripts', 'setup_postgres.sh');
-    if (fs.existsSync(scriptPath)) {
-      console.log('🔹 Running automated shell setup script...');
-      execSync(`bash "${scriptPath}"`, { stdio: 'inherit' });
-    }
+    pool = await tryConnect();
+    console.log('✅ Connected to PostgreSQL.');
   } catch (err) {
-    console.log('ℹ️ Shell setup script notice:', err.message || err);
+    console.warn('⚠️ Could not connect to PostgreSQL:', err.message);
+    runShellInstaller();
+    try {
+      pool = await tryConnect();
+      console.log('✅ Connected to PostgreSQL (after installer attempt).');
+    } catch (retryErr) {
+      console.error('❌ PostgreSQL is not reachable and the automated installer did not help.');
+      console.error('   Start PostgreSQL and re-run: npm run setup:pg');
+      console.error('   Connection details:', JSON.stringify(DB_CONFIG));
+      process.exit(1);
+    }
   }
 
-  // Second step: Connect to PostgreSQL and verify schema execution
-  console.log('🔌 Connecting to PostgreSQL instance...');
-  const pool = new Pool({
-    ...DB_CONFIG,
-    connectionTimeoutMillis: 5000,
-  });
-
+  const client = await pool.connect();
   try {
-    const client = await pool.connect();
-    console.log('✅ Connected to PostgreSQL successfully!');
+    // 2. Schema (idempotent).
+    console.log('📋 Applying database schema from scripts/schema.sql...');
+    await applySchema(client);
+    await ensureEnterpriseColumns(client);
 
-    const schemaPath = path.join(process.cwd(), 'scripts', 'schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      console.log('📜 Applying database tables & structure from schema.sql...');
-      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-      
-      // Split and execute statements to handle potential errors
-      const statements = schemaSql.split(';').filter(stmt => stmt.trim());
-      for (const stmt of statements) {
-        try {
-          await client.query(stmt + ';');
-        } catch (err) {
-          // Ignore "already exists" errors
-          if (!err.message.includes('already exists')) {
-            console.warn('⚠️ Warning executing statement:', err.message);
-          }
-        }
-      }
-      console.log('✅ All Database Tables, Indexes, and Constraints applied!');
-    }
+    // 3. Master data (real, is_demo = FALSE).
+    console.log('📅 Seeding fiscal years & Bikram Sambat calendar...');
+    await seedFiscalYears(client);
+    await seedBsCalendar(client);
+    await seedUnitOfMeasures(client);
+    await seedDocumentConfigs(client);
+    await seedCompanyProfile(client);
+    await seedBranches(client);
 
-    // Seed BS Calendar & Fiscal Years
-    console.log('📅 Seeding Bikram Sambat (BS) Calendar and Fiscal Years into PostgreSQL...');
-    
-    // Seed Fiscal Years
-    for (const fy of DEFAULT_FISCAL_YEARS) {
-      await client.query(
-        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO UPDATE SET
-           code = EXCLUDED.code,
-           start_date_ad = EXCLUDED.start_date_ad,
-           end_date_ad = EXCLUDED.end_date_ad,
-           start_date_bs = EXCLUDED.start_date_bs,
-           end_date_bs = EXCLUDED.end_date_bs,
-           is_current = EXCLUDED.is_current,
-           is_closed = EXCLUDED.is_closed;`,
-        [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isCurrent, fy.isClosed]
-      );
-    }
+    // 4. Dummy operational dataset (is_demo = TRUE), guarded by real-data check.
+    console.log('🧪 Seeding demo dataset (is_demo = TRUE)...');
+    await seedDemoData(client);
 
-    // Seed BS Calendar Years & BS Day Records
-    for (const yData of DEFAULT_BS_YEARS) {
-      await client.query(
-        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (year_bs) DO UPDATE SET
-           days_in_months = EXCLUDED.days_in_months,
-           start_ad = EXCLUDED.start_ad;`,
-        [yData.yearBS, yData.daysInMonths, yData.startAD]
-      );
+    // 5. Fiscal-year linkage for historical rows.
+    await backfillFiscalYearIds(client);
 
-      // Generate days for this year
-      let runningDate = new Date(yData.startAD);
-      for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
-        const monthBS = monthIdx + 1;
-        const daysInMonth = yData.daysInMonths[monthIdx] || 30;
-
-        for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
-          const adDateStr = runningDate.toISOString().split('T')[0];
-          const dayOfWeekIndex = runningDate.getUTCDay();
-
-          const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
-          const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
-          const bsDateStr = `${yData.yearBS}-${padMonth}-${padDay}`;
-
-          const fyCode = formatNepaliFiscalYearCode(yData.yearBS, monthBS);
-          const qtr = getNepaliQuarter(monthBS);
-
-          await client.query(
-            `INSERT INTO bs_day_records (
-               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-             ON CONFLICT (ad_date) DO UPDATE SET
-               bs_date = EXCLUDED.bs_date,
-               bs_year = EXCLUDED.bs_year,
-               bs_month = EXCLUDED.bs_month,
-               bs_month_name = EXCLUDED.bs_month_name,
-               bs_month_name_np = EXCLUDED.bs_month_name_np,
-               bs_day = EXCLUDED.bs_day,
-               day_of_week_name = EXCLUDED.day_of_week_name,
-               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-               fiscal_year = EXCLUDED.fiscal_year,
-               quarter = EXCLUDED.quarter,
-               is_weekend = EXCLUDED.is_weekend;`,
-            [
-              adDateStr,
-              bsDateStr,
-              yData.yearBS,
-              monthBS,
-              NEPALI_MONTHS_EN[monthIdx],
-              NEPALI_MONTHS_NP[monthIdx],
-              dayBS,
-              DAYS_OF_WEEK_EN[dayOfWeekIndex],
-              DAYS_OF_WEEK_NP[dayOfWeekIndex],
-              fyCode,
-              qtr,
-              dayOfWeekIndex === 6
-            ]
-          );
-
-          runningDate.setDate(runningDate.getDate() + 1);
-        }
-      }
-    }
-
-    console.log('✅ BS Calendar Years & Day-by-Day Database Table populated successfully!');
-
-    // Seed default UOM (Unit of Measure) data
-    console.log('📦 Seeding default Units of Measure...');
-    const defaultUOMs = [
-      { id: 'uom-pcs', name: 'Pieces', symbol: 'Pcs', type: 'Count', isBaseUnit: true },
-      { id: 'uom-kg', name: 'Kilogram', symbol: 'Kg', type: 'Weight', isBaseUnit: true },
-      { id: 'uom-gm', name: 'Gram', symbol: 'Gm', type: 'Weight', isBaseUnit: false },
-      { id: 'uom-mt', name: 'Meter', symbol: 'Mt', type: 'Length', isBaseUnit: true },
-      { id: 'uom-cm', name: 'Centimeter', symbol: 'Cm', type: 'Length', isBaseUnit: false },
-      { id: 'uom-ltr', name: 'Liter', symbol: 'Ltr', type: 'Volume', isBaseUnit: true },
-      { id: 'uom-ml', name: 'Milliliter', symbol: 'Ml', type: 'Volume', isBaseUnit: false },
-      { id: 'uom-box', name: 'Box', symbol: 'Box', type: 'Count', isBaseUnit: false },
-    ];
-
-    for (const uom of defaultUOMs) {
-      await client.query(
-        `INSERT INTO uom (id, name, symbol, type, is_base_unit)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           symbol = EXCLUDED.symbol,
-           type = EXCLUDED.type,
-           is_base_unit = EXCLUDED.is_base_unit;`,
-        [uom.id, uom.name, uom.symbol, uom.type, uom.isBaseUnit]
-      );
-    }
-
-    console.log('✅ Default Units of Measure seeded!');
-
-    // Seed default document number configurations
-    console.log('📄 Seeding document number configurations...');
-    const defaultDocConfigs = [
-      { id: 'doc-po', documentType: 'PURCHASE_ORDER', prefix: 'PO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-      { id: 'doc-pi', documentType: 'PURCHASE_INVOICE', prefix: 'PI-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-      { id: 'doc-ship', documentType: 'SHIPMENT', prefix: 'SHIP-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-      { id: 'doc-stockop', documentType: 'STOCK_OPERATION', prefix: 'SO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-      { id: 'doc-appreq', documentType: 'APPROVAL_REQUEST', prefix: 'AR-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    ];
-
-    for (const config of defaultDocConfigs) {
-      await client.query(
-        `INSERT INTO document_number_configs (
-           id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO UPDATE SET
-           document_type = EXCLUDED.document_type,
-           prefix = EXCLUDED.prefix,
-           suffix = EXCLUDED.suffix,
-           min_digits = EXCLUDED.min_digits,
-           starting_number = EXCLUDED.starting_number,
-           next_number = EXCLUDED.next_number,
-           reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year;`,
-        [config.id, config.documentType, config.prefix, config.suffix, config.minDigits, config.startingNumber, config.nextNumber, config.resetEveryFiscalYear]
-      );
-    }
-
-    console.log('✅ Document number configurations seeded!');
-
-    // Verify created tables
-    const res = await client.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      ORDER BY table_name;
-    `);
-
-    console.log('\n📊 Configured PostgreSQL Database Tables:');
+    // Verify & summarize.
+    const res = await client.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+    );
+    console.log(`\n📊 Configured PostgreSQL database has ${res.rows.length} tables:`);
     res.rows.forEach((row, i) => {
       console.log(`   ${i + 1}. ${row.table_name}`);
     });
 
-    // Check if company profile exists and seed if empty
-    const companyCheck = await client.query(`SELECT COUNT(*) FROM company_profile`);
-    if (parseInt(companyCheck.rows[0].count) === 0) {
-      console.log('🏢 Seeding default company profile...');
-      await client.query(
-        `INSERT INTO company_profile (
-           id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
-         )
-         VALUES (
-           'comp-1', 
-           'IZone Enterprise', 
-           'IZone Enterprise Pvt. Ltd.', 
-           'Kathmandu, Nepal', 
-           '+977-1-1234567', 
-           'info@izonenepal.com', 
-           'Rs.', 
-           13.00
-         )
-         ON CONFLICT (id) DO NOTHING;`
-      );
-      console.log('✅ Company profile seeded!');
-    }
-
+    const demoCounts = await client.query(`
+      SELECT
+        (SELECT COUNT(*) FROM products WHERE is_demo)        AS products,
+        (SELECT COUNT(*) FROM inventory_stock WHERE is_demo) AS stock,
+        (SELECT COUNT(*) FROM fixed_assets WHERE is_demo)    AS assets,
+        (SELECT COUNT(*) FROM purchase_orders WHERE is_demo) AS orders
+    `);
+    console.log(`\n📌 Demo rows now in database: ${JSON.stringify(demoCounts.rows[0])}`);
+    console.log('🎉 PostgreSQL setup verified and operational!');
+    console.log(`📌 Connection URL: postgres://${DB_CONFIG.user}:${DB_CONFIG.password}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
+  } finally {
     client.release();
     await pool.end();
-    console.log('\n🎉 PostgreSQL setup verified and operational!');
-    console.log(`📌 Connection URL: postgres://${DB_CONFIG.user}:${DB_CONFIG.password}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
-  } catch (dbErr) {
-    console.warn('⚠️ Could not connect directly to PostgreSQL on port 5432:');
-    console.warn('  ', dbErr.message);
-    console.warn('ℹ️ PostgreSQL is required before starting the Express server.');
   }
 }
 
-runSetup();
+runSetup().catch((err) => {
+  console.error('❌ Setup failed:', err);
+  process.exit(1);
+});

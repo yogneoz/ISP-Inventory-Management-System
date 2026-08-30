@@ -83,12 +83,13 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Clear Operational Demo & Dummy Data</h1>
             <p className="text-sm text-red-100 max-w-2xl leading-relaxed">
-              Purge sample products, inventory stock balances, fixed assets, customer device serials, purchase orders, and transaction logs to start fresh with a clean database environment.
+              Removes the sample dataset seeded by <span className="font-mono text-xs">npm run setup:pg</span> — the rows flagged with
+              <span className="font-mono text-xs"> is_demo = TRUE</span>. Your real products, stock balances, assets, device serials, orders, and transaction logs are never touched.
             </p>
           </div>
           <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20 text-center shrink-0">
             <Database className="h-8 w-8 mx-auto text-red-200 mb-1" />
-            <span className="text-xs text-red-100 uppercase font-medium">Sample Records</span>
+            <span className="text-xs text-red-100 uppercase font-medium">Records on File</span>
             <div className="text-2xl font-black">{totalOperationalRecords}</div>
           </div>
         </div>
@@ -103,7 +104,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             Demo Data Successfully Cleared!
           </h2>
           <p className="text-sm text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
-            All operational test records have been purged. Your database is now clean and ready for real enterprise data entry. Redirecting to Executive Dashboard...
+            Demo-flagged records (is_demo = TRUE) have been removed. Any real business data you entered is untouched. Redirecting to Executive Dashboard...
           </p>
         </div>
       ) : (
@@ -113,10 +114,10 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Boxes className="h-5 w-5 text-amber-500" />
-                <span>Operational Data to be Cleared</span>
+                <span>Operational Records on File</span>
               </h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Master Branches & Users Will Be Preserved
+                Only Demo-Flagged Rows Will Be Removed
               </span>
             </div>
 
@@ -185,7 +186,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <div className="space-y-1 text-sm text-amber-900 dark:text-amber-200">
               <h3 className="font-bold">Important Data Safety Guarantee</h3>
               <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                Executing this action will remove sample operational data only. Your <strong>Branch Configurations</strong>, <strong>User Accounts</strong>, and <strong>Nepali Fiscal Year Definitions</strong> will remain intact so you can immediately begin defining your own products and stock.
+                Executing this action removes <strong>only rows flagged as demo data</strong> (is_demo = TRUE). Any <strong>real records you have entered</strong> — alongside your <strong>Branch Configurations</strong>, <strong>User Accounts</strong>, and <strong>Nepali Fiscal Year Definitions</strong> — remain completely intact.
               </p>
             </div>
           </div>
