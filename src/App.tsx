@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User,
   Supplier,
@@ -80,6 +80,25 @@ import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { Loader2 } from 'lucide-react';
+
+// Chooses the fiscal year to show by default: the year flagged current whose
+// AD range contains today's date (guards against multiple years being flagged
+// current), falling back to the first flagged-current year, then the first
+// available year. Switching fiscal years in the header filters data to that
+// fiscal year on refresh.
+function resolveDefaultFiscalYear(fiscalYears: FiscalYear[]): FiscalYear | undefined {
+  if (!fiscalYears.length) return undefined;
+  const currentCandidates = fiscalYears.filter((f) => f.isCurrent);
+  if (!currentCandidates.length) return fiscalYears[0];
+  const now = new Date();
+  const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const containsToday = (f: FiscalYear) => {
+    const start = String(f.startDateAD || '').slice(0, 10);
+    const end = String(f.endDateAD || '').slice(0, 10);
+    return Boolean(start && end && todayAD >= start && todayAD <= end);
+  };
+  return currentCandidates.find(containsToday) || currentCandidates[0];
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -220,22 +239,40 @@ export default function App() {
   }, []);
 
   // Load state from API via atomic unified bootstrap (1 roundtrip)
+  // A monotonic sequence guard ensures that a stale, slow response (e.g. from a
+  // fiscal year or branch the user has already switched away from) can never
+  // overwrite the data of the freshly selected view.
+  const refreshSequenceRef = useRef(0);
   const refreshAllData = async () => {
+    const requestBranchId = selectedBranchId;
+    const requestFiscalYearId = selectedFiscalYearId;
+    const requestSeq = ++refreshSequenceRef.current;
     try {
-      const data = await api.getBootstrapState(selectedBranchId, selectedFiscalYearId || undefined);
+      const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
+      // Discard stale results if the user switched branch/fiscal year in the meantime
+      if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
         applyBootstrapData(data);
-        if (!selectedFiscalYearId && data.fiscalYears?.length) {
-          setSelectedFiscalYearId(data.fiscalYears.find((f: FiscalYear) => f.isCurrent)?.id || data.fiscalYears[0].id);
+        if (!requestFiscalYearId && data.fiscalYears?.length) {
+          const defaultFy = resolveDefaultFiscalYear(data.fiscalYears);
+          if (defaultFy) setSelectedFiscalYearId(defaultFy.id);
         }
         saveRecentBootstrapCache(data);
       }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
     } finally {
-      setLoading(false);
+      if (requestSeq === refreshSequenceRef.current) setLoading(false);
     }
   };
+
+  // Always expose the freshest refresh closure to stable listeners. The SSE sync
+  // stream below captures this ref, so background refreshes always use the
+  // currently selected branch/fiscal year instead of a stale captured value.
+  const refreshAllDataRef = useRef(refreshAllData);
+  useEffect(() => {
+    refreshAllDataRef.current = refreshAllData;
+  });
 
   const handleCreateApprovalRequest = async (
     requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
@@ -270,7 +307,7 @@ export default function App() {
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        refreshAllData();
+        refreshAllDataRef.current();
       }, 250);
     });
 
@@ -458,8 +495,8 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleUpdateAssetStatus = async (id: string, status: Asset['status']) => {
-    await api.updateAssetStatus(id, status);
+  const handleUpdateAssetStatus = async (id: string, updates: Asset['status'] | Partial<Asset>) => {
+    await api.updateAssetStatus(id, updates);
     refreshAllData();
   };
 
@@ -664,7 +701,7 @@ export default function App() {
     ).length + pendingPulloutsCount;
 
   const activeFy =
-    fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
+    resolveDefaultFiscalYear(fiscalYears)?.code || financialSummary.currentFiscalYear;
 
   const handleGroupLowStockPO = () => {
     const activeBr =
@@ -824,7 +861,6 @@ export default function App() {
             pendingApprovalCount={approvalRequests.filter((r) => r.status === 'PENDING').length}
             isDarkMode={isDarkMode}
             onCloseMobile={() => setIsSidebarOpen(false)}
-            onSwitchUser={handleLogin}
           />
         </div>
 
@@ -933,7 +969,6 @@ export default function App() {
 
               {activeTab === 'import-stock' && (
                 <ImportStock
-                  currentUser={currentUser}
                   branches={branches}
                   products={products}
                   onCreateProduct={handleCreateProduct}
@@ -1858,7 +1893,7 @@ export default function App() {
         selectedBranchId={selectedBranchId}
         isDarkMode={isDarkMode}
         onSelectTab={(tab) => {
-          setActiveTab(tab);
+          setActiveTab(tab as NavTab);
           setIsNotificationOpen(false);
         }}
       />

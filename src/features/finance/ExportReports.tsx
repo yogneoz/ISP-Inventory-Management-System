@@ -127,7 +127,7 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
 
     if (searchQuery.trim()) {
       const q = (searchQuery || '').toLowerCase().trim();
-      const matchNum = (po?.orderNumber || '').toLowerCase().includes(q);
+      const matchNum = (po?.poNumber || '').toLowerCase().includes(q);
       const matchSup = (po?.supplierName || '').toLowerCase().includes(q);
       const matchNotes = po.notes?.toLowerCase().includes(q);
       if (!matchNum && !matchSup && !matchNotes) return false;
@@ -137,7 +137,7 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
 
   const exportPOCSV = () => {
     const columns = [
-      { key: 'orderNumber', label: 'PO Number' },
+      { key: 'poNumber', label: 'PO Number' },
       { key: 'orderDateAD', label: 'Order Date (AD)' },
       {
         key: 'orderDateBS',
@@ -150,9 +150,9 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
         label: 'Branch Location',
         formatter: (val: string) => branches.find((b) => b.id === val)?.name || val,
       },
-      { key: 'taxableAmount', label: 'Taxable Amount (NPR)' },
-      { key: 'vatAmount', label: 'VAT Amount (NPR)' },
-      { key: 'grandTotal', label: 'Grand Total (NPR)' },
+      { key: 'subtotalAmount', label: 'Taxable Amount (NPR)' },
+      { key: 'taxAmount', label: 'VAT Amount (NPR)' },
+      { key: 'totalAmount', label: 'Grand Total (NPR)' },
       { key: 'status', label: 'PO Status' },
       { key: 'notes', label: 'Notes' },
     ];
@@ -256,7 +256,7 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
       if (shipmentMode === 'RECEIVED' && !isDest) return false;
       if (shipmentMode === 'ALL' && !isSource && !isDest) return false;
     } else if (!canSeeAll) {
-      const isSourceAllowed = allowedBranchIds.includes(sh.sourceBranchId);
+      const isSourceAllowed = sh.sourceBranchId ? allowedBranchIds.includes(sh.sourceBranchId) : false;
       const isDestAllowed = allowedBranchIds.includes(sh.destinationBranchId);
       if (!isSourceAllowed && !isDestAllowed) return false;
     } else {
@@ -806,22 +806,22 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
 
                     return (
                       <tr key={po.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                        <td className="p-3.5 font-bold font-mono text-indigo-500">{po.orderNumber}</td>
+                        <td className="p-3.5 font-bold font-mono text-indigo-500">{po.poNumber}</td>
                         <td className="p-3.5 text-slate-500">{dateFormatted}</td>
                         <td className={`p-3.5 font-semibold ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
                           {po.supplierName}
                         </td>
                         <td className="p-3.5 text-slate-500">{branchName}</td>
-                        <td className="p-3.5 text-right font-mono">रु {(po.taxableAmount ?? 0).toLocaleString('en-IN')}</td>
-                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {(po.vatAmount ?? 0).toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-mono">रु {(po.subtotalAmount ?? 0).toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {(po.taxAmount ?? 0).toLocaleString('en-IN')}</td>
                         <td className={`p-3.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                          रु {(po.grandTotal ?? 0).toLocaleString('en-IN')}
+                          रु {(po.totalAmount ?? 0).toLocaleString('en-IN')}
                         </td>
                         <td className="p-3.5 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                             po.status === 'APPROVED' || po.status === 'RECEIVED'
                               ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                              : po.status === 'PENDING'
+                              : po.status === 'SENT' || po.status === 'IN_PROGRESS'
                               ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                               : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
                           }`}>

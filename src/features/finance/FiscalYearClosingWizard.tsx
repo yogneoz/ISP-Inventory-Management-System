@@ -55,9 +55,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   currentUser,
   onRefreshData,
 }) => {
-  const defaultFiscalYear = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(defaultFiscalYear?.id || '');
-  const currentFy = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
+  const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
   const [adminAuthKey, setAdminAuthKey] = useState<string>('');
@@ -99,7 +99,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     assets.forEach((a) => {
       const cost = a.acquisitionCost || 0;
       fixedAssetValue += cost;
-      const rate = a.depreciationRate || 15;
+      const rate = a.depreciationRatePercent || 15;
       annualDepreciation += (cost * rate) / 100;
     });
 

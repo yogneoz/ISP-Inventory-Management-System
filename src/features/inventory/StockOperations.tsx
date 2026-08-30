@@ -112,6 +112,12 @@ interface DamageSerialEntry {
   ponSerial: string;
 }
 
+// Local transfer form line: ShipmentItem plus form-only mirror fields (unit label, quantity)
+interface TransferFormLine extends ShipmentItem {
+  unit?: string;
+  quantity?: number;
+}
+
 export const StockOperations: React.FC<StockOperationsProps> = ({
   operations,
   products,
@@ -259,7 +265,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       }
     }
   }, [effectivePulloutSourceBranches, sourceBranchId]);
-  const [transferStatusFilter, setTransferStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCEL_PENDING'>('ALL');
+  const [transferStatusFilter, setTransferStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCEL_PENDING' | 'CANCELLED'>('ALL');
   const [binInspector, setBinInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
   const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
   const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
@@ -290,7 +296,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [xferSourceBranchId, setXferSourceBranchId] = useState<string>(userBranchId);
   const [xferDestBranchId, setXferDestBranchId] = useState<string>(initialValidDestBranch);
   const [xferNotes, setXferNotes] = useState<string>('Inter-branch inventory transfer dispatch');
-  const [transferItems, setTransferItems] = useState<ShipmentItem[]>([]);
+  const [transferItems, setTransferItems] = useState<TransferFormLine[]>([]);
 
   useEffect(() => {
     const validDestBranches = branches.filter(
@@ -496,11 +502,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setIsProcessingCancel(true);
     try {
       const itemsSummary = requestCancelModalShipment.items
-        ?.map((it) => `${it.quantitySent || it.quantity}x ${it.productName}`)
+        ?.map((it) => `${it.quantitySent}x ${it.productName}`)
         .join(', ') || 'Transfer Items';
 
       const totalQty = requestCancelModalShipment.items?.reduce(
-        (sum, it) => sum + (it.quantitySent || it.quantity || 1),
+        (sum, it) => sum + (it.quantitySent || 1),
         0
       ) || 0;
 
@@ -780,7 +786,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
   };
 
-  const handleUpdateTransferItem = (id: string, updates: Partial<ShipmentItem>) => {
+  const handleUpdateTransferItem = (id: string, updates: Partial<TransferFormLine>) => {
     setTransferItems(
       transferItems.map((item) => {
         if (item.id !== id) return item;
@@ -1700,7 +1706,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   // Available vs Assigned Fixed Assets
   const availableStockAssets = assets.filter(
-    (a) => a.status === 'ACTIVE' && (!a.assignedType || a.status !== 'ASSIGNED_TO_LOCATION' && a.status !== 'ASSIGNED_TO_CUSTOMER')
+    (a) => a.status === 'ACTIVE' && !a.assignedType
   );
   const assignedAssets = assets.filter(
     (a) => a.status === 'ASSIGNED_TO_LOCATION' || a.status === 'ASSIGNED_TO_CUSTOMER' || Boolean(a.assignedType)
@@ -2174,7 +2180,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     return (
                       sh.sourceBranchId === userBranchId ||
                       sh.destinationBranchId === userBranchId ||
-                      userBranchIds.includes(sh.sourceBranchId) ||
+                      (sh.sourceBranchId ? userBranchIds.includes(sh.sourceBranchId) : false) ||
                       userBranchIds.includes(sh.destinationBranchId)
                     );
                   };
@@ -2321,8 +2327,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       return (
                         sh.sourceBranchId === userBranchId ||
                         sh.destinationBranchId === userBranchId ||
-                        userBranchIds.includes(sh.sourceBranchId) ||
-                        userBranchIds.includes(sh.destinationBranchId)
+                        (sh.sourceBranchId && userBranchIds.includes(sh.sourceBranchId)) ||
+                        (sh.destinationBranchId && userBranchIds.includes(sh.destinationBranchId))
                       );
                     };
 
@@ -2364,12 +2370,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       const isCancelled = sh.status === 'CANCELLED';
                       const isInTransit = !isReceived && !isCancelled;
 
-                      const totalQty = sh.items?.reduce((sum, item) => sum + (Number(item.quantitySent || item.quantity) || 0), 0) || 0;
-                      const totalValue = sh.totalDeclaredValue || sh.items?.reduce((sum, item) => sum + ((Number(item.quantitySent || item.quantity) || 0) * (item.unitCost || 0)), 0) || 0;
+                      const totalQty = sh.items?.reduce((sum, item) => sum + (Number(item.quantitySent) || 0), 0) || 0;
+                      const totalValue = sh.items?.reduce((sum, item) => sum + ((Number(item.quantitySent) || 0) * (item.costPrice || 0)), 0) || 0;
 
                       const activeBranchId = selectedBranchId || currentUser?.branchId || '';
                       const activeBranchObj = branches.find((b) => b.id === activeBranchId || b.id === currentUser?.branchId);
-                      const activeBranchName = activeBranchObj?.name || currentUser?.branchName || '';
+                      const activeBranchName = activeBranchObj?.name || '';
 
                       const isSenderBranch = Boolean(
                         (sh.sourceBranchId && (sh.sourceBranchId === activeBranchId || sh.sourceBranchId === currentUser?.branchId || userBranchIds.includes(sh.sourceBranchId))) ||
@@ -2439,7 +2445,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                   </span>
                                 )}
                               </div>
-                              {sh.carrierName && <div className="text-[10px] text-slate-400">Carrier: {sh.carrierName}</div>}
                             </td>
 
                             {/* 3. Route */}
@@ -2573,11 +2578,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs">
                                     <div>
                                       <span className="text-slate-400 font-medium block text-[10px] uppercase">Dispatcher Officer</span>
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sh.dispatchedBy || 'Branch Stock Officer'}</span>
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">Branch Stock Officer</span>
                                     </div>
                                     <div>
                                       <span className="text-slate-400 font-medium block text-[10px] uppercase">Transit Carrier & Waybill</span>
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sh.carrierName || 'Internal Branch Transit'} {sh.vehicleNo ? `(${sh.vehicleNo})` : ''}</span>
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">Internal Branch Transit</span>
                                     </div>
                                     <div>
                                       <span className="text-slate-400 font-medium block text-[10px] uppercase">Dispatch Notes</span>
@@ -2602,8 +2607,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                       <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                                         {sh.items?.map((item, idx) => {
                                           const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
-                                          const qty = item.quantitySent || item.quantity || 1;
-                                          const cost = item.unitCost || prod?.costPrice || 0;
+                                          const qty = item.quantitySent || 1;
+                                          const cost = item.costPrice || prod?.costPrice || 0;
                                           const isSerialized = Boolean(
                                             item.deviceSerials?.length || 
                                             prod?.requiresSerialTracking || 
@@ -2617,7 +2622,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                                 <div className="text-[10px] font-mono text-slate-400">SKU: {item.sku || prod?.sku || 'N/A'}</div>
                                               </td>
                                               <td className="p-2.5 text-center font-mono font-bold text-sky-600 dark:text-sky-400">
-                                                {qty} {item.unit || 'pcs'}
+                                                {qty} {prod?.unit || 'pcs'}
                                               </td>
                                               <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
                                                 रु {cost.toLocaleString('en-IN')}
@@ -2641,7 +2646,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                                               <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
                                                             </div>
                                                             {ser.ponSerial && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">PON: {ser.ponSerial}</div>}
-                                                            {ser.macAddress && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">MAC: {ser.macAddress}</div>}
                                                           </div>
                                                         ))}
                                                       </div>
@@ -4828,7 +4832,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <span className="font-mono text-xs font-semibold text-slate-500">[{item.sku}]</span>
                           </div>
                           <span className="text-[11px] text-slate-500">
-                            Dispatched Quantity: <strong className="text-slate-700 dark:text-slate-300 font-mono">{sentQty} {item.unit || 'Units'}</strong>
+                            Dispatched Quantity: <strong className="text-slate-700 dark:text-slate-300 font-mono">{sentQty} Units</strong>
                           </span>
                         </div>
 
@@ -5002,7 +5006,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <ul className="list-disc pl-4 space-y-0.5">
                     {directCancelModalShipment.items?.map((it, idx) => (
                       <li key={idx}>
-                        <strong>{it.quantitySent ?? it.quantity} {it.unit || 'units'}</strong> of {it.productName}
+                        <strong>{it.quantitySent ?? 1} units</strong> of {it.productName}
                       </li>
                     ))}
                   </ul>
@@ -5106,7 +5110,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div className="text-[11px] text-slate-600 dark:text-slate-300">
                   <span>Items: </span>
                   <strong>
-                    {requestCancelModalShipment.items?.map((it) => `${it.quantitySent || it.quantity}x ${it.productName}`).join(', ')}
+                    {requestCancelModalShipment.items?.map((it) => `${it.quantitySent || 1}x ${it.productName}`).join(', ')}
                   </strong>
                 </div>
               </div>

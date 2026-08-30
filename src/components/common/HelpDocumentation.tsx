@@ -857,7 +857,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                               }
                             } else if (st.actionTab === 'users-management' || st.actionTab === 'login') {
                               if (onNavigateTab) onNavigateTab('users');
-                            } else if (onNavigateTab) {
+                            } else if (onNavigateTab && st.actionTab) {
                               onNavigateTab(st.actionTab);
                             }
                           }}

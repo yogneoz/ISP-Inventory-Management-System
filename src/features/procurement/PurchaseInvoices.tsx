@@ -1983,7 +1983,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Total Items</span>
-                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{productsModalInvoice.items.length} Lines</span>
+                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{productsModalInvoice.items?.length ?? 0} Lines</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Taxable Subtotal</span>
@@ -1997,7 +1997,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
               {/* Products Table */}
               <div className="grid gap-3 md:hidden">
-                {productsModalInvoice.items.map((item, idx) => {
+                {productsModalInvoice.items?.map((item, idx) => {
                   const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
                   return (
                     <article key={item.id || idx} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">
@@ -2042,7 +2042,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                    {productsModalInvoice.items.map((item, idx) => {
+                    {productsModalInvoice.items?.map((item, idx) => {
                       const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
                       const hasSerials = item.deviceSerials && item.deviceSerials.length > 0;
                       return (

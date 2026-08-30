@@ -314,7 +314,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     const matchesBranch = selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
     const matchesSupplier =
       selectedSupplierFilter === 'ALL' ||
-      po.supplierId === selectedSupplierFilter ||
       (po?.supplierName || '').toLowerCase() === (selectedSupplierFilter || '').toLowerCase() ||
       availableSuppliers.find((s) => s.id === selectedSupplierFilter)?.name.toLowerCase() === (po?.supplierName || '').toLowerCase();
     const matchesSearch =
@@ -1480,13 +1479,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono">
-                      Rs. {(item.subtotal ?? (item.quantity * item.unitPrice) ?? 0).toLocaleString('en-IN')}
+                      Rs. {(item.subtotal ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
                       Rs. {(item.taxAmount ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                      Rs. {(item.total ?? (item.quantity * item.unitPrice) ?? 0).toLocaleString('en-IN')}
+                      Rs. {(item.total ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))}

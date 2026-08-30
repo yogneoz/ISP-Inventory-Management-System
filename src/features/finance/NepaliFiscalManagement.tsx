@@ -210,18 +210,26 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
     const res = parseAndSeedBSInput(seedInput);
     if (res.success) {
+      let seedPgSynced = true;
       if (match) {
         const yearBS = parseInt(match[1], 10);
         const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
         if (days.length === 12) {
           try {
-            await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
+            const seedRes = await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
+            if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
           } catch (err: any) {
             console.warn('PostgreSQL Seed Warning:', err.message);
+            seedPgSynced = false;
           }
         }
       }
-      setSeedStatus({ type: 'success', message: `${res.message} (Synced 365 daily records to PostgreSQL bs_day_records table)` });
+      setSeedStatus({
+        type: 'success',
+        message: seedPgSynced
+          ? `${res.message} (Synced 365 daily records to PostgreSQL bs_day_records table)`
+          : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
+      });
       await refreshCalendarData();
     } else {
       setSeedStatus({ type: 'error', message: res.message });
@@ -239,14 +247,19 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
     try {
       seedBSYearCalendar(yearBS, monthDays);
+      let seedPgSynced = true;
       try {
-        await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        const seedRes = await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
       } catch (e: any) {
         console.warn('PostgreSQL quick seed notice:', e.message);
+        seedPgSynced = false;
       }
       setSeedStatus({
         type: 'success',
-        message: `Successfully seeded new BS Year ${yearBS} and generated 365 daily records in PostgreSQL bs_day_records table!`,
+        message: seedPgSynced
+          ? `Successfully seeded new BS Year ${yearBS} and generated 365 daily records in PostgreSQL bs_day_records table!`
+          : `Seeded new BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.`,
       });
       await refreshCalendarData();
     } catch (err: any) {

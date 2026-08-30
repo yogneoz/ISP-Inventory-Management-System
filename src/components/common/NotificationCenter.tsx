@@ -148,7 +148,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   const shipmentAlerts = shipments
     .filter(
       (sh) =>
-        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED' || sh.status === 'DRAFT') &&
+        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
         (selectedBranchId === 'ALL' ||
           sh.destinationBranchId === selectedBranchId ||
           sh.sourceBranchId === selectedBranchId)
@@ -159,7 +159,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       title: `Shipment ${sh.status}: ${sh.trackingCode}`,
       subtitle: `${sh.sourceBranchName || 'Source'} → ${sh.destinationBranchName} (${sh.items?.length || 0} items)`,
       branchName: sh.destinationBranchName,
-      date: sh.dispatchDateAD || sh.createdDateAD,
+      date: sh.dispatchDateAD,
       severity: 'INFO' as const,
       actionLabel: 'Track Shipment',
       actionTab: 'shipment-list',
@@ -176,9 +176,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       id: `po-${po.id}`,
       type: 'PO' as const,
       title: `Purchase Order #${po.poNumber} (${po.status})`,
-      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${(po.grandTotal ?? po.totalAmount ?? 0).toLocaleString('en-IN')}`,
+      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${(po.totalAmount ?? 0).toLocaleString('en-IN')}`,
       branchName: branches.find((b) => b.id === po.branchId)?.name || 'Branch',
-      date: po.poDateAD,
+      date: po.orderDateAD,
       severity: 'INFO' as const,
       actionLabel: 'View Order',
       actionTab: 'po-list',

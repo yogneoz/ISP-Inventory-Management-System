@@ -1141,14 +1141,14 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                             <div key={idx} className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] flex items-center justify-between">
                               <div>
                                 <span className="font-bold text-slate-800 dark:text-slate-200">{item.productName}</span>
-                                <span className="text-slate-400 font-mono ml-1.5">({item.productSku})</span>
+                                <span className="text-slate-400 font-mono ml-1.5">({item.sku})</span>
                               </div>
                               <div className="text-right">
-                                <span className={`font-extrabold ${item.variance < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                  {item.variance > 0 ? `+${item.variance}` : item.variance} {item.unit}
+                                <span className={`font-extrabold ${item.varianceQty < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {item.varianceQty > 0 ? `+${item.varianceQty}` : item.varianceQty} {item.unit}
                                 </span>
                                 <span className="text-slate-400 ml-1">
-                                  (Sys: {item.systemStock} ➔ Act: {item.physicalCount})
+                                  (Sys: {item.bookQty} ➔ Act: {item.countedQty})
                                 </span>
                               </div>
                             </div>

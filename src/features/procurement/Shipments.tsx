@@ -68,7 +68,9 @@ interface ShipmentsProps {
     }
   ) => Promise<void>;
   onCancelReceiveShipment?: (id: string, reason?: string) => Promise<void>;
-  onRequestApproval?: (requestData: Partial<ApprovalRequest>) => Promise<void>;
+  onRequestApproval?: (
+    requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
+  ) => Promise<void>;
   onCancelApproval?: (requestId: string) => Promise<void>;
   isDarkMode?: boolean;
 }

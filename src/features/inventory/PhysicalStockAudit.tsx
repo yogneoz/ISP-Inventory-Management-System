@@ -50,11 +50,11 @@ interface PhysicalStockAuditProps {
   isDarkMode?: boolean;
   approvalRequests?: ApprovalRequest[];
   onUpdateStockLevel?: (
-    productId: string,
-    branchId: string,
-    deltaQty: number,
-    type: string,
-    notes?: string
+    stockId: string,
+    newQty: number,
+    reason: string,
+    damagedQty?: number,
+    changeType?: string
   ) => Promise<void>;
   onReconcileStockAudit?: (payload: {
     branchId: string;
@@ -64,7 +64,9 @@ interface PhysicalStockAuditProps {
     userEmail?: string;
     notes?: string;
   }) => Promise<any>;
-  onRequestApproval?: (request: Partial<ApprovalRequest>) => Promise<any>;
+  onRequestApproval?: (
+    request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
+  ) => Promise<any>;
   onCancelApproval?: (id: string, reason?: string) => Promise<any>;
   onProcessApproval?: (id: string, status: 'APPROVED' | 'REJECTED', reason?: string) => Promise<any>;
   onNavigateTab?: (tab: any) => void;
@@ -506,7 +508,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         };
       });
 
-      const auditPayload: Partial<ApprovalRequest> = {
+      const auditPayload: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'> = {
         type: 'STOCK_AUDIT_RECONCILIATION',
         targetId: auditRefNumber,
         customerName: `Physical Stock Audit - ${activeBranch?.name || activeBranchId}`,
@@ -996,7 +998,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
                 Physical stock count for <strong>{activeBranch?.name}</strong> was submitted by{' '}
                 <strong>{pendingAuditRequest?.requestedByName || currentUser?.name || auditorName}</strong>{' '}
-                {pendingAuditRequest?.createdAtAD ? `on ${formatDualDate(pendingAuditRequest.createdAtAD, dateMode)}` : ''}.
+                {pendingAuditRequest?.requestedAtAD ? `on ${formatDualDate(pendingAuditRequest.requestedAtAD, dateMode)}` : ''}.
                 The table is locked from editing until reviewed and authorized by the Super Admin or Stock Manager.
               </p>
             </div>
@@ -1797,7 +1799,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         {isManagerOrAdmin && (
                           <button
                             type="button"
-                            onClick={() => handleApproveSinglePendingBranch(req.id, req.branchName)}
+                            onClick={() =>
+                              handleApproveSinglePendingBranch(
+                                req.id,
+                                req.branchName || branches.find((b) => b.id === req.branchId)?.name || 'Head Office'
+                              )
+                            }
                             className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold cursor-pointer transition-colors"
                           >
                             Approve

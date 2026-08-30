@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS stock_operations (
     inspector_name VARCHAR(150),
     date_ad DATE NOT NULL,
     date_bs VARCHAR(20) NOT NULL,
-    fiscal_year VARCHAR(20) DEFAULT '2082/83',
+    fiscal_year VARCHAR(20),
     status VARCHAR(30) DEFAULT 'LOGGED' CHECK (status IN ('LOGGED', 'DISPATCHED', 'RECEIVED', 'CANCELLED')),
     items JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -556,6 +556,19 @@ CREATE INDEX IF NOT EXISTS idx_bs_calendar_year ON bs_calendar_years(year_bs);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_date ON bs_day_records(bs_date);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_year_month ON bs_day_records(bs_year, bs_month);
 CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year ON bs_day_records(fiscal_year);
+
+-- Exactly one fiscal year may be flagged current (prevents the
+-- ambiguous-default bug where two rows had is_current = TRUE).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_years_single_current ON fiscal_years (id) WHERE is_current = TRUE;
+
+-- Fiscal-year/branch scoped bootstrap query support
+CREATE INDEX IF NOT EXISTS idx_po_branch_order_date ON purchase_orders(branch_id, order_date_ad);
+CREATE INDEX IF NOT EXISTS idx_pi_branch_invoice_date ON purchase_invoices(branch_id, invoice_date_ad);
+CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad);
+CREATE INDEX IF NOT EXISTS idx_assets_acquisition_date ON fixed_assets(acquisition_date_ad);
+CREATE INDEX IF NOT EXISTS idx_devices_issued_date ON customer_device_records(issued_date_ad);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
 
 -- UOM indexes
 CREATE INDEX IF NOT EXISTS idx_uom_name ON uom(name);

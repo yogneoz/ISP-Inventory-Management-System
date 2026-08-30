@@ -58,6 +58,7 @@ import { User, CompanyProfile } from '../../types';
 export type NavTab =
   | 'dashboard'
   | 'approvals'
+  | 'workflow-approval'
   | 'all-stock'
   | 'branch-stock'
   | 'reorder-stock'

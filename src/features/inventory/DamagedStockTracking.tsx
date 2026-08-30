@@ -96,20 +96,20 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   // Compute damaged stock quantity per product across visible branches
   const productsWithDamaged = products.map((prod) => {
-    let totalDamagedQty = 0;
-    let totalUsableQty = 0;
-
-    activeBranches.forEach((b) => {
+    const branchData = activeBranches.map((b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-      if (item) {
-        totalDamagedQty += item.damagedQty || 0;
-        totalUsableQty += item.quantityOnHand;
-      }
+      return {
+        branch: b,
+        damagedQty: item?.damagedQty || 0,
+        usableQty: item?.quantityOnHand || 0,
+      };
     });
+    const totalDamagedQty = branchData.reduce((sum, bd) => sum + bd.damagedQty, 0);
+    const totalUsableQty = branchData.reduce((sum, bd) => sum + bd.usableQty, 0);
 
     const totalLossValuation = totalDamagedQty * prod.costPrice;
 
-    return { prod, totalDamagedQty, totalUsableQty, totalLossValuation };
+    return { prod, branchData, totalDamagedQty, totalUsableQty, totalLossValuation };
   });
 
   const visibleProducts = productsWithDamaged

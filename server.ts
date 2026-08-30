@@ -805,6 +805,50 @@ app.get('/api/sync/version', (req, res) => {
   res.json({ dataVersion, timestamp: new Date().toISOString() });
 });
 
+// Normalizes a database date value (pg Date object, ISO datetime string, or
+// 'YYYY-MM-DD' text) into a 'YYYY-MM-DD' calendar string so it can be safely
+// compared against fiscal-year boundary dates. Returns '' when the value
+// cannot be interpreted as a date.
+function toCalendarDate(value: any): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  }
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+// Resolves the active fiscal year for default views: prefers a year flagged
+// current whose AD range contains today's date (guards against multiple rows
+// being flagged is_current), falling back to the first flagged-current year.
+function pickCurrentFiscalYear(years: any[]): any | undefined {
+  if (!years || years.length === 0) return undefined;
+  const currentYears = years.filter((fy: any) => fy && fy.isCurrent);
+  if (currentYears.length === 0) return undefined;
+  const todayAD = toCalendarDate(new Date());
+  const containsToday = (fy: any) => {
+    const start = toCalendarDate(fy.startDateAD);
+    const end = toCalendarDate(fy.endDateAD);
+    return Boolean(start && end && todayAD >= start && todayAD <= end);
+  };
+  return currentYears.find(containsToday) || currentYears[0];
+}
+
+// Returns the fiscal-year code (e.g. '2083-84') whose AD range contains the
+// given date, or '' when no fiscal year covers it. Used to stamp records with
+// the correct fiscal year at write time instead of a stale hard-coded default.
+function getFiscalYearCodeForDate(dateValue: any): string {
+  const dateStr = toCalendarDate(dateValue);
+  if (!dateStr) return '';
+  for (const fiscalYear of fiscalYears) {
+    const start = toCalendarDate(fiscalYear.startDateAD);
+    const end = toCalendarDate(fiscalYear.endDateAD);
+    if (start && end && dateStr >= start && dateStr <= end) return fiscalYear.code;
+  }
+  return '';
+}
+
 // ==========================================
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
@@ -815,38 +859,79 @@ app.get('/api/bootstrap', async (req, res) => {
 
   if (isPgConnected) {
     try {
+      // Resolve the fiscal-year scope first so every operational table can be
+      // filtered in SQL (branch + fiscal-year AD date range) instead of
+      // fetching all rows and filtering them in JavaScript.
+      const fyRes = await pgPool.query('SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years');
+      const pgFiscalYears = fyRes.rows;
+      // Default view: the active fiscal year, so the app always shows records
+      // from the current fiscal year. An explicit fiscalYearId query param
+      // overrides this and filters the data to that fiscal year.
+      const selectedFiscalYear = fId
+        ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId)
+        : pickCurrentFiscalYear(pgFiscalYears);
+      const fyStartAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.startDateAD) : '';
+      const fyEndAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.endDateAD) : '';
+      const hasFyScope = Boolean(fyStartAD && fyEndAD);
+
+      // Builds a WHERE clause + params for one bootstrap query: optional
+      // branch filter (single column, or an OR pair for shipments) and the
+      // fiscal-year AD date range on the table's primary date column.
+      const scoped = (opts: { branchCol?: string; branchOrCols?: [string, string]; dateCol?: string } = {}) => {
+        const conds: string[] = [];
+        const params: any[] = [];
+        if (bId && opts.branchCol) {
+          params.push(bId);
+          conds.push(`${opts.branchCol} = $${params.length}`);
+        }
+        if (bId && opts.branchOrCols) {
+          params.push(bId, bId);
+          conds.push(`(${opts.branchOrCols[0]} = $${params.length - 1} OR ${opts.branchOrCols[1]} = $${params.length})`);
+        }
+        if (hasFyScope && opts.dateCol) {
+          params.push(fyStartAD, fyEndAD);
+          conds.push(`${opts.dateCol} >= $${params.length - 1}`);
+          conds.push(`${opts.dateCol} <= $${params.length}`);
+        }
+        return { where: conds.length ? ` WHERE ${conds.join(' AND ')}` : '', params };
+      };
+
+      const stockScope = scoped({ branchCol: 'branch_id' });
+      const assetScope = scoped({ branchCol: 'branch_id', dateCol: 'acquisition_date_ad' });
+      const deviceScope = scoped({ branchCol: 'branch_id', dateCol: 'issued_date_ad' });
+      const customerScope = scoped({ branchCol: 'branch_id' });
+      const poScope = scoped({ branchCol: 'branch_id', dateCol: 'order_date_ad' });
+      const piScope = scoped({ branchCol: 'branch_id', dateCol: 'invoice_date_ad' });
+      const shipmentScope = scoped({ branchOrCols: ['source_branch_id', 'destination_branch_id'], dateCol: 'dispatch_date_ad' });
+      const opScope = scoped({ branchCol: 'branch_id', dateCol: 'date_ad' });
+      const auditScope = scoped({ dateCol: 'timestamp_ad' });
+      const txnScope = scoped({ dateCol: 'timestamp_ad' });
+      const approvalScope = scoped({ branchCol: 'branch_id', dateCol: 'requested_at_ad' });
+      const locationScope = scoped({ branchCol: 'branch_id' });
+
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, fyRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes
       ] = await Promise.all([
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
-        pgPool.query('SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments' + (bId ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
-        pgPool.query('SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC LIMIT 200'),
-        pgPool.query('SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC LIMIT 300'),
+        pgPool.query(`SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock${stockScope.where}`, stockScope.params),
+        pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets${assetScope.where}`, assetScope.params),
+        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records${deviceScope.where}`, deviceScope.params),
+        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records${customerScope.where}`, customerScope.params),
+        pgPool.query(`SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders${poScope.where}`, poScope.params),
+        pgPool.query(`SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices${piScope.where}`, piScope.params),
+        pgPool.query(`SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments${shipmentScope.where}`, shipmentScope.params),
+        pgPool.query(`SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations${opScope.where}`, opScope.params),
+        pgPool.query(`SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs${auditScope.where} ORDER BY timestamp_ad DESC LIMIT 200`, auditScope.params),
+        pgPool.query(`SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs${txnScope.where} ORDER BY timestamp_ad DESC LIMIT 300`, txnScope.params),
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
         pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
-        pgPool.query('SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests${approvalScope.where}`, approvalScope.params),
         pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
-        pgPool.query('SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
+        pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
       ]);
-
-      const pgFiscalYears = fyRes.rows;
-      const selectedFiscalYear = fId ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId) : undefined;
-      const isWithinSelectedFiscalYear = (record: any, dateField: string) => {
-        if (!selectedFiscalYear) return true;
-        const dateValue = String(record[dateField] || '').slice(0, 10);
-        return Boolean(dateValue && dateValue >= selectedFiscalYear.startDateAD && dateValue <= selectedFiscalYear.endDateAD);
-      };
 
       let pgStock = sRes.rows;
       if (selectedFiscalYear && !selectedFiscalYear.isCurrent) {
@@ -859,16 +944,18 @@ app.get('/api/bootstrap', async (req, res) => {
         );
         pgStock = openingStockResult.rows;
       }
+      // Fiscal-year and branch scoping is applied in the SQL queries above
+      // (see scoped()), so no JavaScript date filtering is needed here.
       const pgProducts = pRes.rows;
-      const pgAssets = aRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'acquisitionDateAd'));
-      const pgCustomerDevices = dRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'issuedDateAd'));
-      const pgPurchaseOrders = poRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'orderDateAD'));
-      const pgInvoices = piRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'invoiceDateAD'));
-      const pgShipments = shRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'dispatchDateAd'));
-      const pgOps = opRes.rows.filter((row: any) => !selectedFiscalYear || row.fiscalYear === selectedFiscalYear.code || isWithinSelectedFiscalYear(row, 'dateAd'));
-      const pgAuditLogs = auditRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
-      const pgTransactionLogs = txnRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
-      const pgApprovalRequests = appRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'requestedAtAd'));
+      const pgAssets = aRes.rows;
+      const pgCustomerDevices = dRes.rows;
+      const pgPurchaseOrders = poRes.rows;
+      const pgInvoices = piRes.rows;
+      const pgShipments = shRes.rows;
+      const pgOps = opRes.rows;
+      const pgAuditLogs = auditRes.rows;
+      const pgTransactionLogs = txnRes.rows;
+      const pgApprovalRequests = appRes.rows;
 
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
         const prod = pgProducts.find((p: any) => p.id === item.productId);
@@ -882,7 +969,7 @@ app.get('/api/bootstrap', async (req, res) => {
       );
       const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
       const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
-      const currentFy = pgFiscalYears.find((f: any) => f.isCurrent)?.code || '2082/83';
+      const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
 
       const financialSummary = {
         totalInventoryAssetValue,
@@ -3527,7 +3614,7 @@ app.post('/api/stock-operations', async (req, res) => {
       dateAD: req.body.dateAD || req.body.dateAd || new Date().toISOString().split('T')[0],
       dateBS: req.body.dateBS || req.body.dateBs || '2083-04-16 BS',
       totalValue,
-      fiscalYear: req.body.fiscalYear || '2082/83',
+      fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(req.body.dateAD || req.body.dateAd),
       branchName: branchObj?.name || req.body.branchName || 'Branch',
       destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || 'WH001',
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
@@ -3811,8 +3898,12 @@ app.get('/api/fiscal-years', async (req, res) => {
 app.post('/api/fiscal-years/:id/set-current', async (req, res) => {
   const { id } = req.params;
   try {
-    await pgPool.query('UPDATE fiscal_years SET is_current = FALSE;');
-    await pgPool.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1;', [id]);
+    // One transaction: clear the old flag first, then set the new one, so the
+    // uq_fiscal_years_single_current index can never be violated mid-flight.
+    await withTransaction(async (client) => {
+      await client.query('UPDATE fiscal_years SET is_current = FALSE;');
+      await client.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1;', [id]);
+    });
   } catch (e: any) {
     console.warn('PostgreSQL set-current fiscal year notice:', e.message);
   }
@@ -3963,7 +4054,7 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
            source_reference = EXCLUDED.source_reference,
            posted_at = CURRENT_TIMESTAMP,
            posted_by = EXCLUDED.posted_by;`,
-        [targetFiscalYear.id, sourceFiscalYear.code, (req.user || getUserFromReq(req)).email || 'system']
+        [targetFiscalYear.id, sourceFiscalYear.code, getUserFromReq(req).email || 'system']
       );
       return { targetFiscalYear, recordsCreated: inserted.rowCount || 0 };
     });
@@ -4099,6 +4190,29 @@ function generateInMemoryBsDayRecords() {
 // Initial generation of in-memory records
 generateInMemoryBsDayRecords();
 
+// Refreshes the in-memory BS-calendar fallback cache from PostgreSQL, which is
+// the authoritative store for bs_calendar_years / bs_day_records. Called at
+// startup so the cache (used only while PostgreSQL is unreachable) starts in
+// sync with the database instead of the built-in defaults.
+async function hydrateBsCalendarFromDb(client: any) {
+  try {
+    const yrRes = await client.query(
+      'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC'
+    );
+    if (yrRes.rows.length > 0) inMemoryBsCalendarYears = yrRes.rows;
+    const dayRes = await client.query(
+      `SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
+              bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
+              day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
+              fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
+       FROM bs_day_records ORDER BY ad_date ASC`
+    );
+    if (dayRes.rows.length > 0) inMemoryBsDayRecords = dayRes.rows;
+  } catch (e: any) {
+    console.warn('BS calendar hydration from PostgreSQL skipped; using built-in calendar:', e?.message || e);
+  }
+}
+
 app.get('/api/bs-calendar/years', async (req, res) => {
   try {
     const result = await pgPool.query(
@@ -4196,17 +4310,15 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
     return res.json({
       success: true,
       skipped: true,
+      pgSynced: true,
       message: `BS Year ${yearBS} already exists in database. Skipped overwrite because 'onlyIfNew' was specified.`,
     });
   }
-  if (existingIdx >= 0) {
-    inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
-  } else {
-    inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
-    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
-  }
-  generateInMemoryBsDayRecords();
 
+  // PostgreSQL is the authoritative store for the calendar: write there first.
+  // The in-memory store below is only a fallback cache for when PostgreSQL is
+  // unreachable, so it is refreshed after the database write attempt.
+  let pgSynced = false;
   try {
     await pgPool.query(
       `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
@@ -4276,13 +4388,25 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
         runningDate.setDate(runningDate.getDate() + 1);
       }
     }
+    pgSynced = true;
   } catch (_err) {
-    // Silently continue if PostgreSQL is disconnected; in-memory store is already updated
+    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
   }
+
+  if (existingIdx >= 0) {
+    inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+  } else {
+    inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+  }
+  generateInMemoryBsDayRecords();
 
   res.json({
     success: true,
-    message: `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table!`,
+    pgSynced,
+    message: pgSynced
+      ? `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!`
+      : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`,
   });
 });
 
@@ -4292,17 +4416,9 @@ app.post('/api/bs-calendar/sync-range', async (req, res) => {
     return res.status(400).json({ success: false, message: 'No day records provided to write to SQL database.' });
   }
 
-  // Always sync to in-memory day records store
-  const recordMap = new Map<string, any>();
-  for (const r of inMemoryBsDayRecords) {
-    recordMap.set(r.adDate, r);
-  }
-  for (const r of dayRecords) {
-    recordMap.set(r.adDate, r);
-  }
-  inMemoryBsDayRecords = Array.from(recordMap.values());
-
-  let insertedCount = dayRecords.length;
+  // PostgreSQL is the authoritative store: write there first, then refresh the
+  // in-memory fallback cache with the same records.
+  let pgSynced = false;
   try {
     for (const rec of dayRecords) {
       await pgPool.query(
@@ -4339,14 +4455,28 @@ app.post('/api/bs-calendar/sync-range', async (req, res) => {
         ]
       );
     }
+    pgSynced = true;
   } catch (_err) {
-    // Continue cleanly using in-memory store
+    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
   }
 
+  const recordMap = new Map<string, any>();
+  for (const r of inMemoryBsDayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  for (const r of dayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  inMemoryBsDayRecords = Array.from(recordMap.values());
+
+  const insertedCount = dayRecords.length;
   res.json({
     success: true,
+    pgSynced,
     count: insertedCount,
-    message: `Successfully written & updated ${insertedCount} daily conversion records in BSDayRecord database table!`,
+    message: pgSynced
+      ? `Successfully written & updated ${insertedCount} daily conversion records in PostgreSQL bs_day_records table!`
+      : `Kept ${insertedCount} daily conversion records in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.`,
   });
 });
 
@@ -5316,7 +5446,7 @@ app.get('/api/reports/financial-summary', async (req, res) => {
       );
       const totalDamageLossValue = Number(opRes.rows[0]?.total || 0);
 
-      const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
+      const currentFy = pickCurrentFiscalYear(fiscalYears)?.code || '2082/83';
 
       return res.json({
         totalInventoryAssetValue,
@@ -5369,7 +5499,7 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     0
   );
 
-  const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
+  const currentFy = pickCurrentFiscalYear(fiscalYears)?.code || '2082/83';
 
   res.json({
     totalInventoryAssetValue,
@@ -5882,6 +6012,13 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      -- Drop the stale hard-coded fiscal-year default (fiscal year is now
+      -- derived from the record date at write time).
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stock_operations' AND column_name = 'fiscal_year' AND column_default IS NOT NULL) THEN
+          ALTER TABLE stock_operations ALTER COLUMN fiscal_year DROP DEFAULT;
+        END IF;
+      END $$;
       ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_module_check;
       ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
         'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
@@ -5960,11 +6097,25 @@ async function syncDatabaseAndIndexes() {
 
       CREATE INDEX IF NOT EXISTS idx_bs_days_date ON bs_day_records(bs_date);
       CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
+
+      -- Exactly one fiscal year may be flagged current (prevents the
+      -- ambiguous-default bug where two rows had is_current = TRUE).
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_years_single_current ON fiscal_years (id) WHERE is_current = TRUE;
+
+      -- Fiscal-year/branch scoped bootstrap query support
+      CREATE INDEX IF NOT EXISTS idx_po_branch_order_date ON purchase_orders(branch_id, order_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_pi_branch_invoice_date ON purchase_invoices(branch_id, invoice_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_assets_acquisition_date ON fixed_assets(acquisition_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_devices_issued_date ON customer_device_records(issued_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad);
+      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
     `);
 
     isPgConnected = true;
     setIsPgConnected(true);
     await seedInitialPostgresData(client);
+    await hydrateBsCalendarFromDb(client);
 
     client.release();
     console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');

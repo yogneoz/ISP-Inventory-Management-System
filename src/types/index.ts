@@ -254,6 +254,7 @@ export interface ShipmentItem {
   productName: string;
   sku: string;
   quantitySent: number;
+  costPrice?: number; // Returned by the API (products.cost_price join)
   quantityReceived?: number;
   deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
   receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
@@ -305,6 +306,9 @@ export interface SaleItem {
   discount: number;
   totalValue: number;
   deviceSerials?: DeviceSerialPair[];
+  // Present on some stock-operation item payloads (e.g. pullout-style lines)
+  condition?: PulloutItem['condition'];
+  unitCost?: number;
 }
 
 export interface ConsumableIssueItem {
@@ -316,6 +320,9 @@ export interface ConsumableIssueItem {
   quantity: number;
   unitCost: number;
   totalValue: number;
+  // Present on some stock-operation item payloads (e.g. serialized consumable lines)
+  condition?: PulloutItem['condition'];
+  deviceSerials?: DeviceSerialPair[];
 }
 
 export interface StockOperation {
@@ -339,7 +346,7 @@ export interface StockOperation {
   dateBS: string;
   fiscalYear: string;
   status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED';
-  items?: PulloutItem[];
+  items?: (PulloutItem | ConsumableIssueItem | SaleItem)[];
   // Customer Product Sale fields
   customerId?: string;
   customerName?: string;

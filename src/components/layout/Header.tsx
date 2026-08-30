@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../../utils/permissions';
+import { NavTab } from './Sidebar';
 import { NotificationCenter } from '../common/NotificationCenter';
 import {
   Building2,
@@ -60,7 +61,7 @@ interface HeaderProps {
   approvalRequests?: ApprovalRequest[];
   purchaseOrders?: PurchaseOrder[];
   shipments?: Shipment[];
-  onSelectTab?: (tab: string) => void;
+  onSelectTab?: (tab: NavTab) => void;
   onOpenNotification?: () => void;
   onOpenProfileModal?: () => void;
 }
@@ -387,18 +388,6 @@ export const Header: React.FC<HeaderProps> = ({
             {fiscalYears.map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">{fiscalYear.code}{fiscalYear.isCurrent ? ' (Active)' : ''}</option>)}
           </select>
         </label>
-
-        {/* Barcode & Serial Scanner Button */}
-        {onOpenBarcodeModal && (
-          <button
-            onClick={onOpenBarcodeModal}
-            title="Scan Barcode / Print Asset Tag"
-            className="flex items-center gap-1 rounded-md border border-indigo-400/30 bg-indigo-900/40 hover:bg-indigo-800/60 px-2.5 py-1 text-[11px] font-medium text-indigo-200 transition-all cursor-pointer"
-          >
-            <QrCode className="h-3.5 w-3.5 text-indigo-300" />
-            <span className="hidden sm:inline">Tag</span>
-          </button>
-        )}
 
         {/* Help Center Button */}
         <button

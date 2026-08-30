@@ -55,7 +55,9 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
     userHeaders['x-user-email'] = currentUserContext.email;
     userHeaders['x-user-name'] = currentUserContext.name;
     userHeaders['x-user-role'] = currentUserContext.role;
-    userHeaders['x-user-branch'] = currentUserContext.branchId;
+    if (currentUserContext.branchId) {
+      userHeaders['x-user-branch'] = currentUserContext.branchId;
+    }
   }
   if (currentFiscalYearId) userHeaders['x-fiscal-year-id'] = currentFiscalYearId;
 
@@ -698,14 +700,14 @@ export const api = {
     return fetchJson(`/api/bs-calendar/days${queryString}`);
   },
 
-  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; message: string }> {
+  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; pgSynced?: boolean; message: string }> {
     return fetchJson('/api/bs-calendar/seed', {
       method: 'POST',
       body: JSON.stringify({ yearBS, daysInMonths, customStartAD, onlyIfNew }),
     });
   },
 
-  async syncBsDayRange(dayRecords: any[]): Promise<{ success: boolean; count: number; message: string }> {
+  async syncBsDayRange(dayRecords: any[]): Promise<{ success: boolean; pgSynced?: boolean; count: number; message: string }> {
     return fetchJson('/api/bs-calendar/sync-range', {
       method: 'POST',
       body: JSON.stringify({ dayRecords }),

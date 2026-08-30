@@ -190,18 +190,26 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 
     const res = parseAndSeedBSInput(seedInput);
     if (res.success) {
+      let seedPgSynced = true;
       if (match) {
         const yearBS = parseInt(match[1], 10);
         const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
         if (days.length === 12) {
           try {
-            await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
+            const seedRes = await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
+            if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
           } catch (err: any) {
             console.warn('PostgreSQL Seed Warning:', err.message);
+            seedPgSynced = false;
           }
         }
       }
-      setSeedStatus({ type: 'success', message: `${res.message} (Synced to PostgreSQL bs_day_records table)` });
+      setSeedStatus({
+        type: 'success',
+        message: seedPgSynced
+          ? `${res.message} (Synced to PostgreSQL bs_day_records table)`
+          : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
+      });
       await refreshCalendarData();
     } else {
       setSeedStatus({ type: 'error', message: res.message });
@@ -219,14 +227,19 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 
     try {
       seedBSYearCalendar(yearBS, monthDays);
+      let seedPgSynced = true;
       try {
-        await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        const seedRes = await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
       } catch (e: any) {
         console.warn('PostgreSQL quick seed notice:', e.message);
+        seedPgSynced = false;
       }
       setSeedStatus({
         type: 'success',
-        message: `Successfully seeded new BS Year ${yearBS}!`,
+        message: seedPgSynced
+          ? `Successfully seeded new BS Year ${yearBS} and synced it to PostgreSQL bs_day_records!`
+          : `Seeded new BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable.`,
       });
       await refreshCalendarData();
     } catch (err: any) {

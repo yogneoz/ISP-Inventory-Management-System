@@ -260,7 +260,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Active Shipments filtered by branch context
   const filteredShipments =
     selectedBranchId === 'ALL'
-      ? shipments.filter((sh) => canSeeAll || allowedBranchIds.includes(sh.destinationBranchId) || allowedBranchIds.includes(sh.sourceBranchId))
+      ? shipments.filter((sh) => canSeeAll || allowedBranchIds.includes(sh.destinationBranchId) || (sh.sourceBranchId ? allowedBranchIds.includes(sh.sourceBranchId) : false))
       : shipments.filter(
           (sh) =>
             sh.destinationBranchId === selectedBranchId ||
