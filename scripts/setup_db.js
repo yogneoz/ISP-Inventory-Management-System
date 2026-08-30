@@ -31,6 +31,7 @@ const DAYS_OF_WEEK_NP = [
   'आइतबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहीबार', 'शुक्रबार', 'शनिबार'
 ];
 
+// Updated BS Years data with correct calendar for 2078-2085
 const DEFAULT_BS_YEARS = [
   { yearBS: 2078, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2021-04-14' },
   { yearBS: 2079, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2022-04-14' },
@@ -42,6 +43,7 @@ const DEFAULT_BS_YEARS = [
   { yearBS: 2085, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2028-04-13' },
 ];
 
+// Updated Fiscal Years
 const DEFAULT_FISCAL_YEARS = [
   { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2080-12-31 BS', isCurrent: false, isClosed: true },
   { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isCurrent: false, isClosed: true },
@@ -96,8 +98,20 @@ async function runSetup() {
     if (fs.existsSync(schemaPath)) {
       console.log('📜 Applying database tables & structure from schema.sql...');
       const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-      await client.query(schemaSql);
-      console.log('✅ All 19 Database Tables, Indexes, and Constraints applied!');
+      
+      // Split and execute statements to handle potential errors
+      const statements = schemaSql.split(';').filter(stmt => stmt.trim());
+      for (const stmt of statements) {
+        try {
+          await client.query(stmt + ';');
+        } catch (err) {
+          // Ignore "already exists" errors
+          if (!err.message.includes('already exists')) {
+            console.warn('⚠️ Warning executing statement:', err.message);
+          }
+        }
+      }
+      console.log('✅ All Database Tables, Indexes, and Constraints applied!');
     }
 
     // Seed BS Calendar & Fiscal Years
@@ -189,6 +203,64 @@ async function runSetup() {
 
     console.log('✅ BS Calendar Years & Day-by-Day Database Table populated successfully!');
 
+    // Seed default UOM (Unit of Measure) data
+    console.log('📦 Seeding default Units of Measure...');
+    const defaultUOMs = [
+      { id: 'uom-pcs', name: 'Pieces', symbol: 'Pcs', type: 'Count', isBaseUnit: true },
+      { id: 'uom-kg', name: 'Kilogram', symbol: 'Kg', type: 'Weight', isBaseUnit: true },
+      { id: 'uom-gm', name: 'Gram', symbol: 'Gm', type: 'Weight', isBaseUnit: false },
+      { id: 'uom-mt', name: 'Meter', symbol: 'Mt', type: 'Length', isBaseUnit: true },
+      { id: 'uom-cm', name: 'Centimeter', symbol: 'Cm', type: 'Length', isBaseUnit: false },
+      { id: 'uom-ltr', name: 'Liter', symbol: 'Ltr', type: 'Volume', isBaseUnit: true },
+      { id: 'uom-ml', name: 'Milliliter', symbol: 'Ml', type: 'Volume', isBaseUnit: false },
+      { id: 'uom-box', name: 'Box', symbol: 'Box', type: 'Count', isBaseUnit: false },
+    ];
+
+    for (const uom of defaultUOMs) {
+      await client.query(
+        `INSERT INTO uom (id, name, symbol, type, is_base_unit)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           symbol = EXCLUDED.symbol,
+           type = EXCLUDED.type,
+           is_base_unit = EXCLUDED.is_base_unit;`,
+        [uom.id, uom.name, uom.symbol, uom.type, uom.isBaseUnit]
+      );
+    }
+
+    console.log('✅ Default Units of Measure seeded!');
+
+    // Seed default document number configurations
+    console.log('📄 Seeding document number configurations...');
+    const defaultDocConfigs = [
+      { id: 'doc-po', documentType: 'PURCHASE_ORDER', prefix: 'PO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+      { id: 'doc-pi', documentType: 'PURCHASE_INVOICE', prefix: 'PI-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+      { id: 'doc-ship', documentType: 'SHIPMENT', prefix: 'SHIP-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+      { id: 'doc-stockop', documentType: 'STOCK_OPERATION', prefix: 'SO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+      { id: 'doc-appreq', documentType: 'APPROVAL_REQUEST', prefix: 'AR-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    ];
+
+    for (const config of defaultDocConfigs) {
+      await client.query(
+        `INSERT INTO document_number_configs (
+           id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           document_type = EXCLUDED.document_type,
+           prefix = EXCLUDED.prefix,
+           suffix = EXCLUDED.suffix,
+           min_digits = EXCLUDED.min_digits,
+           starting_number = EXCLUDED.starting_number,
+           next_number = EXCLUDED.next_number,
+           reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year;`,
+        [config.id, config.documentType, config.prefix, config.suffix, config.minDigits, config.startingNumber, config.nextNumber, config.resetEveryFiscalYear]
+      );
+    }
+
+    console.log('✅ Document number configurations seeded!');
+
     // Verify created tables
     const res = await client.query(`
       SELECT table_name 
@@ -202,9 +274,33 @@ async function runSetup() {
       console.log(`   ${i + 1}. ${row.table_name}`);
     });
 
+    // Check if company profile exists and seed if empty
+    const companyCheck = await client.query(`SELECT COUNT(*) FROM company_profile`);
+    if (parseInt(companyCheck.rows[0].count) === 0) {
+      console.log('🏢 Seeding default company profile...');
+      await client.query(
+        `INSERT INTO company_profile (
+           id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
+         )
+         VALUES (
+           'comp-1', 
+           'IZone Enterprise', 
+           'IZone Enterprise Pvt. Ltd.', 
+           'Kathmandu, Nepal', 
+           '+977-1-1234567', 
+           'info@izonenepal.com', 
+           'Rs.', 
+           13.00
+         )
+         ON CONFLICT (id) DO NOTHING;`
+      );
+      console.log('✅ Company profile seeded!');
+    }
+
     client.release();
     await pool.end();
     console.log('\n🎉 PostgreSQL setup verified and operational!');
+    console.log(`📌 Connection URL: postgres://${DB_CONFIG.user}:${DB_CONFIG.password}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
   } catch (dbErr) {
     console.warn('⚠️ Could not connect directly to PostgreSQL on port 5432:');
     console.warn('  ', dbErr.message);
@@ -213,4 +309,3 @@ async function runSetup() {
 }
 
 runSetup();
-

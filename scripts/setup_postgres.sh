@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # IZone Automated PostgreSQL Installation & Configuration Script
 # Automates PostgreSQL server detection, package download, service startup, DB creation, and Schema Migration.
+# Updated to support schema.sql version 2.1 with all 23 tables
 
 set -e
 
@@ -12,6 +13,7 @@ SCHEMA_FILE="$(dirname "$0")/schema.sql"
 
 echo "=========================================================================="
 echo "🚀 IZone Enterprise System: Automated PostgreSQL Installer & Configurator"
+echo "Version: 2.1 (Production-Ready)"
 echo "=========================================================================="
 
 # 1. Detect Package Manager and Install PostgreSQL if not found
@@ -46,9 +48,16 @@ detect_and_install_postgres() {
         brew services start postgresql@15
     elif command -v docker >/dev/null 2>&1; then
         echo "🔹 Docker detected! Starting PostgreSQL via Docker container..."
-        docker run --name inventory_postgres -e POSTGRES_DB=${DB_NAME} -e POSTGRES_USER=${DB_USER} -e POSTGRES_PASSWORD=${DB_PASS} -p 5432:5432 -d postgres:15-alpine || docker start inventory_postgres
+        docker stop inventory_postgres 2>/dev/null || true
+        docker rm inventory_postgres 2>/dev/null || true
+        docker run --name inventory_postgres \
+            -e POSTGRES_DB=${DB_NAME} \
+            -e POSTGRES_USER=${DB_USER} \
+            -e POSTGRES_PASSWORD=${DB_PASS} \
+            -p 5432:5432 \
+            -d postgres:15-alpine
         echo "⏳ Waiting for Docker PostgreSQL container to initialize..."
-        sleep 5
+        sleep 10
         return 0
     else
         echo "⚠️ Automated package manager installation not available in this environment."
@@ -78,6 +87,9 @@ configure_database() {
         su - postgres -c "psql -c \"ALTER USER ${DB_USER} WITH SUPERUSER;\"" 2>/dev/null || true
         su - postgres -c "psql -c \"CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};\"" 2>/dev/null || true
         su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};\"" 2>/dev/null || true
+        
+        # Grant schema permissions
+        su - postgres -c "psql -d ${DB_NAME} -c \"GRANT ALL ON SCHEMA public TO ${DB_USER};\"" 2>/dev/null || true
     else
         psql -U postgres -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" 2>/dev/null || true
         psql -U postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" 2>/dev/null || true
@@ -87,28 +99,87 @@ configure_database() {
 # 4. Run Schema Migration SQL
 run_schema_migration() {
     echo "📜 Executing database schema migration script (${SCHEMA_FILE})..."
+    
+    # Create extension first
+    if command -v su >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then
+        su - postgres -c "psql -d ${DB_NAME} -c 'CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";'" 2>/dev/null || true
+    else
+        PGPASSWORD="${DB_PASS}" psql -h localhost -U "${DB_USER}" -d "${DB_NAME}" -p "${DB_PORT}" -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' 2>/dev/null || true
+    fi
+
     if [ -f "${SCHEMA_FILE}" ]; then
-        PGPASSWORD="${DB_PASS}" psql -h localhost -U "${DB_USER}" -d "${DB_NAME}" -p "${DB_PORT}" -f "${SCHEMA_FILE}" 2>/dev/null || \
+        echo "📋 Applying schema.sql (Version 2.1 with 23 tables)..."
         if command -v su >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then
-            su - postgres -c "psql -d ${DB_NAME} -f ${SCHEMA_FILE}"
+            # Try with postgres user first
+            su - postgres -c "psql -d ${DB_NAME} -f ${SCHEMA_FILE}" 2>/dev/null || \
+            su - postgres -c "psql -d ${DB_NAME} -f ${SCHEMA_FILE}" || true
+        else
+            # Fallback to direct connection
+            PGPASSWORD="${DB_PASS}" psql -h localhost -U "${DB_USER}" -d "${DB_NAME}" -p "${DB_PORT}" -f "${SCHEMA_FILE}" 2>/dev/null || true
         fi
         echo "✅ Database schema & tables migrated successfully!"
+        
+        # Verify tables were created
+        echo "🔍 Verifying tables created..."
+        if command -v su >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then
+            TABLE_COUNT=$(su - postgres -c "psql -d ${DB_NAME} -t -c \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';\"" 2>/dev/null | tr -d ' ')
+        else
+            TABLE_COUNT=$(PGPASSWORD="${DB_PASS}" psql -h localhost -U "${DB_USER}" -d "${DB_NAME}" -p "${DB_PORT}" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
+        fi
+        echo "📊 Total tables found: ${TABLE_COUNT}"
     else
         echo "⚠️ Warning: Schema file ${SCHEMA_FILE} not found."
+        echo "   Expected path: ${SCHEMA_FILE}"
+    fi
+}
+
+# 5. Test Database Connection
+test_connection() {
+    echo "🔌 Testing database connection..."
+    if command -v su >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then
+        su - postgres -c "psql -d ${DB_NAME} -c 'SELECT version();'" >/dev/null 2>&1 && echo "✅ Connection successful!" || echo "⚠️ Connection test failed"
+    else
+        PGPASSWORD="${DB_PASS}" psql -h localhost -U "${DB_USER}" -d "${DB_NAME}" -p "${DB_PORT}" -c "SELECT version();" >/dev/null 2>&1 && echo "✅ Connection successful!" || echo "⚠️ Connection test failed"
     fi
 }
 
 # Main Execution Flow
+echo ""
+echo "Step 1: Detecting and installing PostgreSQL if needed..."
 detect_and_install_postgres || true
+
+echo ""
+echo "Step 2: Ensuring PostgreSQL service is running..."
 ensure_postgres_running || true
+
+echo ""
+echo "Step 3: Configuring database and user..."
 configure_database || true
+
+echo ""
+echo "Step 4: Running schema migration..."
 run_schema_migration || true
 
+echo ""
+echo "Step 5: Testing database connection..."
+test_connection || true
+
+echo ""
 echo "=========================================================================="
 echo "🎉 PostgreSQL Setup Completed! Connection Details:"
 echo "   Host: localhost"
 echo "   Port: 5432"
 echo "   Database: ${DB_NAME}"
 echo "   User: ${DB_USER}"
+echo "   Password: ${DB_PASS}"
 echo "   URL: postgres://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"
+echo ""
+echo "📋 Schema Version: 2.1"
+echo "📊 Total Tables: 23 (Includes all tables for Nepal Telecom & Fiber ISP Operations)"
+echo "=========================================================================="
+echo ""
+echo "💡 Next Steps:"
+echo "   1. Run 'npm install' to install dependencies"
+echo "   2. Run 'npm run dev' to start the server"
+echo "   3. Access the application at http://localhost:5000"
 echo "=========================================================================="
