@@ -13,6 +13,7 @@ import {
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface BranchStockTrackingProps {
   currentUser?: User | null;
@@ -69,6 +70,8 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
     .map(({ prod }) => prod);
 
   const hiddenZeroStockCount = productsWithStock.filter(({ totalQty }) => totalQty === 0).length;
+
+  const branchStockPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch]);
 
   const handleExportBranchStockCSV = () => {
     // Dynamic columns including per-branch quantities
@@ -131,26 +134,26 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header & Actions */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <Layers className="h-5 w-5 text-indigo-500" />
             <span>Branch Stock Matrix & Location Tracking</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Realtime stock balances across branches with reorder status alerts and direct transfer dispatches.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="shrink-0 flex flex-wrap items-center gap-2.5">
           <button
             type="button"
             onClick={handleExportBranchStockCSV}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export full Branch Stock Matrix with uniform BS Date (YYYY-MM-DD)"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -160,7 +163,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
 
           <button
             onClick={() => setShowZeroStock(!showZeroStock)}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+            className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer ${
               showZeroStock
                 ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600/40 hover:bg-amber-100'
                 : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600/40 hover:bg-emerald-100'
@@ -186,7 +189,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-3 p-3.5 rounded-2xl border shadow-sm ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="relative w-full md:w-80">
+ <div className="relative md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -229,24 +232,24 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       }`}>
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-15rem)] relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className={`p-3.5 sticky top-0 left-0 z-30 w-64 border-r ${
+                <th className={`px-2.5 py-1.5 sticky top-0 left-0 z-30 w-64 border-r ${
                   isDarkMode ? 'bg-[#12161f] border-slate-800' : 'bg-slate-100 border-slate-200'
                 }`}>
                   Product SKU & Name
                 </th>
-                <th className="p-3.5 text-center sticky top-0 bg-inherit">Category</th>
-                <th className="p-3.5 text-right sticky top-0 bg-inherit">Min Reorder</th>
-                <th className={`p-3.5 text-center sticky top-0 border-l border-r font-extrabold ${
+                <th className="px-2.5 py-1.5 text-center sticky top-0 bg-inherit">Category</th>
+                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit">Min Reorder</th>
+                <th className={`px-2.5 py-1.5 text-center sticky top-0 border-l border-r font-extrabold ${
                   isDarkMode ? 'bg-indigo-950/40 text-indigo-300 border-slate-800' : 'bg-indigo-50/80 text-indigo-900 border-slate-200'
                 }`}>
                   Total Stock
                 </th>
                 {activeBranches.map((b) => (
-                  <th key={b.id} className={`p-3.5 text-center border-l sticky top-0 bg-inherit min-w-[130px] ${
+                  <th key={b.id} className={`px-2.5 py-1.5 text-center border-l sticky top-0 bg-inherit min-w-[130px] ${
                     isDarkMode ? 'border-slate-800' : 'border-slate-200'
                   }`}>
                     <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{b.name}</div>
@@ -265,7 +268,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                   </td>
                 </tr>
               ) : (
-                visibleProducts.map((prod) => {
+                branchStockPagination.pagedItems.map((prod) => {
                   const systemTotalUsable = branches.reduce((sum, b) => {
                     const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
                     return sum + (st ? st.quantityOnHand : 0);
@@ -280,7 +283,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                     <tr key={prod.id} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
-                      <td className={`p-3.5 sticky left-0 z-10 border-r font-medium ${
+                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium ${
                         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
                       }`}>
                         <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
@@ -288,7 +291,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                           SKU: {prod.sku}
                         </div>
                       </td>
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <span className={`rounded px-2 py-0.5 text-[10px] font-semibold border ${
                           isDarkMode
                             ? 'bg-slate-900 text-slate-300 border-slate-800'
@@ -297,14 +300,14 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                           {prod.category}
                         </span>
                       </td>
-                      <td className={`p-3.5 text-right font-mono font-semibold ${
+                      <td className={`p-2.5 text-right font-mono font-semibold ${
                         isDarkMode ? 'text-slate-400' : 'text-slate-600'
                       }`}>
                         {prod.minReorderLevel} {prod.unit}
                       </td>
 
                       {/* Total Stock Column */}
-                      <td className={`p-3.5 text-center border-l border-r font-mono font-bold ${
+                      <td className={`p-2.5 text-center border-l border-r font-mono font-bold ${
                         isDarkMode ? 'bg-indigo-950/20 border-slate-800 text-indigo-300' : 'bg-indigo-50/50 border-slate-200 text-indigo-900'
                       }`}>
                         <div className="flex flex-col items-center">
@@ -377,6 +380,18 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
           </tbody>
           </table>
         </div>
+        <TablePagination
+          page={branchStockPagination.page}
+          pageCount={branchStockPagination.pageCount}
+          totalItems={branchStockPagination.totalItems}
+          rangeStart={branchStockPagination.rangeStart}
+          rangeEnd={branchStockPagination.rangeEnd}
+          pageSize={branchStockPagination.pageSize}
+          onPageChange={branchStockPagination.setPage}
+          onPageSizeChange={branchStockPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
     </div>

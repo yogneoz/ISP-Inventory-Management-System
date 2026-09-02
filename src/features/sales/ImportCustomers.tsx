@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Branch, CustomerRecord } from '../../types';
 import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface ImportCustomersProps {
   branches: Branch[];
@@ -76,44 +77,45 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   const [parsedRows, setParsedRows] = useState<ParsedCustomerRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
+  const rowsPagination = useClientPagination(parsedRows, 25, [parsedRows]);
 
-  // Sample data array for CSV creation
+  // Sample data array for CSV creation (example/dummy data only)
   const sampleCsvData = [
     {
       'Cus. Code': 'CUS-10291',
-      'Customer Name': 'Aarav Sharma',
-      'Username': 'aarav.sharma',
-      'Primary Mobile': '9851092810',
-      'Branch Code': 'BRC01',
-      'Address': 'Durbar Marg Ward 4 Kathmandu',
-      'Email': 'aarav@gmail.com',
+      'Customer Name': 'Example Customer 1',
+      'Username': 'example.customer1',
+      'Primary Mobile': '9800000011',
+      'Branch Code': 'WH001',
+      'Address': 'Example Street, Example City',
+      'Email': 'example.customer1@example.com',
     },
     {
       'Cus. Code': 'CUS-10292',
-      'Customer Name': 'Pooja Gurung',
-      'Username': 'pooja.g',
-      'Primary Mobile': '9846019283',
-      'Branch Code': 'BTM01',
-      'Address': 'Lakeside Ward 6 Pokhara',
-      'Email': 'pooja.g@yahoo.com',
+      'Customer Name': 'Example Customer 2',
+      'Username': 'example.customer2',
+      'Primary Mobile': '9800000012',
+      'Branch Code': 'BRH01',
+      'Address': 'Example Avenue, Example City',
+      'Email': 'example.customer2@example.com',
     },
     {
       'Cus. Code': 'CUS-10293',
-      'Customer Name': 'Subash Shrestha',
-      'Username': 'subash.sh',
-      'Primary Mobile': '9801029381',
+      'Customer Name': 'Example Customer 3',
+      'Username': 'example.customer3',
+      'Primary Mobile': '9800000013',
       'Branch Code': 'WH001',
-      'Address': 'Jawalakhel Ward 2 Lalitpur',
-      'Email': 'subash@outlook.com',
+      'Address': 'Example Road, Example City',
+      'Email': 'example.customer3@example.com',
     },
     {
       'Cus. Code': 'CUS-10294',
-      'Customer Name': 'Bina Thapa',
-      'Username': 'bina.t',
-      'Primary Mobile': '9855019284',
-      'Branch Code': 'CHU01',
-      'Address': 'Lions Chowk Ward 1 Narayangarh',
-      'Email': 'bina@gmail.com',
+      'Customer Name': 'Example Customer 4',
+      'Username': 'example.customer4',
+      'Primary Mobile': '9800000014',
+      'Branch Code': 'BRH01',
+      'Address': 'Example Lane, Example City',
+      'Email': 'example.customer4@example.com',
     },
   ];
 
@@ -261,19 +263,19 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <UserPlus className="h-5 w-5 text-indigo-500" />
             <span>Import Customer Database (CSV)</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via CSV (.csv) template.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCSV}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
@@ -410,15 +412,15 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[9px] tracking-wider border-b ${
+              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">Cus. Code / Name</th>
-                  <th className="p-2.5">Username & Mobile</th>
-                  <th className="p-2.5">Branch Code</th>
-                  <th className="p-2.5">Address</th>
-                  <th className="p-2.5">Status</th>
+                  <th className="px-2.5 py-1.5">Cus. Code / Name</th>
+                  <th className="px-2.5 py-1.5">Username & Mobile</th>
+                  <th className="px-2.5 py-1.5">Branch Code</th>
+                  <th className="px-2.5 py-1.5">Address</th>
+                  <th className="px-2.5 py-1.5">Status</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -429,7 +431,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  parsedRows.map((row, idx) => (
+                  rowsPagination.pagedItems.map((row, idx) => (
                     <tr key={idx} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
@@ -463,6 +465,18 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={rowsPagination.page}
+            pageCount={rowsPagination.pageCount}
+            totalItems={rowsPagination.totalItems}
+            rangeStart={rowsPagination.rangeStart}
+            rangeEnd={rowsPagination.rangeEnd}
+            pageSize={rowsPagination.pageSize}
+            onPageChange={rowsPagination.setPage}
+            onPageSizeChange={rowsPagination.setPageSize}
+            isDarkMode={isDarkMode}
+            className="mt-1"
+          />
         </div>
       </div>
     </div>

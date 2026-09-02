@@ -11,6 +11,7 @@ import {
   Shipment,
   StockOperation,
   FiscalYear,
+  FiscalYearOpeningStockResponse,
   AuditLog,
   TransactionLog,
   FinancialSummary,
@@ -391,12 +392,6 @@ export const api = {
     return fetchJson(`/api/purchase-orders/${id}`, { method: 'DELETE' });
   },
 
-  async receivePurchaseOrder(id: string): Promise<PurchaseOrder> {
-    return fetchJson(`/api/purchase-orders/${id}/receive`, {
-      method: 'POST',
-    });
-  },
-
   // Purchase Invoices
   async getPurchaseInvoices(branchId?: string): Promise<PurchaseInvoice[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -513,16 +508,51 @@ export const api = {
     });
   },
 
-  async closeFiscalYear(id: string): Promise<FiscalYear> {
-    return fetchJson(`/api/fiscal-years/${id}/close`, { method: 'POST' });
+  async closeFiscalYear(
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify(credentials || {}),
+    });
   },
 
-  async reopenFiscalYear(id: string): Promise<FiscalYear> {
-    return fetchJson(`/api/fiscal-years/${id}/reopen`, { method: 'POST' });
+  async reopenFiscalYear(
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(credentials || {}),
+    });
   },
 
-  async initializeFiscalYearOpeningStock(id: string): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }> {
+  async initializeFiscalYearOpeningStock(
+    id: string
+  ): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }> {
     return fetchJson(`/api/fiscal-years/${id}/initialize-opening-stock`, { method: 'POST' });
+  },
+
+  // Opening-Stock Register (Fiscal Year)
+  async getFiscalYearOpeningStock(id: string): Promise<FiscalYearOpeningStockResponse> {
+    return fetchJson(`/api/fiscal-years/${id}/opening-stock`);
+  },
+
+  async adjustFiscalYearOpeningStock(
+    id: string,
+    rows: Array<{
+      productId: string;
+      branchId: string;
+      quantityOnHand: number;
+      damagedQty: number;
+      unitCost: number;
+    }>
+  ): Promise<{ applied: number; created: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${id}/opening-stock`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    });
   },
 
   async deleteFiscalYear(id: string): Promise<{ message: string; id: string }> {
@@ -574,8 +604,11 @@ export const api = {
   },
 
   // Financial Summary
-  async getFinancialSummary(branchId?: string): Promise<FinancialSummary> {
-    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+  async getFinancialSummary(branchId?: string, fiscalYearId?: string): Promise<FinancialSummary> {
+    const params = new URLSearchParams();
+    if (branchId && branchId !== 'ALL') params.set('branchId', branchId);
+    if (fiscalYearId) params.set('fiscalYearId', fiscalYearId);
+    const query = params.toString() ? `?${params.toString()}` : '';
     return fetchJson(`/api/reports/financial-summary${query}`);
   },
 
@@ -698,6 +731,19 @@ export const api = {
     if (search && search.trim()) params.append('search', search.trim());
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return fetchJson(`/api/bs-calendar/days${queryString}`);
+  },
+
+  // Single-day lookup against the bs_day_records table (PostgreSQL authoritative,
+  // in-memory fallback). Returns found=false when the AD date has no seeded BS record.
+  async getBsDayRecordByAdDate(adDateStr: string): Promise<{
+    found: boolean;
+    source?: string;
+    adDate?: string | null;
+    record?: any;
+    message?: string;
+  }> {
+    const params = new URLSearchParams({ adDate: adDateStr });
+    return fetchJson(`/api/bs-calendar/day?${params.toString()}`);
   },
 
   async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; pgSynced?: boolean; message: string }> {

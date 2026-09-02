@@ -20,6 +20,7 @@ import {
   Download,
   Printer,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface AuditTrailReportsProps {
   auditLogs: AuditLog[];
@@ -48,6 +49,9 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
     'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
   >('AUDIT_TRAIL');
 
+  const txnPagination = useClientPagination(transactionLogs || [], 15);
+  const auditPagination = useClientPagination(auditLogs || [], 15);
+
   // Compute Balance Sheet numbers
   const inventoryAssetVal = financialSummary?.totalInventoryAssetValue ?? 0;
   const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
@@ -66,23 +70,23 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   return (
     <div className="printable-document space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold tracking-tight flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
             <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>
               Activities Log (System Audit Trail)
             </span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
             Realtime security audit trails, user access activities, role permissions changes, and system mutation records.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handlePrintReport}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
               isDarkMode
                 ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
@@ -98,7 +102,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       <div className={`flex items-center gap-2 border-b pb-2 ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
         <button
           onClick={() => setSubTab('AUDIT_TRAIL')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             subTab === 'AUDIT_TRAIL'
               ? 'bg-indigo-600 text-white shadow-md'
               : isDarkMode
@@ -112,7 +116,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
 
         <button
           onClick={() => setSubTab('STOCK_TRANSACTIONS')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             subTab === 'STOCK_TRANSACTIONS'
               ? 'bg-indigo-600 text-white shadow-md'
               : isDarkMode
@@ -170,33 +174,33 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="p-3">Txn #</th>
-                  <th className="p-3">Product Name</th>
-                  <th className="p-3">Change Type</th>
-                  <th className="p-3 text-right">Qty Before</th>
-                  <th className="p-3 text-right">Change</th>
-                  <th className="p-3 text-right">Qty After</th>
-                  <th className="p-3">Timestamp</th>
+                  <th className="px-2.5 py-1.5">Txn #</th>
+                  <th className="px-2.5 py-1.5">Product Name</th>
+                  <th className="px-2.5 py-1.5">Change Type</th>
+                  <th className="px-2.5 py-1.5 text-right">Qty Before</th>
+                  <th className="px-2.5 py-1.5 text-right">Change</th>
+                  <th className="px-2.5 py-1.5 text-right">Qty After</th>
+                  <th className="px-2.5 py-1.5">Timestamp</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                {transactionLogs.map((log) => (
+                {txnPagination.pagedItems.map((log) => (
                   <tr
                     key={log.id}
                     className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80'
                     }`}
                   >
-                    <td className="p-3 font-mono font-bold text-slate-500 dark:text-slate-400">
+                    <td className="p-2.5 font-mono font-bold text-slate-500 dark:text-slate-400">
                       {log.transactionNumber}
                     </td>
-                    <td className="p-3 font-bold text-slate-900 dark:text-white">{log.productName}</td>
-                    <td className="p-3">
+                    <td className="p-2.5 font-bold text-slate-900 dark:text-white">{log.productName}</td>
+                    <td className="p-2.5">
                       <span className="rounded bg-slate-100 dark:bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
                         {log.changeType.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="p-3 text-right font-mono text-slate-500 dark:text-slate-400">{log.quantityBefore}</td>
+                    <td className="p-2.5 text-right font-mono text-slate-500 dark:text-slate-400">{log.quantityBefore}</td>
                     <td
                       className={`p-3 text-right font-mono font-extrabold ${
                         log.quantityChanged > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
@@ -204,10 +208,10 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                     >
                       {log.quantityChanged > 0 ? `+${log.quantityChanged}` : log.quantityChanged}
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                    <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
                       {log.quantityAfter}
                     </td>
-                    <td className="p-3 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                    <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                       {formatDualDate(log.timestampAD, dateMode)}
                     </td>
                   </tr>
@@ -215,6 +219,18 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={txnPagination.page}
+            pageCount={txnPagination.pageCount}
+            totalItems={txnPagination.totalItems}
+            rangeStart={txnPagination.rangeStart}
+            rangeEnd={txnPagination.rangeEnd}
+            pageSize={txnPagination.pageSize}
+            onPageChange={txnPagination.setPage}
+            onPageSizeChange={txnPagination.setPageSize}
+            isDarkMode={isDarkMode}
+            className="mt-2"
+          />
         </div>
       )}
 
@@ -261,30 +277,30 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="p-3">User</th>
-                  <th className="p-3">Module</th>
-                  <th className="p-3">Action</th>
-                  <th className="p-3">Details</th>
-                  <th className="p-3">Timestamp</th>
+                  <th className="px-2.5 py-1.5">User</th>
+                  <th className="px-2.5 py-1.5">Module</th>
+                  <th className="px-2.5 py-1.5">Action</th>
+                  <th className="px-2.5 py-1.5">Details</th>
+                  <th className="px-2.5 py-1.5">Timestamp</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                {auditLogs.map((log) => (
+                {auditPagination.pagedItems.map((log) => (
                   <tr
                     key={log.id}
                     className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80'
                     }`}
                   >
-                    <td className="p-3 font-bold text-slate-900 dark:text-white">{log.userName}</td>
-                    <td className="p-3">
+                    <td className="p-2.5 font-bold text-slate-900 dark:text-white">{log.userName}</td>
+                    <td className="p-2.5">
                       <span className="rounded bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
                         {log.module}
                       </span>
                     </td>
-                    <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{log.action}</td>
-                    <td className="p-3 text-slate-600 dark:text-slate-400 text-[11px]">{log.details}</td>
-                    <td className="p-3 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                    <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{log.action}</td>
+                    <td className="p-2.5 text-slate-600 dark:text-slate-400 text-[11px]">{log.details}</td>
+                    <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                       {formatDualDate(log.timestampAD, dateMode)}
                     </td>
                   </tr>
@@ -292,6 +308,18 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={auditPagination.page}
+            pageCount={auditPagination.pageCount}
+            totalItems={auditPagination.totalItems}
+            rangeStart={auditPagination.rangeStart}
+            rangeEnd={auditPagination.rangeEnd}
+            pageSize={auditPagination.pageSize}
+            onPageChange={auditPagination.setPage}
+            onPageSizeChange={auditPagination.setPageSize}
+            isDarkMode={isDarkMode}
+            className="mt-2"
+          />
         </div>
       )}
     </div>

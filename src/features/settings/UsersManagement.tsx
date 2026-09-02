@@ -18,6 +18,7 @@ import {
   Lock,
   RotateCcw,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { api } from '../../services/api';
 
 interface UsersManagementProps {
@@ -75,6 +76,8 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
       (u?.email || '').toLowerCase().includes((search || '').toLowerCase()) ||
       (u?.role || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const usersPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingUser(null);
@@ -233,20 +236,20 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     : 'bg-white border-slate-200 text-slate-800 shadow-xs';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             <span>User Access & Role Administration</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, update roles, assign branches, or reset user passwords in case staff forget credentials.
           </p>
         </div>
         <button
           onClick={handleOpenAddModal}
-          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="h-4 w-4" />
           <span>Add New User</span>
@@ -255,7 +258,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -273,11 +276,11 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
       {/* Grid of Users */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((u) => {
+        {usersPagination.pagedItems.map((u) => {
           const userBranch = branches.find((b) => b.id === u.branchId);
 
           return (
-            <div key={u.id} className={`p-5 rounded-2xl border transition-all ${cardBg}`}>
+            <div key={u.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30">
@@ -355,6 +358,18 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
           );
         })}
       </div>
+      <TablePagination
+        page={usersPagination.page}
+        pageCount={usersPagination.pageCount}
+        totalItems={usersPagination.totalItems}
+        rangeStart={usersPagination.rangeStart}
+        rangeEnd={usersPagination.rangeEnd}
+        pageSize={usersPagination.pageSize}
+        onPageChange={usersPagination.setPage}
+        onPageSizeChange={usersPagination.setPageSize}
+        isDarkMode={isDarkMode}
+        className="mt-1"
+      />
 
       {/* Modal Add / Edit User */}
       {isModalOpen && (
@@ -376,7 +391,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Suman Thapa"
+                  placeholder="e.g., Full Name"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -388,7 +403,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="suman@izone.net.np"
+                  placeholder="user@example.com"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>

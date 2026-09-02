@@ -18,7 +18,7 @@ import {
   ApprovalRequest,
 } from '../../types';
 import { initialLocationsData, initialCustomersData } from '../../data/initialData';
-import { formatDualDate } from '../../utils/nepaliCalendar';
+import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { api } from '../../services/api';
 import {
   AlertOctagon,
@@ -173,6 +173,45 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setActiveTab(getInitialTab());
   }, [initialType]);
 
+  // ---------------------------------------------------------------------------
+  // BS Calendar Gate: stock operations are only allowed when today's AD date
+  // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
+  // seeded/updated by the admin from System Settings -> BS Calendar Utility.
+  // ---------------------------------------------------------------------------
+  const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
+  const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  const checkBsDateAvailability = async () => {
+    const todayAD = new Date().toISOString().split('T')[0];
+    try {
+      const res = await api.getBsDayRecordByAdDate(todayAD);
+      setBsDateCheckedFor(todayAD);
+      setBsDateStatus(res?.found ? 'available' : 'missing');
+    } catch (_err) {
+      // Server unreachable -> fall back to the strict client-side calendar check
+      setBsDateCheckedFor(todayAD);
+      setBsDateStatus(hasExactBSDayRecord(todayAD) ? 'available' : 'missing');
+    }
+  };
+
+  useEffect(() => {
+    checkBsDateAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const ensureBsDateAvailable = (): boolean => {
+    if (bsDateStatus === 'missing') {
+      alert(
+        'BS date is not available. Stock operations are locked.\n\n' +
+          `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
+          'Please contact your system administrator for BS month seeding.\n\n' +
+          'Admin path: System Settings -> BS Calendar Utility -> Seed / Update BS month.'
+      );
+      return false;
+    }
+    return true;
+  };
+
   const isStandalonePage = Boolean(initialType);
 
   // Filter state
@@ -251,7 +290,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     effectivePulloutSourceBranches.find((b) => b.id === userBranchId)?.id ||
     effectivePulloutSourceBranches[0]?.id ||
     allowedBranches.find((b) => b.id !== 'WH001')?.id ||
-    'BRC01';
+    'BRH01';
 
   const [sourceBranchId, setSourceBranchId] = useState<string>(initialPulloutSourceBranchId);
   const [destWarehouseId, setDestWarehouseId] = useState<string>(
@@ -286,7 +325,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       !b.isWarehouse &&
       !b.isHeadquarters &&
       b.id !== 'WH001' &&
-      b.id !== 'BR-KTM' &&
       !b.code.toUpperCase().startsWith('WH') &&
       !(b?.name || '').toLowerCase().includes('warehouse') &&
       !(b?.name || '').toLowerCase().includes('head office') &&
@@ -305,7 +343,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         !b.isWarehouse &&
         !b.isHeadquarters &&
         b.id !== 'WH001' &&
-        b.id !== 'BR-KTM' &&
         !b.code.toUpperCase().startsWith('WH') &&
         !(b?.name || '').toLowerCase().includes('warehouse') &&
         !(b?.name || '').toLowerCase().includes('head office') &&
@@ -414,6 +451,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const handleConfirmReceiveVerification = async () => {
+    if (!ensureBsDateAvailable()) return;
     if (!receivingShipmentModal || !onReceiveShipment) return;
 
     const payloadItems = receivingShipmentModal.items.map((item) => {
@@ -461,6 +499,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Execute direct cancellation (Super Admin & Inventory Manager)
   const handleDirectCancelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (!directCancelModalShipment) return;
 
     setIsProcessingCancel(true);
@@ -493,6 +532,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Submit approval request for cancellation (Other Roles: Branch Manager, Front Desk, etc.)
   const handleRequestCancelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (!requestCancelModalShipment) return;
     if (!requestCancelReason.trim()) {
       showToast('Please provide a reason for requesting cancellation.');
@@ -1080,6 +1120,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 1. Submit Pullout Dispatch
   const handleSubmitPulloutBin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (pulloutItems.length === 0) {
       alert('Please add at least one stock item to the pullout bin.');
       return;
@@ -1130,6 +1171,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 2. Submit Local Damage Tagging
   const handleSubmitDamageTag = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
     if (damageItems.length === 0) {
       alert('Add at least one product to the damaged stock list.');
@@ -1216,6 +1258,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 3. Submit Create Transfer
   const handleSubmitCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     const srcBranch = branches.find((b) => b.id === xferSourceBranchId || b.code === xferSourceBranchId);
     const destBranch = branches.find((b) => b.id === xferDestBranchId || b.code === xferDestBranchId);
 
@@ -1250,6 +1293,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
 
     if (onCreateShipment) {
+      // Date integrity: AD dispatch date is canonical; BS is derived from the seeded calendar.
+      const dispatchDateAD = new Date().toISOString().split('T')[0];
+      const dispatchBS = tryConvertADToBS(dispatchDateAD);
       await onCreateShipment({
         trackingCode: `TRF-BR-${Math.floor(100000 + Math.random() * 900000)}`,
         type: 'INTER_BRANCH',
@@ -1257,8 +1303,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         sourceBranchName: srcBranch.name,
         destinationBranchId: xferDestBranchId,
         destinationBranchName: destBranch.name,
-        dispatchDateAD: new Date().toISOString().split('T')[0],
-        dispatchDateBS: '2083-04-16 BS',
+        dispatchDateAD,
+        dispatchDateBS: dispatchBS?.formattedBSShort || '',
         estimatedArrivalAD: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
         status: 'DISPATCHED',
         items: transferItems,
@@ -1293,8 +1339,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   const handleSubmitAssignAsset = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     const todayAD = new Date().toISOString().split('T')[0];
-    const todayBS = '2083-04-28 BS';
+    // Derive the BS date from the seeded calendar — never hardcode.
+    const todayBS = tryConvertADToBS(todayAD)?.formattedBSShort || '';
 
     // A) If assigning a Product directly as a Fixed Asset / Rental CPE
     if (selectedProductForAssign) {
@@ -1419,6 +1467,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const handleUnassignAsset = async (asset: Asset) => {
+    if (!ensureBsDateAvailable()) return;
     if (!onUpdateAssetStatus) return;
     if (confirm(`Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`)) {
       await onUpdateAssetStatus(asset.id, {
@@ -1438,6 +1487,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 6. Submit Consumable Issue to Technician / Work Order Field Usage
   const handleSubmitConsumableIssue = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (consumableItems.length === 0) {
       alert('Please add at least one consumable item to issue.');
       return;
@@ -1482,6 +1532,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 5. Submit Product Sale to Customer
   const handleSubmitProductSale = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     const cust = customers.find((c) => c.id === saleCustomerId);
     const branchObj = branches.find((b) => b.id === saleBranchId);
 
@@ -1550,6 +1601,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         );
         if (!hasMatchingOp) {
           const prod = products.find((p) => p.id === stk.productId);
+          // Date integrity: derive BS + fiscal year from the AD date (no hardcoded values).
+          const synDateAD = stk.lastUpdated ? stk.lastUpdated.split('T')[0] : new Date().toISOString().split('T')[0];
+          const synDateBS = tryConvertADToBS(synDateAD);
           synthesizedDamageOps.push({
             id: `syn-dmg-${stk.id}`,
             referenceNumber: `DMG-${stk.branchId}-${stk.productId.replace('prod-', '').toUpperCase().slice(0, 8)}`,
@@ -1562,9 +1616,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             totalValue: stk.damagedQty * (prod?.costPrice || 0),
             reason: 'Physical branch inventory inspection & transit damage tag',
             inspectorName: 'Branch Quality Inspector',
-            dateAD: stk.lastUpdated ? stk.lastUpdated.split('T')[0] : '2026-07-22',
-            dateBS: '2083-04-07 BS',
-            fiscalYear: '2082-83',
+            dateAD: synDateAD,
+            dateBS: synDateBS?.formattedBSShort || '',
+            fiscalYear: getNepaliFiscalYear(synDateAD),
           });
         }
       }
@@ -1594,6 +1648,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   const handlePerformExchange = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (!selectedDeviceForExchange) {
       alert('Please select a customer device to exchange.');
       return;
@@ -1725,23 +1780,50 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
+      {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
+      {bsDateStatus === 'missing' && (
+        <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-900 dark:text-red-200 flex flex-col sm:flex-row sm:items-center justify-start gap-3">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold">
+                BS date is not available. Please contact your system administrator for BS month seeding.
+              </p>
+              <p className="text-xs mt-1 opacity-90">
+                Today ({bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records),
+                so all stock operations (pullouts, sales, damage logs, transfers, asset assignments) are temporarily
+                locked. Seed the missing BS month from <strong>System Settings &rarr; BS Calendar Utility</strong>, then re-check.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={checkBsDateAvailability}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors cursor-pointer flex-shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Re-check BS Date
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <AlertOctagon className="h-5 w-5 text-indigo-500" />
             <span>Stock Operations & Logistics Center</span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
             Manage overstock pullouts, branch damage labeling, inter-branch transfers, fixed asset site assignments, and customer product sales.
           </p>
         </div>
 
         {/* Top Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="shrink-0 flex flex-wrap items-center gap-2">
         </div>
       </div>
 
@@ -1762,7 +1844,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('PULLOUT_BINS');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canPullout
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'PULLOUT_BINS'
@@ -1791,7 +1873,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('DAMAGE_TRACKING');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canDamage
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'DAMAGE_TRACKING'
@@ -1820,7 +1902,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('RECEIVE_TRANSFER');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canReceive
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'RECEIVE_TRANSFER'
@@ -1849,7 +1931,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('CREATE_TRANSFER');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canCreateXfer
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'CREATE_TRANSFER'
@@ -1878,7 +1960,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('ASSIGN_ASSET');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canAssignAsset
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'ASSIGN_ASSET'
@@ -1899,7 +1981,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <button
               title="Issue Consumables (Splitters, Protection Sleeves, Couplers, Fast Connectors) to Field Technicians"
               onClick={() => setActiveTab('CONSUMABLE_ISSUE')}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 activeTab === 'CONSUMABLE_ISSUE'
                   ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
                   : isDarkMode
@@ -1926,7 +2008,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }
                 setActiveTab('PRODUCT_SALE');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canSale
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
                   : activeTab === 'PRODUCT_SALE'
@@ -1945,7 +2027,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         <button
           onClick={() => setActiveTab('DEVICE_EXCHANGE')}
           title="Exchange customer ONU/STB device, enter replacement serials, and return old unit to stock"
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'DEVICE_EXCHANGE'
               ? 'bg-indigo-600 text-white shadow-sm'
               : isDarkMode
@@ -1959,7 +2041,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
         <button
           onClick={() => setActiveTab('LOGS')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'LOGS'
               ? 'bg-slate-700 text-white shadow-sm'
               : isDarkMode
@@ -1976,7 +2058,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 1: PULLOUT BINS (Warehouse Return) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PULLOUT_BINS' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
@@ -2028,7 +2110,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
                         रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
                       </span>
-                      {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'BR-KTM' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
+                      {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
                         <button
                           onClick={async () => {
                             if (confirm(`Confirm receipt of Pullout Bin ${op.referenceNumber} into Warehouse Stock?`)) {
@@ -2053,7 +2135,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 2: DAMAGED STOCK LABELING & TRACKING */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'DAMAGE_TRACKING' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {!isSuperOrInventory && (
             <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-center gap-2.5 text-xs font-medium">
               <ShieldAlert className="h-5 w-5 text-amber-500 flex-shrink-0" />
@@ -2097,18 +2179,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                <thead className={`font-bold text-[9px] tracking-wider border-b ${
                   isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                 }`}>
                   <tr>
-                    <th className="p-2.5">Reference #</th>
-                    <th className="p-2.5">Op Type</th>
-                    <th className="p-2.5">Branch</th>
-                    <th className="p-2.5">Product Name</th>
-                    <th className="p-2.5">Qty</th>
-                    <th className="p-2.5">Valuation</th>
-                    <th className="p-2.5">Reason & Method</th>
-                    <th className="p-2.5">Inspector / Officer</th>
+                    <th className="px-2.5 py-1.5">Reference #</th>
+                    <th className="px-2.5 py-1.5">Op Type</th>
+                    <th className="px-2.5 py-1.5">Branch</th>
+                    <th className="px-2.5 py-1.5">Product Name</th>
+                    <th className="px-2.5 py-1.5">Qty</th>
+                    <th className="px-2.5 py-1.5">Valuation</th>
+                    <th className="px-2.5 py-1.5">Reason & Method</th>
+                    <th className="px-2.5 py-1.5">Inspector / Officer</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -2152,7 +2234,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 3: RECEIVE TRANSFER */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'RECEIVE_TRANSFER' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
@@ -2297,18 +2379,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             {/* HIGH DENSITY EXPANDABLE TABLE LAYOUT */}
             <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f1218] shadow-xs">
               <table className="w-full text-left border-collapse text-xs">
-                <thead className={`text-[11px] font-bold uppercase tracking-wider border-b ${
+                <thead className={`text-[11px] font-bold tracking-wider border-b ${
                   isDarkMode ? 'bg-slate-900/90 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
                   <tr>
-                    <th className="p-3 w-10 text-center">#</th>
-                    <th className="p-3">Transfer Code</th>
-                    <th className="p-3">Route (Sender ➔ Recipient)</th>
-                    <th className="p-3">Dispatch Date</th>
-                    <th className="p-3 text-center">Items & Qty</th>
-                    <th className="p-3 text-right">Valuation (रु)</th>
-                    <th className="p-3 text-center">Status</th>
-                    <th className="p-3 text-right">Action Controls</th>
+                    <th className="px-2.5 py-1.5 w-10 text-center">#</th>
+                    <th className="px-2.5 py-1.5">Transfer Code</th>
+                    <th className="px-2.5 py-1.5">Route (Sender ➔ Recipient)</th>
+                    <th className="px-2.5 py-1.5">Dispatch Date</th>
+                    <th className="px-2.5 py-1.5 text-center">Items & Qty</th>
+                    <th className="px-2.5 py-1.5 text-right">Valuation (रु)</th>
+                    <th className="px-2.5 py-1.5 text-center">Status</th>
+                    <th className="px-2.5 py-1.5 text-right">Action Controls</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200/80'}`}>
@@ -2413,7 +2495,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               : isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                           }`}>
                             {/* 1. Toggle button */}
-                            <td className="p-3 text-center">
+                            <td className="p-2.5 text-center">
                               <button
                                 type="button"
                                 onClick={() => setExpandedShipmentId(isExpanded ? null : sh.id)}
@@ -2431,7 +2513,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             {/* 2. Transfer Code */}
-                            <td className="p-3">
+                            <td className="p-2.5">
                               <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
                                 <span>{sh.trackingCode}</span>
                                 {isSenderBranch && (
@@ -2448,7 +2530,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             {/* 3. Route */}
-                            <td className="p-3">
+                            <td className="p-2.5">
                               <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
                                 <span>{sh.sourceBranchName || sh.sourceBranchId}</span>
                                 <ArrowRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
@@ -2457,7 +2539,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             {/* 4. Dispatch Date */}
-                            <td className="p-3 whitespace-nowrap">
+                            <td className="p-2.5 whitespace-nowrap">
                               <div className="font-mono text-slate-700 dark:text-slate-300 font-medium">
                                 {sh.dispatchDateAD || 'N/A'}
                               </div>
@@ -2465,19 +2547,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             {/* 5. Items & Qty */}
-                            <td className="p-3 text-center whitespace-nowrap">
+                            <td className="p-2.5 text-center whitespace-nowrap">
                               <span className="font-bold text-sky-600 dark:text-sky-400 font-mono">
                                 {sh.items?.length || 0} SKUs ({totalQty} Pcs)
                               </span>
                             </td>
 
                             {/* 6. Valuation */}
-                            <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                            <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                               रु {totalValue.toLocaleString('en-IN')}
                             </td>
 
                             {/* 7. Status */}
-                            <td className="p-3 text-center whitespace-nowrap">
+                            <td className="p-2.5 text-center whitespace-nowrap">
                               {pendingCancelReq ? (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 flex items-center justify-center gap-1 animate-pulse">
                                   <Clock className="h-3 w-3 animate-spin" />
@@ -2502,7 +2584,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             {/* 8. Actions */}
-                            <td className="p-3 text-right whitespace-nowrap">
+                            <td className="p-2.5 text-right whitespace-nowrap">
                               {pendingCancelReq ? (
                                 <div className="flex items-center justify-end gap-2">
                                   <button
@@ -2593,15 +2675,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                   {/* Itemized Table */}
                                   <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs">
                                     <table className="w-full text-left border-collapse">
-                                      <thead className={`text-[10px] font-bold uppercase tracking-wider border-b ${
+                                      <thead className={`text-[10px] font-bold tracking-wider border-b ${
                                         isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
                                       }`}>
                                         <tr>
-                                          <th className="p-2.5">Product & SKU</th>
-                                          <th className="p-2.5 text-center">Qty Sent</th>
-                                          <th className="p-2.5 text-right">Unit Cost</th>
-                                          <th className="p-2.5 text-right">Subtotal Value</th>
-                                          <th className="p-2.5">Device Serials & MAC Tracking</th>
+                                          <th className="px-2.5 py-1.5">Product & SKU</th>
+                                          <th className="px-2.5 py-1.5 text-center">Qty Sent</th>
+                                          <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
+                                          <th className="px-2.5 py-1.5 text-right">Subtotal Value</th>
+                                          <th className="px-2.5 py-1.5">Device Serials & MAC Tracking</th>
                                         </tr>
                                       </thead>
                                       <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -2685,7 +2767,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 4: CREATE TRANSFER (Multi-Item Inter-Branch Dispatch) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
-        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
@@ -2730,7 +2812,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       !b.isWarehouse &&
                       !b.isHeadquarters &&
                       b.id !== 'WH001' &&
-                      b.id !== 'BR-KTM' &&
                       !b.code.toUpperCase().startsWith('WH') &&
                       !(b?.name || '').toLowerCase().includes('warehouse') &&
                       !(b?.name || '').toLowerCase().includes('head office') &&
@@ -2784,15 +2865,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
                       isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                     }`}>
                       <tr>
-                        <th className="p-2.5">Product SKU & Name</th>
-                        <th className="p-2.5 text-center">Branch Stock</th>
-                        <th className="p-2.5 text-center">Transfer Qty</th>
-                        <th className="p-2.5 min-w-[280px]">Serials & PON Scanning</th>
-                        <th className="p-2.5 text-center">Action</th>
+                        <th className="px-2.5 py-1.5">Product SKU & Name</th>
+                        <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
+                        <th className="px-2.5 py-1.5 text-center">Transfer Qty</th>
+                        <th className="px-2.5 py-1.5 min-w-[280px]">Serials & PON Scanning</th>
+                        <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -2949,7 +3030,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 5: ASSIGN FIXED ASSET (Locations & Customer Sites) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'ASSIGN_ASSET' && (
-        <div className="space-y-6">
+        <div className="space-y-3">
           <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-800 dark:text-indigo-300 flex items-center justify-between text-xs font-medium">
             <div className="flex items-center gap-2">
               <Wrench className="h-5 w-5 text-indigo-500 flex-shrink-0" />
@@ -2960,7 +3041,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           </div>
 
           {/* Section A: Catalog Routers, ONUs & Fixed Asset Products (Deploy from Available Inventory) */}
-          <div className={`p-5 rounded-2xl border ${
+          <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
             <div className="flex items-center justify-between mb-3">
@@ -3152,7 +3233,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
-        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
@@ -3253,16 +3334,16 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
                       isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                     }`}>
                       <tr>
-                        <th className="p-2.5">Consumable Material</th>
-                        <th className="p-2.5 text-center">Store Stock</th>
-                        <th className="p-2.5 text-center">Issue Qty</th>
-                        <th className="p-2.5 text-right">Unit Cost</th>
-                        <th className="p-2.5 text-right">Total Cost</th>
-                        <th className="p-2.5 text-center">Action</th>
+                        <th className="px-2.5 py-1.5">Consumable Material</th>
+                        <th className="px-2.5 py-1.5 text-center">Store Stock</th>
+                        <th className="px-2.5 py-1.5 text-center">Issue Qty</th>
+                        <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
+                        <th className="px-2.5 py-1.5 text-right">Total Cost</th>
+                        <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -3375,17 +3456,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full text-left text-xs">
-                  <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                  <thead className={`font-bold text-[10px] tracking-wider border-b ${
                     isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                   }`}>
                     <tr>
-                      <th className="p-2.5">Date</th>
-                      <th className="p-2.5">Ref / WO</th>
-                      <th className="p-2.5">Branch</th>
-                      <th className="p-2.5">Consumable Material</th>
-                      <th className="p-2.5 text-center">Qty Issued</th>
-                      <th className="p-2.5">Technician</th>
-                      <th className="p-2.5 text-right">Value (NPR)</th>
+                      <th className="px-2.5 py-1.5">Date</th>
+                      <th className="px-2.5 py-1.5">Ref / WO</th>
+                      <th className="px-2.5 py-1.5">Branch</th>
+                      <th className="px-2.5 py-1.5">Consumable Material</th>
+                      <th className="px-2.5 py-1.5 text-center">Qty Issued</th>
+                      <th className="px-2.5 py-1.5">Technician</th>
+                      <th className="px-2.5 py-1.5 text-right">Value (NPR)</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -3416,7 +3497,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 7: PRODUCT SALE TO CUSTOMER (Multi-Item Sales Invoice) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
-        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
@@ -3523,17 +3604,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
                       isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                     }`}>
                       <tr>
-                        <th className="p-2.5">Product Name</th>
-                        <th className="p-2.5 text-center">Branch Stock</th>
-                        <th className="p-2.5 text-center">Sale Qty</th>
-                        <th className="p-2.5 text-right">Unit Price (रु)</th>
-                        <th className="p-2.5 text-right">Discount (रु)</th>
-                        <th className="p-2.5 text-right">Subtotal</th>
-                        <th className="p-2.5 text-center">Action</th>
+                        <th className="px-2.5 py-1.5">Product Name</th>
+                        <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
+                        <th className="px-2.5 py-1.5 text-center">Sale Qty</th>
+                        <th className="px-2.5 py-1.5 text-right">Unit Price (रु)</th>
+                        <th className="px-2.5 py-1.5 text-right">Discount (रु)</th>
+                        <th className="px-2.5 py-1.5 text-right">Subtotal</th>
+                        <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -3743,7 +3824,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 8: DEVICE EXCHANGE / REPLACEMENT SWAP */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'DEVICE_EXCHANGE' && (
-        <div className={`p-6 rounded-2xl border max-w-5xl mx-auto shadow-sm ${
+        <div className={`p-4 rounded-2xl border max-w-5xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
@@ -3790,7 +3871,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <span>🔄 <strong>Rental CPE Warranty Exchange Filter</strong>: Only customers with active <strong>RENTAL</strong> devices are eligible for exchange. Sold devices are customer-owned.</span>
                   </div>
 
-                  <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                     <input
                       type="text"
@@ -4066,17 +4147,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+              <thead className={`font-bold text-[9px] tracking-wider border-b ${
                 isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">Ref #</th>
-                  <th className="p-2.5">Type</th>
-                  <th className="p-2.5">Branch</th>
-                  <th className="p-2.5">Product / Details</th>
-                  <th className="p-2.5">Value</th>
-                  <th className="p-2.5">Inspector / Officer</th>
-                  <th className="p-2.5">Date</th>
+                  <th className="px-2.5 py-1.5">Ref #</th>
+                  <th className="px-2.5 py-1.5">Type</th>
+                  <th className="px-2.5 py-1.5">Branch</th>
+                  <th className="px-2.5 py-1.5">Product / Details</th>
+                  <th className="px-2.5 py-1.5">Value</th>
+                  <th className="px-2.5 py-1.5">Inspector / Officer</th>
+                  <th className="px-2.5 py-1.5">Date</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -4668,7 +4749,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     </span>
                   </div>
 
-                  <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                     <input
                       type="text"
@@ -4933,10 +5014,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Received by Subash Shrestha at Pokhara Branch. Seal was intact, counted & checked."
+                  placeholder="e.g. Received by [name] at [branch]. Seal was intact, counted & checked."
                   value={receivingByNotes}
                   onChange={(e) => setReceivingByNotes(e.target.value)}
-                  className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 focus:outline-none"
+                  className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 focus:outline-none"
                 />
               </div>
             </div>

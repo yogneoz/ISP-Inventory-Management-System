@@ -35,6 +35,7 @@ import {
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface CustomersManagementProps {
   customerDevices: CustomerDeviceRecord[];
@@ -244,7 +245,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         currentStatus: approvalTarget.record.status,
         requestedStatus: approvalTarget.targetStatus,
         requestedByRole: currentUser?.role || 'FRONT_DESK',
-        requestedByEmail: currentUser?.email || 'staff@izone.com.np',
+        requestedByEmail: currentUser?.email || 'staff@example.com',
         requestedByName: currentUser?.name || 'Branch Staff',
         branchId: approvalTarget.record.branchId,
         branchName,
@@ -327,6 +328,8 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
     return matchesBranch && matchesStatus && matchesQuery;
   });
+
+  const recordsPagination = useClientPagination(filteredRecords, 15, [searchQuery, selectedBranchId, selectedStatus]);
 
   // Metrics
   const rentalCount = customerDevices.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
@@ -416,24 +419,24 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 break-words leading-tight ${
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 break-words leading-tight ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <Wifi className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>Customer Hardware Directory & Serial Number Lookup</span>
           </h2>
-          <p className={`text-xs mt-1 break-words leading-normal max-w-3xl ${
+          <p className={`truncate text-xs mt-1 break-words leading-normal max-w-3xl ${
             isDarkMode ? 'text-slate-400' : 'text-slate-500'
           }`}>
             Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleExportCSV}
             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs ${
@@ -510,10 +513,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       </div>
 
       {/* Search & Filter Bar */}
-      <div className={`p-4 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 ${
         isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="relative flex-1">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500" />
           <input
             type="text"
@@ -556,19 +559,19 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       }`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+            <thead className={`font-bold text-[10px] tracking-wider border-b ${
               isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
             }`}>
               <tr>
-                <th className="p-3.5 break-words">Customer & Account</th>
-                <th className="p-3.5 break-words">Branch & Address</th>
-                <th className="p-3.5 break-words">Hardware Item</th>
-                <th className="p-3.5 break-words">Device Serial #</th>
-                <th className="p-3.5 break-words">PON Serial #</th>
-                <th className="p-3.5 break-words">Issued Date</th>
-                <th className="p-3.5 text-center break-words">Warranty Status</th>
-                <th className="p-3.5 text-center break-words">Device Status & Stock Sync</th>
-                <th className="p-3.5 text-center break-words">Action</th>
+                <th className="px-2.5 py-1.5 break-words">Customer & Account</th>
+                <th className="px-2.5 py-1.5 break-words">Branch & Address</th>
+                <th className="px-2.5 py-1.5 break-words">Hardware Item</th>
+                <th className="px-2.5 py-1.5 break-words">Device Serial #</th>
+                <th className="px-2.5 py-1.5 break-words">PON Serial #</th>
+                <th className="px-2.5 py-1.5 break-words">Issued Date</th>
+                <th className="px-2.5 py-1.5 text-center break-words">Warranty Status</th>
+                <th className="px-2.5 py-1.5 text-center break-words">Device Status & Stock Sync</th>
+                <th className="px-2.5 py-1.5 text-center break-words">Action</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -579,7 +582,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredRecords.map((rec) => {
+                recordsPagination.pagedItems.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
                   const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
                   const pendingDisconnect = getPendingDisconnectRequest(rec);
@@ -587,7 +590,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     <tr key={rec.id} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/50 text-slate-200' : 'hover:bg-blue-50/40 text-slate-800'
                     }`}>
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className={`font-bold text-sm break-words leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                           {rec.customerName}
                         </div>
@@ -599,7 +602,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className={`font-bold text-xs break-words ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                           {branch?.name || rec.branchId}
                         </div>
@@ -609,7 +612,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <span className={`font-bold px-2 py-1 rounded-lg text-xs inline-block break-words border ${
                           isDarkMode
                             ? 'bg-slate-800 text-slate-200 border-slate-700'
@@ -625,7 +628,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       </td>
 
                       {/* Device Serial Number */}
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
                           isDarkMode ? 'bg-blue-950/60 border-blue-800' : 'bg-blue-50 border-blue-200'
                         }`}>
@@ -656,7 +659,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       </td>
 
                       {/* PON Serial Number */}
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
                           isDarkMode ? 'bg-indigo-950/60 border-indigo-800' : 'bg-indigo-50 border-indigo-200'
                         }`}>
@@ -681,12 +684,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 break-words">
+                      <td className="p-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 break-words">
                         {formatDualDate(rec.issuedDateAD, dateMode)}
                       </td>
 
                       {/* Warranty Status Column */}
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border whitespace-normal break-words max-w-[130px] text-center justify-center ${
                           wInfo.status === 'VALID'
                             ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
@@ -702,7 +705,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       </td>
 
                       {/* Device Status & Disconnect Date */}
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <div className="flex flex-col items-center gap-1">
                           <span
                             className={`px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-xl border shadow-2xs ${
@@ -746,7 +749,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap min-w-[140px]">
                           <button
                             onClick={() => setViewingRecord(rec)}
@@ -807,6 +810,18 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={recordsPagination.page}
+          pageCount={recordsPagination.pageCount}
+          totalItems={recordsPagination.totalItems}
+          rangeStart={recordsPagination.rangeStart}
+          rangeEnd={recordsPagination.rangeEnd}
+          pageSize={recordsPagination.pageSize}
+          onPageChange={recordsPagination.setPage}
+          onPageSizeChange={recordsPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
       {/* Customer Record Detail Modal */}
@@ -1229,7 +1244,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   required
                   value={installationAddress}
                   onChange={(e) => setInstallationAddress(e.target.value)}
-                  placeholder="e.g. Lazimpat Ward 2, Kathmandu"
+                  placeholder="e.g. Example Street, Example City"
                   className={`w-full rounded-xl border px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 ${
                     isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                   }`}

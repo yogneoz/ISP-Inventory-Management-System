@@ -74,24 +74,26 @@ let locationRecords: LocationRecord[] = [];
 let branches: Branch[] = [];
 let fiscalYears: FiscalYear[] = [];
 
+// EXAMPLE/DUMMY company profile (is_demo-labelled data). Replace via the
+// Company Setup screen once real company details are available.
 const INITIAL_COMPANY_PROFILE: CompanyProfile = {
   id: 'COMP-001',
-  name: 'IZONE DIGITAL NETWORK PVT. LTD.',
-  legalName: 'iZone Digital Network Private Limited',
-  tagline: 'High Speed Fiber & Enterprise Communication System',
-  address: 'Urlabari-07, Morang, Koshi Province, Nepal',
-  city: 'Urlabari',
+  name: 'EXAMPLE NETWORKS PVT. LTD.',
+  legalName: 'Example Networks Private Limited (Dummy Data)',
+  tagline: 'Sample Fiber & ISP Inventory Company',
+  address: 'Example Street, Example City, Nepal',
+  city: 'Example City',
   country: 'Nepal',
-  phone: '+977-021-540123 / 9800000000',
-  email: 'info@izone.com.np',
-  website: 'https://izone.com.np',
-  panVatNumber: '609823412',
-  registrationNumber: 'REG-2075-88412',
+  phone: '+977-01-0000000',
+  email: 'info@example.com',
+  website: 'https://example.com',
+  panVatNumber: '000000000',
+  registrationNumber: 'REG-0000-00000',
   logoUrl: '',
   logoPreset: 'telecom',
   currencySymbol: 'Rs.',
   defaultTaxRate: 13,
-  notes: 'Head Office & Central Procurement Warehouse System',
+  notes: 'Dummy company profile for testing — replace with real details in Company Setup.',
 };
 
 let companyProfile: CompanyProfile = { ...INITIAL_COMPANY_PROFILE };
@@ -128,41 +130,39 @@ const INITIAL_MASTER_UOM: UnitOfMeasure[] = [
   { id: 'uom-5', name: 'Sets', symbol: 'Set', type: 'Count', isBaseUnit: true },
 ];
 
+// EXAMPLE/DUMMY locations (is_demo = TRUE). No real site data.
 const INITIAL_MASTER_LOCATIONS: LocationRecord[] = [
   {
     id: 'LOC-1001',
-    name: 'Main Server Room - HQ',
+    name: 'Example Location 1',
     type: 'POP_SERVER_ROOM',
     branchId: 'WH001',
-    address: 'Urlabari Central Station',
-    coordinates: { latitude: 26.6664, longitude: 87.625 },
-    contactPerson: 'Shrestha Admin',
-    contactPhone: '9800000000',
-    notes: 'Primary POP hub for Urlabari Region',
-    activeAssetsCount: 12,
+    address: 'Example Street, Example City, Nepal',
+    coordinates: { latitude: 0, longitude: 0 },
+    contactPerson: 'Example Contact 1',
+    contactPhone: '9800000001',
+    notes: 'Dummy location for testing (example data).',
+    activeAssetsCount: 0,
+  },
+  {
+    id: 'LOC-1002',
+    name: 'Example Location 2',
+    type: 'POP_SERVER_ROOM',
+    branchId: 'BRH01',
+    address: 'Example Avenue, Example City, Nepal',
+    coordinates: { latitude: 0, longitude: 0 },
+    contactPerson: 'Example Contact 2',
+    contactPhone: '9800000002',
+    notes: 'Dummy location for testing (example data).',
+    activeAssetsCount: 0,
   },
 ];
 
+// EXAMPLE/DUMMY branch master (is_demo = TRUE). No real branch data —
+// mirrors scripts/setup_db.js DEFAULT_BRANCHES.
 const INITIAL_MASTER_BRANCHES: Branch[] = [
-  { id: 'WH001', code: 'WH001', name: 'Head Office', location: 'Urlabari', phone: '9800000000', isHeadquarters: true, active: true },
-  { id: 'BRC01', code: 'BRC01', name: 'Biratchowk', location: 'Biratchowk', phone: '9800000001', isHeadquarters: false, active: true },
-  { id: 'BTM01', code: 'BTM01', name: 'Birtamode', location: 'Birtamode', phone: '9800000002', isHeadquarters: false, active: true },
-  { id: 'CHU01', code: 'CHU01', name: 'Chulachuli', location: 'Chulachuli', phone: '9800000003', isHeadquarters: false, active: true },
-  { id: 'DHU01', code: 'DHU01', name: 'Dudhe', location: 'Dudhe', phone: '9800000004', isHeadquarters: false, active: true },
-  { id: 'INR01', code: 'INR01', name: 'Inaruwa', location: 'Inaruwa', phone: '9800000005', isHeadquarters: false, active: true },
-  { id: 'ITH01', code: 'ITH01', name: 'Itahari', location: 'Itahari', phone: '9800000006', isHeadquarters: false, active: true },
-  { id: 'JTR01', code: 'JTR01', name: 'Jitpur', location: 'Jitpur', phone: '9800000007', isHeadquarters: false, active: true },
-  { id: 'HLE01', code: 'HLE01', name: 'Hile', location: 'Hile', phone: '9800000008', isHeadquarters: false, active: true },
-  { id: 'LTG01', code: 'LTG01', name: 'Letang', location: 'Letang', phone: '9800000009', isHeadquarters: false, active: true },
-  { id: 'MDL01', code: 'MDL01', name: 'Madhumalla', location: 'Madhumalla', phone: '9800000010', isHeadquarters: false, active: true },
-  { id: 'PTH01', code: 'PTH01', name: 'Pathari', location: 'Pathari', phone: '9800000011', isHeadquarters: false, active: true },
-  { id: 'PDM01', code: 'PDM01', name: 'Phidim', location: 'Phidim', phone: '9800000012', isHeadquarters: false, active: true },
-  { id: 'RJB01', code: 'RJB01', name: 'Rajbiraj', location: 'Rajbiraj', phone: '9800000013', isHeadquarters: false, active: true },
-  { id: 'RML01', code: 'RML01', name: 'Ramailo', location: 'Ramailo', phone: '9800000014', isHeadquarters: false, active: true },
-  { id: 'RTW01', code: 'RTW01', name: 'Ratuwamai', location: 'Ratuwamai', phone: '9800000015', isHeadquarters: false, active: true },
-  { id: 'SHV01', code: 'SHV01', name: 'Shivasatakshi', location: 'Shivasatakshi', phone: '9800000016', isHeadquarters: false, active: true },
-  { id: 'TND01', code: 'TND01', name: 'Tandi', location: 'Tandi', phone: '9800000017', isHeadquarters: false, active: true },
-  { id: 'URL01', code: 'URL01', name: 'Urlabari', location: 'Urlabari', phone: '9800000018', isHeadquarters: false, active: true },
+  { id: 'WH001', code: 'WH001', name: 'Branch 1 (Head Office)', location: 'Example Location 1', phone: '9800000000', isHeadquarters: true, active: true },
+  { id: 'BRH01', code: 'BRH01', name: 'Branch 2', location: 'Example Location 2', phone: '9800000001', isHeadquarters: false, active: true },
 ];
 
 const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
@@ -172,62 +172,62 @@ const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
   { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isCurrent: false, isClosed: false },
 ];
 
+// EXAMPLE/DUMMY suppliers (is_demo = TRUE). No real supplier data.
 const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
   {
     id: 'sup-1',
     supplierCode: 'SUP-1001',
-    name: 'Apex Trade & Telecom Supplies Pvt. Ltd.',
-    contactPerson: 'Ramesh Adhikari',
-    phone: '+977-1-4265890',
-    email: 'orders@apextelecom.com.np',
-    address: 'Putalisadak, Kathmandu, Nepal',
-    panVatNumber: '300129841',
+    name: 'Example Supplier 1',
+    contactPerson: 'Example Contact 1',
+    phone: '+977-01-0000001',
+    email: 'sales1@example.com',
+    address: 'Example Street, Example City, Nepal',
+    panVatNumber: '100000001',
     rating: 4.8,
   },
   {
     id: 'sup-2',
     supplierCode: 'SUP-1002',
-    name: 'Himalayan Tech Distributors Pvt. Ltd.',
-    contactPerson: 'Sanjay Thapa',
-    phone: '+977-1-4412390',
-    email: 'sales@himalayantech.com.np',
-    address: 'New Road, Kathmandu, Nepal',
-    panVatNumber: '302918273',
+    name: 'Example Supplier 2',
+    contactPerson: 'Example Contact 2',
+    phone: '+977-01-0000002',
+    email: 'sales2@example.com',
+    address: 'Example Avenue, Example City, Nepal',
+    panVatNumber: '200000002',
     rating: 4.7,
   },
   {
     id: 'sup-3',
     supplierCode: 'SUP-1003',
-    name: 'Nepal Optical & Fiber Optics Importers',
-    contactPerson: 'Binod Shrestha',
-    phone: '+977-1-4432100',
-    email: 'info@nepaloptical.com.np',
-    address: 'Morang, Koshi Province, Nepal',
-    panVatNumber: '601239845',
+    name: 'Example Supplier 3',
+    contactPerson: 'Example Contact 3',
+    phone: '+977-01-0000003',
+    email: 'sales3@example.com',
+    address: 'Example Road, Example City, Nepal',
+    panVatNumber: '300000003',
     rating: 4.9,
   },
-  {
-    id: 'sup-4',
-    supplierCode: 'SUP-1004',
-    name: 'IZone Cablenet Hardware Suppliers',
-    contactPerson: 'Prakash Karki',
-    phone: '+977-021-540200',
-    email: 'procurement@izonehardware.com.np',
-    address: 'Urlabari, Morang, Nepal',
-    panVatNumber: '602819384',
-    rating: 5.0,
-  },
-  {
-    id: 'sup-5',
-    supplierCode: 'SUP-1005',
-    name: 'Broadlink Fiber Importers Pvt. Ltd.',
-    contactPerson: 'Deepak Sharma',
-    phone: '+977-1-4109823',
-    email: 'imports@broadlinkfiber.com.np',
-    address: 'Biratnagar, Koshi Province, Nepal',
-    panVatNumber: '301829304',
-    rating: 4.6,
-  },
+];
+
+// EXAMPLE/DUMMY user accounts (is_demo = TRUE) so the application is fully
+// testable out of the box after a fresh setup. Shared demo password: Demo@123
+// (documented in README.md). Real users created in the app are unaffected
+// (seeded with ON CONFLICT (email) DO NOTHING).
+const EXAMPLE_USER_PASSWORD = 'Demo@123';
+const INITIAL_EXAMPLE_USERS: Array<{
+  id: string;
+  email: string;
+  name: string;
+  role: User['role'];
+  branchId: string;
+  canSwitchUser: boolean;
+}> = [
+  { id: 'usr-ex-superadmin', email: 'superadmin@example.com', name: 'Super Admin', role: 'SUPER_ADMIN', branchId: 'WH001', canSwitchUser: true },
+  { id: 'usr-ex-branch1', email: 'branch1@example.com', name: 'Branch 1 Manager', role: 'BRANCH_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-branch2', email: 'branch2@example.com', name: 'Branch 2 Manager', role: 'BRANCH_MANAGER', branchId: 'BRH01', canSwitchUser: false },
+  { id: 'usr-ex-inventory1', email: 'inventory1@example.com', name: 'Inventory Manager 1', role: 'INVENTORY_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-accountant1', email: 'accountant1@example.com', name: 'Accountant 1', role: 'ACCOUNTANT', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-frontdesk1', email: 'frontdesk1@example.com', name: 'Front Desk 1', role: 'FRONT_DESK', branchId: 'BRH01', canSwitchUser: false },
 ];
 
 // Operational arrays initialized empty by default
@@ -525,7 +525,9 @@ function logAuditEvent(
         auditItem.module,
         auditItem.details,
         auditItem.timestampBS,
-        auditItem.branchId,
+        // 'ALL' is the app-wide "all branches" sentinel, not a real branch id —
+        // store NULL so the branch_id FK is never violated.
+        auditItem.branchId && auditItem.branchId !== 'ALL' ? auditItem.branchId : null,
       ]
     )
     .catch(() => {});
@@ -693,13 +695,13 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
         pgPool.query(`SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock${stockScope.where}`, stockScope.params),
-        pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets${assetScope.where}`, assetScope.params),
-        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records${deviceScope.where}`, deviceScope.params),
+        pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets${assetScope.where}`, assetScope.params),
+        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records${deviceScope.where}`, deviceScope.params),
         pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records${customerScope.where}`, customerScope.params),
         pgPool.query(`SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders${poScope.where}`, poScope.params),
         pgPool.query(`SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices${piScope.where}`, piScope.params),
-        pgPool.query(`SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments${shipmentScope.where}`, shipmentScope.params),
-        pgPool.query(`SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations${opScope.where}`, opScope.params),
+        pgPool.query(`SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments${shipmentScope.where}`, shipmentScope.params),
+        pgPool.query(`SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations${opScope.where}`, opScope.params),
         pgPool.query(`SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs${auditScope.where} ORDER BY timestamp_ad DESC LIMIT 200`, auditScope.params),
         pgPool.query(`SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs${txnScope.where} ORDER BY timestamp_ad DESC LIMIT 300`, txnScope.params),
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
@@ -753,7 +755,9 @@ app.get('/api/bootstrap', async (req, res) => {
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        // COGS is not tracked (no sales ledger); consumers fall back to their
+        // own estimate when this is 0.
+        totalCostOfGoodsSold: 0,
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: currentFy,
@@ -1052,8 +1056,8 @@ app.post('/api/auth/forgot-password', (req, res) => {
   res.json({
     success: true,
     userName: user.name,
-    adminEmail: adminUser?.email || 'superadmin@izone.net.np',
-    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@izone.net.np'}) or ask your Manager to reset your password in User & Staff Management.`,
+    adminEmail: adminUser?.email || 'superadmin@example.com',
+    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@example.com'}) or ask your Manager to reset your password in User & Staff Management.`,
   });
 });
 
@@ -1108,12 +1112,45 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // Profile Switching Endpoint
-app.post('/api/auth/switch-profile', (req, res) => {
+app.post('/api/auth/switch-profile', async (req, res) => {
+  // A valid server session must exist before a profile switch is allowed.
+  // After a server restart the browser may still hold a stale local session;
+  // rejecting here forces a clean re-login instead of a broken switch.
+  if (!activeUser) {
+    return res.status(401).json({ message: 'Not authenticated. Log in again to switch profiles.' });
+  }
+
   const { targetUserId } = req.body;
-  const user = users.find((u) => u.id === targetUserId || u.email === targetUserId);
+  let user: any = null;
+
+  // PostgreSQL is the source of truth for user profiles. The in-memory user
+  // list can be stale (users created/edited after boot, or a data reset),
+  // which previously caused "Target user profile not found" on switch.
+  if (isPgConnected && targetUserId) {
+    try {
+      const dbRes = await pgPool.query(
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($1) LIMIT 1',
+        [String(targetUserId)]
+      );
+      user = dbRes.rows[0] || null;
+    } catch (err: any) {
+      console.error('PostgreSQL switch-profile lookup failed:', err?.message || err);
+    }
+  }
+
+  // Fallback to the in-memory mirror when PostgreSQL is unavailable.
+  if (!user) {
+    user = users.find((u) => u.id === targetUserId || u.email === targetUserId) || null;
+  }
+
   if (!user) {
     return res.status(404).json({ message: 'Target user profile not found.' });
   }
+
+  // Keep the in-memory user list in sync with the database row.
+  const memIdx = users.findIndex((u) => u.id === user.id);
+  if (memIdx >= 0) users[memIdx] = { ...users[memIdx], ...user };
+  else users.push(user);
 
   const previousUser = activeUser;
   activeUser = user;
@@ -1269,9 +1306,9 @@ app.post('/api/locations', async (req, res) => {
       id: req.body.id || `LOC-${Math.floor(1000 + Math.random() * 9000)}`,
       name: req.body.name || 'New Location',
       type: req.body.type || 'POP_SERVER_ROOM',
-      branchId: req.body.branchId || 'BR-KTM',
+      branchId: req.body.branchId || 'WH001',
       address: req.body.address || '',
-      coordinates: req.body.coordinates || { latitude: 27.7172, longitude: 85.324 },
+      coordinates: req.body.coordinates || { latitude: 0, longitude: 0 },
       contactPerson: req.body.contactPerson || '',
       contactPhone: req.body.contactPhone || '',
       notes: req.body.notes || '',
@@ -2474,7 +2511,7 @@ app.get('/api/assets', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
+        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -2499,8 +2536,8 @@ app.post('/api/assets', async (req, res) => {
       name: req.body.name || 'Fixed Asset',
       category: req.body.category || 'Equipment',
       branchId: req.body.branchId || 'WH001',
-      acquisitionDateAd: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      acquisitionDateBs: req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
       acquisitionCost: Number(req.body.acquisitionCost) || 0,
       depreciationMethod: req.body.depreciationMethod || 'STRAIGHT_LINE',
       depreciationRatePercent: Number(req.body.depreciationRatePercent || req.body.depreciationRate) || 15,
@@ -2535,8 +2572,8 @@ app.post('/api/assets', async (req, res) => {
           newAsset.name,
           newAsset.category,
           newAsset.branchId,
-          newAsset.acquisitionDateAd,
-          newAsset.acquisitionDateBs,
+          newAsset.acquisitionDateAD,
+          newAsset.acquisitionDateBS,
           newAsset.acquisitionCost,
           newAsset.depreciationMethod,
           newAsset.depreciationRatePercent,
@@ -2788,64 +2825,6 @@ app.patch('/api/purchase-orders/:id/status', async (req, res) => {
   }
 });
 
-app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'PROCUREMENT_OFFICER'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    let po = purchaseOrders.find((p) => p.id === id);
-
-    if (isPgConnected) {
-      const r = await pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1', [id]);
-      if (r.rows.length > 0) po = r.rows[0];
-    }
-    if (!po) return res.status(404).json({ message: 'PO not found' });
-
-    po.status = 'RECEIVED';
-
-    if (isPgConnected) {
-      await withTransaction(async (client) => {
-        await client.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', ['RECEIVED', id]);
-
-        const items = typeof po.items === 'string' ? JSON.parse(po.items) : (po.items || []);
-        for (const item of items) {
-          await client.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
-             VALUES ($1, $2, $3, $4, 0)
-             ON CONFLICT (product_id, branch_id) DO UPDATE SET
-               incoming_qty = GREATEST(0, inventory_stock.incoming_qty - $4),
-               quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-               last_updated = CURRENT_TIMESTAMP;`,
-            [`stk-${po.branchId.toLowerCase()}-${item.productId}`, item.productId, po.branchId, Number(item.quantity) || 0]
-          );
-
-          const txnId = `txn-${Date.now()}-${item.productId}`;
-          const txnNum = `TXN-${Math.floor(10000 + Math.random() * 90000)}`;
-          await client.query(
-            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_bs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11)`,
-            [txnId, txnNum, item.productId, item.sku || '', item.productName || '', po.branchId, 'INBOUND_PO', Number(item.quantity) || 0, item.unitPrice || 0, po.poNumber, '2083-04-16 BS']
-          );
-        }
-      });
-    }
-
-    if (po.items && Array.isArray(po.items)) {
-      po.items.forEach((item: any) => {
-        let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === po.branchId);
-        if (stk) {
-          stk.incomingQty = Math.max(0, (stk.incomingQty || 0) - item.quantity);
-          stk.quantityOnHand += item.quantity;
-          stk.lastUpdated = new Date().toISOString();
-        }
-      });
-    }
-    logAuditEvent(req, 'RECEIVE_PURCHASE_ORDER', 'PROCUREMENT', `Received goods for Purchase Order #${po.poNumber}`);
-    res.json(po);
-  } catch (err: any) {
-    console.error('Error receiving PO:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
-  }
-});
-
 // Purchase Invoices
 app.get('/api/purchase-invoices', async (req, res) => {
   const { branchId } = req.query;
@@ -2879,6 +2858,10 @@ app.post('/api/purchase-invoices', async (req, res) => {
       ...req.body,
     };
     const items = req.body.items || req.body.lines || [];
+    // Guard: the vendor bill date (stored as dueDateAD) can never be after the purchase date
+    if (newInv.dueDateAD && newInv.invoiceDateAD && newInv.dueDateAD > newInv.invoiceDateAD) {
+      return res.status(400).json({ message: 'Vendor bill date cannot be after the purchase date.' });
+    }
     const poReference = newInv.poReferenceId || req.body.poId;
     if (poReference) {
       let linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
@@ -2967,6 +2950,11 @@ app.post('/api/purchase-invoices', async (req, res) => {
         await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2', ['RECEIVED', poRef]);
       }
     }
+
+    // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory mirror for non-DB mode; DB mode is updated above)
+    const billPoRef = newInv.poReferenceId || req.body.poId;
+    const billLinkedPO = purchaseOrders.find((p) => p.id === billPoRef || p.poNumber === billPoRef);
+    if (billLinkedPO) billLinkedPO.status = 'RECEIVED';
 
     items.forEach((item: any) => {
       let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
@@ -3099,7 +3087,7 @@ app.get('/api/shipments', async (req, res) => {
   if (isPgConnected) {
     try {
       const r = await pgPool.query(
-        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
+        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
       );
       return res.json(r.rows);
     } catch (err) {
@@ -3114,16 +3102,35 @@ app.post('/api/shipments', async (req, res) => {
     const sourceBranch = branches.find((b) => b.id === req.body.sourceBranchId);
     const destBranch = branches.find((b) => b.id === req.body.destinationBranchId);
 
+    // BS calendar gate: a shipment dispatch may only be posted when its date
+    // has a seeded BS day record in bs_day_records (Nepali date is mandatory).
+    const rawDispatchDateAD = req.body.dispatchDateAD || req.body.dispatchDateAd;
+    const dispatchDateMismatch = detectDateTypeMismatch(rawDispatchDateAD, 'dispatchDateAD');
+    if (dispatchDateMismatch) {
+      return res.status(400).json({ message: dispatchDateMismatch, dateTypeMismatch: true });
+    }
+    const dispatchDateAD = String(rawDispatchDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const bsDayForShipment = await findBsDayRecordForAdDate(dispatchDateAD);
+    if (!bsDayForShipment.found) {
+      return res.status(400).json({
+        message: `BS date is not available for ${dispatchDateAD}. Please contact your system administrator for BS month seeding.`,
+        bsDateMissing: true,
+      });
+    }
+
     const newShipment = {
+      ...req.body,
       id: req.body.id || `sh-${Date.now()}`,
       trackingCode: req.body.trackingCode || generateStandardTransactionId(req.body.sourceBranchId || 'WH001', 'TRF'),
       sourceBranchName: sourceBranch?.name || req.body.sourceBranchName || 'Source',
       destinationBranchName: destBranch?.name || req.body.destinationBranchName || 'Destination',
-      dispatchDateAD: req.body.dispatchDateAD || req.body.dispatchDateAd || new Date().toISOString().split('T')[0],
-      dispatchDateBS: req.body.dispatchDateBS || req.body.dispatchDateBs || '2083-04-10 BS',
+      // Date integrity: the AD dispatch date stays in the AD column, and the BS
+      // date is ALWAYS derived from the seeded bs_day_records DB record. A
+      // client-supplied dispatchDateBS can never override it.
+      dispatchDateAD,
+      dispatchDateBS: `${bsDayForShipment.record.bsDate} BS`,
       status: req.body.status || 'IN_TRANSIT',
       items: req.body.items || [],
-      ...req.body,
     };
 
     const idx = shipments.findIndex((s) => s.id === newShipment.id);
@@ -3214,7 +3221,14 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
     let hasDiscrepancy = false;
     sh.receivedByNotes = receivedByNotes || '';
     sh.receivedDateAD = new Date().toISOString().split('T')[0];
-    sh.receivedDateBS = '2083-04-16 BS';
+    // Date integrity: the BS receipt date is ALWAYS derived from the seeded
+    // bs_day_records row for the AD receipt date — a hardcoded or client-
+    // supplied BS value is never stored in received_date_bs.
+    const bsDayForReceipt = await findBsDayRecordForAdDate(sh.receivedDateAD);
+    const receivedDateBS: string | null = bsDayForReceipt.found
+      ? `${bsDayForReceipt.record.bsDate} BS`
+      : null;
+    sh.receivedDateBS = receivedDateBS || undefined;
 
     sh.items.forEach((item: any, idx: number) => {
       const verified = Array.isArray(receivedItems)
@@ -3235,7 +3249,7 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
       await withTransaction(async (client) => {
         await client.query(
           `UPDATE shipments SET status = $1, received_by_notes = $2, received_date_ad = CURRENT_DATE, received_date_bs = $3, has_discrepancy = $4, items = $5 WHERE id = $6`,
-          [sh.status, sh.receivedByNotes, sh.receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
+          [sh.status, sh.receivedByNotes, receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
         );
 
         for (const item of sh.items) {
@@ -3317,7 +3331,7 @@ app.get('/api/stock-operations', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
+        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1 OR destination_warehouse_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3387,18 +3401,38 @@ app.post('/api/stock-operations', async (req, res) => {
       totalValue = Math.abs(req.body.quantityChanged) * req.body.costPerUnit;
     }
 
+    // BS calendar gate: a stock operation may only be posted when its date has
+    // a seeded BS day record in bs_day_records (Nepali date is mandatory).
+    const rawOpDateAD = req.body.dateAD || req.body.dateAd;
+    const opDateMismatch = detectDateTypeMismatch(rawOpDateAD, 'dateAD');
+    if (opDateMismatch) {
+      return res.status(400).json({ message: opDateMismatch, dateTypeMismatch: true });
+    }
+    const opDateAD = String(rawOpDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const bsDayForOp = await findBsDayRecordForAdDate(opDateAD);
+    if (!bsDayForOp.found) {
+      return res.status(400).json({
+        message: `BS date is not available for ${opDateAD}. Please contact your system administrator for BS month seeding.`,
+        bsDateMissing: true,
+      });
+    }
+
     const newOp = {
+      ...req.body,
       id: req.body.id || `op-${Date.now()}`,
       referenceNumber: req.body.referenceNumber || generateStandardTransactionId(req.body.branchId || 'WH001', opType),
-      dateAD: req.body.dateAD || req.body.dateAd || new Date().toISOString().split('T')[0],
-      dateBS: req.body.dateBS || req.body.dateBs || '2083-04-16 BS',
+      // Date integrity: the AD date stays in the AD column, and the BS date is
+      // ALWAYS derived from the seeded bs_day_records DB record for that AD
+      // date. A client-supplied dateBS can never override it (prevents
+      // BS-in-AD / AD-in-BS mismatches from reaching the database).
+      dateAD: opDateAD,
+      dateBS: `${bsDayForOp.record.bsDate} BS`,
       totalValue,
-      fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(req.body.dateAD || req.body.dateAd),
+      fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(opDateAD),
       branchName: branchObj?.name || req.body.branchName || 'Branch',
       destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || 'WH001',
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
-      status: opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED',
-      ...req.body,
+      status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
     };
 
     const idx = stockOperations.findIndex((o) => o.id === newOp.id);
@@ -3729,8 +3763,57 @@ app.put('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) =>
   }
 });
 
+// Super Admin re-authorization gate: fiscal period lock/unlock requires verified
+// Super Admin email + password (server-side check, independent of the session role).
+async function verifySuperAdminCredentials(
+  emailInput: unknown,
+  passwordInput: unknown
+): Promise<{ ok: boolean; email?: string; message?: string }> {
+  const cleanEmail = typeof emailInput === 'string' ? emailInput.trim().toLowerCase() : '';
+  const password = String(passwordInput || '');
+  if (!cleanEmail || !password) {
+    return { ok: false, message: 'Super Admin email and password are required to authorize this action.' };
+  }
+
+  if (isPgConnected) {
+    try {
+      const dbRes = await pgPool.query(
+        'SELECT id, email, password, role FROM users WHERE LOWER(email) = LOWER($1)',
+        [cleanEmail]
+      );
+      const dbUser = dbRes.rows[0];
+      if (!dbUser || dbUser.role !== 'SUPER_ADMIN') {
+        return { ok: false, message: 'Authorization failed: only a Super Admin account can lock or unlock a fiscal period.' };
+      }
+      const check = verifyPassword(password, dbUser.password);
+      if (!check.valid) return { ok: false, message: 'Authorization failed: invalid Super Admin email or password.' };
+      if (check.upgradedHash) {
+        await pgPool
+          .query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
+            check.upgradedHash,
+            dbUser.id,
+          ])
+          .catch(() => undefined);
+      }
+      return { ok: true, email: dbUser.email };
+    } catch (_err) {
+      // fall through to the in-memory user list if the DB query fails
+    }
+  }
+
+  const localUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+  if (!localUser || localUser.role !== 'SUPER_ADMIN') {
+    return { ok: false, message: 'Authorization failed: only a Super Admin account can lock or unlock a fiscal period.' };
+  }
+  const check = verifyPassword(password, localUser.password || '');
+  if (!check.valid) return { ok: false, message: 'Authorization failed: invalid Super Admin email or password.' };
+  return { ok: true, email: localUser.email };
+}
+
 app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
+  const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
+  if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
     const result = await pgPool.query(
       `UPDATE fiscal_years
@@ -3750,7 +3833,7 @@ app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, 
 
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) fiscalYears[index] = fiscalYear;
-    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code}`);
+    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
     return res.json(fiscalYear);
   } catch (error: any) {
     console.error('Error closing fiscal year:', error);
@@ -3760,6 +3843,8 @@ app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, 
 
 app.post('/api/fiscal-years/:id/reopen', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
+  const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
+  if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
     const result = await pgPool.query(
       `UPDATE fiscal_years SET is_closed = FALSE WHERE id = $1
@@ -3772,7 +3857,7 @@ app.post('/api/fiscal-years/:id/reopen', requireRole('SUPER_ADMIN'), async (req,
     if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) fiscalYears[index] = fiscalYear;
-    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code}`);
+    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
     return res.json(fiscalYear);
   } catch (error: any) {
     console.error('Error reopening fiscal year:', error);
@@ -3814,17 +3899,34 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
         throw error;
       }
 
+      // Enterprise rule: rows that were manually adjusted after the original close
+      // (source_type = 'MANUAL_ADJUSTMENT') are posted, corrected opening balances and
+      // must survive a re-initialization. Only closing-generated rows get refreshed.
+      const existingRes = await client.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE source_type = 'MANUAL_ADJUSTMENT')::int AS manual
+         FROM fiscal_year_opening_stock WHERE fiscal_year_id = $1`,
+        [targetFiscalYear.id]
+      );
+      const manualRowsPreserved = existingRes.rows[0]?.manual || 0;
+
       const inserted = await client.query(
         `INSERT INTO fiscal_year_opening_stock (
            id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost, source_type, source_reference, posted_by
          )
          SELECT
-           'open-' || $1 || '-' || inventory_stock.product_id || '-' || inventory_stock.branch_id,
-           $1, inventory_stock.product_id, inventory_stock.branch_id,
-           inventory_stock.quantity_on_hand, inventory_stock.damaged_qty, products.cost_price,
+           'open-' || $1 || '-' || products.id || '-' || branches.id,
+           $1, products.id, branches.id,
+           COALESCE(inventory_stock.quantity_on_hand, 0),
+           COALESCE(inventory_stock.damaged_qty, 0),
+           COALESCE(products.cost_price, 0),
            'FISCAL_CLOSE', $2, $3
-         FROM inventory_stock
-         INNER JOIN products ON products.id = inventory_stock.product_id
+         FROM products
+         CROSS JOIN branches
+         LEFT JOIN inventory_stock
+           ON inventory_stock.product_id = products.id
+          AND inventory_stock.branch_id = branches.id
+         WHERE branches.active = TRUE
          ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
            quantity_on_hand = EXCLUDED.quantity_on_hand,
            damaged_qty = EXCLUDED.damaged_qty,
@@ -3832,13 +3934,22 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
            source_type = EXCLUDED.source_type,
            source_reference = EXCLUDED.source_reference,
            posted_at = CURRENT_TIMESTAMP,
-           posted_by = EXCLUDED.posted_by;`,
+           posted_by = EXCLUDED.posted_by
+         WHERE fiscal_year_opening_stock.source_type <> 'MANUAL_ADJUSTMENT'
+         RETURNING id;`,
         [targetFiscalYear.id, sourceFiscalYear.code, getUserFromReq(req).email || 'system']
       );
-      return { targetFiscalYear, recordsCreated: inserted.rowCount || 0 };
+      return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
     });
 
-    logAuditEvent(req, 'INITIALIZE_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', `Initialized ${result.recordsCreated} opening-stock records for ${result.targetFiscalYear.code}`);
+    logAuditEvent(
+      req,
+      'INITIALIZE_FISCAL_OPENING_STOCK',
+      'FISCAL_YEAR',
+      `Initialized ${result.recordsCreated} opening-stock records for ${result.targetFiscalYear.code}${
+        result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved` : ''
+      }`
+    );
     return res.json(result);
   } catch (error: any) {
     if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
@@ -3846,6 +3957,216 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
     return res.status(500).json({ message: `Unable to initialize fiscal-year opening stock: ${error.message}` });
   }
 });
+
+// ========== FISCAL-YEAR OPENING STOCK — REGISTER VIEW & MANUAL ADJUSTMENT ==========
+
+// View the full opening-stock register for a fiscal year: every product × branch row
+// (including zero-quantity rows) joined with product/branch names and the current live
+// stock as a reference, plus summary stats.
+app.get(
+  '/api/fiscal-years/:id/opening-stock',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const fyRes = await pgPool.query(
+        `SELECT id, code,
+                start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                is_current AS "isCurrent", is_closed AS "isClosed"
+         FROM fiscal_years WHERE id = $1`,
+        [id]
+      );
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+      const rowsRes = await pgPool.query(
+        `SELECT 'opening-' || o.fiscal_year_id || '-' || o.product_id || '-' || o.branch_id AS id,
+                o.product_id AS "productId",
+                COALESCE(p.name, 'Deleted product') AS "productName",
+                COALESCE(p.sku, '-') AS "productSku",
+                o.branch_id AS "branchId",
+                COALESCE(b.name, 'Deleted branch') AS "branchName",
+                o.quantity_on_hand AS "quantityOnHand",
+                o.damaged_qty AS "damagedQty",
+                o.unit_cost::float AS "unitCost",
+                o.source_type AS "sourceType",
+                o.source_reference AS "sourceReference",
+                o.posted_at::text AS "postedAt",
+                o.posted_by AS "postedBy",
+                COALESCE(s.quantity_on_hand, 0) AS "liveQty",
+                COALESCE(s.damaged_qty, 0) AS "liveDamagedQty"
+         FROM fiscal_year_opening_stock o
+         LEFT JOIN products p ON p.id = o.product_id
+         LEFT JOIN branches b ON b.id = o.branch_id
+         LEFT JOIN inventory_stock s ON s.product_id = o.product_id AND s.branch_id = o.branch_id
+         WHERE o.fiscal_year_id = $1
+         ORDER BY p.name ASC, b.name ASC`,
+        [id]
+      );
+
+      const rows = rowsRes.rows;
+      const stats = {
+        totalRows: rows.length,
+        manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
+        zeroQtyRows: rows.filter((r: any) => Number(r.quantityOnHand) === 0).length,
+        totalUnits: rows.reduce((sum: number, r: any) => sum + Number(r.quantityOnHand), 0),
+        totalValue: rows.reduce((sum: number, r: any) => sum + Number(r.quantityOnHand) * Number(r.unitCost), 0),
+      };
+
+      return res.json({ fiscalYear: fy, rows, stats });
+    } catch (error: any) {
+      console.error('Error fetching fiscal-year opening stock register:', error);
+      return res.status(500).json({ message: `Unable to load fiscal-year opening stock: ${error.message}` });
+    }
+  }
+);
+
+// Manual opening-stock adjustment (batch). Allowed only while the fiscal year is OPEN —
+// closed years are period-locked and require Super Admin reopen first. Existing rows are
+// updated in place; missing product × branch combinations are created. Every touched row
+// is re-stamped as MANUAL_ADJUSTMENT with the authorizing user, and an audit entry
+// records old -> new values.
+app.put(
+  '/api/fiscal-years/:id/opening-stock',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'),
+  async (req, res) => {
+    const { id } = req.params;
+    const user = getUserFromReq(req);
+    const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    try {
+      const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+      if (fy.isClosed) {
+        return res.status(403).json({
+          message:
+            'This fiscal year is closed and period-locked. Reopen it with Super Admin authorization before adjusting opening stock.',
+        });
+      }
+      if (incoming.length === 0) {
+        return res.status(400).json({ message: 'No opening-stock rows were provided to adjust.' });
+      }
+
+      const [prodRes, branchRes] = await Promise.all([
+        pgPool.query('SELECT id, name FROM products'),
+        pgPool.query('SELECT id, name FROM branches'),
+      ]);
+      const productNameById = new Map<string, string>(prodRes.rows.map((r: any) => [r.id, r.name]));
+      const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+
+      // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
+      const updates: Array<{
+        productId: string;
+        branchId: string;
+        quantityOnHand: number;
+        damagedQty: number;
+        unitCost: number;
+      }> = [];
+
+      for (const item of incoming) {
+        const productId = String(item?.productId || '').trim();
+        const branchId = String(item?.branchId || '').trim();
+        const quantityOnHand = Number(item?.quantityOnHand);
+        const damagedQty = Number(item?.damagedQty ?? 0);
+        const unitCost = Number(item?.unitCost ?? 0);
+        const label = `${productNameById.get(productId) || productId || 'unknown product'} @ ${
+          branchNameById.get(branchId) || branchId || 'unknown branch'
+        }`;
+
+        if (!productId || !productNameById.has(productId)) {
+          return res.status(400).json({ message: `Invalid product reference in opening-stock adjustment: ${label}` });
+        }
+        if (!branchId || !branchNameById.has(branchId)) {
+          return res.status(400).json({ message: `Invalid branch reference in opening-stock adjustment: ${label}` });
+        }
+        if (!Number.isInteger(quantityOnHand) || quantityOnHand < 0) {
+          return res.status(400).json({ message: `Quantity on hand must be a whole number >= 0 for ${label}.` });
+        }
+        if (!Number.isInteger(damagedQty) || damagedQty < 0) {
+          return res.status(400).json({ message: `Damaged quantity must be a whole number >= 0 for ${label}.` });
+        }
+        if (damagedQty > quantityOnHand) {
+          return res.status(400).json({ message: `Damaged quantity cannot exceed quantity on hand for ${label}.` });
+        }
+        if (Number.isNaN(unitCost) || unitCost < 0) {
+          return res.status(400).json({ message: `Unit cost must be a number >= 0 for ${label}.` });
+        }
+
+        updates.push({ productId, branchId, quantityOnHand, damagedQty, unitCost });
+      }
+
+      // ---- Apply inside one transaction; capture old values for the audit trail ----
+      const result = await withTransaction(async (client) => {
+        const changeLog: string[] = [];
+        let createdCount = 0;
+
+        for (const u of updates) {
+          const beforeRes = await client.query(
+            `SELECT quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", unit_cost::float AS "unitCost"
+             FROM fiscal_year_opening_stock
+             WHERE fiscal_year_id = $1 AND product_id = $2 AND branch_id = $3`,
+            [id, u.productId, u.branchId]
+          );
+          const before = beforeRes.rows[0];
+
+          const afterRes = await client.query(
+            `INSERT INTO fiscal_year_opening_stock (
+               id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost,
+               source_type, source_reference, posted_at, posted_by
+             )
+             VALUES (
+               'open-' || $1::text || '-' || $2 || '-' || $3,
+               $1, $2, $3, $4, $5, $6,
+               'MANUAL_ADJUSTMENT', 'MANUAL_ADJUSTMENT', CURRENT_TIMESTAMP, $7
+             )
+             ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
+               quantity_on_hand = EXCLUDED.quantity_on_hand,
+               damaged_qty = EXCLUDED.damaged_qty,
+               unit_cost = EXCLUDED.unit_cost,
+               source_type = 'MANUAL_ADJUSTMENT',
+               source_reference = 'MANUAL_ADJUSTMENT',
+               posted_at = CURRENT_TIMESTAMP,
+               posted_by = EXCLUDED.posted_by
+             RETURNING id`,
+            [id, u.productId, u.branchId, u.quantityOnHand, u.damagedQty, u.unitCost, user.email || 'system']
+          );
+
+          if (!afterRes.rowCount) continue;
+          if (!before) createdCount++;
+          changeLog.push(
+            `${before ? 'updated' : 'created'} ${productNameById.get(u.productId)} @ ${branchNameById.get(u.branchId)}: ` +
+              `qty ${before ? before.quantityOnHand : '—'} -> ${u.quantityOnHand}, ` +
+              `damaged ${before ? before.damagedQty : '—'} -> ${u.damagedQty}, ` +
+              `cost NPR ${before ? before.unitCost : '—'} -> NPR ${u.unitCost}`
+          );
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog };
+      });
+
+    if (result.appliedCount > 0) {
+      const details =
+        `Adjusted ${result.appliedCount} opening-stock row(s) for fiscal year ${fy.code}` +
+        (result.createdCount ? ` (${result.createdCount} created)` : '') +
+        ` [${result.changeLog.slice(0, 15).join('; ')}${result.changeLog.length > 15 ? ' …' : ''}] ` +
+        `(by ${user.email || 'system'})`;
+      logAuditEvent(req, 'ADJUST_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', details);
+    }
+
+      return res.json({
+        applied: result.appliedCount,
+        created: result.createdCount,
+        message: `${result.appliedCount} opening-stock row(s) saved for fiscal year ${fy.code}.`,
+      });
+    } catch (error: any) {
+      console.error('Error adjusting fiscal-year opening stock:', error);
+      return res.status(500).json({ message: `Unable to adjust fiscal-year opening stock: ${error.message}` });
+    }
+  }
+);
 
 app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
@@ -3969,6 +4290,81 @@ function generateInMemoryBsDayRecords() {
 // Initial generation of in-memory records
 generateInMemoryBsDayRecords();
 
+/**
+ * Date-type integrity guard.
+ *
+ * Detects when a BS (Nepali) date string has been submitted in an AD date
+ * field (or vice versa) so calendar mismatches can never reach the database:
+ *  - values containing the "BS" suffix are rejected for AD fields
+ *  - a 4-digit year >= 2060 (BS years are 2078-2099, AD dates here are 2015-2059)
+ *    is treated as a BS date sent in the wrong field
+ *  - malformed date strings are rejected
+ *
+ * Returns a human-readable error message, or null when the value is a valid AD date.
+ */
+function detectDateTypeMismatch(raw: unknown, fieldName: string): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (/\bBS\b/i.test(s)) {
+    return `Date type mismatch: "${s}" is a BS (Nepali) date but was sent in AD field "${fieldName}". AD fields must contain a Gregorian (AD) date like 2026-08-30. Send the matching BS value only in the corresponding ${fieldName}BS field.`;
+  }
+  const m = s.split('T')[0].match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a valid AD date (expected YYYY-MM-DD Gregorian format).`;
+  }
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const day = parseInt(m[3], 10);
+  if (year >= 2060) {
+    return `Date type mismatch: "${s}" looks like a BS (Nepali) date (year ${year}) but was sent in AD field "${fieldName}". Convert it to its Gregorian (AD) equivalent first, e.g. send dateAD=2026-08-30 and dateBS=2083-05-14 BS.`;
+  }
+  if (year < 2015) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a plausible AD date (AD year must be between 2015 and 2059). If it is a BS date, convert it to AD before submitting.`;
+  }
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a valid AD date (month/day out of range).`;
+  }
+  return null;
+}
+
+/**
+ * Resolves the exact BS day record for an AD date. PostgreSQL's bs_day_records
+ * table is authoritative; the in-memory cache is only consulted while
+ * PostgreSQL is unreachable. Returns found=false when the date has never been
+ * seeded (e.g. its BS month array is missing) so callers can block operations.
+ */
+async function findBsDayRecordForAdDate(adDateStr: string): Promise<{
+  found: boolean;
+  record: any | null;
+  source: 'postgres' | 'memory';
+}> {
+  const target = String(adDateStr || '').split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+    return { found: false, record: null, source: 'memory' };
+  }
+
+  try {
+    const result = await pgPool.query(
+      `SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
+              bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
+              day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
+              fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
+       FROM bs_day_records
+       WHERE ad_date = $1`,
+      [target]
+    );
+    if (result.rows.length > 0) {
+      return { found: true, record: result.rows[0], source: 'postgres' };
+    }
+    // Database reachable but no row exists for this date -> genuinely unseeded
+    return { found: false, record: null, source: 'postgres' };
+  } catch (_err) {
+    // PostgreSQL unreachable -> fall back to the in-memory calendar cache
+    const memoryRecord = inMemoryBsDayRecords.find((r) => r.adDate === target) || null;
+    return { found: memoryRecord !== null, record: memoryRecord, source: 'memory' };
+  }
+}
+
 // Refreshes the in-memory BS-calendar fallback cache from PostgreSQL, which is
 // the authoritative store for bs_calendar_years / bs_day_records. Called at
 // startup so the cache (used only while PostgreSQL is unreachable) starts in
@@ -4004,6 +4400,28 @@ app.get('/api/bs-calendar/years', async (req, res) => {
     // Silently fall back to inMemoryBsCalendarYears if PostgreSQL is unreachable
   }
   res.json(inMemoryBsCalendarYears);
+});
+
+// Single-day lookup against bs_day_records. Used by the stock-operations gate
+// to verify that a Nepali (BS) date exists for the operation date before any
+// stock movement is allowed.
+app.get('/api/bs-calendar/day', async (req, res) => {
+  try {
+    const adDate = String(req.query.adDate || '');
+    const result = await findBsDayRecordForAdDate(adDate);
+    if (result.found) {
+      return res.json({ found: true, source: result.source, record: result.record });
+    }
+    return res.json({
+      found: false,
+      source: result.source,
+      adDate: adDate.split('T')[0] || null,
+      message: 'BS date is not available. Please contact your system administrator for BS month seeding.',
+    });
+  } catch (err: any) {
+    console.error('Error looking up BS day record:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
 });
 
 app.get('/api/bs-calendar/days', async (req, res) => {
@@ -4334,7 +4752,7 @@ app.get('/api/customer-devices', async (req, res) => {
 
   if (isPgConnected) {
     try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
+      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
       const params: any[] = [];
       const conditions: string[] = [];
 
@@ -5188,53 +5606,108 @@ app.post('/api/approval-requests/:id/cancel', async (req, res) => {
 
 // Financial Reports Summary
 app.get('/api/reports/financial-summary', async (req, res) => {
-  const { branchId } = req.query;
+  const { branchId, fiscalYearId } = req.query;
 
   if (isPgConnected) {
     try {
-      const bParam = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const whereBranch = branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '';
+      const hasBranch = Boolean(branchId && branchId !== 'ALL');
 
-      // Inventory Asset Value: SUM(quantity_on_hand * cost_price)
-      const invRes = await pgPool.query(
-        `SELECT SUM(s.quantity_on_hand * p.cost_price) AS total FROM inventory_stock s JOIN products p ON s.product_id = p.id` +
-          (branchId && branchId !== 'ALL' ? ' WHERE s.branch_id = $1' : ''),
-        bParam
-      );
+      // Fiscal-year scoping: for any year OTHER than the current fiscal year,
+      // inventory is valued from that year's opening-stock ledger
+      // (fiscal_year_opening_stock) — the live inventory_stock balance only
+      // represents the current fiscal year and must not be reported for
+      // past/closed years.
+      const currentFy = pickCurrentFiscalYear(fiscalYears) || null;
+      const requestedFy = fiscalYearId
+        ? fiscalYears.find((f) => f.id === fiscalYearId || f.code === fiscalYearId)
+        : undefined;
+      const useOpeningStock = Boolean(requestedFy && currentFy && requestedFy.id !== currentFy.id);
+
+      // Inventory Asset Value: SUM(quantity * cost_price)
+      const invParams: any[] = [];
+      let invSql: string;
+      if (useOpeningStock) {
+        invSql = `SELECT SUM(os.quantity_on_hand * p.cost_price) AS total
+                  FROM fiscal_year_opening_stock os
+                  JOIN products p ON os.product_id = p.id
+                  WHERE os.fiscal_year_id = $1`;
+        invParams.push(requestedFy.id);
+        if (hasBranch) {
+          invParams.push(branchId);
+          invSql += ` AND os.branch_id = $${invParams.length}`;
+        }
+      } else {
+        invSql = `SELECT SUM(s.quantity_on_hand * p.cost_price) AS total
+                  FROM inventory_stock s
+                  JOIN products p ON s.product_id = p.id`;
+        const conds: string[] = [];
+        if (hasBranch) {
+          invParams.push(branchId);
+          conds.push(`s.branch_id = $${invParams.length}`);
+        }
+        if (conds.length) invSql += ` WHERE ${conds.join(' AND ')}`;
+      }
+      const invRes = await pgPool.query(invSql, invParams);
       const totalInventoryAssetValue = Number(invRes.rows[0]?.total || 0);
 
-      // Fixed Asset Value
+      // Fixed Asset Value (net book value is a live snapshot; the system does
+      // not track per-fiscal-year NBV history)
       const assetRes = await pgPool.query(
-        `SELECT SUM(net_book_value) AS total FROM fixed_assets` + whereBranch,
-        bParam
+        `SELECT SUM(net_book_value) AS total FROM fixed_assets` + (hasBranch ? ' WHERE branch_id = $1' : ''),
+        hasBranch ? [branchId] : []
       );
       const totalFixedAssetValue = Number(assetRes.rows[0]?.total || 0);
 
-      // Accounts Payable & VAT Input Tax
+      // Accounts Payable & VAT Input Tax (scoped to the selected fiscal year)
+      const piConds: string[] = [];
+      const piParams: any[] = [];
+      if (requestedFy) {
+        piParams.push(requestedFy.id);
+        piConds.push(`fiscal_year_id = $${piParams.length}`);
+      }
+      if (hasBranch) {
+        piParams.push(branchId);
+        piConds.push(`branch_id = $${piParams.length}`);
+      }
       const invPayRes = await pgPool.query(
-        `SELECT SUM(GREATEST(0, grand_total - amount_paid)) AS total_ap, SUM(vat_amount) AS total_vat FROM purchase_invoices` + whereBranch,
-        bParam
+        `SELECT SUM(GREATEST(0, grand_total - amount_paid)) AS total_ap, SUM(vat_amount) AS total_vat FROM purchase_invoices` +
+          (piConds.length ? ` WHERE ${piConds.join(' AND ')}` : ''),
+        piParams
       );
       const totalAccountsPayable = Number(invPayRes.rows[0]?.total_ap || 0);
       const totalVatInputTax = Number(invPayRes.rows[0]?.total_vat || 0);
 
-      // Damage Loss Value
+      // Damage Loss Value (scoped to the selected fiscal year)
+      const opConds: string[] = [];
+      const opParams: any[] = [];
+      if (requestedFy) {
+        opParams.push(requestedFy.id);
+        opConds.push(`fiscal_year_id = $${opParams.length}`);
+      }
+      if (hasBranch) {
+        opParams.push(branchId);
+        opConds.push(`branch_id = $${opParams.length}`);
+      }
       const opRes = await pgPool.query(
-        `SELECT SUM(total_value) AS total FROM stock_operations` + whereBranch,
-        bParam
+        `SELECT SUM(total_value) AS total FROM stock_operations` +
+          (opConds.length ? ` WHERE ${opConds.join(' AND ')}` : ''),
+        opParams
       );
       const totalDamageLossValue = Number(opRes.rows[0]?.total || 0);
 
-      const currentFy = pickCurrentFiscalYear(fiscalYears)?.code || '2082/83';
+      const currentFyCode = currentFy?.code || '2082/83';
 
       return res.json({
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        // COGS is not tracked by the system (no sales ledger exists);
+        // consumers fall back to their own estimate when this is 0.
+        totalCostOfGoodsSold: 0,
         totalDamageLossValue,
         totalVatInputTax,
-        currentFiscalYear: currentFy,
+        currentFiscalYear: requestedFy ? requestedFy.code : currentFyCode,
+        fiscalYearId: requestedFy ? requestedFy.id : null,
       });
     } catch (err) {
       console.error('Error fetching financial summary report from DB:', err);
@@ -5284,10 +5757,11 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     totalInventoryAssetValue,
     totalFixedAssetValue,
     totalAccountsPayable,
-    totalCostOfGoodsSold: 450000,
+    totalCostOfGoodsSold: 0,
     totalDamageLossValue,
     totalVatInputTax,
     currentFiscalYear: currentFy,
+    fiscalYearId: null,
   });
 });
 
@@ -5954,6 +6428,11 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
       ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- is_demo labelling for master tables seeded with example/dummy data
+      -- (Nepali/BS calendar tables are real reference data and never carry it)
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       -- v3.0 partial indexes: demo-row fast paths and fiscal-year scoping
       CREATE INDEX IF NOT EXISTS idx_suppliers_demo ON suppliers(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_categories_demo ON categories(id) WHERE is_demo = TRUE;
@@ -6000,8 +6479,8 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
   try {
     for (const b of INITIAL_MASTER_BRANCHES) {
       await client.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
         [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false]
       );
     }
@@ -6040,14 +6519,14 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     for (const u of INITIAL_MASTER_UOM) {
       await client.query(
         `INSERT INTO uom (id, name, symbol, type, is_base_unit)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING`,
         [u.id, u.name, u.symbol, u.type, u.isBaseUnit]
       );
     }
     for (const l of INITIAL_MASTER_LOCATIONS) {
       await client.query(
-        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE) ON CONFLICT (id) DO NOTHING`,
         [l.id, l.name, l.type, l.branchId, l.address, JSON.stringify(l.coordinates), l.contactPerson, l.contactPhone, l.notes, l.activeAssetsCount]
       );
     }
@@ -6055,9 +6534,20 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     for (const s of INITIAL_MASTER_SUPPLIERS) {
       const sup = s as any;
       await client.query(
-        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE) ON CONFLICT (id) DO NOTHING`,
         [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
+      );
+    }
+
+    // Example/dummy user accounts (is_demo = TRUE) so the app is testable out
+    // of the box after a fresh setup. Never overwrite existing accounts.
+    for (const eu of INITIAL_EXAMPLE_USERS) {
+      const allowedBranchIds = eu.role === 'SUPER_ADMIN' ? INITIAL_MASTER_BRANCHES.map((b) => b.id) : [eu.branchId];
+      await client.query(
+        `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (email) DO NOTHING`,
+        [eu.id, eu.email, hashPassword(EXAMPLE_USER_PASSWORD), eu.name, eu.role, eu.branchId, allowedBranchIds, eu.canSwitchUser]
       );
     }
 
@@ -6142,12 +6632,12 @@ async function hydrateOperationalData(client: pg.PoolClient) {
     },
     {
       name: 'shipments',
-      query: 'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments',
+      query: 'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments',
       apply: (rows) => { shipments = rows; },
     },
     {
       name: 'stock_operations',
-      query: 'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations',
+      query: 'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations',
       apply: (rows) => { stockOperations = rows; },
     },
     {
@@ -6197,7 +6687,7 @@ async function startServer() {
   await syncDatabaseAndIndexes();
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
+    console.log(`Inventory Management System server running on http://localhost:${PORT}`);
   });
 
   if (process.env.NODE_ENV !== 'production') {

@@ -124,7 +124,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     if (selectedBranchId && selectedBranchId !== 'ALL' && allowedBranches.some((b) => b.id === selectedBranchId)) {
       return selectedBranchId;
     }
-    return allowedBranches[0]?.id || branches[0]?.id || 'BR-KTM';
+    return allowedBranches[0]?.id || branches[0]?.id || 'WH001';
   };
 
   const [activeBranchId, setActiveBranchId] = useState<string>(getInitialBranchId);
@@ -883,7 +883,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   const todayBS = convertADToBS(todayAD).formattedBS;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="p-3.5 rounded-2xl bg-indigo-600 text-white font-bold text-xs flex items-center justify-between shadow-lg animate-fade-in">
@@ -980,7 +980,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* 2. TABLE LOCKED BANNER (When Audit is Submitted or Pending) */}
       {isTableLocked && (
-        <div className="p-4 rounded-2xl border-2 border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+        <div className="p-3 rounded-2xl border-2 border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex flex-col md:flex-row md:items-center justify-start gap-3 shadow-xs">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-amber-500 text-white shadow-xs shrink-0 mt-0.5">
               <Lock className="h-5 w-5" />
@@ -1095,7 +1095,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             type="button"
             onClick={handleApproveAllPendingAudits}
             disabled={isSubmitting}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer disabled:opacity-50"
           >
             <CheckCircle2 className="h-4 w-4" />
             <span>Approve All ({visiblePendingAuditRequests.length}) Pending Branch Audits</span>
@@ -1426,7 +1426,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* BLIND AUDIT ACTIVE BANNER & UNSEAL ACTION */}
       {isEffectiveBlindAudit && (
-        <div className="p-4 rounded-2xl border-2 border-indigo-400 dark:border-indigo-600 bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+        <div className="p-3 rounded-2xl border-2 border-indigo-400 dark:border-indigo-600 bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-start gap-3 shadow-lg">
           <div className="flex items-start gap-3">
             <div className="p-2.5 rounded-xl bg-indigo-500 text-white shadow-md shrink-0">
               <Lock className="h-5 w-5" />
@@ -1477,7 +1477,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   setToastMessage('Re-sealed system balances for blind count.');
                   setTimeout(() => setToastMessage(null), 3000);
                 }}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
               >
                 Re-seal Balances
               </button>
@@ -1494,7 +1494,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* Search Input */}
-          <div className="relative flex-1">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -1563,14 +1563,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               }`}
             >
               <tr>
-                <th className="p-3.5">SKU / Barcode</th>
-                <th className="p-3.5">Product Name & Category</th>
-                <th className="p-3.5 text-right">Unit Cost</th>
-                <th className="p-3.5 text-center">Book System Qty</th>
-                <th className="p-3.5 text-center w-40">Physical Stock Count</th>
-                <th className="p-3.5 text-center">Variance</th>
-                <th className="p-3.5 text-right">Variance Value</th>
-                <th className="p-3.5 min-w-[220px]">Reason for Discrepancy</th>
+                <th className="px-2.5 py-1.5">SKU / Barcode</th>
+                <th className="px-2.5 py-1.5">Product Name & Category</th>
+                <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
+                <th className="px-2.5 py-1.5 text-center">Book System Qty</th>
+                <th className="px-2.5 py-1.5 text-center w-40">Physical Stock Count</th>
+                <th className="px-2.5 py-1.5 text-center">Variance</th>
+                <th className="px-2.5 py-1.5 text-right">Variance Value</th>
+                <th className="px-2.5 py-1.5 min-w-[220px]">Reason for Discrepancy</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1599,13 +1599,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       }`}
                     >
                       {/* SKU & Barcode */}
-                      <td className="p-3.5 font-mono font-medium">
+                      <td className="p-2.5 font-mono font-medium">
                         <div className="font-bold text-slate-900 dark:text-slate-100">{row.sku}</div>
                         <div className="text-[10px] text-slate-400">{row.barcode || '—'}</div>
                       </td>
 
                       {/* Product Name & Category */}
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           <span>{row.productName}</span>
                           {row.requiresSerialTracking && (
@@ -1618,12 +1618,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Unit Cost */}
-                      <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
+                      <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
                         NPR {(row.unitCost ?? 0).toLocaleString()}
                       </td>
 
                       {/* Book System Qty */}
-                      <td className="p-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                      <td className="p-2.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
                         {isEffectiveBlindAudit && !isBlindRevealed ? (
                           <span className="px-2 py-1 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300 dark:border-amber-800 flex items-center justify-center gap-1">
                             <Lock className="h-3 w-3 text-amber-600" />
@@ -1638,7 +1638,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Physical Stock Count Input */}
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
@@ -1678,7 +1678,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Variance Qty */}
-                      <td className="p-3.5 text-center font-mono font-extrabold">
+                      <td className="p-2.5 text-center font-mono font-extrabold">
                         {isEffectiveBlindAudit && !isBlindRevealed ? (
                           <span className="text-[10px] text-slate-400 font-semibold italic">Unsealed on submit</span>
                         ) : variance === 0 ? (
@@ -1717,7 +1717,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Discrepancy Reason Input & Selection */}
-                      <td className="p-3.5 space-y-1">
+                      <td className="p-2.5 space-y-1">
                         <select
                           value={row.varianceReason}
                           onChange={(e) => handleReasonChange(row.productId, e.target.value)}
@@ -1763,7 +1763,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* VIEW MODE 2: MULTI-BRANCH CONSOLIDATED AUDIT MATRIX & APPROVER VIEW */}
       {activeAuditTab === 'CONSOLIDATED_MATRIX' && (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {/* Executive Approver Summary Banner */}
           {visiblePendingAuditRequests.length > 0 ? (
             <div className="p-5 rounded-3xl border-2 border-amber-400 dark:border-amber-600 bg-amber-500/10 text-amber-950 dark:text-amber-100 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
@@ -1840,10 +1840,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           )}
 
           {/* Consolidated Matrix Toolbar */}
-          <div className={`p-4 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-3 ${
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-start gap-3 ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
           }`}>
-            <div className="relative flex-1 w-full">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -1869,7 +1869,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Export Full Company Matrix CSV</span>
@@ -1883,18 +1883,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           }`}>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                <thead className={`font-bold text-[10px] tracking-wider border-b ${
                   isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
                 }`}>
                   <tr>
-                    <th className="p-3 sticky left-0 z-20 bg-slate-100 dark:bg-slate-800 min-w-[180px]">Product / SKU</th>
-                    <th className="p-3 text-right">Cost Price</th>
+                    <th className="px-2.5 py-1.5 sticky left-0 z-20 bg-slate-100 dark:bg-slate-800 min-w-[180px]">Product / SKU</th>
+                    <th className="px-2.5 py-1.5 text-right">Cost Price</th>
                     {visibleBranches.map((b) => {
                       const hasPending = approvalRequests.some(
                         (r) => r.type === 'STOCK_AUDIT_RECONCILIATION' && r.branchId === b.id && r.status === 'PENDING'
                       );
                       return (
-                        <th key={b.id} className="p-3 text-center min-w-[110px] border-l border-slate-200 dark:border-slate-800">
+                        <th key={b.id} className="px-2.5 py-1.5 text-center min-w-[110px] border-l border-slate-200 dark:border-slate-800">
                           <div className="flex items-center justify-center gap-1 font-bold">
                             <span>{b.code}</span>
                             {hasPending && (
@@ -1905,16 +1905,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         </th>
                       );
                     })}
-                    <th className="p-3 text-center border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className="px-2.5 py-1.5 text-center border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
                       Co. Total Book
                     </th>
-                    <th className="p-3 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className="px-2.5 py-1.5 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
                       Co. Total Counted
                     </th>
-                    <th className="p-3 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className="px-2.5 py-1.5 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
                       Net Variance
                     </th>
-                    <th className="p-3 text-right bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className="px-2.5 py-1.5 text-right bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
                       Net NPR Impact
                     </th>
                   </tr>
@@ -1929,15 +1929,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     })
                     .map((row) => (
                       <tr key={row.productId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="p-3 font-sans sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
+                        <td className="p-2.5 font-sans sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
                           <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">{row.productName}</div>
                           <div className="text-[10px] text-slate-400 font-mono">{row.sku}</div>
                         </td>
-                        <td className="p-3 text-right text-slate-600 dark:text-slate-400">
+                        <td className="p-2.5 text-right text-slate-600 dark:text-slate-400">
                           NPR {(row.unitCost || 0).toLocaleString()}
                         </td>
                         {row.branches.map((b) => (
-                          <td key={b.branchId} className="p-3 text-center border-l border-slate-200 dark:border-slate-800">
+                          <td key={b.branchId} className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800">
                             <div className="text-slate-800 dark:text-slate-200 font-bold">{b.countedQty}</div>
                             <div className="text-[10px] text-slate-400 font-normal">Bk: {b.bookQty}</div>
                             {b.variance !== 0 && (
@@ -1947,18 +1947,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             )}
                           </td>
                         ))}
-                        <td className="p-3 text-center font-bold border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-800 dark:text-slate-200">
+                        <td className="p-2.5 text-center font-bold border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-800 dark:text-slate-200">
                           {row.companyTotalBookQty}
                         </td>
-                        <td className="p-3 text-center font-bold bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-900 dark:text-slate-100">
+                        <td className="p-2.5 text-center font-bold bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-900 dark:text-slate-100">
                           {row.companyTotalCountedQty}
                         </td>
-                        <td className={`p-3 text-center font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
+                        <td className={`p-2.5 text-center font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
                           row.companyTotalVarianceQty < 0 ? 'text-rose-600' : row.companyTotalVarianceQty > 0 ? 'text-emerald-600' : 'text-slate-400'
                         }`}>
                           {row.companyTotalVarianceQty > 0 ? `+${row.companyTotalVarianceQty}` : row.companyTotalVarianceQty}
                         </td>
-                        <td className={`p-3 text-right font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
+                        <td className={`p-2.5 text-right font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
                           row.totalVarianceVal < 0 ? 'text-rose-600' : row.totalVarianceVal > 0 ? 'text-emerald-600' : 'text-slate-400'
                         }`}>
                           {row.totalVarianceVal === 0 ? 'NPR 0' : `${row.totalVarianceVal > 0 ? '+' : ''}NPR ${row.totalVarianceVal.toLocaleString()}`}
@@ -2030,14 +2030,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             {/* Discrepancy Breakdown Table */}
             <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400">
+                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] font-bold text-slate-600 dark:text-slate-400">
                   <tr>
-                    <th className="p-2.5">SKU / Item</th>
-                    <th className="p-2.5 text-center">Book</th>
-                    <th className="p-2.5 text-center">Count</th>
-                    <th className="p-2.5 text-center">Variance</th>
-                    <th className="p-2.5 text-right">Value (NPR)</th>
-                    <th className="p-2.5">Reason for Discrepancy</th>
+                    <th className="px-2.5 py-1.5">SKU / Item</th>
+                    <th className="px-2.5 py-1.5 text-center">Book</th>
+                    <th className="px-2.5 py-1.5 text-center">Count</th>
+                    <th className="px-2.5 py-1.5 text-center">Variance</th>
+                    <th className="px-2.5 py-1.5 text-right">Value (NPR)</th>
+                    <th className="px-2.5 py-1.5">Reason for Discrepancy</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
@@ -2177,13 +2177,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             {/* List of items to be adjusted */}
             <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-52 overflow-y-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400">
+                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] font-bold text-slate-600 dark:text-slate-400">
                   <tr>
-                    <th className="p-2.5">SKU / Item</th>
-                    <th className="p-2.5 text-center">System Book</th>
-                    <th className="p-2.5 text-center">Audited Count</th>
-                    <th className="p-2.5 text-center">Stock Adjustment</th>
-                    <th className="p-2.5 text-right">Net Impact (NPR)</th>
+                    <th className="px-2.5 py-1.5">SKU / Item</th>
+                    <th className="px-2.5 py-1.5 text-center">System Book</th>
+                    <th className="px-2.5 py-1.5 text-center">Audited Count</th>
+                    <th className="px-2.5 py-1.5 text-center">Stock Adjustment</th>
+                    <th className="px-2.5 py-1.5 text-right">Net Impact (NPR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
@@ -2402,7 +2402,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 <button
                   type="button"
                   onClick={handleExportConsolidatedCSV}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
                 >
                   <Download className="h-4 w-4" />
                   <span>Export Consolidated CSV</span>
@@ -2450,10 +2450,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             {/* Consolidated Matrix Table */}
             <div className="flex-1 overflow-auto p-4">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] uppercase font-bold text-slate-700 dark:text-slate-300 border-b z-10">
+                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-300 border-b z-10">
                   <tr>
-                    <th className="p-2.5 border-r border-slate-200 dark:border-slate-700">SKU / Item</th>
-                    <th className="p-2.5 text-right border-r border-slate-200 dark:border-slate-700">Cost</th>
+                    <th className="px-2.5 py-1.5 border-r border-slate-200 dark:border-slate-700">SKU / Item</th>
+                    <th className="px-2.5 py-1.5 text-right border-r border-slate-200 dark:border-slate-700">Cost</th>
                     {branches.map((b) => (
                       <th
                         key={b.id}
@@ -2463,10 +2463,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         {b.name} ({b.code})
                       </th>
                     ))}
-                    <th className="p-2.5 text-center font-extrabold">Company Book</th>
-                    <th className="p-2.5 text-center font-extrabold">Company Physical</th>
-                    <th className="p-2.5 text-center font-extrabold">Net Variance</th>
-                    <th className="p-2.5 text-right font-extrabold">Net Value (NPR)</th>
+                    <th className="px-2.5 py-1.5 text-center font-extrabold">Company Book</th>
+                    <th className="px-2.5 py-1.5 text-center font-extrabold">Company Physical</th>
+                    <th className="px-2.5 py-1.5 text-center font-extrabold">Net Variance</th>
+                    <th className="px-2.5 py-1.5 text-right font-extrabold">Net Value (NPR)</th>
                   </tr>
                   <tr className="bg-slate-200/70 dark:bg-slate-800/90 text-[9px] text-slate-500 dark:text-slate-400">
                     <th className="p-1 border-r border-slate-200 dark:border-slate-700" />

@@ -255,7 +255,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   e.g. "INV-1092"
                 </span>
                 <span className={`px-2.5 py-1 rounded-full border ${isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
-                  e.g. "Chulachuli"
+                  e.g. "Branch 2"
                 </span>
               </div>
             </div>

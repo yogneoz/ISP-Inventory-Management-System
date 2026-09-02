@@ -42,10 +42,10 @@ export const ImportStock: React.FC<ImportStockProps> = ({
 
   const sampleCsvData = `SKU,Barcode,ProductName,ProductGroup,Category,Unit,CostPrice,SellingPrice,TaxRate,MinReorder,TargetBranch,InitialQty
 SPL-1X8-01,890102938101,PLC Fiber Optic Splitter 1x8 SC/APC,Consumable Item,Splitters,Pcs,450,650,13,20,ALL,100
-SLV-60MM-01,890102938102,Fiber Fusion Protection Sleeve 60mm (Box of 100),Consumable Item,Sleeves,Box,250,380,13,30,BR-KTM,50
+SLV-60MM-01,890102938102,Fiber Fusion Protection Sleeve 60mm (Box of 100),Consumable Item,Sleeves,Box,250,380,13,30,WH001,50
 CPL-SCAPC-01,890102938103,Fiber Optic Coupler SC/APC Simplex Adapter,Consumable Item,Coupler,Pcs,35,50,13,50,ALL,200
-IZ-109282,890102938104,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,BR-KTM,40
-IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,BR-KTM,3`;
+EXM-109282,890102938104,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,WH001,40
+EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,WH001,3`;
 
   const parseCsvContent = (content: string, filename?: string) => {
     if (filename) setSelectedFileName(filename);
@@ -208,19 +208,19 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <UploadCloud className="h-5 w-5 text-indigo-500" />
             <span>Import Stock Data</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Upload stock spreadsheet template directly. Automatically detects existing SKUs and updates product details without creating duplicate copies.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCsv}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
@@ -357,15 +357,15 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
 
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[9px] tracking-wider border-b ${
+              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">SKU / Name</th>
-                  <th className="p-2.5">Group & Category</th>
-                  <th className="p-2.5 text-right">Cost / Sell</th>
-                  <th className="p-2.5 text-center">Initial Qty</th>
-                  <th className="p-2.5">Status</th>
+                  <th className="px-2.5 py-1.5">SKU / Name</th>
+                  <th className="px-2.5 py-1.5">Group & Category</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost / Sell</th>
+                  <th className="px-2.5 py-1.5 text-center">Initial Qty</th>
+                  <th className="px-2.5 py-1.5">Status</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>

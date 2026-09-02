@@ -23,6 +23,7 @@ import {
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface ReorderStockTrackingProps {
   currentUser?: User | null;
@@ -171,6 +172,8 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   // Summary Metrics
   const lowStockSKUCount = productsReorderData.filter((p) => p.isBelowMinOverall).length;
+
+  const reorderPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch]);
   const grandTotalDeficitUnits = productsReorderData.reduce((sum, p) => sum + p.totalDeficit, 0);
   const grandTotalReorderCost = productsReorderData.reduce((sum, p) => sum + p.totalReorderValuation, 0);
 
@@ -296,26 +299,26 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* Header & Main Actions */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <BellRing className="h-5 w-5 text-rose-500 animate-pulse" />
             <span>Per-Branch Reorder Level Matrix & Sync</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Each branch maintains individual min reorder thresholds based on localized demand & sales velocity. Easily configure or bulk-sync per-branch levels.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="shrink-0 flex flex-wrap items-center gap-2.5">
           <button
             type="button"
             onClick={handleExportReorderReport}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export Reorder Levels & Deficits report with uniform BS Date (YYYY-MM-DD)"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -328,7 +331,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
               type="button"
               title="Bulk sync thresholds across branches"
               onClick={() => setShowBulkModal(true)}
-              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer ${
                 isDarkMode
                   ? 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800'
                   : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
@@ -344,7 +347,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
               type="button"
               title="Group low stock products and generate PO (Stock Manager Decision)"
               onClick={onGroupLowStockPO}
-              className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
+              className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
             >
               <ShoppingCart className="h-4 w-4" />
               <span>Group Low-Stock Items & Create PO</span>
@@ -364,7 +367,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
               <AlertTriangle className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
             {lowStockSKUCount} SKUs Below Min
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
@@ -381,7 +384,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
               <ShoppingCart className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
             {(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
@@ -398,7 +401,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
               <RefreshCw className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
             रु {(grandTotalReorderCost ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
@@ -411,7 +414,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       <div className={`p-3 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="relative flex-1 w-full sm:w-auto">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -470,22 +473,22 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       }`}>
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-2xs ${
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className="px-3 py-2 sticky left-0 z-30 bg-inherit border-r min-w-[190px]">
+                <th className="px-2.5 py-1.5 sticky left-0 z-30 bg-inherit border-r min-w-[190px]">
                   Product Name & SKU
                 </th>
-                <th className="px-3 py-2 text-center sticky top-0 bg-inherit">Cat</th>
-                <th className="px-3 py-2 text-right sticky top-0 bg-inherit">Catalog Default</th>
-                <th className="px-3 py-2 text-right sticky top-0 bg-inherit font-bold text-indigo-600 dark:text-indigo-400">
+                <th className="px-2.5 py-1.5 text-center sticky top-0 bg-inherit">Cat</th>
+                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit">Catalog Default</th>
+                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit font-bold text-indigo-600 dark:text-indigo-400">
                   Consolidated Min
                 </th>
-                <th className="px-3 py-2 text-right sticky top-0 bg-inherit font-bold">
+                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit font-bold">
                   Total On-Hand
                 </th>
-                <th className={`px-3 py-2 text-center sticky top-0 border-l border-r font-extrabold ${
+                <th className={`px-2.5 py-1.5 text-center sticky top-0 border-l border-r font-extrabold ${
                   isDarkMode ? 'bg-rose-950/60 text-rose-300 border-slate-800' : 'bg-rose-100/90 text-rose-900 border-slate-200'
                 }`}>
                   Total Deficit
@@ -493,7 +496,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
                 {/* Columns per Branch */}
                 {activeBranches.map((b) => (
-                  <th key={b.id} className={`px-3 py-2 text-center border-l sticky top-0 bg-inherit min-w-[140px] ${
+                  <th key={b.id} className={`px-2.5 py-1.5 text-center border-l sticky top-0 bg-inherit min-w-[140px] ${
                     isDarkMode ? 'border-slate-800' : 'border-slate-200'
                   }`}>
                     <div className="flex flex-col items-center justify-center">
@@ -522,11 +525,11 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                   </td>
                 </tr>
               ) : (
-                visibleProducts.map(({ prod, totalOnHand, totalConsolidatedReorderLevel, totalDeficit, isBelowMinOverall }) => (
+                reorderPagination.pagedItems.map(({ prod, totalOnHand, totalConsolidatedReorderLevel, totalDeficit, isBelowMinOverall }) => (
                   <tr key={prod.id} className={`transition-colors ${
                     isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                   }`}>
-                    <td className={`px-3 py-2 sticky left-0 z-10 border-r font-medium ${
+                    <td className={`px-2.5 py-1.5 sticky left-0 z-10 border-r font-medium ${
                       isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
                     }`}>
                       <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
@@ -535,7 +538,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       </div>
                     </td>
 
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-2.5 py-1.5 text-center">
                       <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold border ${
                         isDarkMode
                           ? 'bg-slate-900 text-slate-300 border-slate-800'
@@ -545,17 +548,17 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       </span>
                     </td>
 
-                    <td className={`px-3 py-2 text-right font-mono font-semibold ${
+                    <td className={`px-2.5 py-1.5 text-right font-mono font-semibold ${
                       isDarkMode ? 'text-slate-400' : 'text-slate-600'
                     }`}>
                       {prod.minReorderLevel} {prod.unit}
                     </td>
 
-                    <td className={`px-3 py-2 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
+                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                       {totalConsolidatedReorderLevel} {prod.unit}
                     </td>
 
-                    <td className={`px-3 py-2 text-right font-mono font-bold ${
+                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${
                       totalOnHand <= totalConsolidatedReorderLevel
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-emerald-600 dark:text-emerald-400'
@@ -564,7 +567,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                     </td>
 
                     {/* Total Required Deficit Column */}
-                    <td className={`px-3 py-2 text-center border-l border-r font-mono font-bold ${
+                    <td className={`px-2.5 py-1.5 text-center border-l border-r font-mono font-bold ${
                       totalDeficit > 0
                         ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-slate-200 dark:border-slate-800'
                         : isDarkMode ? 'bg-slate-900/20 text-slate-500 border-slate-800' : 'bg-slate-50 text-slate-400 border-slate-200'
@@ -671,6 +674,18 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={reorderPagination.page}
+          pageCount={reorderPagination.pageCount}
+          totalItems={reorderPagination.totalItems}
+          rangeStart={reorderPagination.rangeStart}
+          rangeEnd={reorderPagination.rangeEnd}
+          pageSize={reorderPagination.pageSize}
+          onPageChange={reorderPagination.setPage}
+          onPageSizeChange={reorderPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
       {/* EDIT MODAL */}
@@ -726,7 +741,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                     }`}
                     required
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     Catalog default for this SKU is <strong className="text-indigo-500">{editingStock.product.minReorderLevel} {editingStock.product.unit}</strong>.
                   </p>
                 </div>

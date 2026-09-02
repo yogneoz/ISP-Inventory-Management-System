@@ -180,23 +180,23 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   return (
     <div className="printable-document space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <Calculator className="h-6 w-6 text-indigo-500" />
+            <Calculator className="h-5 w-5 text-indigo-500" />
             <span>Fixed Asset Depreciation Register</span>
           </h2>
-          <p className="text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-400 text-xs mt-0.5">
             Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV).
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
               isDarkMode
                 ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -208,7 +208,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
           <button
             onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
               isDarkMode
                 ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -226,7 +226,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       }`}>
         <button
           onClick={() => setActiveTab('SUMMARY')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'SUMMARY'
               ? 'bg-indigo-600 text-white shadow-md'
               : isDarkMode
@@ -245,7 +245,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
         <button
           onClick={() => setActiveTab('DATE_WISE')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'DATE_WISE'
               ? 'bg-indigo-600 text-white shadow-md'
               : isDarkMode
@@ -264,54 +264,54 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>GROSS ACQUISITION COST</span>
             <Landmark className="h-4 w-4 text-emerald-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+          <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
             {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Total capital expenditure across {filteredAssets.length} purchase lots
           </p>
         </div>
 
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>TOTAL ACCUMULATED DEPRECIATION</span>
             <TrendingDown className="h-4 w-4 text-rose-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-rose-500">
+          <p className="text-xl font-bold font-mono text-rose-500">
             {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Cumulative depreciation write-offs to date
           </p>
         </div>
 
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>NET BOOK VALUE (NBV)</span>
             <Calculator className="h-4 w-4 text-indigo-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-indigo-500">
+          <p className="text-xl font-bold font-mono text-indigo-500">
             {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Carrying value on corporate balance sheet
           </p>
         </div>
@@ -319,7 +319,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
       {/* Filter and Search Bar */}
       <div
-        className={`p-4 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-between ${
+        className={`p-3 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-start ${
           isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
         }`}
       >
@@ -373,20 +373,20 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="w-10 px-3 py-3 text-center"></th>
-                  <th className="px-4 py-3">Master Fixed Asset Title</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3 text-center">Purchase Lots</th>
-                  <th className="px-4 py-3 text-center">Depr. Method & Rate</th>
-                  <th className="px-4 py-3 text-right">Total Acquisition Cost</th>
-                  <th className="px-4 py-3 text-right">Accumulated Depr.</th>
-                  <th className="px-4 py-3 text-right">Net Book Value (NBV)</th>
+                  <th className="w-10 px-2.5 py-1.5 text-center"></th>
+                  <th className="px-2.5 py-1.5">Master Fixed Asset Title</th>
+                  <th className="px-2.5 py-1.5">Category</th>
+                  <th className="px-2.5 py-1.5 text-center">Purchase Lots</th>
+                  <th className="px-2.5 py-1.5 text-center">Depr. Method & Rate</th>
+                  <th className="px-2.5 py-1.5 text-right">Total Acquisition Cost</th>
+                  <th className="px-2.5 py-1.5 text-right">Accumulated Depr.</th>
+                  <th className="px-2.5 py-1.5 text-right">Net Book Value (NBV)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
                 {groupedSummaryList.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
                       No fixed assets found matching filter criteria.
                     </td>
                   </tr>
@@ -408,7 +408,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                               : 'hover:bg-slate-50 text-slate-800'
                           }`}
                         >
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2.5 py-1.5 text-center">
                             <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400">
                               {isExpanded ? (
                                 <ChevronDown className="h-4 w-4 text-indigo-500" />
@@ -417,7 +417,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                               )}
                             </button>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-2.5 py-1.5">
                             <div className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                               <span>{grp.masterName}</span>
                               <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
@@ -425,25 +425,25 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-slate-500">{grp.category}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-2.5 py-1.5 text-slate-500">{grp.category}</td>
+                          <td className="px-2.5 py-1.5 text-center">
                             <span className="inline-flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                               <Layers className="h-3.5 w-3.5" />
                               {grp.lotCount} Batch{grp.lotCount > 1 ? 'es' : ''}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-2.5 py-1.5 text-center">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                               {grp.depreciationMethod === 'STRAIGHT_LINE' ? 'Straight Line' : 'Declining / WDV'} ({grp.depreciationRatePercent ?? 15}%)
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          <td className="px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white">
                             {(grp.totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-rose-500 font-bold">
+                          <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-bold">
                             {(grp.totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <td className="px-2.5 py-1.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                             {(grp.totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
@@ -451,46 +451,46 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         {/* Expanded Child Purchase Lot Rows */}
                         {isExpanded && (
                           <tr className={isDarkMode ? 'bg-slate-950/80' : 'bg-slate-50/80'}>
-                            <td colSpan={8} className="p-3 pl-12 border-t border-b border-indigo-200 dark:border-indigo-900/40">
+                            <td colSpan={8} className="p-2.5 pl-12 border-t border-b border-indigo-200 dark:border-indigo-900/40">
                               <div className="space-y-2">
                                 <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider">
                                   <FileText className="h-3.5 w-3.5" />
                                   <span>Individual Purchase Invoices & Datewise Depreciation Lots ({grp.masterName})</span>
                                 </div>
                                 <table className="w-full text-left text-[11px] border rounded-xl overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                                  <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase text-[9px] tracking-wider">
+                                  <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold text-[9px] tracking-wider">
                                     <tr>
-                                      <th className="px-3 py-2">Party Invoice Date (AD / BS)</th>
-                                      <th className="px-3 py-2">Party Invoice Ref #</th>
-                                      <th className="px-3 py-2">Supplier / Vendor</th>
-                                      <th className="px-3 py-2">Tag Number</th>
-                                      <th className="px-3 py-2 text-right">Lot Cost</th>
-                                      <th className="px-3 py-2 text-right">Accum. Depreciation</th>
-                                      <th className="px-3 py-2 text-right">Net Book Value</th>
+                                      <th className="px-2.5 py-1.5">Party Invoice Date (AD / BS)</th>
+                                      <th className="px-2.5 py-1.5">Party Invoice Ref #</th>
+                                      <th className="px-2.5 py-1.5">Supplier / Vendor</th>
+                                      <th className="px-2.5 py-1.5">Tag Number</th>
+                                      <th className="px-2.5 py-1.5 text-right">Lot Cost</th>
+                                      <th className="px-2.5 py-1.5 text-right">Accum. Depreciation</th>
+                                      <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                                     {grp.lots.map((lot) => (
                                       <tr key={lot.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
-                                        <td className="px-3 py-2 font-bold text-indigo-600 dark:text-indigo-400">
+                                        <td className="px-2.5 py-1.5 font-bold text-indigo-600 dark:text-indigo-400">
                                           {lot.acquisitionDateAD} ({lot.acquisitionDateBS})
                                         </td>
-                                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300 font-semibold">
+                                        <td className="px-2.5 py-1.5 text-slate-700 dark:text-slate-300 font-semibold">
                                           {lot.invoiceNo || 'DIRECT-ENTRY'}
                                         </td>
-                                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400 font-sans">
+                                        <td className="px-2.5 py-1.5 text-slate-600 dark:text-slate-400 font-sans">
                                           {lot.supplierName || 'N/A'}
                                         </td>
-                                        <td className="px-3 py-2 font-bold text-slate-800 dark:text-slate-200">
+                                        <td className="px-2.5 py-1.5 font-bold text-slate-800 dark:text-slate-200">
                                           {lot.tagNumber}
                                         </td>
-                                        <td className="px-3 py-2 text-right font-bold text-slate-900 dark:text-white">
+                                        <td className="px-2.5 py-1.5 text-right font-bold text-slate-900 dark:text-white">
                                           {(lot.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
-                                        <td className="px-3 py-2 text-right text-rose-500 font-semibold">
+                                        <td className="px-2.5 py-1.5 text-right text-rose-500 font-semibold">
                                           {(lot.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
-                                        <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400 font-extrabold">
+                                        <td className="px-2.5 py-1.5 text-right text-emerald-600 dark:text-emerald-400 font-extrabold">
                                           {(lot.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                       </tr>
@@ -512,16 +512,16 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 }`}
               >
                 <tr>
-                  <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider">
+                  <td colSpan={5} className="px-2.5 py-1.5 text-right uppercase tracking-wider">
                     Total Fixed Asset Summary Schedule:
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-slate-900 dark:text-white">
                     {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-rose-500">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
                     {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
                     {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
@@ -544,21 +544,21 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="px-4 py-3">Party Invoice Date</th>
-                  <th className="px-4 py-3">Invoice Ref #</th>
-                  <th className="px-4 py-3">Supplier / Vendor</th>
-                  <th className="px-4 py-3">Asset Tag # & Title</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3 text-right">Purchase Cost</th>
-                  <th className="px-4 py-3 text-center">Depr. Rate</th>
-                  <th className="px-4 py-3 text-right">Accum. Depr.</th>
-                  <th className="px-4 py-3 text-right">Net Book Value</th>
+                  <th className="px-2.5 py-1.5">Party Invoice Date</th>
+                  <th className="px-2.5 py-1.5">Invoice Ref #</th>
+                  <th className="px-2.5 py-1.5">Supplier / Vendor</th>
+                  <th className="px-2.5 py-1.5">Asset Tag # & Title</th>
+                  <th className="px-2.5 py-1.5">Category</th>
+                  <th className="px-2.5 py-1.5 text-right">Purchase Cost</th>
+                  <th className="px-2.5 py-1.5 text-center">Depr. Rate</th>
+                  <th className="px-2.5 py-1.5 text-right">Accum. Depr.</th>
+                  <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
                 {sortedDatewiseAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
                       No purchase lots found matching filter criteria.
                     </td>
                   </tr>
@@ -570,7 +570,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         isDarkMode ? 'text-slate-300' : 'text-slate-800'
                       }`}
                     >
-                      <td className="px-4 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         <div className="flex items-center gap-1.5">
                           <Calendar className="h-3.5 w-3.5 text-slate-400" />
                           <span>{formatDualDate(asset.acquisitionDateAD, dateMode)}</span>
@@ -579,29 +579,29 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                           {asset.acquisitionDateBS}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <td className="px-2.5 py-1.5 font-mono font-bold text-slate-800 dark:text-slate-200">
                         {asset.invoiceNo || 'N/A'}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">
+                      <td className="px-2.5 py-1.5 font-semibold text-slate-700 dark:text-slate-300">
                         {asset.supplierName || 'Central Procurement'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2.5 py-1.5">
                         <div className="font-mono text-indigo-500 font-bold text-[11px]">{asset.tagNumber}</div>
                         <div className="font-bold text-slate-900 dark:text-white">{asset.name}</div>
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{asset.category}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                      <td className="px-2.5 py-1.5 text-slate-500">{asset.category}</td>
+                      <td className="px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white">
                         {(asset.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-2.5 py-1.5 text-center">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           {asset.depreciationRatePercent ?? 15}% ({asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SLM' : 'WDV'})
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-rose-500 font-semibold">
+                      <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-semibold">
                         {(asset.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                      <td className="px-2.5 py-1.5 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                         {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
@@ -614,17 +614,17 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                 }`}
               >
                 <tr>
-                  <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider">
+                  <td colSpan={5} className="px-2.5 py-1.5 text-right uppercase tracking-wider">
                     Total Datewise Purchase Lots Schedule:
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-slate-900 dark:text-white">
                     {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td></td>
-                  <td className="px-4 py-3 text-right font-mono text-rose-500">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
                     {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                  <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
                     {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>

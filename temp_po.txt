@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { PurchaseOrder, PurchaseInvoice, Product, Branch, POLineItem, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -751,7 +751,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
                   {availableSuppliers.map((supp) => (
                     <option key={supp.id} value={supp.id}>
-                      🏢 {supp.name}
+                      ðŸ¢ {supp.name}
                     </option>
                   ))}
                 </select>
@@ -834,10 +834,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                             {formatDualDate(po.expectedDeliveryDateAD, dateMode)}
                           </td>
                           <td className="p-2.5 font-mono text-slate-600 dark:text-slate-300">
-                            {linkedInvoice?.vendorBillNumber || '—'}
+                            {linkedInvoice?.vendorBillNumber || 'â€”'}
                           </td>
                           <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                            {linkedInvoice ? formatDualDate(linkedInvoice.invoiceDateAD, dateMode) : '—'}
+                            {linkedInvoice ? formatDualDate(linkedInvoice.invoiceDateAD, dateMode) : 'â€”'}
                           </td>
                           <td className="p-2.5 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
                             {po.items.length} item(s)
@@ -994,7 +994,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry (Full Page Inline Form)'}</span>
+                  <span>{editingPO ? `Edit Purchase Order â€” ${editingPO.poNumber}` : 'New Purchase Order Entry (Full Page Inline Form)'}</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Scan barcodes or search products, configure quantity & unit prices, and calculate 13% VAT with bill-wise discount.
@@ -1111,7 +1111,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                                 {s.panVatNumber && <span>PAN: {s.panVatNumber}</span>}
-                                {s.phone && <span>• {s.phone}</span>}
+                                {s.phone && <span>â€¢ {s.phone}</span>}
                               </div>
                             </div>
                             {isSelected && <Check className="h-4 w-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />}
@@ -1275,13 +1275,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               >
                                 {products.map((p) => (
                                   <option key={p.id} value={p.id}>
-                                    {p.name} ({p.sku}) — {p.category}
+                                    {p.name} ({p.sku}) â€” {p.category}
                                   </option>
                                 ))}
                               </select>
                               <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                                 <span>Unit: <strong className="text-slate-700 dark:text-slate-300">{prod?.unit || 'Pcs'}</strong></span>
-                                <span>•</span>
+                                <span>â€¢</span>
                                 <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">Rs. {prod?.costPrice || 0}</strong></span>
                               </div>
                             </td>
@@ -1696,3 +1696,4 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     </div>
   );
 };
+

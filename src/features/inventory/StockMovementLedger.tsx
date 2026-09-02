@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import {
   BookOpen,
   Calendar,
@@ -18,6 +19,7 @@ import {
   Layers,
   ArrowRight
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface StockMovementLedgerProps {
   transactionLogs: TransactionLog[];
@@ -224,6 +226,18 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   const totalLogQtyChanged = filteredLogs.reduce((sum, l) => sum + l.quantityChanged, 0);
   const totalLogVal = filteredLogs.reduce((sum, l) => sum + (Math.abs(l.quantityChanged) * l.unitCost), 0);
 
+  const productLedgerPagination = useClientPagination(filteredProductLedger, 20, [
+    activeBranchId,
+    selectedCategory,
+    searchQuery,
+  ]);
+  const transactionLogsPagination = useClientPagination(filteredLogs, 25, [
+    activeBranchId,
+    startDateAD,
+    endDateAD,
+    searchQuery,
+  ]);
+
   // Export Product Ledger CSV with Total Summary Row
   const exportLedgerCSV = () => {
     const rows = filteredProductLedger.map((r) => ({
@@ -335,12 +349,12 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
             <BookOpen className="h-5 w-5 text-indigo-500" />
             <span>Stock Movement Ledger</span>
           </h2>
-          <p className={`text-[11px] mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-[11px] mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Track opening stock balances, inbound receipts, dispatches, damaged stock, and closing valuations.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           {viewTab === 'SUMMARY_MATRIX' ? (
             <button
               onClick={exportLedgerCSV}
@@ -455,27 +469,25 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {/* Start Date */}
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">From Date (AD)</label>
-            <input
-              type="date"
+            <DateField
+              label="From Date"
+              mode={dateMode}
               value={startDateAD}
-              onChange={(e) => setStartDateAD(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-mono ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-              }`}
+              onChange={setStartDateAD}
+              compact
+              max={endDateAD || undefined}
             />
           </div>
 
           {/* End Date */}
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">To Date (AD)</label>
-            <input
-              type="date"
+            <DateField
+              label="To Date"
+              mode={dateMode}
               value={endDateAD}
-              onChange={(e) => setEndDateAD(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-mono ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-              }`}
+              onChange={setEndDateAD}
+              compact
+              min={startDateAD || undefined}
             />
           </div>
 
@@ -520,7 +532,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
         {/* Search Bar & Subview Switcher */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-0.5">
-          <div className="relative flex-1 w-full">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
             <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
@@ -569,21 +581,21 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="overflow-x-auto max-h-[calc(100vh-16rem)] overflow-y-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b ${
                 isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5 sticky left-0 z-30 bg-inherit border-r min-w-[180px]">Product SKU & Name</th>
-                  <th className="p-2.5 text-center">Unit Cost</th>
-                  <th className="p-2.5 text-center border-l bg-slate-500/5">Opening Qty</th>
-                  <th className="p-2.5 text-right border-r bg-slate-500/5">Opening Value</th>
-                  <th className="p-2.5 text-center bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Qty</th>
-                  <th className="p-2.5 text-right border-r bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Value</th>
-                  <th className="p-2.5 text-center bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Qty</th>
-                  <th className="p-2.5 text-right border-r bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Value</th>
-                  <th className="p-2.5 text-center bg-rose-500/5 text-rose-500">Damaged Qty</th>
-                  <th className="p-2.5 text-center border-l border-r bg-indigo-500/10 text-indigo-500">Closing Qty</th>
-                  <th className="p-2.5 text-right bg-indigo-500/10 text-indigo-500">Closing Value</th>
+                  <th className="px-2.5 py-1.5 sticky left-0 z-30 bg-inherit border-r min-w-[180px]">Product SKU & Name</th>
+                  <th className="px-2.5 py-1.5 text-center">Unit Cost</th>
+                  <th className="px-2.5 py-1.5 text-center border-l bg-slate-500/5">Opening Qty</th>
+                  <th className="px-2.5 py-1.5 text-right border-r bg-slate-500/5">Opening Value</th>
+                  <th className="px-2.5 py-1.5 text-center bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Qty</th>
+                  <th className="px-2.5 py-1.5 text-right border-r bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Value</th>
+                  <th className="px-2.5 py-1.5 text-center bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Qty</th>
+                  <th className="px-2.5 py-1.5 text-right border-r bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Value</th>
+                  <th className="px-2.5 py-1.5 text-center bg-rose-500/5 text-rose-500">Damaged Qty</th>
+                  <th className="px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 text-indigo-500">Closing Qty</th>
+                  <th className="px-2.5 py-1.5 text-right bg-indigo-500/10 text-indigo-500">Closing Value</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -594,7 +606,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredProductLedger.map(({ prod, unitCost, openingQty, openingValue, receivedQty, receivedValue, deliveredQty, deliveredValue, damagedQty, damagedValue, closingQty, closingValue }) => (
+                  productLedgerPagination.pagedItems.map(({ prod, unitCost, openingQty, openingValue, receivedQty, receivedValue, deliveredQty, deliveredValue, damagedQty, damagedValue, closingQty, closingValue }) => (
                     <tr key={prod.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                       <td className={`p-2.5 sticky left-0 z-10 border-r font-medium ${
                         isDarkMode ? 'bg-[#0f1218]' : 'bg-white'
@@ -691,6 +703,18 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               </tfoot>
             </table>
           </div>
+          <TablePagination
+            page={productLedgerPagination.page}
+            pageCount={productLedgerPagination.pageCount}
+            totalItems={productLedgerPagination.totalItems}
+            rangeStart={productLedgerPagination.rangeStart}
+            rangeEnd={productLedgerPagination.rangeEnd}
+            pageSize={productLedgerPagination.pageSize}
+            onPageChange={productLedgerPagination.setPage}
+            onPageSizeChange={productLedgerPagination.setPageSize}
+            isDarkMode={isDarkMode}
+            className="mt-1"
+          />
         </div>
       )}
 
@@ -701,20 +725,20 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="overflow-x-auto max-h-[calc(100vh-16rem)] overflow-y-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b ${
                 isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">Tx Reference</th>
-                  <th className="p-2.5">Timestamp</th>
-                  <th className="p-2.5">Product Name & SKU</th>
-                  <th className="p-2.5">Branch Location</th>
-                  <th className="p-2.5 text-center">Event Type</th>
-                  <th className="p-2.5 text-center">Qty Before</th>
-                  <th className="p-2.5 text-center">Qty Change</th>
-                  <th className="p-2.5 text-center">Qty After</th>
-                  <th className="p-2.5 text-right">Unit Cost</th>
-                  <th className="p-2.5 text-right">Movement Value</th>
+                  <th className="px-2.5 py-1.5">Tx Reference</th>
+                  <th className="px-2.5 py-1.5">Timestamp</th>
+                  <th className="px-2.5 py-1.5">Product Name & SKU</th>
+                  <th className="px-2.5 py-1.5">Branch Location</th>
+                  <th className="px-2.5 py-1.5 text-center">Event Type</th>
+                  <th className="px-2.5 py-1.5 text-center">Qty Before</th>
+                  <th className="px-2.5 py-1.5 text-center">Qty Change</th>
+                  <th className="px-2.5 py-1.5 text-center">Qty After</th>
+                  <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
+                  <th className="px-2.5 py-1.5 text-right">Movement Value</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -725,7 +749,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredLogs.map((log) => {
+                  transactionLogsPagination.pagedItems.map((log) => {
                     const branchName = branches.find((b) => b.id === log.branchId)?.name || log.branchId;
                     const formattedDate = formatDualDate(log.timestampAD.split('T')[0], dateMode);
                     const isPositive = log.quantityChanged > 0;
@@ -794,6 +818,18 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               </tfoot>
             </table>
           </div>
+          <TablePagination
+            page={transactionLogsPagination.page}
+            pageCount={transactionLogsPagination.pageCount}
+            totalItems={transactionLogsPagination.totalItems}
+            rangeStart={transactionLogsPagination.rangeStart}
+            rangeEnd={transactionLogsPagination.rangeEnd}
+            pageSize={transactionLogsPagination.pageSize}
+            onPageChange={transactionLogsPagination.setPage}
+            onPageSizeChange={transactionLogsPagination.setPageSize}
+            isDarkMode={isDarkMode}
+            className="mt-1"
+          />
         </div>
       )}
     </div>

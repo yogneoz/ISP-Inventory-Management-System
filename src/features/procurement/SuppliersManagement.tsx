@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Supplier, User } from '../../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { isOperationAllowed } from '../../utils/permissions';
 
 interface SuppliersManagementProps {
@@ -38,6 +39,8 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       s.panVatNumber.includes(search) ||
       (s?.address || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const suppliersPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingSupplier(null);
@@ -78,9 +81,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
         await onUpdateSupplier(editingSupplier.id, {
           name,
           contactPerson: contactPerson || 'General Sales',
-          phone: phone || '+977-1-4000000',
-          email: email || 'sales@supplier.com.np',
-          address: address || 'Kathmandu, Nepal',
+          phone: phone || '+977-01-0000000',
+          email: email || 'sales@supplier.example.com',
+          address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
         });
       }
@@ -89,9 +92,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
         await onCreateSupplier({
           name,
           contactPerson: contactPerson || 'General Sales',
-          phone: phone || '+977-1-4000000',
-          email: email || 'sales@supplier.com.np',
-          address: address || 'Kathmandu, Nepal',
+          phone: phone || '+977-01-0000000',
+          email: email || 'sales@supplier.example.com',
+          address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
         });
       }
@@ -112,21 +115,21 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     : 'bg-white border-slate-200 text-slate-800 shadow-xs';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Factory className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             <span>Supplier & Vendor Register</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, edit, or remove hardware suppliers, PAN/VAT details, contact persons, and ratings.
           </p>
         </div>
         {canManageSuppliers && (
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add New Supplier</span>
@@ -136,7 +139,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -154,8 +157,8 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
       {/* Grid of Suppliers */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((s) => (
-          <div key={s.id} className={`p-5 rounded-2xl border transition-all ${cardBg}`}>
+        {suppliersPagination.pagedItems.map((s) => (
+          <div key={s.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">{s.name}</h3>
@@ -218,6 +221,18 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
           </div>
         ))}
       </div>
+      <TablePagination
+        page={suppliersPagination.page}
+        pageCount={suppliersPagination.pageCount}
+        totalItems={suppliersPagination.totalItems}
+        rangeStart={suppliersPagination.rangeStart}
+        rangeEnd={suppliersPagination.rangeEnd}
+        pageSize={suppliersPagination.pageSize}
+        onPageChange={suppliersPagination.setPage}
+        onPageSizeChange={suppliersPagination.setPageSize}
+        isDarkMode={isDarkMode}
+        className="mt-1"
+      />
 
       {/* Modal Add/Edit Supplier */}
       {isModalOpen && (
@@ -296,7 +311,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Tripureshwor, Kathmandu"
+                  placeholder="Example Street, Example City"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>

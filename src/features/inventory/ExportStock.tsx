@@ -22,6 +22,7 @@ import {
   Tag,
   Layers,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface ExportStockProps {
   currentUser?: User | null;
@@ -261,6 +262,25 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       return matchesCat && matchesGrp;
     });
   }, [products, filterCategory, filterGroup, searchQuery]);
+
+  const devicesPagination = useClientPagination(filteredSerializedDevices, 20, [
+    filterBranch,
+    filterDeviceStatus,
+    filterProductModel,
+    searchQuery,
+  ]);
+  const reorderListPagination = useClientPagination(filteredReorderItems, 20, [
+    filterBranch,
+    filterCategory,
+    filterGroup,
+    filterReorderStatus,
+    searchQuery,
+  ]);
+  const productsPagination = useClientPagination(filteredProducts, 20, [
+    filterCategory,
+    filterGroup,
+    searchQuery,
+  ]);
 
   // -------------------------------------------------------------
   // EXPORT ACTION HANDLERS
@@ -526,14 +546,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-2.5">
       {/* 1. Header Row (Clean, dedicated title & summary) */}
       <div className="flex-none flex flex-col md:flex-row md:items-center justify-between gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <DownloadCloud className="h-5 w-5 text-indigo-500" />
             <span>Export Stock Data & Serialized Reports</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Audit-ready CSV exports for Serialized Hardware (SN/PON/MAC), Consolidated Reorder Levels, Master Stock Matrix, and Branch Breakdown.
           </p>
         </div>
@@ -555,7 +575,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         }`}>
           <button
             onClick={() => setViewMode('SERIALIZED_DEVICES')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               viewMode === 'SERIALIZED_DEVICES'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : isDarkMode
@@ -574,7 +594,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
           <button
             onClick={() => setViewMode('REORDER_LIST')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               viewMode === 'REORDER_LIST'
                 ? 'bg-rose-600 text-white shadow-sm'
                 : isDarkMode
@@ -599,7 +619,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
           <button
             onClick={() => setViewMode('MASTER_STOCK')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               viewMode === 'MASTER_STOCK'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : isDarkMode
@@ -616,7 +636,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
           <button
             onClick={() => setViewMode('BRANCH_MATRIX')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               viewMode === 'BRANCH_MATRIX'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : isDarkMode
@@ -759,7 +779,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
           )}
 
           {/* Search Box */}
-          <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
@@ -853,19 +873,20 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         <div className="flex-1 min-h-0 overflow-auto relative">
           {/* VIEW 1: SERIALIZED DEVICES */}
           {viewMode === 'SERIALIZED_DEVICES' && (
+            <>
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-3 sticky top-0 bg-inherit">Branch Location</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Product / Model Name</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Device Serial (SN)</th>
-                  <th className="p-3 sticky top-0 bg-inherit">PON Serial Number</th>
-                  <th className="p-3 sticky top-0 bg-inherit">MAC Address</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">Stock Status</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Location / Holder</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-right">Registered (BS)</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Branch Location</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product / Model Name</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Device Serial (SN)</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">PON Serial Number</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">MAC Address</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Stock Status</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Location / Holder</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Registered (BS)</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -876,7 +897,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredSerializedDevices.map((dev) => {
+                  devicesPagination.pagedItems.map((dev) => {
                     const br = branches.find((b) => b.id === dev.branchId);
                     const isAvailable = dev.status === 'IN_STOCK';
                     const isRental = dev.status === 'RENTAL';
@@ -888,7 +909,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="p-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5">
                             <Building2 className="h-3.5 w-3.5 text-indigo-500" />
                             <span>{br?.name || dev.branchId}</span>
@@ -897,10 +918,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             </span>
                           </span>
                         </td>
-                        <td className="p-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                        <td className="p-2.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {dev.productName}
                         </td>
-                        <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <span>{dev.deviceSerial}</span>
                             <button
@@ -916,15 +937,15 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             </button>
                           </div>
                         </td>
-                        <td className="p-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                        <td className="p-2.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 font-semibold text-[11px]">
                             {dev.ponSerial || 'N/A'}
                           </span>
                         </td>
-                        <td className="p-3 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        <td className="p-2.5 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           {dev.macAddress || 'N/A'}
                         </td>
-                        <td className="p-3 text-center whitespace-nowrap">
+                        <td className="p-2.5 text-center whitespace-nowrap">
                           {isAvailable ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
                               <CheckCircle2 className="h-3 w-3" />
@@ -941,10 +962,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-3 text-slate-600 dark:text-slate-400 truncate max-w-[200px]">
+                        <td className="p-2.5 text-slate-600 dark:text-slate-400 truncate max-w-[200px]">
                           {dev.customerName}
                         </td>
-                        <td className="p-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                        <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">
                           {formatBSDate(dev.issuedDateAD || dev.issuedDateBS)}
                         </td>
                       </tr>
@@ -953,30 +974,44 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 )}
               </tbody>
             </table>
+            <TablePagination
+              page={devicesPagination.page}
+              pageCount={devicesPagination.pageCount}
+              totalItems={devicesPagination.totalItems}
+              rangeStart={devicesPagination.rangeStart}
+              rangeEnd={devicesPagination.rangeEnd}
+              pageSize={devicesPagination.pageSize}
+              onPageChange={devicesPagination.setPage}
+              onPageSizeChange={devicesPagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
+            </>
           )}
 
           {/* VIEW 2: REORDER LEVEL & LOW STOCK LIST (CONSOLIDATED & BRANCH AWARE) */}
           {viewMode === 'REORDER_LIST' && (
+            <>
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-3 sticky top-0 bg-inherit">SKU / Code</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Product Name</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Category</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">SKU / Code</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Name</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">
                     {filterBranch === 'ALL' ? 'Consolidated Min Level (19 Br)' : 'Min Reorder Level'}
                   </th>
                   {filterBranch === 'ALL' && (
-                    <th className="p-3 sticky top-0 bg-inherit text-center">Low Branches</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Low Branches</th>
                   )}
-                  <th className="p-3 sticky top-0 bg-inherit text-center">Deficit (Shortfall)</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">Suggested Reorder</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">Stock Health</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-right">Unit Cost</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-right">Reorder Budget (NPR)</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Deficit (Shortfall)</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Suggested Reorder</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Stock Health</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Unit Cost</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Reorder Budget (NPR)</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -987,7 +1022,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredReorderItems.map(({ product: p, onHand, reorderThreshold, isConsolidated, lowBranchesCount, totalBranchesCount, deficit, suggestedReorderQty, estimatedReorderBudget, isOutOfStock, isBelowReorder }) => {
+                  reorderListPagination.pagedItems.map(({ product: p, onHand, reorderThreshold, isConsolidated, lowBranchesCount, totalBranchesCount, deficit, suggestedReorderQty, estimatedReorderBudget, isOutOfStock, isBelowReorder }) => {
                     return (
                       <tr
                         key={p.id}
@@ -1005,10 +1040,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           {p.sku}
                         </td>
-                        <td className="p-3 font-bold text-slate-900 dark:text-white">
+                        <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                           <div className="flex items-center gap-2">
                             <span>{p.name}</span>
                             {p.requiresSerialTracking && (
@@ -1018,8 +1053,8 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             )}
                           </div>
                         </td>
-                        <td className="p-3 text-slate-500 whitespace-nowrap">{p.category}</td>
-                        <td className={`p-3 text-center font-mono font-bold whitespace-nowrap ${
+                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{p.category}</td>
+                        <td className={`p-2.5 text-center font-mono font-bold whitespace-nowrap ${
                           isOutOfStock
                             ? 'text-rose-600 dark:text-rose-400'
                             : isBelowReorder
@@ -1028,7 +1063,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         }`}>
                           {onHand} {p.unit}
                         </td>
-                        <td className="p-3 text-center font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                        <td className="p-2.5 text-center font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           {reorderThreshold} {p.unit}
                           {isConsolidated && (
                             <span className="block text-[10px] text-slate-400 font-normal">
@@ -1037,7 +1072,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           )}
                         </td>
                         {isConsolidated && (
-                          <td className="p-3 text-center whitespace-nowrap">
+                          <td className="p-2.5 text-center whitespace-nowrap">
                             {lowBranchesCount > 0 ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
                                 {lowBranchesCount} / {totalBranchesCount} Branches Low
@@ -1049,7 +1084,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             )}
                           </td>
                         )}
-                        <td className="p-3 text-center font-mono font-bold whitespace-nowrap">
+                        <td className="p-2.5 text-center font-mono font-bold whitespace-nowrap">
                           {deficit > 0 ? (
                             <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 text-xs">
                               -{deficit} {p.unit}
@@ -1058,10 +1093,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             <span className="text-slate-400 font-normal">0</span>
                           )}
                         </td>
-                        <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className="p-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           {suggestedReorderQty > 0 ? `+${suggestedReorderQty} ${p.unit}` : '-'}
                         </td>
-                        <td className="p-3 text-center whitespace-nowrap">
+                        <td className="p-2.5 text-center whitespace-nowrap">
                           {isOutOfStock ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-500 border border-rose-500/20">
                               <AlertCircle className="h-3 w-3" />
@@ -1079,10 +1114,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           रु {(p.costPrice || 0).toLocaleString('en-IN')}
                         </td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {estimatedReorderBudget > 0 ? (
                             <span className="text-rose-600 dark:text-rose-400">
                               रु {(estimatedReorderBudget ?? 0).toLocaleString('en-IN')}
@@ -1097,27 +1132,41 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 )}
               </tbody>
             </table>
+            <TablePagination
+              page={reorderListPagination.page}
+              pageCount={reorderListPagination.pageCount}
+              totalItems={reorderListPagination.totalItems}
+              rangeStart={reorderListPagination.rangeStart}
+              rangeEnd={reorderListPagination.rangeEnd}
+              pageSize={reorderListPagination.pageSize}
+              onPageChange={reorderListPagination.setPage}
+              onPageSizeChange={reorderListPagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
+            </>
           )}
 
           {/* VIEW 3: MASTER STOCK MATRIX */}
           {viewMode === 'MASTER_STOCK' && (
+            <>
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-3 sticky top-0 bg-inherit">SKU / Barcode</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Product Name</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Group</th>
-                  <th className="p-3 sticky top-0 bg-inherit">Category</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-center">Reorder Threshold</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-right">Cost Price</th>
-                  <th className="p-3 sticky top-0 bg-inherit text-right">Cost Valuation</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">SKU / Barcode</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Name</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Group</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Reorder Threshold</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Price</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Valuation</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                {filteredProducts.map((p) => {
+                {productsPagination.pagedItems.map((p) => {
                   const qty = getProductStock(p.id);
                   const isLow = qty <= p.minReorderLevel;
 
@@ -1128,10 +1177,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {p.sku}
                       </td>
-                      <td className="p-3 font-bold text-slate-900 dark:text-white">
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                         <div className="flex items-center gap-2">
                           <span>{p.name}</span>
                           {p.requiresSerialTracking && (
@@ -1141,18 +1190,18 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           )}
                         </div>
                       </td>
-                      <td className="p-3 text-slate-500">{p.productGroup || 'Product Item'}</td>
-                      <td className="p-3 text-slate-500">{p.category}</td>
-                      <td className="p-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <td className="p-2.5 text-slate-500">{p.productGroup || 'Product Item'}</td>
+                      <td className="p-2.5 text-slate-500">{p.category}</td>
+                      <td className="p-2.5 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
                         {qty} {p.unit}
                       </td>
-                      <td className="p-3 text-center font-mono font-medium text-slate-500">
+                      <td className="p-2.5 text-center font-mono font-medium text-slate-500">
                         {p.minReorderLevel} {p.unit}
                       </td>
-                      <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                      <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
                         रु {(p.costPrice ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="p-3 text-right font-mono font-semibold text-slate-900 dark:text-white">
+                      <td className="p-2.5 text-right font-mono font-semibold text-slate-900 dark:text-white">
                         रु {((qty || 0) * (p.costPrice || 0)).toLocaleString('en-IN')}
                       </td>
                     </tr>
@@ -1160,29 +1209,43 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 })}
               </tbody>
             </table>
+            <TablePagination
+              page={productsPagination.page}
+              pageCount={productsPagination.pageCount}
+              totalItems={productsPagination.totalItems}
+              rangeStart={productsPagination.rangeStart}
+              rangeEnd={productsPagination.rangeEnd}
+              pageSize={productsPagination.pageSize}
+              onPageChange={productsPagination.setPage}
+              onPageSizeChange={productsPagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
+            </>
           )}
 
           {/* VIEW 4: BRANCH DISTRIBUTION MATRIX */}
           {viewMode === 'BRANCH_MATRIX' && (
+            <>
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-3 sticky top-0 bg-inherit whitespace-nowrap">SKU / Code</th>
-                  <th className="p-3 sticky top-0 bg-inherit whitespace-nowrap min-w-[200px]">Product Name</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit whitespace-nowrap">SKU / Code</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit whitespace-nowrap min-w-[200px]">Product Name</th>
                   {branches.map((b) => (
-                    <th key={b.id} className="p-3 sticky top-0 bg-inherit text-center whitespace-nowrap">
+                    <th key={b.id} className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center whitespace-nowrap">
                       {b.code}
                     </th>
                   ))}
-                  <th className="p-3 sticky top-0 bg-inherit text-right whitespace-nowrap font-bold text-indigo-500">
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right whitespace-nowrap font-bold text-indigo-500">
                     Total All Branches
                   </th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                {filteredProducts.map((p) => {
+                {productsPagination.pagedItems.map((p) => {
                   const total = stock
                     .filter((s) => s.productId === p.id)
                     .reduce((sum, item) => sum + (item.quantityOnHand || 0), 0);
@@ -1194,10 +1257,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                      <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                         {p.sku}
                       </td>
-                      <td className="p-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                         {p.name}
                       </td>
                       {branches.map((b) => {
@@ -1223,7 +1286,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           </td>
                         );
                       })}
-                      <td className="p-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                      <td className="p-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                         {total} {p.unit}
                       </td>
                     </tr>
@@ -1231,6 +1294,19 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 })}
               </tbody>
             </table>
+            <TablePagination
+              page={productsPagination.page}
+              pageCount={productsPagination.pageCount}
+              totalItems={productsPagination.totalItems}
+              rangeStart={productsPagination.rangeStart}
+              rangeEnd={productsPagination.rangeEnd}
+              pageSize={productsPagination.pageSize}
+              onPageChange={productsPagination.setPage}
+              onPageSizeChange={productsPagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
+            </>
           )}
         </div>
       </div>

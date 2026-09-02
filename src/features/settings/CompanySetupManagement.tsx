@@ -37,22 +37,22 @@ interface CompanySetupManagementProps {
 
 const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   id: 'COMP-001',
-  name: 'IZONE DIGITAL NETWORK PVT. LTD.',
-  legalName: 'iZone Digital Network Private Limited',
-  tagline: 'High Speed Fiber & Enterprise Communication System',
-  address: 'Urlabari-07, Morang, Koshi Province, Nepal',
-  city: 'Urlabari',
+  name: 'EXAMPLE NETWORKS PVT. LTD.',
+  legalName: 'Example Networks Private Limited (Dummy Data)',
+  tagline: 'Sample Fiber & ISP Inventory Company',
+  address: 'Example Street, Example City, Nepal',
+  city: 'Example City',
   country: 'Nepal',
-  phone: '+977-021-540123 / 9800000000',
-  email: 'info@izone.com.np',
-  website: 'https://izone.com.np',
-  panVatNumber: '609823412',
-  registrationNumber: 'REG-2075-88412',
+  phone: '+977-01-0000000',
+  email: 'info@example.com',
+  website: 'https://example.com',
+  panVatNumber: '000000000',
+  registrationNumber: 'REG-0000-00000',
   logoUrl: '',
   logoPreset: 'telecom',
   currencySymbol: 'Rs.',
   defaultTaxRate: 13,
-  notes: 'Head Office & Central Procurement Warehouse System',
+  notes: 'Dummy company profile for testing — replace with real details in Company Setup.',
 };
 
 const LOGO_PRESETS = [
@@ -203,21 +203,21 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-3 pb-6">
       {/* Top Banner & Title */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl text-white shadow-xl border border-indigo-900/50">
-        <div className="space-y-1">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-4 py-3 rounded-2xl text-white shadow-xl border border-indigo-900/50">
+        <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 text-[10px] font-bold uppercase tracking-wider">
               System Branding & Profile
             </span>
             <span className="text-xs text-slate-400">Master Enterprise Settings</span>
           </div>
-          <h1 className="text-2xl font-black tracking-tight flex items-center gap-2.5">
-            <Building2 className="h-7 w-7 text-indigo-400" />
+          <h1 className="text-lg font-bold tracking-tight flex items-center gap-2.5">
+            <Building2 className="h-5 w-5 text-indigo-400" />
             Company Profile & Identity Setup
           </h1>
-          <p className="text-xs text-slate-300 max-w-2xl">
+          <p className="text-xs text-slate-300 truncate max-w-2xl">
             Configure official corporate details, registered address, tax PAN/VAT IDs, logo graphics,
             and header settings. Updates apply dynamically across all POs, Invoices, Barcode Labels,
             and Reports.
@@ -225,7 +225,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center gap-1.5 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700/60 self-start md:self-auto">
+        <div className="shrink-0 flex items-center gap-1.5 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700/60 self-start md:self-auto">
           <button
             type="button"
             onClick={() => setActiveTab('SETUP')}
@@ -316,7 +316,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
           <div className="lg:col-span-2 space-y-6">
             {/* 1. Core Identity & Required Fields */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm ${
+              className={`p-4 rounded-2xl border space-y-4 shadow-sm ${
                 isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
@@ -371,7 +371,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     onBlur={() => handleBlur('address')}
-                    placeholder="e.g. Urlabari-07, Morang, Koshi Province, Nepal"
+                    placeholder="e.g. Example Street, Example City, Nepal"
                     className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all ${
                       touched.address && !isAddressValid
                         ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30'
@@ -398,7 +398,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={panVatNumber}
                     onChange={(e) => setPanVatNumber(e.target.value)}
                     onBlur={() => handleBlur('panVatNumber')}
-                    placeholder="e.g. 609823412"
+                    placeholder="e.g. 000000000"
                     className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-mono font-bold transition-all ${
                       touched.panVatNumber && !isPanVatValid
                         ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30'
@@ -472,7 +472,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
 
             {/* 2. Contact Information & Regional Settings */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm ${
+              className={`p-4 rounded-2xl border space-y-4 shadow-sm ${
                 isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
@@ -488,7 +488,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* Phone */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -499,7 +499,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="e.g. +977-021-540123 / 9800000000"
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-semibold ${
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-semibold ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -514,8 +514,8 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. info@izone.com.np"
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-semibold ${
+                    placeholder="e.g. info@example.com"
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-semibold ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -530,8 +530,8 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     type="text"
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
-                    placeholder="e.g. https://izone.com.np"
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-semibold ${
+                    placeholder="e.g. https://example.com"
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-semibold ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -546,8 +546,8 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     type="text"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
-                    placeholder="e.g. Urlabari"
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-semibold ${
+                    placeholder="e.g. Example City"
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-semibold ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -563,7 +563,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={currencySymbol}
                     onChange={(e) => setCurrencySymbol(e.target.value)}
                     placeholder="e.g. Rs."
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-bold font-mono ${
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -580,7 +580,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={defaultTaxRate}
                     onChange={(e) => setDefaultTaxRate(Number(e.target.value))}
                     placeholder="13"
-                    className={`w-full rounded-xl border px-3.5 py-2 text-xs font-bold ${
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold ${
                       isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />
@@ -618,7 +618,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
           <div className="space-y-6">
             {/* Logo Setup Card */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm ${
+              className={`p-4 rounded-2xl border space-y-4 shadow-sm ${
                 isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
@@ -718,7 +718,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
 
             {/* Live Corporate Identity Card */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm bg-gradient-to-br ${
+              className={`p-4 rounded-2xl border space-y-4 shadow-sm bg-gradient-to-br ${
                 isDarkMode
                   ? 'from-slate-900 via-slate-900 to-indigo-950/60 border-slate-800 text-white'
                   : 'from-white via-indigo-50/20 to-slate-50 border-slate-200 text-slate-900'
@@ -780,9 +780,9 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
         </form>
       ) : (
         /* LIVE DOCUMENT PREVIEW TAB */
-        <div className="space-y-6">
+        <div className="space-y-3">
           <div
-            className={`p-6 rounded-2xl border space-y-6 ${
+            className={`p-4 rounded-2xl border space-y-6 ${
               isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
             }`}
           >

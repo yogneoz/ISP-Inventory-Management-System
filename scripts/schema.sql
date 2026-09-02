@@ -1,7 +1,7 @@
 -- ============================================================================
--- IZone Enterprise Inventory & ERP System - Full PostgreSQL Database Schema
+-- Inventory & ERP System - Full PostgreSQL Database Schema
 -- Version: 3.0 (Enterprise-Ready, Production Hardened)
--- Nepal Telecom & Fiber ISP Operations
+-- Multi-branch Fiber ISP Operations
 --
 -- v3.0 changes (fully idempotent - safe to re-apply on an existing database):
 --   * is_demo tracking column on every operational table. Dummy data seeded by
@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS branches (
     is_headquarters BOOLEAN DEFAULT FALSE,
     active BOOLEAN DEFAULT TRUE,
     allow_procurement BOOLEAN DEFAULT TRUE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS users (
     allowed_branch_ids TEXT[],
     status VARCHAR(30) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'locked')),
     can_switch_user BOOLEAN DEFAULT FALSE,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -501,6 +503,7 @@ CREATE TABLE IF NOT EXISTS locations (
     contact_phone VARCHAR(50),
     notes TEXT,
     active_assets_count INT DEFAULT 0,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

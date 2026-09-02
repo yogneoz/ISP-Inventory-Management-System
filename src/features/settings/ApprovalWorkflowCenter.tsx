@@ -25,6 +25,7 @@ import {
   Package,
   ClipboardCheck,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface ApprovalWorkflowCenterProps {
   approvalRequests: ApprovalRequest[];
@@ -147,6 +148,8 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
     return matchesStatus && matchesType && matchesBranch && matchesQ;
   });
+
+  const requestsPagination = useClientPagination(filteredList, 15, [searchQuery, filterStatus, filterType, filterBranchId]);
 
   const handleApprove = (req: ApprovalRequest) => {
     if (!canApprove) {
@@ -275,7 +278,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <span>Pending</span>
             <Clock className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-amber-900 dark:text-amber-200 mt-1">
+          <div className="text-xl font-black text-amber-900 dark:text-amber-200 mt-1">
             {pendingCount}
           </div>
           <p className="text-[10px] text-amber-700/80 dark:text-amber-400 mt-0.5">
@@ -297,7 +300,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <span>Approved</span>
             <CheckCircle2 className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
+          <div className="text-xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
             {approvedCount}
           </div>
           <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
@@ -319,7 +322,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <span>Rejected</span>
             <XCircle className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-rose-900 dark:text-rose-200 mt-1">
+          <div className="text-xl font-black text-rose-900 dark:text-rose-200 mt-1">
             {rejectedCount}
           </div>
           <p className="text-[10px] text-rose-700/80 dark:text-rose-400 mt-0.5">
@@ -341,7 +344,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <span>Cancelled</span>
             <X className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+          <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
             {cancelledCount}
           </div>
           <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5">
@@ -363,7 +366,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <span>Total</span>
             <Layers className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-indigo-900 dark:text-indigo-200 mt-1">
+          <div className="text-xl font-black text-indigo-900 dark:text-indigo-200 mt-1">
             {approvalRequests.length}
           </div>
           <p className="text-[10px] text-indigo-700/80 dark:text-indigo-400 mt-0.5">
@@ -491,7 +494,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             </select>
 
             {/* Search Box */}
-            <div className="relative flex-1 sm:w-64">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input
                 type="text"
@@ -514,13 +517,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className={isDarkMode ? 'bg-slate-800/80 text-slate-300' : 'bg-slate-100/80 text-slate-700'}>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Request # & Date</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Customer & Serial</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Status Transition</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Requester & Branch</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Reason / Justification</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase text-center">Status</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase text-center">Actions</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Request # & Date</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Customer & Serial</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Status Transition</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Requester & Branch</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Reason / Justification</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold text-center">Status</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
@@ -537,7 +540,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredList.map((req) => {
+              requestsPagination.pagedItems.map((req) => {
                 const isPending = req.status === 'PENDING';
                 const isApproved = req.status === 'APPROVED';
                 const isRejected = req.status === 'REJECTED';
@@ -557,7 +560,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     }`}
                   >
                     {/* Request # & Date */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       <div className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
                         {req.requestNumber}
                       </div>
@@ -567,7 +570,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Customer / Transfer & Serial */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       {req.type === 'STOCK_AUDIT_RECONCILIATION' ? (
                         <div>
                           <div className="flex items-center gap-1.5 font-extrabold text-purple-700 dark:text-purple-400">
@@ -630,7 +633,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Status Transition */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       {req.type === 'STOCK_AUDIT_RECONCILIATION' ? (
                         <div>
                           <div className="flex items-center gap-1.5 font-bold text-[10px]">
@@ -710,7 +713,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Requester & Branch */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">
                         {req.requestedByName}
                       </div>
@@ -724,7 +727,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Reason */}
-                    <td className="p-3 max-w-xs">
+                    <td className="p-2.5 max-w-xs">
                       <p className="text-slate-600 dark:text-slate-300 text-[11px] line-clamp-2 leading-relaxed">
                         {req.reason}
                       </p>
@@ -736,7 +739,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Status Badge */}
-                    <td className="p-3 text-center">
+                    <td className="p-2.5 text-center">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
                           isPending
@@ -757,12 +760,12 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Actions */}
-                    <td className="p-3 text-center">
+                    <td className="p-2.5 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         {/* Dedicated Action for Stock Audit Reconciliation */}
                         {req.type === 'STOCK_AUDIT_RECONCILIATION' && onNavigateToStockAudit && (
                           <button
-                            onClick={() => onNavigateToStockAudit(req.branchId || 'BR-KTM', req.id)}
+                            onClick={() => onNavigateToStockAudit(req.branchId || 'WH001', req.id)}
                             className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] shadow-xs flex items-center gap-1 cursor-pointer shrink-0"
                             title="Open Stock Count Table to Inspect Discrepancies & Reconcile"
                           >
@@ -825,6 +828,18 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           </tbody>
         </table>
       </div>
+      <TablePagination
+        page={requestsPagination.page}
+        pageCount={requestsPagination.pageCount}
+        totalItems={requestsPagination.totalItems}
+        rangeStart={requestsPagination.rangeStart}
+        rangeEnd={requestsPagination.rangeEnd}
+        pageSize={requestsPagination.pageSize}
+        onPageChange={requestsPagination.setPage}
+        onPageSizeChange={requestsPagination.setPageSize}
+        isDarkMode={isDarkMode}
+        className="mt-1"
+      />
 
       {/* Modal for Approval Confirmation */}
       {approvingReq && (
@@ -995,7 +1010,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const bId = approvingReq.branchId || 'BR-KTM';
+                    const bId = approvingReq.branchId || 'WH001';
                     const reqId = approvingReq.id;
                     setApprovingReq(null);
                     onNavigateToStockAudit(bId, reqId);
@@ -1292,7 +1307,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 {viewingReq.type === 'STOCK_AUDIT_RECONCILIATION' && onNavigateToStockAudit && (
                   <button
                     onClick={() => {
-                      const bId = viewingReq.branchId || 'BR-KTM';
+                      const bId = viewingReq.branchId || 'WH001';
                       const reqId = viewingReq.id;
                       setViewingReq(null);
                       onNavigateToStockAudit(bId, reqId);

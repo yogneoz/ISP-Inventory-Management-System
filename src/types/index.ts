@@ -382,6 +382,37 @@ export interface FiscalYear {
   isClosed: boolean;
 }
 
+export interface FiscalYearOpeningStockRow {
+  id: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  branchId: string;
+  branchName: string;
+  quantityOnHand: number;
+  damagedQty: number;
+  unitCost: number;
+  sourceType: string; // 'FISCAL_CLOSE' | 'MANUAL_ADJUSTMENT'
+  sourceReference: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+  /** Current live quantity in inventory_stock (reference only, not editable here). */
+  liveQty: number;
+  liveDamagedQty: number;
+}
+
+export interface FiscalYearOpeningStockResponse {
+  fiscalYear: FiscalYear;
+  rows: FiscalYearOpeningStockRow[];
+  stats: {
+    totalRows: number;
+    manualAdjustments: number;
+    zeroQtyRows: number;
+    totalUnits: number;
+    totalValue: number;
+  };
+}
+
 export interface AuditLog {
   id: string;
   userEmail: string;
@@ -419,6 +450,8 @@ export interface FinancialSummary {
   totalDamageLossValue: number;
   totalVatInputTax: number;
   currentFiscalYear: string;
+  /** Set when the summary was requested for a specific fiscal year. */
+  fiscalYearId?: string | null;
 }
 
 export interface LocationRecord {
@@ -462,7 +495,7 @@ export interface ApprovalRequest {
   requestNumber: string; // e.g. APR-2083-101
   type: 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_IN_TRANSIT_TRANSFER' | 'STOCK_ADJUSTMENT' | 'STOCK_AUDIT_RECONCILIATION' | 'PURCHASE_OVERRIDE' | 'CANCEL_RECEIVE_TRANSFER' | string;
   targetId: string; // e.g. CustomerDeviceRecord.id, Shipment.id, or Audit Batch Ref
-  customerName: string; // e.g. Customer Name, Transfer Tracking Code, or "Physical Stock Audit - Kathmandu"
+  customerName: string; // e.g. Customer Name, Transfer Tracking Code, or "Physical Stock Audit - WH001"
   customerCode?: string;
   deviceSerial: string; // e.g. Device Serial, Transfer Tracking Code, or Audit Ref No
   ponSerial?: string;

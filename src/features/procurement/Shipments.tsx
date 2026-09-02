@@ -9,7 +9,9 @@ import {
   CustomerDeviceRecord,
   ApprovalRequest,
 } from '../../types';
-import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
+import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
+import { exportToCSV } from '../../utils/exportUtils';
 import { getAllowedBranches } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
@@ -39,7 +41,9 @@ import {
   History,
   FileText,
   Lock,
+  FileSpreadsheet,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface ShipmentsProps {
   currentUser?: User | null;
@@ -104,6 +108,12 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   );
   const [viewingShipment, setViewingShipment] = useState<Shipment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Report Filters (dispatch date range, status, transfer direction)
+  const [startDateAD, setStartDateAD] = useState<string>('');
+  const [endDateAD, setEndDateAD] = useState<string>('');
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState<string>('ALL');
+  const [shipmentMode, setShipmentMode] = useState<'ALL' | 'CREATED' | 'RECEIVED'>('ALL');
 
   useEffect(() => {
     if (activeTab === 'create-shipment') {
@@ -207,7 +217,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
         currentStatus: 'RECEIVED',
         requestedStatus: 'IN_TRANSIT',
         requestedByRole: currentUser?.role || 'BRANCH_MANAGER',
-        requestedByEmail: currentUser?.email || 'user@izone.com.np',
+        requestedByEmail: currentUser?.email || 'user@example.com',
         requestedByName: currentUser?.name || 'Authorized Staff',
         branchId: requestCancelModalShipment.destinationBranchId,
         branchName: requestCancelModalShipment.destinationBranchName || requestCancelModalShipment.destinationBranchId,
@@ -395,8 +405,81 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       (sh?.trackingCode || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
       (sh.sourceBranchName && (sh?.sourceBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
       (sh?.destinationBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    return matchesBranch && matchesSearch;
+    if (!matchesBranch || !matchesSearch) return false;
+
+    // Dispatch date range filter (AD)
+    if (startDateAD && sh.dispatchDateAD < startDateAD) return false;
+    if (endDateAD && sh.dispatchDateAD > endDateAD) return false;
+
+    // Transfer direction relative to the user's / selected branch
+    const referenceBranchId = userBranchId || (selectedBranchId !== 'ALL' ? selectedBranchId : null);
+    if (shipmentMode === 'CREATED') {
+      if (!sh.sourceBranchId) return false;
+      if (referenceBranchId && sh.sourceBranchId !== referenceBranchId) return false;
+    } else if (shipmentMode === 'RECEIVED') {
+      if (!sh.destinationBranchId) return false;
+      if (referenceBranchId && sh.destinationBranchId !== referenceBranchId) return false;
+    }
+
+    // Status filter
+    if (shipmentStatusFilter !== 'ALL' && sh.status !== shipmentStatusFilter) return false;
+
+    return true;
   });
+
+  const shipmentPagination = useClientPagination(filteredShipments, 15, [
+    searchQuery,
+    selectedBranchId,
+    shipmentMode,
+    shipmentStatusFilter,
+    startDateAD,
+    endDateAD,
+  ]);
+
+  const handleResetShipmentFilters = () => {
+    setStartDateAD('');
+    setEndDateAD('');
+    setShipmentStatusFilter('ALL');
+    setShipmentMode('ALL');
+    setSearchQuery('');
+  };
+
+  const exportShipmentsCSV = () => {
+    const columns = [
+      { key: 'trackingCode', label: 'Tracking Code' },
+      { key: 'dispatchDateAD', label: 'Dispatch Date (AD)' },
+      {
+        key: 'dispatchDateBS',
+        label: 'Dispatch Date (BS)',
+        formatter: (_: any, row: any) => formatBSDate(row.dispatchDateAD || row.dispatchDateBS),
+      },
+      { key: 'sourceBranchName', label: 'Source Branch' },
+      { key: 'destinationBranchName', label: 'Destination Branch' },
+      { key: 'status', label: 'Status' },
+      {
+        key: 'manifestSummary',
+        label: 'Manifest Items',
+        formatter: (_: any, row: any) =>
+          row.items.map((i: any) => `${i.productName} (Sent: ${i.quantitySent}, Rec: ${i.quantityReceived || 0})`).join('; '),
+      },
+      { key: 'notes', label: 'Notes' },
+    ];
+
+    const effectiveBranchId = userBranchId || selectedBranchId;
+    const branchName =
+      effectiveBranchId === 'ALL'
+        ? 'All Branches (Consolidated)'
+        : branches.find((b) => b.id === effectiveBranchId)?.name || `Branch ${effectiveBranchId}`;
+
+    exportToCSV({
+      filename: 'Shipments_Transfer_History',
+      reportTitle: 'Multi-Branch Transfer & Logistics Shipment Report',
+      branchName,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: filteredShipments,
+      columns,
+    });
+  };
 
   const getSourceStock = (pId: string, bId: string) => {
     const item = stock.find((s) => s.productId === pId && s.branchId === bId);
@@ -580,23 +663,23 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <Truck className="h-5 w-5 text-indigo-500" />
             <span>Warehouse Logistics & Stock Dispatches</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Scan barcode or search products to dispatch stock transfers to destination branches or process warehouse sales.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <input
               type="text"
@@ -939,8 +1022,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Driver Ramesh Shrestha (Ba 2 Kha 9021)"
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100"
+                placeholder="e.g. Driver name (License no. Ba 2 Kha 9021)"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
               />
             </div>
 
@@ -1009,24 +1092,100 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             </div>
           </div>
 
+          {/* Report Filters & Export Toolbar */}
+          <div className={`flex flex-wrap items-end gap-3 rounded-2xl border p-3.5 shadow-sm ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div>
+              <DateField
+                label="Dispatch From"
+                mode={dateMode}
+                value={startDateAD}
+                onChange={setStartDateAD}
+                max={endDateAD || undefined}
+              />
+            </div>
+            <div>
+              <DateField
+                label="Dispatch To"
+                mode={dateMode}
+                value={endDateAD}
+                onChange={setEndDateAD}
+                min={startDateAD || undefined}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Status
+              </label>
+              <select
+                value={shipmentStatusFilter}
+                onChange={(e) => setShipmentStatusFilter(e.target.value)}
+                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="DISPATCHED">Dispatched</option>
+                <option value="IN_TRANSIT">In Transit</option>
+                <option value="DELIVERED">Delivered</option>
+                <option value="RECEIVED">Received</option>
+                <option value="DISCREPANCY">Discrepancy</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Direction
+              </label>
+              <select
+                value={shipmentMode}
+                onChange={(e) => setShipmentMode(e.target.value as 'ALL' | 'CREATED' | 'RECEIVED')}
+                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}
+              >
+                <option value="ALL">All Directions</option>
+                <option value="CREATED">Outbound (Dispatched From)</option>
+                <option value="RECEIVED">Inbound (Received At)</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handleResetShipmentFilters}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Clear Filters</span>
+            </button>
+            <button
+              type="button"
+              onClick={exportShipmentsCSV}
+              className="ml-auto flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>Export History CSV ({filteredShipments.length})</span>
+            </button>
+          </div>
+
           {/* Shipment Table */}
           <div className={`rounded-2xl border shadow-lg overflow-hidden ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+                <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
                   isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                 }`}>
                   <tr>
-                    <th className="p-3.5 sticky top-0 bg-inherit">Tracking Code</th>
-                    <th className="p-3.5 sticky top-0 bg-inherit">Shipment Type</th>
-                    <th className="p-3.5 sticky top-0 bg-inherit">From (Source)</th>
-                    <th className="p-3.5 sticky top-0 bg-inherit">To (Destination)</th>
-                    <th className="p-3.5 sticky top-0 bg-inherit">Dispatch Date</th>
-                    <th className="p-3.5 text-center">Transfer Items</th>
-                    <th className="p-3.5 text-center">Status</th>
-                    <th className="p-3.5 text-center">Actions</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Tracking Code</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Shipment Type</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">From (Source)</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">To (Destination)</th>
+                    <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Dispatch Date</th>
+                    <th className="px-2.5 py-1.5 text-center">Transfer Items</th>
+                    <th className="px-2.5 py-1.5 text-center">Status</th>
+                    <th className="px-2.5 py-1.5 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1037,7 +1196,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    filteredShipments.map((sh) => {
+                    shipmentPagination.pagedItems.map((sh) => {
                       const pendingCancelReq = approvalRequests?.find(
                         (r) =>
                           r.type === 'CANCEL_RECEIVE_TRANSFER' &&
@@ -1055,27 +1214,27 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                           ? 'hover:bg-slate-800/40'
                           : 'hover:bg-slate-50'
                       }`}>
-                        <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                           {sh.trackingCode}
                         </td>
-                        <td className="p-3.5 font-semibold text-slate-800 dark:text-slate-200">
+                        <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">
                           {sh.type === 'INTER_BRANCH' ? 'Inter-Branch Transfer' : 'Supplier Inbound'}
                         </td>
-                        <td className="p-3.5 text-slate-600 dark:text-slate-300">
+                        <td className="p-2.5 text-slate-600 dark:text-slate-300">
                           {sh.sourceBranchName || 'External Vendor'}
                         </td>
-                        <td className="p-3.5 text-slate-900 dark:text-white font-bold">
+                        <td className="p-2.5 text-slate-900 dark:text-white font-bold">
                           {sh.destinationBranchName}
                         </td>
-                        <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                        <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                           {formatDualDate(sh.dispatchDateAD, dateMode)}
                         </td>
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 font-mono">
                             {sh.items.reduce((s, i) => s + (i.quantityReceived || i.quantitySent || (i as any).quantity || 1), 0)} Units ({sh.items.length} skus)
                           </span>
                         </td>
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           {pendingCancelReq ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse whitespace-nowrap">
                               <Clock className="h-3 w-3 animate-spin" />
@@ -1095,7 +1254,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button
                               onClick={() => {
@@ -1157,6 +1316,18 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={shipmentPagination.page}
+              pageCount={shipmentPagination.pageCount}
+              totalItems={shipmentPagination.totalItems}
+              rangeStart={shipmentPagination.rangeStart}
+              rangeEnd={shipmentPagination.rangeEnd}
+              pageSize={shipmentPagination.pageSize}
+              onPageChange={shipmentPagination.setPage}
+              onPageSizeChange={shipmentPagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
           </div>
         </>
       )}
@@ -1402,7 +1573,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Driver Ramesh Shrestha (Ba 2 Kha 9021)"
+                  placeholder="e.g. Driver name (License no. Ba 2 Kha 9021)"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -1460,28 +1631,28 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
               <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px]">
+                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold text-[10px]">
                     <tr>
-                      <th className="p-3">#</th>
-                      <th className="p-3">Product Name</th>
-                      <th className="p-3">SKU</th>
-                      <th className="p-3 text-center">Qty Sent</th>
+                      <th className="px-2.5 py-1.5">#</th>
+                      <th className="px-2.5 py-1.5">Product Name</th>
+                      <th className="px-2.5 py-1.5">SKU</th>
+                      <th className="px-2.5 py-1.5 text-center">Qty Sent</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {viewingShipment.items.map((item, idx) => (
                       <React.Fragment key={idx}>
                         <tr>
-                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                          <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
-                          <td className="p-3 font-mono text-slate-500">{item.sku}</td>
-                          <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.quantitySent} Units</td>
+                          <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
+                          <td className="p-2.5 font-bold text-slate-800 dark:text-white">{item.productName}</td>
+                          <td className="p-2.5 font-mono text-slate-500">{item.sku}</td>
+                          <td className="p-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.quantitySent} Units</td>
                         </tr>
 
                         {/* Render Serial Numbers if present */}
                         {item.deviceSerials && item.deviceSerials.length > 0 && (
                           <tr className="bg-indigo-50/40 dark:bg-indigo-950/30">
-                            <td colSpan={4} className="p-3">
+                            <td colSpan={4} className="p-2.5">
                               <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 mb-1.5 flex items-center gap-1.5">
                                 <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                                 <span>Attached Device & PON Serial Numbers:</span>
@@ -1690,10 +1861,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Received by Subash Shrestha at Pokhara Branch. Seal was intact, counted & checked."
+                  placeholder="e.g. Received by [name] at [branch]. Seal was intact, counted & checked."
                   value={receivingByNotes}
                   onChange={(e) => setReceivingByNotes(e.target.value)}
-                  className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 focus:outline-none"
+                  className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 focus:outline-none"
                 />
               </div>
             </div>

@@ -21,6 +21,7 @@ import {
   Category,
 } from './types';
 import { api, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
+import { seedBSYearCalendar } from './utils/nepaliCalendar';
 import {
   saveUserSession,
   loadUserSession,
@@ -30,7 +31,7 @@ import {
   clearRecentBootstrapCache,
 } from './utils/sessionCache';
 import { Header } from './components/layout/Header';
-import { Sidebar, NavTab } from './components/layout/Sidebar';
+import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { LoginModal } from './components/common/LoginModal';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -57,7 +58,6 @@ const ACTIVE_TAB_STORAGE_KEY = 'izone_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
-import { ExportReports } from './features/finance/ExportReports';
 import { FinancialStatements } from './features/finance/FinancialStatements';
 import { VatRegister } from './features/finance/VatRegister';
 import { DepreciationRegister } from './features/finance/DepreciationRegister';
@@ -67,6 +67,7 @@ import { ApprovalWorkflowCenter } from './features/settings/ApprovalWorkflowCent
 import { StockMovementLedger } from './features/inventory/StockMovementLedger';
 import { PhysicalStockAudit } from './features/inventory/PhysicalStockAudit';
 import { FiscalYearClosingWizard } from './features/finance/FiscalYearClosingWizard';
+import { OpeningStockManager } from './features/finance/OpeningStockManager';
 import { WarrantyProducts } from './features/inventory/WarrantyProducts';
 import { CategoryManagement } from './features/inventory/CategoryManagement';
 import { UomManagement } from './features/inventory/UomManagement';
@@ -111,11 +112,25 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    return savedTab && savedTab !== 'dashboard' ? (savedTab as NavTab) : 'dashboard';
+    // Only restore the saved tab if it is still a valid menu id (guards against removed/renamed tabs)
+    return savedTab && (NAV_TABS as string[]).includes(savedTab) ? (savedTab as NavTab) : 'dashboard';
   });
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
-  const [dateMode, setDateMode] = useState<'BS' | 'AD'>('BS');
+  const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
+    const saved = localStorage.getItem('izone_date_mode');
+    return saved === 'AD' ? 'AD' : 'BS';
+  });
+
+  // Toggles the global date display between Bikram Sambat (BS) and AD.
+  // The choice is persisted so every client remembers the user's preference.
+  const handleToggleDateMode = () => {
+    setDateMode((prev) => {
+      const next = prev === 'BS' ? 'AD' : 'BS';
+      localStorage.setItem('izone_date_mode', next);
+      return next;
+    });
+  };
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
@@ -300,6 +315,30 @@ export default function App() {
     refreshAllData();
   }, [selectedBranchId, selectedFiscalYearId]);
 
+  // Bootstrap the client-side BS calendar from the server so every AD -> BS
+  // conversion in the UI is driven by the authoritative bs_calendar_years /
+  // bs_day_records tables. Seeds made in the BS Calendar Utility (Admin) are
+  // picked up on any client, even browsers with a fresh local storage.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const years = await api.getBsCalendarYears();
+        if (cancelled || !Array.isArray(years)) return;
+        for (const y of years) {
+          if (y && y.yearBS && Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12 && y.startAD) {
+            seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync BS calendar years from server:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Real-time synchronization stream: listen for background changes from any user/branch
   useEffect(() => {
     let debounceTimer: any = null;
@@ -340,32 +379,35 @@ export default function App() {
       const target = e.target as HTMLElement | null;
       const isEditingField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '');
       if (isEditingField) return;
+      // While inside the Fiscal Year Closing Wizard, global search & barcode
+      // overlays must not be able to open on top of it (focus-hijack guard).
+      const closingWizardActive = activeTab === 'fiscal-year-closing';
 
       // Alt + H -> In-App Help & Documentation Center
       if (e.altKey && (e?.key || '').toLowerCase() === 'h') {
         e.preventDefault();
         setActiveTab('help-documentation');
       }
-      // Alt + B -> Barcode Scanner
+      // Alt + B -> Barcode Scanner (suppressed while closing wizard is open)
       if (e.altKey && (e?.key || '').toLowerCase() === 'b') {
         e.preventDefault();
-        setIsBarcodeModalOpen((prev) => !prev);
+        if (!closingWizardActive) setIsBarcodeModalOpen((prev) => !prev);
       }
-      // Alt + S or Ctrl + K -> Global Search
+      // Alt + S or Ctrl + K -> Global Search (suppressed while closing wizard is open)
       if ((e.altKey && (e?.key || '').toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k')) {
         e.preventDefault();
-        setIsGlobalSearchOpen((prev) => !prev);
+        if (!closingWizardActive) setIsGlobalSearchOpen((prev) => !prev);
       }
       // Alt + D -> Date Mode Toggle (BS / AD)
       if (e.altKey && (e?.key || '').toLowerCase() === 'd') {
         e.preventDefault();
-        setDateMode((prev) => (prev === 'BS' ? 'AD' : 'BS'));
+        handleToggleDateMode();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeTab]);
 
   // Handle Branch Selection with restriction for branch users
   const handleSelectBranch = (bId: string) => {
@@ -399,18 +441,46 @@ export default function App() {
     if (!rootUser && currentUser) {
       setRootUser(currentUser);
     }
-    const res = await api.switchProfile(targetUserId);
-    setCurrentUser(res.user);
-    saveUserSession(res.user, nextRoot);
-    await refreshAllData();
+    try {
+      const res = await api.switchProfile(targetUserId);
+      setCurrentUser(res.user);
+      saveUserSession(res.user, nextRoot);
+      await refreshAllData();
+    } catch (err: any) {
+      // Never fail silently. If the server session is gone (e.g. after a
+      // server restart) drop the stale local session so the user can log
+      // back in cleanly instead of being stuck on a dead profile.
+      const message = err?.message || 'Unknown error';
+      const isAuthError = /not authenticated|log in again|unauthorized|authentication required/i.test(message);
+      if (isAuthError) {
+        handleLogout();
+      }
+      alert(
+        isAuthError
+          ? 'Your session expired on the server. Please log in again, then switch profiles.'
+          : `Could not switch profile: ${message}`
+      );
+      throw err;
+    }
   };
 
   const handleSwitchBackToRoot = async () => {
     if (!rootUser) return;
-    const res = await api.switchProfile(rootUser.id);
-    setCurrentUser(res.user);
-    saveUserSession(res.user, rootUser);
-    await refreshAllData();
+    const rootName = rootUser.name;
+    try {
+      const res = await api.switchProfile(rootUser.id);
+      setCurrentUser(res.user);
+      saveUserSession(res.user, rootUser);
+      await refreshAllData();
+    } catch (err: any) {
+      // If the root profile can no longer be reached (server restart, data
+      // reset, or profile deleted), reset the local session so the user can
+      // log straight back in instead of being stranded on a switched account.
+      handleLogout();
+      alert(
+        `Could not switch back to ${rootName}: ${err?.message || 'Unknown error'}. Please log in again.`
+      );
+    }
   };
 
   const handleUpdateProfile = async (data: Partial<User> & { newPassword?: string }) => {
@@ -516,11 +586,6 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleReceivePO = async (poId: string) => {
-    await api.receivePurchaseOrder(poId);
-    refreshAllData();
-  };
-
   const handleUpdatePOStatus = async (poId: string, status: string) => {
     await api.updatePurchaseOrderStatus(poId, status);
     refreshAllData();
@@ -620,13 +685,19 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleCloseFiscalYear = async (id: string) => {
-    await api.closeFiscalYear(id);
+  const handleCloseFiscalYear = async (
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ) => {
+    await api.closeFiscalYear(id, credentials);
     await refreshAllData();
   };
 
-  const handleReopenFiscalYear = async (id: string) => {
-    await api.reopenFiscalYear(id);
+  const handleReopenFiscalYear = async (
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ) => {
+    await api.reopenFiscalYear(id, credentials);
     await refreshAllData();
   };
 
@@ -675,6 +746,10 @@ export default function App() {
 
   const pendingPoCount = purchaseOrders.filter(
     (po) => po.status === 'SENT' || po.status === 'APPROVED'
+  ).length;
+
+  const pendingBillCount = purchaseInvoices.filter(
+    (inv) => inv.paymentStatus !== 'PAID'
   ).length;
 
   const activeBranchContext =
@@ -790,13 +865,15 @@ export default function App() {
         selectedBranchId={selectedBranchId}
         onSelectBranch={handleSelectBranch}
         dateMode={dateMode}
-        onToggleDateMode={() => setDateMode(dateMode === 'BS' ? 'AD' : 'BS')}
+        onToggleDateMode={handleToggleDateMode}
         currentFiscalYear={activeFy}
         fiscalYears={fiscalYears}
         selectedFiscalYearId={selectedFiscalYearId}
         onSelectFiscalYear={setSelectedFiscalYearId}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
-        onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
+        onOpenSearchModal={
+          activeTab === 'fiscal-year-closing' ? undefined : () => setIsGlobalSearchOpen(true)
+        }
         onLogout={handleLogout}
         onSwitchUser={handleLogin}
         onRefreshData={refreshAllData}
@@ -833,7 +910,7 @@ export default function App() {
       />
 
       {/* Main Workspace Layout */}
-      <div className="flex flex-1 overflow-hidden h-[calc(100vh-4rem)] relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Mobile Backdrop */}
         {isSidebarOpen && (
           <div
@@ -858,6 +935,7 @@ export default function App() {
             }}
             lowStockCount={lowStockCount}
             pendingPoCount={pendingPoCount}
+            pendingBillCount={pendingBillCount}
             inTransitShipmentCount={inTransitShipmentCount}
             pendingApprovalCount={approvalRequests.filter((r) => r.status === 'PENDING').length}
             isDarkMode={isDarkMode}
@@ -950,6 +1028,17 @@ export default function App() {
                   isDarkMode={isDarkMode}
                   mode="product-master"
                   dbCategories={categories}
+                />
+              )}
+
+              {activeTab === 'opening-stock' && (
+                <OpeningStockManager
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  products={products}
+                  isDarkMode={isDarkMode}
+                  onRefreshData={refreshAllData}
                 />
               )}
 
@@ -1176,11 +1265,10 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="create-po"
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onUpdatePO={handleUpdatePO}
-                  onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
                   isDarkMode={isDarkMode}
@@ -1199,11 +1287,10 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="po-list"
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onUpdatePO={handleUpdatePO}
-                  onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
                   isDarkMode={isDarkMode}
@@ -1222,7 +1309,7 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="create-purchase"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
                   onDeleteInvoice={handleDeleteInvoice}
@@ -1242,7 +1329,7 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="purchase-list"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
                   onDeleteInvoice={handleDeleteInvoice}
@@ -1807,21 +1894,6 @@ export default function App() {
 
               {activeTab === 'nepali-fiscal' && (
                 <BsCalendarUtility
-                  isDarkMode={isDarkMode}
-                />
-              )}
-
-              {activeTab === 'export-reports' && (
-                <ExportReports
-                  currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
-                  invoices={purchaseInvoices}
-                  shipments={shipments}
-                  customerDevices={customerDevices}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
               )}

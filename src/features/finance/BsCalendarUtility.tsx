@@ -371,17 +371,17 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
   const sortedYears = (Object.values(calendarData) as BSYearData[]).sort((a, b) => a.yearBS - b.yearBS);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <CalendarDays className="h-6 w-6 text-indigo-500" />
+            <CalendarDays className="h-5 w-5 text-indigo-500" />
             <span>BS Calendar Utility & Date Engine</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Full Day-by-Day Bikram Sambat Calendar Engine, AD ↔ BS Converters, Month Array Seeder & Mapped Database.
           </p>
         </div>
@@ -400,7 +400,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       </div>
 
       {/* Database Bounds Limiter Banner */}
-      <div className={`rounded-2xl border p-4 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+      <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 ${
         isDarkMode
           ? 'bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border-indigo-800/60'
           : 'bg-indigo-50/70 border-indigo-200/80'
@@ -635,11 +635,11 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
               isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className="p-3">BS Year</th>
-                <th className="p-3">Baisakh 1 AD Start</th>
-                <th className="p-3">Total Days</th>
-                <th className="p-3">12 Month Days Array [Baisakh → Chaitra]</th>
-                <th className="p-3 text-right">Actions</th>
+                <th className="px-2.5 py-1.5">BS Year</th>
+                <th className="px-2.5 py-1.5">Baisakh 1 AD Start</th>
+                <th className="px-2.5 py-1.5">Total Days</th>
+                <th className="px-2.5 py-1.5">12 Month Days Array [Baisakh → Chaitra]</th>
+                <th className="px-2.5 py-1.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${
@@ -651,13 +651,13 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                   <tr key={y.yearBS} className={`transition-colors ${
                     isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
                   }`}>
-                    <td className="p-3 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
+                    <td className="p-2.5 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
                       {y.yearBS} BS
                     </td>
-                    <td className="p-3 font-semibold whitespace-nowrap">
+                    <td className="p-2.5 font-semibold whitespace-nowrap">
                       {y.startAD}
                     </td>
-                    <td className="p-3 whitespace-nowrap">
+                    <td className="p-2.5 whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                         totalDays === 365
                           ? isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
@@ -666,7 +666,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                         {totalDays} Days
                       </span>
                     </td>
-                    <td className="p-3">
+                    <td className="p-2.5">
                       <div className="flex items-center gap-1 flex-wrap">
                         {y.daysInMonths.map((d, idx) => (
                           <span
@@ -681,7 +681,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                         ))}
                       </div>
                     </td>
-                    <td className="p-3 text-right whitespace-nowrap">
+                    <td className="p-2.5 text-right whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => openEditYearModal(y)}

@@ -102,18 +102,18 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   return (
     <div className="printable-document space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold tracking-tight flex items-center gap-2">
-            <Scale className="h-6 w-6 text-indigo-500" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
+            <Scale className="h-5 w-5 text-indigo-500" />
             <span>Financial Statements (Balance Sheet & Profit/Loss)</span>
           </h2>
-          <p className="text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-400 text-xs mt-0.5">
             Audit-grade corporate financial statements, balance sheet asset valuation, and income statement breakdown.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExport}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
@@ -143,7 +143,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setStatementType('BALANCE_SHEET')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             statementType === 'BALANCE_SHEET'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
               : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -155,7 +155,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
         <button
           onClick={() => setStatementType('PROFIT_LOSS')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             statementType === 'PROFIT_LOSS'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
               : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -167,56 +167,56 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
       </div>
 
       {statementType === 'BALANCE_SHEET' ? (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {/* Summary Metric Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL ASSETS</span>
                 <Building className="h-4 w-4 text-emerald-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-emerald-500">
+              <p className="text-xl font-bold font-mono text-emerald-500">
                 NPR {(totalAssets ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Inventory (NPR {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}) + Fixed Assets (NPR {(fixedAssetNBV ?? 0).toLocaleString('en-IN')})
               </p>
             </div>
 
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL LIABILITIES</span>
                 <Receipt className="h-4 w-4 text-amber-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-amber-500">
+              <p className="text-xl font-bold font-mono text-amber-500">
                 NPR {(totalLiabilities ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Accounts Payable to Suppliers ({invoices.length} Invoices)
               </p>
             </div>
 
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET EQUITY</span>
                 <PieChart className="h-4 w-4 text-indigo-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-indigo-500">
+              <p className="text-xl font-bold font-mono text-indigo-500">
                 NPR {(netEquity ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Assets minus Total Payables & Liabilities
               </p>
             </div>
@@ -226,7 +226,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* ASSETS SIDE */}
             <div
-              className={`p-5 rounded-2xl border space-y-4 ${
+              className={`p-4 rounded-2xl border space-y-4 ${
                 isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
@@ -274,7 +274,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
             {/* LIABILITIES & EQUITY SIDE */}
             <div
-              className={`p-5 rounded-2xl border space-y-4 ${
+              className={`p-4 rounded-2xl border space-y-4 ${
                 isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
@@ -313,62 +313,62 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         </div>
       ) : (
         /* PROFIT & LOSS STATEMENT */
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET REVENUE / INFLOWS</span>
                 <ArrowUpRight className="h-4 w-4 text-emerald-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-emerald-500">
+              <p className="text-xl font-bold font-mono text-emerald-500">
                 NPR {(netRevenue ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Purchase Total (NPR {(grossPurchaseValue ?? 0).toLocaleString('en-IN')}) + Discounts
               </p>
             </div>
 
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL OPERATING COSTS</span>
                 <ArrowDownRight className="h-4 w-4 text-rose-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-rose-500">
+              <p className="text-xl font-bold font-mono text-rose-500">
                 NPR {(operatingExpenses ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Logistics, Overhead & Maintenance Estimate
               </p>
             </div>
 
             <div
-              className={`p-5 rounded-2xl border ${
+              className={`p-4 rounded-2xl border ${
                 isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+              <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET OPERATING SURPLUS</span>
                 <DollarSign className="h-4 w-4 text-indigo-500" />
               </div>
-              <p className="text-2xl font-bold font-mono text-indigo-500">
+              <p className="text-xl font-bold font-mono text-indigo-500">
                 NPR {(netProfit ?? 0).toLocaleString('en-IN')}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 Gross Profit minus Operating Expenses
               </p>
             </div>
           </div>
 
           <div
-            className={`p-6 rounded-2xl border space-y-4 max-w-3xl mx-auto ${
+            className={`p-4 rounded-2xl border space-y-4 max-w-3xl mx-auto ${
               isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
             }`}
           >

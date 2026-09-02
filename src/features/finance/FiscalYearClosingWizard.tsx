@@ -25,9 +25,11 @@ import {
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
-  onCloseFiscalYear: (id: string) => Promise<void>;
-  onReopenFiscalYear: (id: string) => Promise<void>;
-  onInitializeOpeningStock: (id: string) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }>;
+  onCloseFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
+  onReopenFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
+  onInitializeOpeningStock: (
+    id: string
+  ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
   financialSummary: FinancialSummary;
@@ -60,7 +62,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
-  const [adminAuthKey, setAdminAuthKey] = useState<string>('');
+  const [adminEmail, setAdminEmail] = useState<string>(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
+  const [adminPassword, setAdminPassword] = useState<string>('');
+  const [showUnlockAuth, setShowUnlockAuth] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [isProcessingStep, setIsProcessingStep] = useState<boolean>(false);
   const [step1Completed, setStep1Completed] = useState<boolean>(false);
@@ -80,8 +84,11 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   useEffect(() => {
     setIsLocked(currentFy?.isClosed || false);
     setCurrentStep(1);
-    setAdminAuthKey('');
+    setAdminEmail(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
+    setAdminPassword('');
+    setShowUnlockAuth(false);
     setAuthError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFy?.id, currentFy?.isClosed]);
 
   // Financial Metrics for the Closing Year
@@ -146,19 +153,16 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       setAuthError(`Fiscal year ${currentFy?.code || ''} cannot be closed until after its AD end date (${currentFy?.endDateAD || 'not configured'}).`);
       return;
     }
-    if (!adminAuthKey.trim()) {
-      setAuthError('Please enter Super Admin authorization PIN or password.');
-      return;
-    }
-    if (adminAuthKey !== '1234' && adminAuthKey !== 'admin') {
-      setAuthError('Invalid authorization key. Enter 1234 or admin to approve.');
+    if (!adminEmail.trim() || !adminPassword) {
+      setAuthError('Please enter the Super Admin email address and password to authorize this closing.');
       return;
     }
 
     setIsProcessingStep(true);
     try {
-      await onCloseFiscalYear(currentFy.id);
+      await onCloseFiscalYear(currentFy.id, { adminEmail: adminEmail.trim(), adminPassword });
       setIsLocked(true);
+      setAdminPassword('');
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Unable to close the fiscal year.');
     } finally {
@@ -167,13 +171,20 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   };
 
   const handleUnlockPeriod = async () => {
+    setAuthError('');
+    if (!adminEmail.trim() || !adminPassword) {
+      setAuthError('Please enter the Super Admin email address and password to unlock the period.');
+      return;
+    }
     setIsProcessingStep(true);
     try {
       if (!currentFy) return;
-      await onReopenFiscalYear(currentFy.id);
+      await onReopenFiscalYear(currentFy.id, { adminEmail: adminEmail.trim(), adminPassword });
       setIsLocked(false);
+      setShowUnlockAuth(false);
+      setAdminPassword('');
     } catch (err) {
-      console.error(err);
+      setAuthError(err instanceof Error ? err.message : 'Unable to unlock the fiscal year.');
     } finally {
       setIsProcessingStep(false);
     }
@@ -186,7 +197,15 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     try {
       const result = await onInitializeOpeningStock(currentFy.id);
       setStep4Completed(true);
-      setOpeningStockMessage(`${result.recordsCreated} opening-stock records prepared for FY ${result.targetFiscalYear.code}.`);
+      const baseMessage = `${result.recordsCreated} opening-stock records prepared for FY ${result.targetFiscalYear.code}`;
+      const preservedNote = result.manualRowsPreserved
+        ? ` ${result.manualRowsPreserved} manually adjusted row(s) were preserved and not overwritten.`
+        : '';
+      setOpeningStockMessage(
+        baseMessage +
+          ' — every product × branch combination is included, with zero-quantity rows carried forward so no product or branch disappears from the new period.' +
+          preservedNote
+      );
     } catch (error) {
       setOpeningStockMessage(error instanceof Error ? error.message : 'Unable to initialize opening stock.');
     } finally {
@@ -230,10 +249,10 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* HEADER BAR */}
       <div
-        className={`p-5 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+        className={`p-3 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-start gap-3 ${
           isDarkMode
             ? 'bg-slate-900/90 border-slate-800 text-slate-100'
             : 'bg-white border-slate-200 text-slate-800 shadow-xs'
@@ -295,11 +314,14 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
           {isLocked && (
             <button
-              onClick={handleUnlockPeriod}
+              onClick={() => {
+                setShowUnlockAuth((prev) => !prev);
+                setAuthError('');
+              }}
               disabled={isProcessingStep}
               className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
             >
-              Unlock Period
+              Unlock Period…
             </button>
           )}
         </div>
@@ -308,6 +330,59 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
       {!isClosingEligible && currentFy && !isLocked && (
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
           <span className="font-bold">Closing unavailable:</span> FY {currentFy.code} ends on {currentFy.endDateAD}. It can only be closed after that date has passed.
+        </div>
+      )}
+
+      {/* UNLOCK AUTHORIZATION PANEL — Super Admin re-authentication required */}
+      {isLocked && showUnlockAuth && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200 space-y-3">
+          <div className="flex items-center gap-2 font-bold">
+            <KeyRound className="h-4 w-4" />
+            <span>Super Admin Authorization Required to Unlock</span>
+          </div>
+          <p className="text-[11px] opacity-80">
+            Unlocking a sealed fiscal period removes its compliance lock and re-opens it for backdated posting.
+            Enter the Super Admin credentials to continue — verified server-side.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Super Admin Email</label>
+              <input
+                type="email"
+                placeholder="superadmin@example.com"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-xl border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Password</label>
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-xl border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            <button
+              onClick={handleUnlockPeriod}
+              disabled={isProcessingStep}
+              className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold transition-colors cursor-pointer"
+            >
+              {isProcessingStep ? 'Verifying…' : 'Confirm Unlock'}
+            </button>
+            <button
+              onClick={() => {
+                setShowUnlockAuth(false);
+                setAuthError('');
+              }}
+              className="px-4 py-1.5 rounded-xl border border-amber-300 dark:border-amber-500/40 hover:bg-amber-100/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+          {authError && <p className="text-xs text-rose-500 dark:text-rose-300 font-semibold">{authError}</p>}
         </div>
       )}
 
@@ -356,7 +431,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
       {/* WIZARD STEP CONTENT PANELS */}
       <div
-        className={`p-6 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 ${
+        className={`p-4 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 ${
           isDarkMode ? 'bg-slate-900/60 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-xs'
         }`}
       >
@@ -442,7 +517,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono">
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Closing Inventory Stock Value</p>
                 <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
@@ -483,7 +558,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               </p>
             </div>
 
-            <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
+            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Billed Purchase Invoices (Gross)</span>
                 <span className="font-bold">NPR {((closingMetrics.inventoryValue || 0) * 1.15).toLocaleString()}</span>
@@ -555,24 +630,42 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             </div>
 
             {!isLocked ? (
-              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4">
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4">
                 <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
                   <KeyRound className="h-4 w-4" />
                   <span>Super Admin Closing Authorization</span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                    Enter Admin PIN / Authorization Key (e.g. 1234 or admin)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="Enter security pin..."
-                    value={adminAuthKey}
-                    onChange={(e) => setAdminAuthKey(e.target.value)}
-                    className="w-full max-w-sm px-3.5 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {authError && <p className="text-xs text-rose-500 font-semibold mt-1">{authError}</p>}
+                <div className="space-y-3">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Closing locks the fiscal period for all backdated posting. Authorization is verified server-side
+                    against a Super Admin account — no local PIN is used.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Super Admin Email
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="superadmin@example.com"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className="w-full max-w-sm px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Super Admin Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Enter Super Admin password..."
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full max-w-sm px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {authError && <p className="text-xs text-rose-500 font-semibold mt-1">{authError}</p>}
+                  </div>
                 </div>
 
                 <button

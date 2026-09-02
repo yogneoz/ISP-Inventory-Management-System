@@ -109,14 +109,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <Grid className="h-5 w-5 text-indigo-500" />
             <span>Category Management</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Organize inventory items and fixed assets into distinct classification categories.
           </p>
         </div>
@@ -124,7 +124,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
         {canEdit && (
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add Category</span>
@@ -160,7 +160,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       <div className={`p-2 rounded-xl border shadow-2xs flex items-center justify-between gap-2 ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="relative w-full max-w-sm">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
@@ -182,7 +182,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       }`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-2xs ${
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>

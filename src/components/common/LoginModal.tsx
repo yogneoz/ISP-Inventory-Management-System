@@ -162,7 +162,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               iZ
             </div>
             <h2 className="text-lg font-extrabold tracking-tight text-white font-serif">
-              IZone Enterprise System
+              Inventory Management System
             </h2>
             <p className="text-[11px] text-indigo-200/90 mt-0.5 max-w-xs font-medium">
               Multi-Branch Inventory & Financial Control Portal
@@ -223,7 +223,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@izone.net.np"
+                  placeholder="user@example.com"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium"
                 />
               </div>
@@ -343,7 +343,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 required
                 value={setupName}
                 onChange={(e) => setSetupName(e.target.value)}
-                placeholder="e.g. Nabin Shrestha"
+                placeholder="e.g. Full Name"
                 className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
               />
             </div>
@@ -359,7 +359,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   required
                   value={setupEmail}
                   onChange={(e) => setSetupEmail(e.target.value)}
-                  placeholder="superadmin@izone.net.np"
+                  placeholder="superadmin@example.com"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
                 />
               </div>
@@ -503,7 +503,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   required
                   value={forgotEmail}
                   onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="e.g. user@izone.net.np"
+                  placeholder="e.g. user@example.com"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
                 />
               </div>

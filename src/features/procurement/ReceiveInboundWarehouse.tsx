@@ -72,7 +72,6 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   const isWarehouseStaffOrAdmin =
     currentUser?.role === 'SUPER_ADMIN' ||
     currentUser?.role === 'INVENTORY_MANAGER' ||
-    currentUser?.branchId === 'BR-KTM' ||
     currentUser?.branchId === 'WH001' ||
     !currentUser?.branchId ||
     currentUser?.branchId === 'ALL';
@@ -194,7 +193,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header Banner */}
       <div className={`p-6 rounded-3xl border shadow-sm relative overflow-hidden ${
         isDarkMode
@@ -212,7 +211,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 Warehouse & Stock Manager Console
               </span>
             </div>
-            <h1 className="text-xl md:text-2xl font-serif font-bold tracking-tight text-white flex items-center gap-2.5">
+            <h1 className="text-lg md:text-xl font-serif font-bold tracking-tight text-white flex items-center gap-2.5">
               <Inbox className="h-6 w-6 text-indigo-300" />
               <span>Receive Inbound Stock & Branch Pullouts</span>
             </h1>
@@ -225,11 +224,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
           <div className="flex items-center gap-3 shrink-0">
             <div className="p-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[110px]">
               <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Pending Pullouts</div>
-              <div className="text-2xl font-bold font-mono text-amber-300 mt-0.5">{pendingPulloutCount} Bins</div>
+              <div className="text-xl font-bold font-mono text-amber-300 mt-0.5">{pendingPulloutCount} Bins</div>
             </div>
             <div className="p-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 text-center min-w-[110px]">
               <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Inbound Shipments</div>
-              <div className="text-2xl font-bold font-mono text-sky-300 mt-0.5">{pendingShipmentCount} Consignments</div>
+              <div className="text-xl font-bold font-mono text-sky-300 mt-0.5">{pendingShipmentCount} Consignments</div>
             </div>
           </div>
         </div>
@@ -278,9 +277,9 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
       {/* TAB 1: INBOUND BRANCH PULLOUT BINS */}
       {activeTab === 'PULLOUTS' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Controls Bar */}
-          <div className={`p-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
             <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
@@ -345,7 +344,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
               </div>
 
               {/* Search */}
-              <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
                 <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
@@ -458,16 +457,16 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                     {op.items && op.items.length > 0 && (
                       <div className="mt-2 overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                         <table className="w-full text-left text-xs">
-                          <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                          <thead className={`font-bold text-[9px] tracking-wider border-b ${
                             isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                           }`}>
                             <tr>
-                              <th className="p-2.5">Product SKU & Name</th>
-                              <th className="p-2.5 text-center">Condition</th>
-                              <th className="p-2.5 text-center">Pullout Quantity</th>
-                              <th className="p-2.5 text-right">Unit Price</th>
-                              <th className="p-2.5 text-right">Valuation (NPR)</th>
-                              <th className="p-2.5 min-w-[200px]">Serials & PON Tracking</th>
+                              <th className="px-2.5 py-1.5">Product SKU & Name</th>
+                              <th className="px-2.5 py-1.5 text-center">Condition</th>
+                              <th className="px-2.5 py-1.5 text-center">Pullout Quantity</th>
+                              <th className="px-2.5 py-1.5 text-right">Unit Price</th>
+                              <th className="px-2.5 py-1.5 text-right">Valuation (NPR)</th>
+                              <th className="px-2.5 py-1.5 min-w-[200px]">Serials & PON Tracking</th>
                             </tr>
                           </thead>
                           <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -534,8 +533,8 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
       {/* TAB 2: INBOUND WAREHOUSE SHIPMENTS */}
       {activeTab === 'SHIPMENTS' && (
-        <div className="space-y-4">
-          <div className={`p-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+        <div className="space-y-3">
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
             <div className="flex items-center gap-2">
@@ -568,7 +567,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
               </button>
             </div>
 
-            <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
               <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"

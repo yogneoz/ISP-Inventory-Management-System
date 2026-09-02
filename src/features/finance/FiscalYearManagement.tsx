@@ -35,6 +35,7 @@ import {
   Package,
   Trash2,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
 
@@ -100,6 +101,8 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       (c.notes && c.notes.toLowerCase().includes(q));
     return matchesCategory && matchesSearch;
   });
+
+  const docConfigsPagination = useClientPagination(filteredDocConfigs, 15, [selectedCategory, docSearchQuery]);
 
   // New Fiscal Year Modal State
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
@@ -203,24 +206,24 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   const canManageFiscalYears = currentUser?.role === 'SUPER_ADMIN';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Page Title Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <CalendarDays className="h-6 w-6 text-indigo-500" />
+            <CalendarDays className="h-5 w-5 text-indigo-500" />
             <span>Fiscal Year Management & Document Numbering Setup</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Manage accounting fiscal years, active period locks, opening balance transfers, and dynamic document sequence numbering.
           </p>
         </div>
 
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer w-fit"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer w-fit"
         >
           <PlusCircle className="h-4 w-4" />
           <span>Add New Fiscal Year</span>
@@ -444,7 +447,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
             </button>
           </div>
 
-          <div className="relative min-w-[220px]">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 min-w-[220px]">
             <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
@@ -467,14 +470,14 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className="p-3">Doc Type</th>
-                <th className="p-3">Prefix</th>
-                <th className="p-3">Suffix</th>
-                <th className="p-3 text-center">Padding</th>
-                <th className="p-3 text-center">Next Counter</th>
-                <th className="p-3">Live Sample Output</th>
-                <th className="p-3 text-center">Auto-FY Reset</th>
-                <th className="p-3 text-right">Configure</th>
+                <th className="px-2.5 py-1.5">Doc Type</th>
+                <th className="px-2.5 py-1.5">Prefix</th>
+                <th className="px-2.5 py-1.5">Suffix</th>
+                <th className="px-2.5 py-1.5 text-center">Padding</th>
+                <th className="px-2.5 py-1.5 text-center">Next Counter</th>
+                <th className="px-2.5 py-1.5">Live Sample Output</th>
+                <th className="px-2.5 py-1.5 text-center">Auto-FY Reset</th>
+                <th className="px-2.5 py-1.5 text-right">Configure</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${
@@ -487,14 +490,14 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredDocConfigs.map((config) => {
+                docConfigsPagination.pagedItems.map((config) => {
                   const sampleOutput = formatDocumentNumber(config);
 
                   return (
                     <tr key={config.id} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
                     }`}>
-                      <td className="p-3 font-semibold">
+                      <td className="p-2.5 font-semibold">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
@@ -512,23 +515,23 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3 font-mono font-bold text-amber-500 dark:text-amber-400">
+                      <td className="p-2.5 font-mono font-bold text-amber-500 dark:text-amber-400">
                         {config.prefix || '<none>'}
                       </td>
 
-                      <td className="p-3 font-mono text-slate-400">
+                      <td className="p-2.5 font-mono text-slate-400">
                         {config.suffix || '<none>'}
                       </td>
 
-                      <td className="p-3 text-center font-mono">
+                      <td className="p-2.5 text-center font-mono">
                         {config.minDigits} digits
                       </td>
 
-                      <td className="p-3 text-center font-mono font-bold">
+                      <td className="p-2.5 text-center font-mono font-bold">
                         {config.nextNumber}
                       </td>
 
-                      <td className="p-3">
+                      <td className="p-2.5">
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
                             isDarkMode ? 'bg-slate-950 text-emerald-400 border-slate-800' : 'bg-white text-emerald-700 border-slate-200'
@@ -546,7 +549,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3 text-center">
+                      <td className="p-2.5 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                           config.resetEveryFiscalYear
                             ? isDarkMode ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
@@ -556,7 +559,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                         </span>
                       </td>
 
-                      <td className="p-3 text-right">
+                      <td className="p-2.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
@@ -583,6 +586,18 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={docConfigsPagination.page}
+          pageCount={docConfigsPagination.pageCount}
+          totalItems={docConfigsPagination.totalItems}
+          rangeStart={docConfigsPagination.rangeStart}
+          rangeEnd={docConfigsPagination.rangeEnd}
+          pageSize={docConfigsPagination.pageSize}
+          onPageChange={docConfigsPagination.setPage}
+          onPageSizeChange={docConfigsPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
       {/* Section 3: Accounting Period Lock & Tax Control */}

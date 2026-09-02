@@ -415,25 +415,25 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
       {/* Header bar */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <Package className="h-5 w-5 text-indigo-500" />
             <span>{mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             {mode === 'product-master'
               ? 'Master SKU catalog specification: Product Code, Barcode, Fixed Asset Depreciation settings, Category, UoM, Pricing, VAT %, and Reorder levels.'
               : 'Live multi-branch inventory stock overview: on-hand balances, warehouse locations, and zero-stock filters.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="shrink-0 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={handleExportStockCSV}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export full stock matrix with uniform BS date YYYY-MM-DD"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -444,7 +444,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           <button
             type="button"
             onClick={() => setIsBulkBarcodeModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
             title="Print All Item Barcodes formatted in A4 Sheet PDF Grid (Code 39 format)"
           >
             <Printer className="h-4 w-4 text-indigo-500" />
@@ -459,7 +459,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               <button
                 title="Create new product SKU"
                 onClick={openCreateModal}
-                className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
               >
                 <Plus className="h-4 w-4" />
                 <span>Add New Product SKU</span>
@@ -526,7 +526,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-2 p-2 rounded-xl border shadow-2xs ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="relative w-full md:w-80">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
@@ -605,7 +605,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       }`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-2xs ${
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>

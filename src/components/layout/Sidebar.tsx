@@ -29,7 +29,6 @@ import {
   UserCheck,
   ShieldCheck,
   ClipboardList,
-  Download,
   ChevronLeft,
   PanelLeftClose,
   PanelLeftOpen,
@@ -54,6 +53,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
+import { isOperationAllowed } from '../../utils/permissions';
 
 export type NavTab =
   | 'dashboard'
@@ -71,6 +71,7 @@ export type NavTab =
   | 'customer-devices'
   | 'locations'
   | 'product-master'
+  | 'opening-stock'
   | 'category-management'
   | 'uom-management'
   | 'import-stock'
@@ -106,10 +107,67 @@ export type NavTab =
   | 'fiscal-year-closing'
   | 'audit'
   | 'warranty-products'
-  | 'export-reports'
   | 'company-setup'
   | 'help-documentation'
   | 'clear-demo-data';
+
+/** Every valid NavTab id, used to validate the tab restored from localStorage. */
+export const NAV_TABS: NavTab[] = [
+  'dashboard',
+  'approvals',
+  'workflow-approval',
+  'all-stock',
+  'branch-stock',
+  'reorder-stock',
+  'damaged-stock',
+  'stock-valuation',
+  'stock-ledger',
+  'physical-stock-audit',
+  'fixed-assets',
+  'customers',
+  'customer-devices',
+  'locations',
+  'product-master',
+  'opening-stock',
+  'category-management',
+  'uom-management',
+  'import-stock',
+  'export-stock',
+  'create-po',
+  'po-list',
+  'create-purchase',
+  'purchase-list',
+  'create-shipment',
+  'create-transfer',
+  'receive-shipment',
+  'receive-branch-transfer',
+  'shipment-list',
+  'pullout',
+  'damage',
+  'pullout-report',
+  'damage-report',
+  'stock-out',
+  'assign-asset',
+  'consumable-issue',
+  'device-exchange',
+  'branches',
+  'suppliers',
+  'users',
+  'import-customers',
+  'permissions',
+  'financial-statements',
+  'vat-register',
+  'depreciation-register',
+  'nepali-fiscal',
+  'bs-calendar',
+  'fiscal-year-management',
+  'fiscal-year-closing',
+  'audit',
+  'warranty-products',
+  'company-setup',
+  'help-documentation',
+  'clear-demo-data',
+];
 
 interface SidebarProps {
   companyProfile?: CompanyProfile | null;
@@ -118,6 +176,7 @@ interface SidebarProps {
   onSelectTab: (tab: NavTab) => void;
   lowStockCount: number;
   pendingPoCount: number;
+  pendingBillCount: number;
   inTransitShipmentCount: number;
   pendingApprovalCount?: number;
   isDarkMode?: boolean;
@@ -149,6 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   lowStockCount,
   pendingPoCount,
+  pendingBillCount,
   inTransitShipmentCount,
   pendingApprovalCount,
   isDarkMode = false,
@@ -227,39 +287,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   // 3. Procurement Group
+  // Each former in-page tab header is exposed as its own menu item;
+  // clicking a menu renders only that page (in-page tab bars are hidden).
+  const canCreatePoAtRole = isOperationAllowed('po-create', currentUser?.role);
+  // Create pages stay together, then the register pages stay together.
+  // Register pages include their own CSV export actions (no separate report menus).
   const procurementChildren: NavChildDef[] = [
-    ...(!isFrontDesk
+    ...(!isFrontDesk && canCreatePoAtRole
       ? [
           {
             id: 'create-po' as NavTab,
             label: 'Create Purchase Order',
             icon: FilePlus,
-            badge: pendingPoCount,
-            badgeColor: 'bg-indigo-600 text-white',
           },
+        ]
+      : []),
+    ...(!isFrontDesk
+      ? [
           {
             id: 'create-purchase' as NavTab,
-            label: 'Create Purchase Invoice',
+            label: 'Create Purchase Bill',
             icon: PlusCircle,
           },
         ]
       : []),
     {
       id: 'po-list' as NavTab,
-      label: 'Purchase Order View',
+      label: 'Purchase Orders Register',
       icon: FileText,
+      badge: pendingPoCount,
+      badgeColor: 'bg-indigo-600 text-white',
       hasSeparatorAbove: true,
     },
     {
       id: 'purchase-list' as NavTab,
-      label: 'Purchase Invoice View',
+      label: 'Purchase Bills Register',
       icon: Receipt,
-    },
-    {
-      id: 'export-reports' as NavTab,
-      label: 'Procurement & Purchase Reports',
-      icon: Download,
-      hasSeparatorAbove: true,
+      badge: pendingBillCount,
+      badgeColor: 'bg-amber-500 text-white',
     },
   ];
   groups.push({
@@ -267,7 +332,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     title: 'Procurement & Purchasing',
     shortLabel: 'Purchases',
     icon: ShoppingCart,
-    badgeCount: pendingPoCount,
+    badgeCount: pendingPoCount + pendingBillCount,
     children: procurementChildren,
   });
 
@@ -275,7 +340,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isWarehouseStaffOrAdmin =
     isSuperAdmin ||
     currentUser?.role === 'INVENTORY_MANAGER' ||
-    currentUser?.branchId === 'BR-KTM' ||
     currentUser?.branchId === 'WH001' ||
     !currentUser?.branchId ||
     currentUser?.branchId === 'ALL';
@@ -352,12 +416,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users },
     { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
+    ...(isStockMasterAdmin || isAccountant
+      ? [{ id: 'opening-stock' as NavTab, label: 'Fiscal Opening Stock Register', icon: Scale }]
+      : []),
     ...(isStockMasterAdmin ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }] : []),
     ...(isStockMasterAdmin ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }] : []),
     ...(isStockMasterAdmin ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
     ...(isStockMasterAdmin ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
     ...(isStockMasterAdmin ? [{ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud }] : []),
-    ...(isStockMasterAdmin ? [{ id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud }] : []),
   ];
   groups.push({
     id: 'inventory-setup',

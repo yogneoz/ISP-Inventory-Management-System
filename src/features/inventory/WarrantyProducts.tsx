@@ -17,6 +17,7 @@ import {
   Tag,
   Info,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface WarrantyProductsProps {
   customerDevices: CustomerDeviceRecord[];
@@ -111,16 +112,23 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
   const expiringSoonCount = allWarrantyItems.filter((i) => i.warrantyInfo.status === 'EXPIRING_SOON').length;
   const expiredCount = allWarrantyItems.filter((i) => i.warrantyInfo.status === 'EXPIRED').length;
 
+  const warrantyPagination = useClientPagination(filteredItems, 15, [
+    searchQuery,
+    warrantyFilter,
+    categoryType,
+    selectedBranchId,
+  ]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Page Title & Sub-Heading */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2 break-words leading-tight">
-            <ShieldCheck className="h-6 w-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2 break-words leading-tight">
+            <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>Warranty Valid Products Directory</span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 break-words leading-normal max-w-3xl">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-1 break-words leading-normal max-w-3xl">
             Centralized registry of active CPE routers, ONU devices, set-top boxes, and fixed assets with active manufacturer or ISP warranty status.
           </p>
         </div>
@@ -175,8 +183,8 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
       </div>
 
       {/* Search & Filter Controls */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="relative flex-1">
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           <input
             type="text"
@@ -221,15 +229,15 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
+            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="p-3.5 break-words max-w-[200px]">Hardware & Category</th>
-                <th className="p-3.5 break-words">Serial Number / Tag</th>
-                <th className="p-3.5 break-words">Assigned Location / Account</th>
-                <th className="p-3.5 break-words">Branch</th>
-                <th className="p-3.5 break-words">Commissioned Date</th>
-                <th className="p-3.5 break-words">Warranty Expiry</th>
-                <th className="p-3.5 text-center break-words">Warranty Status</th>
+                <th className="px-2.5 py-1.5 break-words max-w-[200px]">Hardware & Category</th>
+                <th className="px-2.5 py-1.5 break-words">Serial Number / Tag</th>
+                <th className="px-2.5 py-1.5 break-words">Assigned Location / Account</th>
+                <th className="px-2.5 py-1.5 break-words">Branch</th>
+                <th className="px-2.5 py-1.5 break-words">Commissioned Date</th>
+                <th className="px-2.5 py-1.5 break-words">Warranty Expiry</th>
+                <th className="px-2.5 py-1.5 text-center break-words">Warranty Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -240,11 +248,11 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item) => {
+                warrantyPagination.pagedItems.map((item) => {
                   const w = item.warrantyInfo;
                   return (
                     <tr key={`${item.type}-${item.id}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words leading-snug">{item.name}</div>
                         <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md mt-1 ${
                           item.type === 'CPE'
@@ -255,7 +263,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                         </span>
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 w-fit font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
                           <Barcode className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                           <span>{item.serialOrTag}</span>
@@ -267,7 +275,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                         )}
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs break-words">{item.assignedTo}</div>
                         {item.assignedAddress && item.assignedAddress !== '-' && (
                           <div className="text-slate-400 dark:text-slate-400 text-[11px] flex items-center gap-1 mt-0.5 break-words">
@@ -277,19 +285,19 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                         )}
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-2.5">
                         <div className="font-bold text-slate-800 dark:text-slate-200 text-xs break-words">{item.branchName}</div>
                       </td>
 
-                      <td className="p-3.5 font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                      <td className="p-2.5 font-mono text-[11px] text-slate-600 dark:text-slate-400">
                         {formatDualDate(item.issuedDateAD, dateMode)}
                       </td>
 
-                      <td className="p-3.5 font-mono text-[11px] font-bold text-slate-900 dark:text-slate-100">
+                      <td className="p-2.5 font-mono text-[11px] font-bold text-slate-900 dark:text-slate-100">
                         {formatDualDate(w.warrantyEndDateAD, dateMode)}
                       </td>
 
-                      <td className="p-3.5 text-center">
+                      <td className="p-2.5 text-center">
                         <div
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase border whitespace-normal break-words max-w-[160px] text-center justify-center ${
                             w.status === 'VALID'
@@ -312,6 +320,18 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={warrantyPagination.page}
+          pageCount={warrantyPagination.pageCount}
+          totalItems={warrantyPagination.totalItems}
+          rangeStart={warrantyPagination.rangeStart}
+          rangeEnd={warrantyPagination.rangeEnd}
+          pageSize={warrantyPagination.pageSize}
+          onPageChange={warrantyPagination.setPage}
+          onPageSizeChange={warrantyPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import {
   Users,
   Lock,
   ArrowLeft,
+  ArrowLeftRight,
   Settings,
   CheckCircle2,
   HelpCircle,
@@ -147,14 +148,19 @@ export const Header: React.FC<HeaderProps> = ({
 
   const totalNotificationBadge = lowStockCount + pendingApprovalsCount + inTransitShipmentsCount;
 
+  // True while the server session is impersonating another profile (rootUser is the real account)
+  const isSwitchedSession = !!(rootUser && currentUser && rootUser.id !== currentUser.id);
+
   return (
     <header
-      className={`sticky top-0 z-30 flex h-13 w-full items-center justify-between px-3 backdrop-blur-md shadow-sm transition-colors duration-200 ${
+      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 ${
         isDarkMode
           ? 'border-b border-slate-800 bg-[#0a0c10]/95 text-slate-300'
           : 'bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900'
       }`}
     >
+      {/* Main header row */}
+      <div className="flex h-13 w-full items-center justify-between px-3">
       {/* Left: Brand logo & Branch Switcher */}
       <div className="flex items-center gap-2.5 sm:gap-3">
         {/* Mobile Hamburger Menu Toggle Button (hidden on non-mobile screens) */}
@@ -177,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab && onSelectTab('company-setup')}
-          title={`Company Setup Database: ${companyProfile?.name || 'IZONE DIGITAL NETWORK PVT. LTD.'} (PAN/VAT: ${companyProfile?.panVatNumber || '609823412'}) - Click to manage setup`}
+          title={`Company Setup Database: ${companyProfile?.name || 'EXAMPLE NETWORKS PVT. LTD.'} (PAN/VAT: ${companyProfile?.panVatNumber || '000000000'}) - Synced with PostgreSQL - Click to manage setup`}
           className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
         >
           {companyProfile?.logoUrl ? (
@@ -203,24 +209,11 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          <div className="hidden sm:flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[180px] md:max-w-[240px]">
-                {companyProfile?.name || 'IZone Inventory'}
-              </h1>
-              <span className="inline-flex items-center px-1 py-0.2 text-[8px] font-bold rounded bg-indigo-500/30 text-indigo-100 border border-indigo-300/40 group-hover:border-amber-300/60 group-hover:text-amber-200 transition-colors" title="Synced with PostgreSQL Database">
-                DB
-              </span>
-            </div>
-            {companyProfile?.tagline ? (
-              <span className="text-[9px] text-indigo-200/80 dark:text-slate-400 font-medium truncate max-w-[180px] md:max-w-[230px] mt-0.5">
-                {companyProfile.tagline}
-              </span>
-            ) : (
-              <span className="text-[9px] text-indigo-200/60 dark:text-slate-500 font-medium truncate max-w-[180px] mt-0.5">
-                Enterprise Setup Synced
-              </span>
-            )}
+          {/* Company name shown only below md (the sidebar carries the full brand on desktop) */}
+          <div className="hidden sm:block md:hidden">
+            <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[150px]">
+              {companyProfile?.name || 'IZone Inventory'}
+            </h1>
           </div>
         </button>
 
@@ -273,6 +266,31 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
             );
           })()}
+
+          {/* Fiscal-year scope (grouped with branch as view-scope controls, loaded from PostgreSQL) */}
+          <div
+            className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium ${
+              isDarkMode
+                ? 'border-slate-800 bg-[#0f1218] text-slate-300'
+                : 'border-white/30 bg-white/10 text-white backdrop-blur-xs'
+            }`}
+            title="Fiscal-year view"
+          >
+            <span className={`text-[9px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-indigo-200'}`}>FY</span>
+            <select
+              value={selectedFiscalYearId}
+              onChange={(e) => onSelectFiscalYear(e.target.value)}
+              aria-label="Select fiscal-year view"
+              className="max-w-28 bg-transparent font-medium outline-none cursor-pointer"
+            >
+              {fiscalYears.map((fiscalYear) => (
+                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">
+                  {fiscalYear.code}
+                  {fiscalYear.isCurrent ? ' (Active)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -343,10 +361,10 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onToggleTheme}
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all cursor-pointer shadow-xs ${
+          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
             isDarkMode
-              ? 'bg-slate-800 text-amber-300 border border-slate-700 hover:bg-slate-700'
-              : 'bg-white/20 text-white border border-white/30 hover:bg-white/30 backdrop-blur-xs'
+              ? 'border border-slate-800 bg-[#0f1218] text-slate-300 hover:bg-slate-800/60'
+              : 'border border-white/30 bg-white/10 text-white hover:bg-white/20'
           }`}
         >
           {isDarkMode ? (
@@ -381,35 +399,30 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </button>
 
-        {/* Fiscal-year view context, loaded from PostgreSQL */}
-        <label className="hidden sm:flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-950/40 px-2 py-1 text-[11px] font-semibold text-emerald-300">
-          <span className="text-[9px] text-emerald-400 font-normal">FY:</span>
-          <select value={selectedFiscalYearId} onChange={(e) => onSelectFiscalYear(e.target.value)} aria-label="Select fiscal-year view" className="max-w-28 bg-transparent font-semibold text-emerald-200 outline-none cursor-pointer">
-            {fiscalYears.map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">{fiscalYear.code}{fiscalYear.isCurrent ? ' (Active)' : ''}</option>)}
-          </select>
-        </label>
-
         {/* Help Center Button */}
         <button
           onClick={() => onSelectTab('help-documentation')}
           title="In-App Help Center & Manual (Alt+H)"
-          className="flex items-center gap-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/30 px-2 py-1 text-[11px] font-medium text-indigo-100 transition-all cursor-pointer"
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            isDarkMode
+              ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800/60'
+              : 'text-white/80 hover:text-white hover:bg-white/20'
+          }`}
         >
-          <HelpCircle className="h-3.5 w-3.5 text-indigo-300" />
-          <span className="hidden md:inline">Help</span>
+          <HelpCircle className="h-4 w-4" />
         </button>
 
         {/* Refresh button */}
         <button
           onClick={onRefreshData}
           title="Refresh realtime stock and logs"
-          className={`p-1 rounded-lg transition-colors cursor-pointer ${
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
             isDarkMode
               ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800/60'
               : 'text-white/80 hover:text-white hover:bg-white/20'
           }`}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className="h-4 w-4" />
         </button>
 
         {/* Notifications badge */}
@@ -417,13 +430,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenNotification}
             title="Notifications & Reorder Alerts"
-            className={`p-1 rounded-lg transition-colors relative cursor-pointer ${
+            className={`p-1.5 rounded-lg transition-colors relative cursor-pointer ${
               isDarkMode
                 ? 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/60'
                 : 'text-white/80 hover:text-white hover:bg-white/20'
             }`}
           >
-            <Bell className="h-3.5 w-3.5" />
+            <Bell className="h-4 w-4" />
             {totalNotificationBadge > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
                 {totalNotificationBadge}
@@ -431,22 +444,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
         </div>
-
-        {/* Switched Profile Active Indicator */}
-        {rootUser && currentUser && rootUser.id !== currentUser.id && (
-          <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/40 text-amber-200 px-2 py-1 rounded-xl text-[10px] font-bold">
-            <span className="hidden xl:inline">🔄 Switched from {rootUser.name.split(' ')[0]}</span>
-            {onSwitchBackToRoot && (
-              <button
-                onClick={onSwitchBackToRoot}
-                title={`Switch back to root account (${rootUser.name})`}
-                className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-1.5 py-0.5 rounded-md text-[9px] transition-colors cursor-pointer"
-              >
-                Switch Back
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Profile Chip & Switcher Dropdown Container */}
         {currentUser && (
@@ -460,8 +457,16 @@ export const Header: React.FC<HeaderProps> = ({
                   : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
               }`}
             >
-              <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20 flex-shrink-0">
-                {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+              <div className="relative flex-shrink-0">
+                <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20">
+                  {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                </div>
+                {isSwitchedSession && (
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-400 border border-[#151c65] dark:border-slate-950"
+                    title="Switched session active - see the banner below the header"
+                  />
+                )}
               </div>
               <div className="hidden lg:flex flex-col text-left">
                 <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
@@ -575,6 +580,9 @@ export const Header: React.FC<HeaderProps> = ({
                                     try {
                                       await onSwitchProfile(u.id);
                                       setIsProfileDropdownOpen(false);
+                                    } catch (_e) {
+                                      // Error is already surfaced by the handler (alert);
+                                      // keep the dropdown open so the user can retry.
                                     } finally {
                                       setIsSwitchingId(null);
                                     }
@@ -649,22 +657,46 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        {/* Logout */}
-        {currentUser ? (
-          <button
-            onClick={onLogout}
-            title="Logout"
-            className="p-1.5 text-white/80 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-colors cursor-pointer ml-0.5"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        ) : (
+        {/* Logged-out indicator (the login modal covers the app when unauthenticated) */}
+        {!currentUser && (
           <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 px-2 py-0.5 rounded-md">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>Out</span>
           </div>
         )}
       </div>
+      </div>
+
+      {/* Switched-session strip: persistent recovery path while impersonating another profile */}
+      {isSwitchedSession && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 ${
+            isDarkMode
+              ? 'border-amber-500/25 bg-amber-500/10 text-amber-200'
+              : 'border-amber-200/60 bg-amber-300/20 text-amber-50'
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
+            <ArrowLeftRight className="h-3.5 w-3.5 flex-shrink-0 text-amber-400 dark:text-amber-300" />
+            <span className="truncate">
+              Viewing as <span className="font-bold">{currentUser?.name}</span>
+              <span className="opacity-75"> ({currentUser?.role.replace('_', ' ')})</span>
+              {' - switched from '}
+              <span className="font-bold">{rootUser?.name}</span>
+            </span>
+          </span>
+          {onSwitchBackToRoot && (
+            <button
+              type="button"
+              onClick={onSwitchBackToRoot}
+              title={`Switch back to root account (${rootUser?.name})`}
+              className="flex-shrink-0 rounded-md bg-amber-400 px-2.5 py-0.5 text-[10px] font-bold text-slate-950 transition-colors cursor-pointer hover:bg-amber-300"
+            >
+              Switch Back to {rootUser?.name.split(' ')[0]}
+            </button>
+          )}
+        </div>
+      )}
     </header>
   );
 };

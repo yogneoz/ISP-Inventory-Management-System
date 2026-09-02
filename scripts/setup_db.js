@@ -1,5 +1,5 @@
 // ============================================================================
-// IZone Automated PostgreSQL Setup Engine (Node.js/pg)
+// IZone-ERP Automated PostgreSQL Setup Engine (Node.js/pg)
 //
 // Responsibilities:
 //   1. Ensure the PostgreSQL server is reachable (falls back to the shell
@@ -18,6 +18,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { execSync } from 'child_process';
 import pg from 'pg';
 import { buildDemoDataset } from './demo_dataset.js';
@@ -76,28 +77,26 @@ const DEFAULT_FISCAL_YEARS = [
   { id: 'fy-6', code: '2085-86', startDateAD: '2028-07-16', endDateAD: '2029-07-15', startDateBS: '2085-04-01 BS', endDateBS: '2085-12-31 BS', isClosed: false },
 ];
 
+// EXAMPLE/DUMMY branch master (is_demo = TRUE) - no real branch data.
 // Mirrors the server's INITIAL_MASTER_BRANCHES so demo rows have valid branch
 // foreign keys even on a database that has never run the server.
 const DEFAULT_BRANCHES = [
-  { id: 'WH001', code: 'WH001', name: 'Head Office', location: 'Urlabari', phone: '9800000000', isHeadquarters: true },
-  { id: 'BRC01', code: 'BRC01', name: 'Biratchowk', location: 'Biratchowk', phone: '9800000001', isHeadquarters: false },
-  { id: 'BTM01', code: 'BTM01', name: 'Birtamode', location: 'Birtamode', phone: '9800000002', isHeadquarters: false },
-  { id: 'CHU01', code: 'CHU01', name: 'Chulachuli', location: 'Chulachuli', phone: '9800000003', isHeadquarters: false },
-  { id: 'DHU01', code: 'DHU01', name: 'Dudhe', location: 'Dudhe', phone: '9800000004', isHeadquarters: false },
-  { id: 'INR01', code: 'INR01', name: 'Inaruwa', location: 'Inaruwa', phone: '9800000005', isHeadquarters: false },
-  { id: 'ITH01', code: 'ITH01', name: 'Itahari', location: 'Itahari', phone: '9800000006', isHeadquarters: false },
-  { id: 'JTR01', code: 'JTR01', name: 'Jitpur', location: 'Jitpur', phone: '9800000007', isHeadquarters: false },
-  { id: 'HLE01', code: 'HLE01', name: 'Hile', location: 'Hile', phone: '9800000008', isHeadquarters: false },
-  { id: 'LTG01', code: 'LTG01', name: 'Letang', location: 'Letang', phone: '9800000009', isHeadquarters: false },
-  { id: 'MDL01', code: 'MDL01', name: 'Madhumalla', location: 'Madhumalla', phone: '9800000010', isHeadquarters: false },
-  { id: 'PTH01', code: 'PTH01', name: 'Pathari', location: 'Pathari', phone: '9800000011', isHeadquarters: false },
-  { id: 'PDM01', code: 'PDM01', name: 'Phidim', location: 'Phidim', phone: '9800000012', isHeadquarters: false },
-  { id: 'RJB01', code: 'RJB01', name: 'Rajbiraj', location: 'Rajbiraj', phone: '9800000013', isHeadquarters: false },
-  { id: 'RML01', code: 'RML01', name: 'Ramailo', location: 'Ramailo', phone: '9800000014', isHeadquarters: false },
-  { id: 'RTW01', code: 'RTW01', name: 'Ratuwamai', location: 'Ratuwamai', phone: '9800000015', isHeadquarters: false },
-  { id: 'SHV01', code: 'SHV01', name: 'Shivasatakshi', location: 'Shivasatakshi', phone: '9800000016', isHeadquarters: false },
-  { id: 'TND01', code: 'TND01', name: 'Tandi', location: 'Tandi', phone: '9800000017', isHeadquarters: false },
-  { id: 'URL01', code: 'URL01', name: 'Urlabari', location: 'Urlabari', phone: '9800000018', isHeadquarters: false },
+  { id: 'WH001', code: 'WH001', name: 'Branch 1 (Head Office)', location: 'Example Location 1', phone: '9800000000', isHeadquarters: true },
+  { id: 'BRH01', code: 'BRH01', name: 'Branch 2', location: 'Example Location 2', phone: '9800000001', isHeadquarters: false },
+];
+
+// EXAMPLE/DUMMY user accounts (is_demo = TRUE) so the application is fully
+// testable out of the box. Shared demo password: Demo@123 (see README.md).
+// Mirrors the server's INITIAL_EXAMPLE_USERS (seeded with the same ids so the
+// two seeders never create duplicate accounts).
+const EXAMPLE_USER_PASSWORD = 'Demo@123';
+const DEFAULT_EXAMPLE_USERS = [
+  { id: 'usr-ex-superadmin', email: 'superadmin@example.com', name: 'Super Admin', role: 'SUPER_ADMIN', branchId: 'WH001', canSwitchUser: true },
+  { id: 'usr-ex-branch1', email: 'branch1@example.com', name: 'Branch 1 Manager', role: 'BRANCH_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-branch2', email: 'branch2@example.com', name: 'Branch 2 Manager', role: 'BRANCH_MANAGER', branchId: 'BRH01', canSwitchUser: false },
+  { id: 'usr-ex-inventory1', email: 'inventory1@example.com', name: 'Inventory Manager 1', role: 'INVENTORY_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-accountant1', email: 'accountant1@example.com', name: 'Accountant 1', role: 'ACCOUNTANT', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-frontdesk1', email: 'frontdesk1@example.com', name: 'Front Desk 1', role: 'FRONT_DESK', branchId: 'BRH01', canSwitchUser: false },
 ];
 
 function formatNepaliFiscalYearCode(yearBS, monthBS) {
@@ -380,21 +379,42 @@ async function seedCompanyProfile(client) {
     `INSERT INTO company_profile (
        id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
      )
-     VALUES ('comp-1', 'IZone Enterprise', 'IZone Enterprise Pvt. Ltd.', 'Kathmandu, Nepal', '+977-1-1234567', 'info@izonenepal.com', 'Rs.', 13.00)
+     VALUES ('COMP-001', 'EXAMPLE NETWORKS PVT. LTD.', 'Example Networks Private Limited (Dummy Data)', 'Example Street, Example City, Nepal', '+977-01-0000000', 'info@example.com', 'Rs.', 13.00)
      ON CONFLICT (id) DO NOTHING`
   );
   console.log('✅ Default company profile seeded.');
 }
 
 async function seedBranches(client) {
+  // is_demo column is added by the server startup migration; ensure it here
+  // too so a bare `npm run setup:pg` works on an empty database.
+  await client.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE`);
   for (const b of DEFAULT_BRANCHES) {
     await client.query(
-      `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, TRUE) ON CONFLICT (id) DO NOTHING`,
       [b.id, b.code, b.name, b.location, b.phone, b.isHeadquarters]
     );
   }
-  console.log(`✅ Branch master data ensured (${DEFAULT_BRANCHES.length} branches).`);
+  console.log(`✅ Branch master data ensured (${DEFAULT_BRANCHES.length} branches, is_demo = TRUE).`);
+}
+
+// Seeds the example/dummy user accounts (is_demo = TRUE). Passwords use the
+// same scrypt format as the server's hashPassword so login works immediately.
+// Existing accounts (matched by email) are never overwritten.
+async function seedExampleUsers(client) {
+  await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE`);
+  for (const u of DEFAULT_EXAMPLE_USERS) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(EXAMPLE_USER_PASSWORD, salt, 64).toString('hex');
+    const allowedBranchIds = u.role === 'SUPER_ADMIN' ? DEFAULT_BRANCHES.map((b) => b.id) : [u.branchId];
+    await client.query(
+      `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (email) DO NOTHING`,
+      [u.id, u.email, `scrypt$${salt}$${hash}`, u.name, u.role, u.branchId, allowedBranchIds, u.canSwitchUser]
+    );
+  }
+  console.log(`✅ Example user accounts ensured (${DEFAULT_EXAMPLE_USERS.length} accounts, demo password ${EXAMPLE_USER_PASSWORD}, is_demo = TRUE).`);
 }
 
 // Real-data guard: returns the number of non-demo rows in a table.
@@ -531,7 +551,7 @@ async function backfillFiscalYearIds(client) {
 }
 
 console.log('------------------------------------------------------------------');
-console.log('🛠️  IZone Automated PostgreSQL Setup Engine (Node.js/pg)');
+console.log('🛠️  Automated PostgreSQL Setup Engine (Node.js/pg)');
 console.log(FORCE ? '⚠️  Running with --force: demo data will be seeded even alongside real data' : '');
 console.log(`🎯 Target: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
 console.log('------------------------------------------------------------------');
@@ -571,6 +591,7 @@ async function runSetup() {
     await seedDocumentConfigs(client);
     await seedCompanyProfile(client);
     await seedBranches(client);
+    await seedExampleUsers(client);
 
     // 4. Dummy operational dataset (is_demo = TRUE), guarded by real-data check.
     console.log('🧪 Seeding demo dataset (is_demo = TRUE)...');

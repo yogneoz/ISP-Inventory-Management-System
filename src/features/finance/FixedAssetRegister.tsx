@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Asset, Branch, User } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import {
@@ -18,6 +19,7 @@ import {
   Info,
   Download,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface FixedAssetRegisterProps {
   assets: Asset[];
@@ -76,6 +78,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const totalAccumDep = filteredAssets.reduce((sum, a) => sum + a.accumulatedDepreciation, 0);
   const totalNBV = filteredAssets.reduce((sum, a) => sum + a.netBookValue, 0);
 
+  const assetsPagination = useClientPagination(filteredAssets, 15, [selectedBranchId, search]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -118,20 +122,20 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header & Stats */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
             <Landmark className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             <span>Fixed Asset Register & Depreciation Ledger</span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
             Click any asset row to view branch allocation, physical location, and quantity details.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="shrink-0 flex items-center gap-3">
           <button
             onClick={handleExportCSV}
             title="Export Assets to CSV"
@@ -195,17 +199,17 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
+            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="p-3.5">Tag #</th>
-                <th className="p-3.5">Asset Name</th>
-                <th className="p-3.5">Category</th>
-                <th className="p-3.5">Branch Used In</th>
-                <th className="p-3.5">Acquired Date</th>
-                <th className="p-3.5 text-right">Cost</th>
-                <th className="p-3.5 text-right">Method & Rate</th>
-                <th className="p-3.5 text-right">Net Book Value</th>
-                <th className="p-3.5 text-center">Status</th>
+                <th className="px-2.5 py-1.5">Tag #</th>
+                <th className="px-2.5 py-1.5">Asset Name</th>
+                <th className="px-2.5 py-1.5">Category</th>
+                <th className="px-2.5 py-1.5">Branch Used In</th>
+                <th className="px-2.5 py-1.5">Acquired Date</th>
+                <th className="px-2.5 py-1.5 text-right">Cost</th>
+                <th className="px-2.5 py-1.5 text-right">Method & Rate</th>
+                <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
+                <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -216,7 +220,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredAssets.map((asset) => {
+                assetsPagination.pagedItems.map((asset) => {
                   const branch = branches.find((b) => b.id === asset.branchId);
                   return (
                     <tr
@@ -224,29 +228,29 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                       onClick={() => setSelectedAssetDetail(asset)}
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                     >
-                      <td className="p-3.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline">
+                      <td className="p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline">
                         {asset.tagNumber}
                       </td>
-                      <td className="p-3.5 font-bold text-slate-900 dark:text-slate-100">{asset.name}</td>
-                      <td className="p-3.5">
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">{asset.name}</td>
+                      <td className="p-2.5">
                         <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                           {asset.category}
                         </span>
                       </td>
-                      <td className="p-3.5 text-slate-800 dark:text-slate-200 font-semibold">{branch?.name || asset.branchId}</td>
-                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                      <td className="p-2.5 text-slate-800 dark:text-slate-200 font-semibold">{branch?.name || asset.branchId}</td>
+                      <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {formatDualDate(asset.acquisitionDateAD, dateMode)}
                       </td>
-                      <td className="p-3.5 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
+                      <td className="p-2.5 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
                         {(asset.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3.5 text-right text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                      <td className="p-2.5 text-right text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SL' : 'RB'} @ {asset.depreciationRatePercent}%
                       </td>
-                      <td className="p-3.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                      <td className="p-2.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
                         {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <select
                           value={asset.status}
                           onChange={(e) => onUpdateAssetStatus(asset.id, e.target.value as any)}
@@ -270,6 +274,18 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={assetsPagination.page}
+          pageCount={assetsPagination.pageCount}
+          totalItems={assetsPagination.totalItems}
+          rangeStart={assetsPagination.rangeStart}
+          rangeEnd={assetsPagination.rangeEnd}
+          pageSize={assetsPagination.pageSize}
+          onPageChange={assetsPagination.setPage}
+          onPageSizeChange={assetsPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
       {/* Asset Location & Quantity Details Modal */}
@@ -456,15 +472,12 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Acquisition Date (AD)
-                  </label>
-                  <input
-                    type="date"
-                    required
+                  <DateField
+                    label="Acquisition Date"
+                    mode={dateMode}
                     value={acquisitionDateAD}
-                    onChange={(e) => setAcquisitionDateAD(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
+                    onChange={setAcquisitionDateAD}
+                    required
                   />
                 </div>
               </div>

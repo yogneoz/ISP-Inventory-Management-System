@@ -310,7 +310,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const cardSubText = isDarkMode ? 'text-slate-400' : 'text-slate-600';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Top Welcome Banner */}
       <div
         className={`rounded-xl p-3.5 text-white shadow-md border relative overflow-hidden transition-colors duration-200 ${
@@ -589,18 +589,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="p-3.5 w-8"></th>
-                  <th className="p-3.5">Product Name</th>
-                  <th className="p-3.5">SKU / Code</th>
-                  <th className="p-3.5">Category</th>
-                  <th className="p-3.5 text-center">UOM</th>
-                  <th className="p-3.5 text-right">Cost Rate</th>
-                  <th className="p-3.5 text-right font-extrabold text-rose-600">
+                  <th className="px-2.5 py-1.5 w-8"></th>
+                  <th className="px-2.5 py-1.5">Product Name</th>
+                  <th className="px-2.5 py-1.5">SKU / Code</th>
+                  <th className="px-2.5 py-1.5">Category</th>
+                  <th className="px-2.5 py-1.5 text-center">UOM</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
+                  <th className="px-2.5 py-1.5 text-right font-extrabold text-rose-600">
                     Total Available Stock
                   </th>
-                  <th className="p-3.5 text-right">Min Reorder Level</th>
-                  <th className="p-3.5 text-center">Status</th>
-                  <th className="p-3.5 text-center w-28">Action</th>
+                  <th className="px-2.5 py-1.5 text-right">Min Reorder Level</th>
+                  <th className="px-2.5 py-1.5 text-center">Status</th>
+                  <th className="px-2.5 py-1.5 text-center w-28">Action</th>
                 </tr>
               </thead>
               <tbody
@@ -653,7 +653,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <button
                             type="button"
                             className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
@@ -666,33 +666,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </button>
                         </td>
 
-                        <td className={`p-3.5 font-bold ${cardTitleText}`}>
+                        <td className={`p-2.5 font-bold ${cardTitleText}`}>
                           {prod.name}
                         </td>
 
-                        <td className="p-3.5 font-mono text-[11px] text-slate-500">
+                        <td className="p-2.5 font-mono text-[11px] text-slate-500">
                           {prod.sku}
                         </td>
 
-                        <td className="p-3.5 text-slate-500">{prod.category}</td>
+                        <td className="p-2.5 text-slate-500">{prod.category}</td>
 
-                        <td className="p-3.5 text-center font-semibold text-slate-500 font-mono">
+                        <td className="p-2.5 text-center font-semibold text-slate-500 font-mono">
                           {prod.unit}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
+                        <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
                           {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono font-extrabold text-rose-600 text-sm">
+                        <td className="p-2.5 text-right font-mono font-extrabold text-rose-600 text-sm">
                           {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono text-slate-500">
+                        <td className="p-2.5 text-right font-mono text-slate-500">
                           {totalConsolidatedReorder || prod.minReorderLevel} {prod.unit}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           {isOut ? (
                             <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200">
                               Out of Stock
@@ -704,7 +704,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           )}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -825,7 +825,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
 
             {/* Search Box */}
-            <div className="relative min-w-[220px]">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 min-w-[220px]">
               <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
               <input
                 type="text"
@@ -936,18 +936,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 }`}
               >
                 <tr>
-                  <th className="p-3.5 w-8"></th>
-                  <th className="p-3.5">Product Name</th>
-                  <th className="p-3.5">SKU / Code</th>
-                  <th className="p-3.5">Type / Category</th>
-                  <th className="p-3.5 text-center">UOM</th>
-                  <th className="p-3.5 text-right">Cost Rate</th>
-                  <th className="p-3.5 text-right font-extrabold text-indigo-600">
+                  <th className="px-2.5 py-1.5 w-8"></th>
+                  <th className="px-2.5 py-1.5">Product Name</th>
+                  <th className="px-2.5 py-1.5">SKU / Code</th>
+                  <th className="px-2.5 py-1.5">Type / Category</th>
+                  <th className="px-2.5 py-1.5 text-center">UOM</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
+                  <th className="px-2.5 py-1.5 text-right font-extrabold text-indigo-600">
                     Total Stock (All Branches)
                   </th>
-                  <th className="p-3.5 text-right">Total Valuation</th>
-                  <th className="p-3.5 text-center">Status</th>
-                  <th className="p-3.5 text-center w-28">Action</th>
+                  <th className="px-2.5 py-1.5 text-right">Total Valuation</th>
+                  <th className="px-2.5 py-1.5 text-center">Status</th>
+                  <th className="px-2.5 py-1.5 text-center w-28">Action</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
@@ -992,7 +992,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <button
                             type="button"
                             className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
@@ -1005,15 +1005,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </button>
                         </td>
 
-                        <td className={`p-3.5 font-bold ${cardTitleText}`}>
+                        <td className={`p-2.5 font-bold ${cardTitleText}`}>
                           <div className="flex items-center gap-2">
                             <span>{prod.name}</span>
                           </div>
                         </td>
 
-                        <td className="p-3.5 font-mono text-[11px] text-slate-500">{prod.sku}</td>
+                        <td className="p-2.5 font-mono text-[11px] text-slate-500">{prod.sku}</td>
 
-                        <td className="p-3.5">
+                        <td className="p-2.5">
                           <span
                             className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                               catGroup === 'ROUTER'
@@ -1029,23 +1029,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </span>
                         </td>
 
-                        <td className="p-3.5 text-center font-semibold text-slate-500 font-mono">
+                        <td className="p-2.5 text-center font-semibold text-slate-500 font-mono">
                           {prod.unit}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
+                        <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
                           {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono font-extrabold text-indigo-600 text-sm">
+                        <td className="p-2.5 text-right font-mono font-extrabold text-indigo-600 text-sm">
                           {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
-                        <td className="p-3.5 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
                           {formatNPR(totalValuation)}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           {isOut ? (
                             <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200">
                               Out of Stock
@@ -1061,7 +1061,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           )}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 text-center">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1078,7 +1078,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       {/* Expandable Sub-Row for Branch Breakdown */}
                       {isExpanded && (
                         <tr className={isDarkMode ? 'bg-slate-900/80' : 'bg-slate-50/90'}>
-                          <td colSpan={10} className="p-4 border-t border-b border-indigo-200/50">
+                          <td colSpan={10} className="p-2.5 border-t border-b border-indigo-200/50">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">

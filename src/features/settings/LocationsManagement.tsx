@@ -24,9 +24,9 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   const [formData, setFormData] = useState<Omit<LocationRecord, 'id'>>({
     name: '',
     type: 'POP_SERVER_ROOM',
-    branchId: branches[0]?.id || 'BR-KTM',
+    branchId: branches[0]?.id || 'WH001',
     address: '',
-    coordinates: { latitude: 27.7172, longitude: 85.324 },
+    coordinates: { latitude: 0, longitude: 0 },
     contactPerson: '',
     contactPhone: '',
     notes: '',
@@ -77,9 +77,9 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       setFormData({
         name: '',
         type: 'POP_SERVER_ROOM',
-        branchId: branches[0]?.id || 'BR-KTM',
+        branchId: branches[0]?.id || 'WH001',
         address: '',
-        coordinates: { latitude: 27.7172, longitude: 85.324 },
+        coordinates: { latitude: 0, longitude: 0 },
         contactPerson: '',
         contactPhone: '',
         notes: '',
@@ -121,21 +121,21 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Top Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <MapPin className="h-5 w-5 text-indigo-500" />
             <span>Location & POP Management</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Track POP server rooms, fiber route junction nodes, customer installation sites, and GPS map coordinates.
           </p>
         </div>
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all cursor-pointer"
+          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all cursor-pointer"
         >
           <Plus className="h-4 w-4" />
           <span>Add New Location / POP</span>
@@ -346,7 +346,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Biratnagar Main POP Server Room"
+                  placeholder="e.g. Example Location 1 Server Room"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className={`w-full rounded-xl border p-2.5 ${
@@ -394,7 +394,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Main Road, Ward 4, Kathmandu"
+                  placeholder="e.g. Example Street, Example City"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   className={`w-full rounded-xl border p-2.5 ${
@@ -409,7 +409,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   <input
                     type="number"
                     step="0.0001"
-                    placeholder="27.7172"
+                    placeholder="0.0000"
                     value={formData.coordinates?.latitude || ''}
                     onChange={(e) => setFormData({
                       ...formData,
@@ -429,7 +429,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   <input
                     type="number"
                     step="0.0001"
-                    placeholder="85.3240"
+                    placeholder="0.0000"
                     value={formData.coordinates?.longitude || ''}
                     onChange={(e) => setFormData({
                       ...formData,

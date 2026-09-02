@@ -465,6 +465,29 @@ export function lookupBSDayRecord(adDateStr: string): BSDayRecord {
 }
 
 /**
+ * STRICT day-record check (no fallback estimation): returns true only when the
+ * seeded calendar database contains an exact day-by-day BS mapping for the AD
+ * date. Used to gate stock operations that require a valid Nepali date.
+ */
+export function hasExactBSDayRecord(adDateStr: string): boolean {
+  const targetDateStr = (adDateStr || new Date().toISOString()).split('T')[0];
+  const targetDate = new Date(targetDateStr);
+  if (isNaN(targetDate.getTime())) return false;
+
+  const calendarData = getBsCalendarData();
+  for (const yData of Object.values(calendarData)) {
+    if (!yData || !yData.startAD || !Array.isArray(yData.daysInMonths)) continue;
+    const start = new Date(yData.startAD);
+    if (isNaN(start.getTime())) continue;
+    const totalDays = yData.daysInMonths.reduce((a, b) => a + (Number(b) || 0), 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + totalDays - 1);
+    if (targetDate >= start && targetDate <= end) return true;
+  }
+  return false;
+}
+
+/**
  * Converts AD Date String (YYYY-MM-DD) to formatted BS String using reference bsCalendarData.
  */
 export function convertADToBS(adDateStr: string): {
@@ -560,6 +583,19 @@ export function convertADToBS(adDateStr: string): {
 }
 
 /**
+ * Safe variant of convertADToBS: returns null instead of throwing when the AD
+ * date falls outside the seeded BS calendar range. Use this anywhere a BS
+ * string must be derived for display/storage without risking a crash.
+ */
+export function tryConvertADToBS(adDateStr: string): ReturnType<typeof convertADToBS> | null {
+  try {
+    return convertADToBS(adDateStr);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Converts BS Date (year, month 1-12, day) to AD Date String (YYYY-MM-DD)
  */
 export function convertBSToAD(yearBS: number, monthBS: number, dayBS: number): string {
@@ -584,6 +620,77 @@ export function convertBSToAD(yearBS: number, monthBS: number, dayBS: number): s
   resultAD.setDate(resultAD.getDate() + totalDaysToAdd);
 
   return resultAD.toISOString().split('T')[0];
+}
+
+/**
+ * A single cell in a BS month grid.
+ */
+export interface BSGridCell {
+  /** Day of the month for in-month cells; null for blank padding cells. */
+  day: number | null;
+  /** Mapped AD ISO date (YYYY-MM-DD); null for blank or unseeded cells. */
+  adDate: string | null;
+  /** True when the AD date has an exact bs_day_records mapping (server-gateable). */
+  isSeeded: boolean;
+  isToday: boolean;
+  isSelected: boolean;
+  /** True when the AD date falls outside the supplied inclusive min/max bounds. */
+  outOfRange: boolean;
+}
+
+/**
+ * Builds a 6x7 (42-cell) week grid for one BS month from the seeded
+ * calendar. Weeks start on Sunday (Nepal convention). Returns null when the
+ * year or month is not seeded.
+ */
+export function getBSMonthGrid(
+  yearBS: number,
+  monthBS: number,
+  opts?: { todayAD?: string; selectedAD?: string; minAD?: string; maxAD?: string }
+): BSGridCell[] | null {
+  const data = getBsCalendarData();
+  const yearData = data[yearBS];
+  if (!yearData || !Array.isArray(yearData.daysInMonths) || monthBS < 1 || monthBS > 12) {
+    return null;
+  }
+  const days = Number(yearData.daysInMonths[monthBS - 1]) || 0;
+  if (!days) return null;
+
+  const todayAD = (opts?.todayAD || new Date().toISOString()).split('T')[0];
+  const selectedAD = opts?.selectedAD ? String(opts.selectedAD).split('T')[0] : '';
+  const minAD = opts?.minAD ? String(opts.minAD).split('T')[0] : '';
+  const maxAD = opts?.maxAD ? String(opts.maxAD).split('T')[0] : '';
+
+  let firstDow: number;
+  try {
+    firstDow = new Date(convertBSToAD(yearBS, monthBS, 1)).getUTCDay();
+  } catch {
+    return null;
+  }
+
+  const cells: BSGridCell[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = i - firstDow + 1;
+    if (d < 1 || d > days) {
+      cells.push({ day: null, adDate: null, isSeeded: false, isToday: false, isSelected: false, outOfRange: false });
+      continue;
+    }
+    let adDate: string | null = null;
+    try {
+      adDate = convertBSToAD(yearBS, monthBS, d);
+    } catch {
+      adDate = null;
+    }
+    cells.push({
+      day: d,
+      adDate,
+      isSeeded: adDate !== null && hasExactBSDayRecord(adDate),
+      isToday: adDate !== null && adDate === todayAD,
+      isSelected: adDate !== null && adDate === selectedAD,
+      outOfRange: adDate !== null && ((minAD !== '' && adDate < minAD) || (maxAD !== '' && adDate > maxAD)),
+    });
+  }
+  return cells;
 }
 
 /**

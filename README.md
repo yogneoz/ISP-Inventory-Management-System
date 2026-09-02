@@ -150,23 +150,36 @@ http://localhost:3000
 
 ## 🔑 Initial Super Admin Login Credentials
 
-On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-configured root administrator:
+On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-seeded example administrator:
 
 | Field | Default Value |
 | :--- | :--- |
-| **Email** | `admin@izone.net.np` |
-| **Password** | `admin123` |
+| **Email** | `superadmin@example.com` |
+| **Password** | `Demo@123` |
 | **Role** | `SUPER_ADMIN` |
-| **Branch** | Head Office (Urlabari) |
+| **Branch** | Branch 1 (WH001) — Example Location 1 |
 
 > **Security Note**: You can change your password anytime under **User Management** or through the profile menu in the header.
+
+### 🧪 Seeded Example (Dummy) Accounts
+
+All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing. Shared demo password: `Demo@123`.
+
+| Email | Role | Branch |
+| :--- | :--- | :--- |
+| `superadmin@example.com` | SUPER_ADMIN | WH001 |
+| `branch1@example.com` | BRANCH_MANAGER | WH001 |
+| `branch2@example.com` | BRANCH_MANAGER | BRH01 |
+| `inventory1@example.com` | INVENTORY_MANAGER | WH001 |
+| `accountant1@example.com` | ACCOUNTANT | WH001 |
+| `frontdesk1@example.com` | FRONT_DESK | BRH01 |
 
 ---
 
 ## 🧹 Managing Demo vs. Clean Operational Data
 
 ### Default Clean Mode
-By default, the application starts with **0 products, 0 stock records, 0 customer devices, 0 POs, and 0 transaction logs**. Master branches (19 actual telecom branches) and Fiscal Years are preserved so you can immediately begin importing your real products or entering stock.
+The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus Fiscal Years, so you can immediately begin importing your real products or entering stock.
 
 ### Clearing Demo Data
 If demo data was previously loaded or tested, you can clear all operational demo records at any time:
@@ -174,6 +187,15 @@ If demo data was previously loaded or tested, you can clear all operational demo
 2. Click **"Clear Demo Data"**.
 3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
 4. The system persists the cleanup directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
+
+### 🔄 Full Reset to a Fresh Demo State
+To wipe **all** records (including users, branches, and locations) while **preserving the Nepali (BS) calendar reference tables**, then reseed the example dataset:
+
+```bash
+node scripts/reset_fresh_demo.mjs
+```
+
+After running it, restart the server (`npm run dev`) and log in with `superadmin@example.com` / `Demo@123`.
 
 ---
 

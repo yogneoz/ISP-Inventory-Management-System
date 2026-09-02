@@ -589,7 +589,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                   </div>
                   <div>
                     <h2 className="text-xl font-bold font-serif">1. System Overview & Core Architecture</h2>
-                    <p className="text-xs text-slate-500">IZone Enterprise ERP & Inventory Engine</p>
+                    <p className="text-xs text-slate-500">Enterprise ERP & Inventory Engine</p>
                   </div>
                 </div>
 

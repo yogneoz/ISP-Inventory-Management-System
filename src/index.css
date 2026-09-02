@@ -1,5 +1,52 @@
 @import "tailwindcss";
 
+/* =====================================================================
+   RESPONSIVE DENSITY — compact / low-resolution display support
+   ---------------------------------------------------------------------
+   Tailwind v4 derives ALL numeric spacing utilities from the single
+   --spacing theme variable (utility value = calc(var(--spacing) * N)),
+   which covers p-*, px-*, py-*, m-*, mx-*, gap-*, space-y-*, and the
+   numeric height/width icon-element scales across the whole app.
+
+   Redefining --spacing per breakpoint compresses every card, toolbar,
+   table padding, grid gap and icon size app-wide in ONE place, while
+   FONT SIZES (the rem-based --text-* variables) are left untouched, so
+   body/table text stays fully readable on a 1366x768 laptop without
+   forcing the user to browser-zoom out to 80%.
+
+   Tiering:
+     <= 1536px  -> spacing at 90%  (gentle compression for laptops)
+     <= 1366px  -> spacing at 84% + slightly smaller display numerals
+                   (exact fit for common 1366x768 business laptops)
+   Larger monitors (1600px+) keep the original design 1:1.
+
+   Scoped to `screen` so print media (reports, barcode labels) is not
+   affected. Rules are outside Tailwind's @layer cascade, so they win
+   over the generated utilities at equal specificity.
+   ===================================================================== */
+@media screen and (max-width: 1536px) {
+  :root {
+    --spacing: 0.225rem; /* 90% of the default 0.25rem */
+  }
+}
+
+@media screen and (max-width: 1366px) {
+  :root {
+    --spacing: 0.21rem; /* 84% of the default 0.25rem */
+  }
+  /* Keep large scorecard/stat numerals proportional to the compressed
+     cards (24px -> 20.8px, 20px -> 18.4px) while all smaller text
+     (text-base/text-sm/text-xs) stays at full, readable size. */
+  .text-2xl {
+    font-size: 1.3rem;
+    line-height: 1.7rem;
+  }
+  .text-xl {
+    font-size: 1.15rem;
+    line-height: 1.6rem;
+  }
+}
+
 @media print {
 	@page { margin: 0; }
 	body * { visibility: hidden !important; }

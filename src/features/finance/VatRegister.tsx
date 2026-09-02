@@ -14,6 +14,7 @@ import {
   DollarSign,
   Percent,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface VatRegisterProps {
   invoices: PurchaseInvoice[];
@@ -50,6 +51,8 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   const totalVatAmount = filteredInvoices.reduce((sum, inv) => sum + (inv.vatAmount ?? 0), 0);
   const totalGrandAmount = filteredInvoices.reduce((sum, inv) => sum + (inv.grandTotal ?? 0), 0);
 
+  const vatPagination = useClientPagination(filteredInvoices, 15, [searchQuery, vatTypeFilter]);
+
   const handleExportCSV = () => {
     const data = filteredInvoices.map((inv) => ({
       InvoiceNumber: inv.invoiceNumber,
@@ -83,23 +86,23 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   return (
     <div className="printable-document space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <Receipt className="h-6 w-6 text-indigo-500" />
+            <Receipt className="h-5 w-5 text-indigo-500" />
             <span>Value Added Tax (VAT) Register</span>
           </h2>
-          <p className="text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-400 text-xs mt-0.5">
             IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
               isDarkMode
                 ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -111,7 +114,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
           <button
             onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
               isDarkMode
                 ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -124,54 +127,54 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>TOTAL TAXABLE PURCHASE</span>
             <DollarSign className="h-4 w-4 text-emerald-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+          <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
             {(totalTaxableAmount ?? 0).toLocaleString('en-IN')}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Subtotal before 13% VAT calculation
           </p>
         </div>
 
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>13% INPUT VAT CREDIT</span>
             <Percent className="h-4 w-4 text-indigo-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-indigo-500">
+          <p className="text-xl font-bold font-mono text-indigo-500">
             {(totalVatAmount ?? 0).toLocaleString('en-IN')}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Claimable Input Tax Credit from Purchase Invoices
           </p>
         </div>
 
         <div
-          className={`p-5 rounded-2xl border ${
+          className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
             <span>GROSS INVOICE VALUE</span>
             <FileSpreadsheet className="h-4 w-4 text-amber-500" />
           </div>
-          <p className="text-2xl font-bold font-mono text-amber-500">
+          <p className="text-xl font-bold font-mono text-amber-500">
             {(totalGrandAmount ?? 0).toLocaleString('en-IN')}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-slate-400 mt-0.5">
             Total Purchase Cost including VAT ({filteredInvoices.length} Invoices)
           </p>
         </div>
@@ -179,7 +182,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
       {/* Filter and Search Bar */}
       <div
-        className={`p-4 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-between ${
+        className={`p-3 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-start ${
           isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
         }`}
       >
@@ -253,25 +256,25 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
               }`}
             >
               <tr>
-                <th className="px-4 py-3">Tax Invoice #</th>
-                <th className="px-4 py-3">Invoice Date</th>
-                <th className="px-4 py-3">Supplier Name</th>
-                <th className="px-4 py-3">PAN / VAT No</th>
-                <th className="px-4 py-3 text-right">Taxable Subtotal</th>
-                <th className="px-4 py-3 text-right">13% Input VAT</th>
-                <th className="px-4 py-3 text-right">Grand Total</th>
-                <th className="px-4 py-3 text-center">Status</th>
+                <th className="px-2.5 py-1.5">Tax Invoice #</th>
+                <th className="px-2.5 py-1.5">Invoice Date</th>
+                <th className="px-2.5 py-1.5">Supplier Name</th>
+                <th className="px-2.5 py-1.5">PAN / VAT No</th>
+                <th className="px-2.5 py-1.5 text-right">Taxable Subtotal</th>
+                <th className="px-2.5 py-1.5 text-right">13% Input VAT</th>
+                <th className="px-2.5 py-1.5 text-right">Grand Total</th>
+                <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
               {filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
                     No purchase tax invoices matching your filter criteria.
                   </td>
                 </tr>
               ) : (
-                filteredInvoices.map((inv) => {
+                vatPagination.pagedItems.map((inv) => {
                   const taxable = (inv.taxableAmount ?? inv.subtotalAmount ?? 0) - (inv.totalDiscount ?? 0);
                   const vat = inv.vatAmount ?? 0;
                   const grand = inv.grandTotal ?? 0;
@@ -282,26 +285,26 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                         isDarkMode ? 'text-slate-300' : 'text-slate-800'
                       }`}
                     >
-                      <td className="px-4 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {inv.invoiceNumber}
                       </td>
-                      <td className="px-4 py-3 font-mono text-[11px]">
+                      <td className="px-2.5 py-1.5 font-mono text-[11px]">
                         {formatDualDate(inv.invoiceDateAD, dateMode)}
                       </td>
-                      <td className="px-4 py-3 font-bold">{inv.supplierName}</td>
-                      <td className="px-4 py-3 font-mono text-slate-400">
+                      <td className="px-2.5 py-1.5 font-bold">{inv.supplierName}</td>
+                      <td className="px-2.5 py-1.5 font-mono text-slate-400">
                         {inv.vendorBillNumber || '600123987'}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono">
+                      <td className="px-2.5 py-1.5 text-right font-mono">
                         {(taxable ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-indigo-500">
+                      <td className="px-2.5 py-1.5 text-right font-mono font-bold text-indigo-500">
                         {(vat ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono font-bold">
+                      <td className="px-2.5 py-1.5 text-right font-mono font-bold">
                         {(grand ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-2.5 py-1.5 text-center">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             inv.paymentStatus === 'PAID'
@@ -323,16 +326,16 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
               }`}
             >
               <tr>
-                <td colSpan={4} className="px-4 py-3 text-right uppercase tracking-wider">
+                <td colSpan={4} className="px-2.5 py-1.5 text-right uppercase tracking-wider">
                   Total Tax Register Balance:
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                <td className="px-2.5 py-1.5 text-right font-mono text-emerald-600 dark:text-emerald-400">
                   {(totalTaxableAmount ?? 0).toLocaleString('en-IN')}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
                   {(totalVatAmount ?? 0).toLocaleString('en-IN')}
                 </td>
-                <td className="px-4 py-3 text-right font-mono">
+                <td className="px-2.5 py-1.5 text-right font-mono">
                   {(totalGrandAmount ?? 0).toLocaleString('en-IN')}
                 </td>
                 <td></td>
@@ -340,6 +343,18 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
             </tfoot>
           </table>
         </div>
+        <TablePagination
+          page={vatPagination.page}
+          pageCount={vatPagination.pageCount}
+          totalItems={vatPagination.totalItems}
+          rangeStart={vatPagination.rangeStart}
+          rangeEnd={vatPagination.rangeEnd}
+          pageSize={vatPagination.pageSize}
+          onPageChange={vatPagination.setPage}
+          onPageSizeChange={vatPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
     </div>
   );

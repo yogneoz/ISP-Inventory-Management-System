@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Branch, User } from '../../types';
 import { Building2, Plus, Search, CheckCircle2, Phone, MapPin, Star, Edit, Trash2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface BranchesManagementProps {
   branches: Branch[];
@@ -39,6 +40,8 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
       (b?.code || '').toLowerCase().includes((search || '').toLowerCase()) ||
       (b?.location || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const branchPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingBranch(null);
@@ -118,21 +121,21 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     : 'bg-white border-slate-200 text-slate-800 shadow-xs';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Building2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             <span>Branch Directory & Administration</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, update, or remove operational branches across Nepal with regional codes and location mapping.
           </p>
         </div>
         {canManageBranches && (
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add New Branch</span>
@@ -142,7 +145,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -160,10 +163,10 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
 
       {/* Branches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((b) => (
+        {branchPagination.pagedItems.map((b) => (
           <div
             key={b.id}
-            className={`p-5 rounded-2xl border transition-all ${cardBg} ${
+            className={`p-4 rounded-2xl border transition-all ${cardBg} ${
               b.isHeadquarters ? 'border-indigo-500/50 ring-1 ring-indigo-500/20' : ''
             }`}
           >
@@ -237,6 +240,18 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           </div>
         ))}
       </div>
+      <TablePagination
+        page={branchPagination.page}
+        pageCount={branchPagination.pageCount}
+        totalItems={branchPagination.totalItems}
+        rangeStart={branchPagination.rangeStart}
+        rangeEnd={branchPagination.rangeEnd}
+        pageSize={branchPagination.pageSize}
+        onPageChange={branchPagination.setPage}
+        onPageSizeChange={branchPagination.setPageSize}
+        isDarkMode={isDarkMode}
+        className="mt-1"
+      />
 
       {/* Modal Add / Edit Branch */}
       {isModalOpen && (
@@ -257,7 +272,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Pokhara Lakefront Branch"
+                  placeholder="e.g., Branch 1 (Head Office)"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -293,7 +308,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   required
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Lakeside Ward 6, Pokhara"
+                  placeholder="Example Street, Example City"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>

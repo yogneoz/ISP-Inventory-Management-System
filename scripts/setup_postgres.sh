@@ -268,7 +268,7 @@ run_node_seeder() {
 # Main
 # ---------------------------------------------------------------------------
 echo "=========================================================================="
-echo " IZone Enterprise System: Automated PostgreSQL Installer & Configurator"
+echo " Inventory Management System: Automated PostgreSQL Installer & Configurator"
 echo " Schema v3.0 (enterprise: is_demo tracking, audit columns, fiscal-year FKs)"
 echo "=========================================================================="
 

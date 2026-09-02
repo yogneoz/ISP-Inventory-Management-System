@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product, Branch, InventoryStock, User, StockOperation } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { api } from '../../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import {
   AlertTriangle,
   Building2,
@@ -32,6 +33,7 @@ import {
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface DamagedStockTrackingProps {
   currentUser?: User | null;
@@ -79,6 +81,45 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   const [glAccountCode, setGlAccountCode] = useState<string>('GL-5120 (Loss on Inventory Scrap & Write-off)');
   const [disposalNotes, setDisposalNotes] = useState<string>('Physical scrap destruction approved by Quality Auditor');
   const [isSubmittingDisposal, setIsSubmittingDisposal] = useState<boolean>(false);
+
+  // ---------------------------------------------------------------------------
+  // BS Calendar Gate: stock operations are only allowed when today's AD date
+  // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
+  // seeded/updated by the admin from System Settings -> BS Calendar Utility.
+  // ---------------------------------------------------------------------------
+  const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
+  const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  const checkBsDateAvailability = async () => {
+    const todayAD = new Date().toISOString().split('T')[0];
+    try {
+      const res = await api.getBsDayRecordByAdDate(todayAD);
+      setBsDateCheckedFor(todayAD);
+      setBsDateStatus(res?.found ? 'available' : 'missing');
+    } catch (_err) {
+      // Server unreachable -> fall back to the strict client-side calendar check
+      setBsDateCheckedFor(todayAD);
+      setBsDateStatus(hasExactBSDayRecord(todayAD) ? 'available' : 'missing');
+    }
+  };
+
+  useEffect(() => {
+    checkBsDateAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const ensureBsDateAvailable = (): boolean => {
+    if (bsDateStatus === 'missing') {
+      alert(
+        'BS date is not available. Stock operations are locked.\n\n' +
+          `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
+          'Please contact your system administrator for BS month seeding.\n\n' +
+          'Admin path: System Settings -> BS Calendar Utility -> Seed / Update BS month.'
+      );
+      return false;
+    }
+    return true;
+  };
 
   // Guide State
   const [showWriteOffGuide, setShowWriteOffGuide] = useState<boolean>(false);
@@ -129,6 +170,8 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   // Summary metrics
   const displayProducts = (filterCategory !== 'ALL' || localSearch.trim()) ? visibleProducts : productsWithDamaged;
+
+  const damagedPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch]);
   const grandTotalDamagedUnits = displayProducts.reduce((sum, item) => sum + item.totalDamagedQty, 0);
   const grandTotalLossValuation = displayProducts.reduce((sum, item) => sum + item.totalLossValuation, 0);
   const affectedSKUsCount = displayProducts.filter((item) => item.totalDamagedQty > 0).length;
@@ -217,6 +260,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const handleDamagedSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (!editingStock || !onUpdateStockLevel) return;
 
     const oldDam = editingStock.stockItem.damagedQty || 0;
@@ -236,6 +280,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const handleDisposalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
     if (!disposalStock) return;
     if (!canDispose) {
       alert('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
@@ -247,6 +292,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       const grossCost = disposalQty * disposalStock.product.costPrice;
       const salvageVal = Math.min(grossCost, Math.max(0, Number(salvageRecoveryAmount) || 0));
       const netLoss = Math.max(0, grossCost - salvageVal);
+
+      // Date integrity: keep the AD date as the canonical value and derive the
+      // BS date from the seeded calendar (never a hardcoded literal).
+      const disposalDateAD = new Date().toISOString().split('T')[0];
+      const disposalBS = tryConvertADToBS(disposalDateAD);
 
       const opData: Partial<StockOperation> = {
         type: 'DISPOSAL',
@@ -263,9 +313,9 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         glAccountCode,
         reason: `[${disposalMethod}] ${disposalNotes} (Gross: NPR ${(grossCost ?? 0).toLocaleString('en-IN')}, Salvage: NPR ${(salvageVal ?? 0).toLocaleString('en-IN')}, Net Loss: NPR ${(netLoss ?? 0).toLocaleString('en-IN')})`,
         inspectorName: currentUser?.name || 'Inventory Quality Auditor',
-        dateAD: new Date().toISOString().split('T')[0],
-        dateBS: '2083-04-16 BS',
-        fiscalYear: '2082/83',
+        dateAD: disposalDateAD,
+        dateBS: disposalBS?.formattedBSShort || '',
+        fiscalYear: getNepaliFiscalYear(disposalDateAD),
         status: 'LOGGED',
       };
 
@@ -305,7 +355,34 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
+      {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
+      {bsDateStatus === 'missing' && (
+        <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-900 dark:text-red-200 flex flex-col sm:flex-row sm:items-center justify-start gap-3">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold">
+                BS date is not available. Please contact your system administrator for BS month seeding.
+              </p>
+              <p className="text-xs mt-1 opacity-90">
+                Today ({bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records),
+                so damaged stock adjustments and disposals are temporarily locked. Seed the missing BS month from
+                <strong> System Settings &rarr; BS Calendar Utility</strong>, then re-check.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={checkBsDateAvailability}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors cursor-pointer flex-shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Re-check BS Date
+          </button>
+        </div>
+      )}
+
       {/* Role Restriction Alert Banner if user cannot dispose */}
       {!canDispose && (
         <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs font-medium">
@@ -324,23 +401,23 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* Header & Actions */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <AlertTriangle className="h-5 w-5 text-amber-500" />
             <span>Damaged Stock Matrix & Branch Loss Tracking</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Consolidated breakdown of damaged stock units, write-off accounting, and physical disposal workflows.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="shrink-0 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleExportDamagedStockReport}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -363,7 +440,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           <button
             onClick={handleTopDisposalClick}
             title={canDispose ? "Dispose & Write-Off Damaged Stock" : "Restricted: Requires Inventory Manager or Super Admin role"}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
               canDispose
                 ? 'bg-rose-600 hover:bg-rose-500'
                 : 'bg-slate-500 dark:bg-slate-700 hover:bg-slate-600 opacity-80'
@@ -390,7 +467,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
               <button
                 onClick={() => onNavigateTab('pullout')}
-                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
               >
                 <Truck className="h-4 w-4" />
                 <span>Dispatch Pullout HQ</span>
@@ -402,7 +479,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* Corporate Write-Off Accounting Guide Banner */}
       {showWriteOffGuide && (
-        <div className={`p-5 rounded-2xl border ${
+        <div className={`p-4 rounded-2xl border ${
           isDarkMode ? 'bg-[#0f141f] border-indigo-900/60 text-slate-200' : 'bg-indigo-50/70 border-indigo-200 text-slate-800'
         }`}>
           <div className="flex items-start justify-between">
@@ -482,10 +559,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <AlertTriangle className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
             {(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Across all filtered branch stores</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Across all filtered branch stores</p>
         </div>
 
         <div className={`p-4 rounded-2xl border shadow-xs ${
@@ -497,10 +574,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <DollarSign className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
             रु {(grandTotalLossValuation ?? 0).toLocaleString('en-IN')}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Estimated gross cost inventory impairment</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Estimated gross cost inventory impairment</p>
         </div>
 
         <div className={`p-4 rounded-2xl border shadow-xs ${
@@ -512,19 +589,19 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <Layers className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
             {affectedSKUsCount} SKUs
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Items requiring quality action or disposal</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Items requiring quality action or disposal</p>
         </div>
       </div>
 
       {/* Filter & Search Bar */}
-      <div className={`p-4 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
         <div className="flex flex-1 items-center gap-2">
-          <div className="relative flex-1 max-w-xs">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
@@ -578,13 +655,13 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className={isDarkMode ? 'bg-slate-900/60 text-slate-400 border-b border-slate-800' : 'bg-slate-50 text-slate-500 border-b border-slate-200'}>
-                <th className="p-3 font-semibold">Product Name & Category</th>
-                <th className="p-3 font-semibold">SKU / Barcode</th>
-                <th className="p-3 font-semibold text-right">Unit Cost (NPR)</th>
-                <th className="p-3 font-semibold text-center">Total Damaged</th>
-                <th className="p-3 font-semibold text-right">Estimated Loss</th>
+                <th className="px-2.5 py-1.5 font-semibold">Product Name & Category</th>
+                <th className="px-2.5 py-1.5 font-semibold">SKU / Barcode</th>
+                <th className="px-2.5 py-1.5 font-semibold text-right">Unit Cost (NPR)</th>
+                <th className="px-2.5 py-1.5 font-semibold text-center">Total Damaged</th>
+                <th className="px-2.5 py-1.5 font-semibold text-right">Estimated Loss</th>
                 {activeBranches.map((b) => (
-                  <th key={b.id} className="p-3 font-semibold text-center border-l border-slate-200 dark:border-slate-800">
+                  <th key={b.id} className="px-2.5 py-1.5 font-semibold text-center border-l border-slate-200 dark:border-slate-800">
                     <div className="flex items-center justify-center gap-1">
                       <Building2 className="h-3 w-3 text-indigo-500" />
                       <span>{b.name}</span>
@@ -603,27 +680,27 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   </td>
                 </tr>
               ) : (
-                visibleProducts.map(({ prod, totalDamagedQty, totalLossValuation }) => (
+                damagedPagination.pagedItems.map(({ prod, totalDamagedQty, totalLossValuation }) => (
                   <tr
                     key={prod.id}
                     className={`hover:bg-slate-500/5 transition-colors ${
                       totalDamagedQty > 0 ? (isDarkMode ? 'bg-amber-950/10' : 'bg-amber-50/30') : ''
                     }`}
                   >
-                    <td className="p-3 font-medium">
+                    <td className="p-2.5 font-medium">
                       <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                         {prod.name}
                       </div>
                       <div className="text-[11px] text-slate-400">{prod.category} • {prod.unit}</div>
                     </td>
-                    <td className="p-3 font-mono text-slate-500">
+                    <td className="p-2.5 font-mono text-slate-500">
                       <div>{prod.sku}</div>
                       <div className="text-[10px] text-slate-400">{prod.barcode}</div>
                     </td>
-                    <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                    <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-300">
                       रु {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-3 text-center">
+                    <td className="p-2.5 text-center">
                       {totalDamagedQty > 0 ? (
                         <span className="inline-flex items-center gap-1 font-bold font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                           <AlertTriangle className="h-3 w-3" />
@@ -633,7 +710,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                         <span className="text-slate-400 font-mono">0</span>
                       )}
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
+                    <td className="p-2.5 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
                       {totalLossValuation > 0 ? `रु ${(totalLossValuation ?? 0).toLocaleString('en-IN')}` : '-'}
                     </td>
 
@@ -713,6 +790,18 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={damagedPagination.page}
+          pageCount={damagedPagination.pageCount}
+          totalItems={damagedPagination.totalItems}
+          rangeStart={damagedPagination.rangeStart}
+          rangeEnd={damagedPagination.rangeEnd}
+          pageSize={damagedPagination.pageSize}
+          onPageChange={damagedPagination.setPage}
+          onPageSizeChange={damagedPagination.setPageSize}
+          isDarkMode={isDarkMode}
+          className="mt-1"
+        />
       </div>
 
       {/* MODAL 1: EDIT LOCAL DAMAGED STOCK COUNT */}

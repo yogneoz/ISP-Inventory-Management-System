@@ -12,6 +12,7 @@ import {
   CompanyProfile,
 } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
@@ -49,6 +50,7 @@ import {
   Building,
   Check,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface PurchaseInvoicesProps {
   companyProfile?: CompanyProfile | null;
@@ -61,6 +63,8 @@ interface PurchaseInvoicesProps {
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
+  /** Sidebar menu that opened this page: 'create-purchase' opens the inline bill form, 'purchase-list' opens the register. */
+  activeTab?: 'create-purchase' | 'purchase-list';
   autoOpenModal?: boolean;
   onCreateInvoice: (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
@@ -92,6 +96,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   purchaseOrders = [],
   selectedBranchId,
   dateMode,
+  activeTab = 'purchase-list',
   autoOpenModal = false,
   onCreateInvoice,
   onRecordPayment,
@@ -102,8 +107,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
   // Navigation Sub-tabs: 'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'
-  const [activeTab, setActiveTab] = useState<'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'>(
-    autoOpenModal ? 'CREATE_INVOICE' : 'INVOICE_LIST'
+  const [internalTab, setInternalTab] = useState<'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'>(
+    autoOpenModal || activeTab === 'create-purchase' ? 'CREATE_INVOICE' : 'INVOICE_LIST'
   );
 
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
@@ -111,12 +116,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [vendorFilter, setVendorFilter] = useState('ALL');
 
-  // Sync active tab with autoOpenModal prop
+  // Sync the internal page with the sidebar menu that opened this component
   useEffect(() => {
-    if (autoOpenModal) {
-      setActiveTab('CREATE_INVOICE');
+    if (autoOpenModal || activeTab === 'create-purchase') {
+      setInternalTab('CREATE_INVOICE');
+    } else if (activeTab === 'purchase-list') {
+      setInternalTab('INVOICE_LIST');
     }
-  }, [autoOpenModal]);
+  }, [autoOpenModal, activeTab]);
 
   // Link Purchase Order State
   const [selectedPoId, setSelectedPoId] = useState<string>('');
@@ -137,6 +144,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [vendorBillNumber, setVendorBillNumber] = useState(
     `BILL-${Math.floor(10000 + Math.random() * 90000)}`
   );
+  // Purchase date (AD) — intentionally empty by default; the user must select it (never auto-filled to today)
+  const [purchaseDateAD, setPurchaseDateAD] = useState('');
   const [vendorBillDateAD, setVendorBillDateAD] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -246,6 +255,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
     return matchesBranch && matchesVendor && matchesSearch;
   }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''));
+
+  const invoicePagination = useClientPagination(filteredInvoices, 15, [searchQuery, vendorFilter, selectedBranchId]);
   const allowedBranches = getAllowedBranches(currentUser, branches).sort((a, b) => {
     const aIsWarehouse = `${a.id} ${a.code} ${a.name}`.toLowerCase().includes('warehouse') || a.id.toLowerCase().startsWith('wh');
     const bIsWarehouse = `${b.id} ${b.code} ${b.name}`.toLowerCase().includes('warehouse') || b.id.toLowerCase().startsWith('wh');
@@ -272,11 +283,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     setNotes('');
     setVendorBillNumber(`BILL-${Math.floor(10000 + Math.random() * 90000)}`);
     setVendorBillDateAD(new Date().toISOString().split('T')[0]);
+    setPurchaseDateAD('');
   };
 
   const handleOpenCreateTab = () => {
     handleResetForm();
-    setActiveTab('CREATE_INVOICE');
+    setInternalTab('CREATE_INVOICE');
   };
 
   // Search/Scan Product Add or Duplicate Quantity Increment
@@ -440,8 +452,19 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       return;
     }
 
-    const todayAD = new Date().toISOString().split('T')[0];
-    const invBs = convertADToBS(todayAD);
+    // Purchase date is required and the vendor bill date can never be after it
+    if (!purchaseDateAD) {
+      setSaveMessage('Please select the Purchase Date (AD) before saving this vendor bill.');
+      return;
+    }
+    if (vendorBillDateAD > purchaseDateAD) {
+      setSaveMessage(
+        `Vendor bill date (${vendorBillDateAD}) cannot be after the purchase date (${purchaseDateAD}). Please correct the dates and try again.`
+      );
+      return;
+    }
+
+    const invBs = convertADToBS(purchaseDateAD);
     const vendorBillBs = convertADToBS(vendorBillDateAD);
 
     const items: PurchaseInvoiceItem[] = calculatedLines.map((l, idx) => ({
@@ -468,7 +491,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       vendorBillNumber,
       poReferenceId: selectedPoId || undefined,
       branchId,
-      invoiceDateAD: todayAD,
+      invoiceDateAD: purchaseDateAD,
       invoiceDateBS: invBs.formattedBSShort,
       dueDateAD: vendorBillDateAD,
       dueDateBS: vendorBillBs.formattedBSShort,
@@ -482,13 +505,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       grandTotal: grandTotalCalculated,
       paymentStatus: 'UNPAID',
       amountPaid: 0,
-      notes: `Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs.formattedBSShort}). ${notes}`,
+      notes: `Purchase Date: ${purchaseDateAD} (${invBs.formattedBSShort}). Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs.formattedBSShort}). ${notes}`,
     });
 
     setSaveMessage('Vendor bill saved successfully and purchase quantities were posted.');
     window.setTimeout(() => setSaveMessage(''), 3000);
     handleResetForm();
-    window.setTimeout(() => setActiveTab('INVOICE_LIST'), 3000);
+    window.setTimeout(() => setInternalTab('INVOICE_LIST'), 3000);
   };
 
   const handleExportCSV = () => {
@@ -523,7 +546,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   };
 
   return (
-    <div className="space-y-6" id="purchase-invoices-container">
+    <div className="space-y-3" id="purchase-invoices-container">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -542,11 +565,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
         {/* Top Actions */}
         <div className="flex items-center gap-2">
-          {activeTab !== 'INVOICE_LIST' && (
+          {internalTab !== 'INVOICE_LIST' && (
             <button
               type="button"
-              onClick={() => setActiveTab('INVOICE_LIST')}
-              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
+              onClick={() => setInternalTab('INVOICE_LIST')}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
                 isDarkMode
                   ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                   : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -557,12 +580,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </button>
           )}
 
-          {activeTab === 'INVOICE_LIST' && (
+          {internalTab === 'INVOICE_LIST' && (
             <>
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
+                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
                   isDarkMode
                     ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                     : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -594,7 +617,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs (Branch Operations Style) */}
+      {/* Navigation Sub-Tabs - hidden when a dedicated sidebar menu opened this page */}
+      {activeTab !== 'create-purchase' && activeTab !== 'purchase-list' && (
       <div
         className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto ${
           isDarkMode ? 'border-slate-800' : 'border-slate-200'
@@ -603,9 +627,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         <button
           type="button"
           id="tab-pi-register"
-          onClick={() => setActiveTab('INVOICE_LIST')}
+          onClick={() => setInternalTab('INVOICE_LIST')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'INVOICE_LIST'
+            internalTab === 'INVOICE_LIST'
               ? 'bg-blue-600 text-white shadow-sm'
               : isDarkMode
               ? 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -616,7 +640,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           <span>1. Purchase Bills Register</span>
           <span
             className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-              activeTab === 'INVOICE_LIST'
+              internalTab === 'INVOICE_LIST'
                 ? 'bg-blue-800 text-white'
                 : isDarkMode
                 ? 'bg-slate-800 text-slate-300'
@@ -645,14 +669,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   alert('Purchase Invoice creation is disabled for your role permissions.');
                   return;
                 }
-                if (activeTab !== 'CREATE_INVOICE') {
+                if (internalTab !== 'CREATE_INVOICE') {
                   handleOpenCreateTab();
                 }
               }}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
                 !canCreateInvoice
                   ? 'opacity-40 cursor-not-allowed text-slate-400'
-                  : activeTab === 'CREATE_INVOICE'
+                  : internalTab === 'CREATE_INVOICE'
                   ? 'bg-blue-600 text-white shadow-sm cursor-pointer'
                   : isDarkMode
                   ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
@@ -664,7 +688,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               {lines.length > 0 && (
                 <span
                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                    activeTab === 'CREATE_INVOICE'
+                    internalTab === 'CREATE_INVOICE'
                       ? 'bg-blue-800 text-white'
                       : 'bg-amber-100 text-amber-800 border border-amber-300'
                   }`}
@@ -680,9 +704,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           <button
             type="button"
             id="tab-pi-view"
-            onClick={() => setActiveTab('VIEW_INVOICE')}
+            onClick={() => setInternalTab('VIEW_INVOICE')}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === 'VIEW_INVOICE'
+              internalTab === 'VIEW_INVOICE'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : isDarkMode
                 ? 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -694,10 +718,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           </button>
         )}
       </div>
+      )}
 
       {/* TAB 1: PURCHASE BILLS REGISTER & METRICS */}
-      {activeTab === 'INVOICE_LIST' && (
-        <div className="space-y-6" id="pi-list-view">
+      {internalTab === 'INVOICE_LIST' && (
+        <div className="space-y-3" id="pi-list-view">
           {/* Summary Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div
@@ -744,7 +769,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           {/* Search bar & Vendor Filter */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
-              <div className="relative w-full sm:w-80">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
@@ -803,18 +828,18 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   }`}
                 >
                   <tr>
-                    <th className="p-3.5">System Ref #</th>
-                    <th className="p-3.5">Vendor Bill #</th>
-                    <th className="p-3.5">Supplier / Vendor</th>
-                    <th className="p-3.5">Branch</th>
-                    <th className="p-3.5">PO Order Date</th>
-                    <th className="p-3.5">Expected Delivery</th>
-                    <th className="p-3.5">Bill Date</th>
-                    <th className="p-3.5 text-right">Taxable</th>
-                    <th className="p-3.5 text-right">13% VAT</th>
-                    <th className="p-3.5 text-right">Total Amount</th>
-                    <th className="p-3.5 text-center">Payment Mode</th>
-                    <th className="p-3.5 text-center">Actions</th>
+                    <th className="px-2.5 py-1.5">System Ref #</th>
+                    <th className="px-2.5 py-1.5">Vendor Bill #</th>
+                    <th className="px-2.5 py-1.5">Supplier / Vendor</th>
+                    <th className="px-2.5 py-1.5">Branch</th>
+                    <th className="px-2.5 py-1.5">PO Order Date</th>
+                    <th className="px-2.5 py-1.5">Expected Delivery</th>
+                    <th className="px-2.5 py-1.5">Bill Date</th>
+                    <th className="px-2.5 py-1.5 text-right">Taxable</th>
+                    <th className="px-2.5 py-1.5 text-right">13% VAT</th>
+                    <th className="px-2.5 py-1.5 text-right">Total Amount</th>
+                    <th className="px-2.5 py-1.5 text-center">Payment Mode</th>
+                    <th className="px-2.5 py-1.5 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
@@ -825,7 +850,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    filteredInvoices.map((inv) => {
+                    invoicePagination.pagedItems.map((inv) => {
                       const branch = branches.find((b) => b.id === inv.branchId);
                       const linkedPO = purchaseOrders.find((po) => po.id === inv.poReferenceId || po.poNumber === inv.poReferenceId);
                       return (
@@ -835,42 +860,42 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                           }`}
                         >
-                          <td className="p-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
+                          <td className="p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400">
                             {inv.invoiceNumber}
                           </td>
-                          <td className="p-3.5 font-mono font-bold text-slate-800 dark:text-slate-200">
+                          <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
                             {inv.vendorBillNumber || '—'}
                           </td>
-                          <td className="p-3.5 font-bold text-slate-900 dark:text-white">
+                          <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                             {inv.supplierName}
                           </td>
-                          <td className="p-3.5 text-slate-600 dark:text-slate-400">
+                          <td className="p-2.5 text-slate-600 dark:text-slate-400">
                             {branch?.name || inv.branchId}
                           </td>
-                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                             {linkedPO ? formatDualDate(linkedPO.orderDateAD, dateMode) : '—'}
                           </td>
-                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                             {linkedPO ? formatDualDate(linkedPO.expectedDeliveryDateAD, dateMode) : '—'}
                           </td>
-                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                          <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                             {formatDualDate(inv.invoiceDateAD, dateMode)}
                           </td>
-                          <td className="p-3.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
+                          <td className="p-2.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
                             Rs. {(inv.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="p-3.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                          <td className="p-2.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
                             Rs. {(inv.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                          <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
                             Rs. {(inv.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="p-3.5 text-center">
+                          <td className="p-2.5 text-center">
                             <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                               CREDIT MODE
                             </span>
                           </td>
-                          <td className="p-3.5 text-center">
+                          <td className="p-2.5 text-center">
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
@@ -886,7 +911,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 type="button"
                                 onClick={() => {
                                   setViewingInvoice(inv);
-                                  setActiveTab('VIEW_INVOICE');
+                                  setInternalTab('VIEW_INVOICE');
                                 }}
                                 title="View Bill Details & Print Voucher"
                                 className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
@@ -918,12 +943,24 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={invoicePagination.page}
+              pageCount={invoicePagination.pageCount}
+              totalItems={invoicePagination.totalItems}
+              rangeStart={invoicePagination.rangeStart}
+              rangeEnd={invoicePagination.rangeEnd}
+              pageSize={invoicePagination.pageSize}
+              onPageChange={invoicePagination.setPage}
+              onPageSizeChange={invoicePagination.setPageSize}
+              isDarkMode={isDarkMode}
+              className="mt-1"
+            />
           </div>
         </div>
       )}
 
       {/* TAB 2: INLINE PURCHASE BILL CREATION FORM (FULL BODY VISIBLE) */}
-      {activeTab === 'CREATE_INVOICE' && (
+      {internalTab === 'CREATE_INVOICE' && (
         <div
           id="pi-inline-form-container"
           className={`rounded-2xl border p-5 sm:p-7 shadow-lg space-y-6 ${
@@ -950,7 +987,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               <button
                 type="button"
                 onClick={handleResetForm}
-                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
                 title="Reset invoice form"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -961,9 +998,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 type="button"
                 onClick={() => {
                   handleResetForm();
-                  setActiveTab('INVOICE_LIST');
+                  setInternalTab('INVOICE_LIST');
                 }}
-                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors ${
                   isDarkMode
                     ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
                     : 'border-slate-300 text-slate-600 hover:bg-slate-100'
@@ -975,16 +1012,34 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6" id="pi-form-element">
-            {/* Top Form Fields: Vendor, Vendor Bill #, Vendor Bill Date, Branch */}
-            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-xl border ${
+            {/* Top Form Fields: Purchase Date, Vendor, Vendor Bill #, Vendor Bill Date, Branch */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-4 rounded-xl border ${
               isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
+              {/* Purchase Date Field (must be selected by the user; never auto-filled to today) */}
+              <div>
+                <DateField
+                  label="Purchase Date"
+                  mode={dateMode}
+                  value={purchaseDateAD}
+                  onChange={setPurchaseDateAD}
+                  required
+                  id="pi-purchase-date"
+                  min={vendorBillDateAD || undefined}
+                  controlClassName={
+                    purchaseDateAD && vendorBillDateAD > purchaseDateAD
+                      ? 'border-rose-400 dark:border-rose-700'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }
+                />
+              </div>
+
               {/* Vendor Searchable Field */}
               <div className="relative" ref={supplierDropdownRef}>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Supplier / Vendor *
                 </label>
-                <div className="relative flex items-center">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 flex items-center">
                   <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
@@ -1083,17 +1138,25 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Vendor Bill Date (AD) *
-                </label>
-                <input
-                  type="date"
+                <DateField
+                  label="Vendor Bill Date"
+                  mode={dateMode}
+                  value={vendorBillDateAD}
+                  onChange={setVendorBillDateAD}
                   required
                   id="pi-vendor-bill-date"
-                  value={vendorBillDateAD}
-                  onChange={(e) => setVendorBillDateAD(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                  max={purchaseDateAD || undefined}
+                  controlClassName={
+                    purchaseDateAD && vendorBillDateAD > purchaseDateAD
+                      ? 'border-rose-400 dark:border-rose-700'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }
                 />
+                {purchaseDateAD && vendorBillDateAD > purchaseDateAD && (
+                  <div className="mt-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                    Bill date is after the purchase date — bill cannot be saved.
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1258,13 +1321,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     }`}
                   >
                     <tr>
-                      <th className="p-3 w-10 text-center">#</th>
-                      <th className="p-3 min-w-[220px]">Product Name</th>
-                      <th className="p-3 w-28">SKU</th>
-                      <th className="p-3 w-28 text-center">Qty</th>
-                      <th className="p-3 w-32 text-right">Cost Rate (NPR)</th>
-                      <th className="p-3 w-36 text-right">Line Subtotal</th>
-                      <th className="p-3 w-14 text-center">Action</th>
+                      <th className="px-2.5 py-1.5 w-10 text-center">#</th>
+                      <th className="px-2.5 py-1.5 min-w-[220px]">Product Name</th>
+                      <th className="px-2.5 py-1.5 w-28">SKU</th>
+                      <th className="px-2.5 py-1.5 w-28 text-center">Qty</th>
+                      <th className="px-2.5 py-1.5 w-32 text-right">Cost Rate (NPR)</th>
+                      <th className="px-2.5 py-1.5 w-36 text-right">Line Subtotal</th>
+                      <th className="px-2.5 py-1.5 w-14 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -1282,10 +1345,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
                             }`}
                           >
-                            <td className="p-3 text-center font-mono font-bold text-slate-400">
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="p-3 font-bold text-slate-900 dark:text-white">
+                            <td className="p-2.5 font-bold text-slate-900 dark:text-white">
                               <div>{line.productName}</div>
                               {activePO && (() => {
                                 const poItem = activePO.items.find((p) => p.productId === line.productId);
@@ -1329,10 +1392,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 );
                               })()}
                             </td>
-                            <td className="p-3 font-mono text-slate-500 dark:text-slate-400">
+                            <td className="p-2.5 font-mono text-slate-500 dark:text-slate-400">
                               {line.sku}
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="p-2.5 text-center">
                               <input
                                 type="number"
                                 min={1}
@@ -1341,7 +1404,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-3 text-right">
+                            <td className="p-2.5 text-right">
                               <input
                                 type="number"
                                 min={0}
@@ -1350,10 +1413,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
                               Rs. {(line.netSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="p-2.5 text-center">
                               <button
                                 type="button"
                                 onClick={() => removeLine(idx)}
@@ -1372,7 +1435,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             if (!isSerialized) {
                               return (
                                 <tr className="bg-slate-100/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                                  <td colSpan={7} className="px-4 py-2">
+                                  <td colSpan={7} className="px-3 py-2">
                                     <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                                       <Tag className="h-3.5 w-3.5 text-slate-400" />
                                       <span>Bulk Consumable Item — Serial & MAC tracking skipped ({line.quantity} {line.unit})</span>
@@ -1384,7 +1447,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                             return (
                               <tr className="bg-blue-50/40 dark:bg-blue-950/30 border-b border-slate-200 dark:border-slate-800">
-                                <td colSpan={7} className="px-4 py-3">
+                                <td colSpan={7} className="px-2.5 py-1.5">
                                   <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
                                     <Barcode className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                                     <span>Serial Numbers for {line.productName} ({line.quantity} Units)</span>
@@ -1547,7 +1610,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   type="button"
                   onClick={() => {
                     handleResetForm();
-                    setActiveTab('INVOICE_LIST');
+                    setInternalTab('INVOICE_LIST');
                   }}
                   className={`rounded-xl border px-5 py-2.5 text-xs font-semibold cursor-pointer transition-colors ${
                     isDarkMode
@@ -1573,7 +1636,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       )}
 
       {/* TAB 3: INVOICE DOCUMENT & VOUCHER VIEWER */}
-      {activeTab === 'VIEW_INVOICE' && viewingInvoice && (
+      {internalTab === 'VIEW_INVOICE' && viewingInvoice && (
         <div
           id="pi-detail-view-container"
           className={`printable-document rounded-2xl border p-6 sm:p-8 shadow-lg space-y-6 ${
@@ -1617,27 +1680,27 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           {viewingInvoice.items && viewingInvoice.items.length > 0 && (
             <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold text-[10px] border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="p-3.5">#</th>
-                    <th className="p-3.5">Product Name</th>
-                    <th className="p-3.5 text-center">Qty</th>
-                    <th className="p-3.5 text-right">Rate</th>
-                    <th className="p-3.5 text-right">Line Total</th>
+                    <th className="px-2.5 py-1.5">#</th>
+                    <th className="px-2.5 py-1.5">Product Name</th>
+                    <th className="px-2.5 py-1.5 text-center">Qty</th>
+                    <th className="px-2.5 py-1.5 text-right">Rate</th>
+                    <th className="px-2.5 py-1.5 text-right">Line Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {viewingInvoice.items.map((item, idx) => (
                     <tr key={idx} className={isDarkMode ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}>
-                      <td className="p-3.5 font-mono text-slate-400">{idx + 1}</td>
-                      <td className="p-3.5 font-bold text-slate-900 dark:text-white">{item.productName}</td>
-                      <td className="p-3.5 text-center font-mono font-bold">
+                      <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">{item.productName}</td>
+                      <td className="p-2.5 text-center font-mono font-bold">
                         {item.quantity} {item.unit || 'Pcs'}
                       </td>
-                      <td className="p-3.5 text-right font-mono">
+                      <td className="p-2.5 text-right font-mono">
                         Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                      <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
                         Rs. {(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
@@ -1682,7 +1745,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => setActiveTab('INVOICE_LIST')}
+              onClick={() => setInternalTab('INVOICE_LIST')}
               className={`flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer ${
                 isDarkMode
                   ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
@@ -1732,7 +1795,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             <div className="p-4 space-y-3">
-              <div className="relative">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
@@ -2028,17 +2091,17 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
               <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                  <thead className={`font-bold text-[10px] tracking-wider border-b ${
                     isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                   }`}>
                     <tr>
-                      <th className="p-3">#</th>
-                      <th className="p-3">Product Name & Code</th>
-                      <th className="p-3 text-center">Qty Purchased</th>
-                      <th className="p-3 text-right">Unit Price</th>
-                      <th className="p-3 text-right">Discount</th>
-                      <th className="p-3 text-right">Line Total</th>
-                      <th className="p-3">Serials / PON Data</th>
+                      <th className="px-2.5 py-1.5">#</th>
+                      <th className="px-2.5 py-1.5">Product Name & Code</th>
+                      <th className="px-2.5 py-1.5 text-center">Qty Purchased</th>
+                      <th className="px-2.5 py-1.5 text-right">Unit Price</th>
+                      <th className="px-2.5 py-1.5 text-right">Discount</th>
+                      <th className="px-2.5 py-1.5 text-right">Line Total</th>
+                      <th className="px-2.5 py-1.5">Serials / PON Data</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -2047,26 +2110,26 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       const hasSerials = item.deviceSerials && item.deviceSerials.length > 0;
                       return (
                         <tr key={item.id || idx} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                          <td className="p-3">
+                          <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
+                          <td className="p-2.5">
                             <span className="font-bold block text-slate-900 dark:text-white">{item.productName || prod?.name}</span>
                             <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
                               SKU: {item.sku || prod?.sku} | {prod?.category || 'Inventory'}
                             </span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          <td className="p-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
                             {item.quantity} {prod?.unit || 'Pcs'}
                           </td>
-                          <td className="p-3 text-right font-mono">
+                          <td className="p-2.5 text-right font-mono">
                             Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="p-3 text-right font-mono text-slate-500">
+                          <td className="p-2.5 text-right font-mono text-slate-500">
                             Rs. {(item.discount ?? 0).toLocaleString('en-IN')}
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <td className="p-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                             Rs. {(item.total ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="p-3">
+                          <td className="p-2.5">
                             {hasSerials ? (
                               <div className="space-y-1">
                                 <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
