@@ -30,6 +30,11 @@ const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '')
 
 let currentUserContext: User | null = null;
 let currentFiscalYearId: string | null = null;
+let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem('izone_auth_token') : null;
+
+export const setAuthToken = (token: string | null) => {
+  authToken = token;
+};
 
 export const setUserContext = (user: User | null) => {
   currentUserContext = user;
@@ -52,14 +57,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
   }
 
   const userHeaders: Record<string, string> = {};
-  if (currentUserContext) {
-    userHeaders['x-user-email'] = currentUserContext.email;
-    userHeaders['x-user-name'] = currentUserContext.name;
-    userHeaders['x-user-role'] = currentUserContext.role;
-    if (currentUserContext.branchId) {
-      userHeaders['x-user-branch'] = currentUserContext.branchId;
-    }
-  }
+  if (authToken) userHeaders.Authorization = `Bearer ${authToken}`;
   if (currentFiscalYearId) userHeaders['x-fiscal-year-id'] = currentFiscalYearId;
 
   const promise = (async () => {
@@ -358,6 +356,14 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
+  },
+
+  async recalculateFixedAssets(): Promise<{ message: string; updated: number }> {
+    return fetchJson('/api/admin/recalculate/fixed-assets', { method: 'POST' });
+  },
+
+  async recalculateLiveStock(): Promise<{ message: string; updated: number }> {
+    return fetchJson('/api/admin/recalculate/live-stock', { method: 'POST' });
   },
 
   // Purchase Orders

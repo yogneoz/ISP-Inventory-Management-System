@@ -3,6 +3,7 @@ import { BootstrapState, User } from '../types';
 
 const LOGGED_USER_STORAGE_KEY = 'izone_auth_user';
 const ROOT_USER_STORAGE_KEY = 'izone_root_user';
+const AUTH_TOKEN_STORAGE_KEY = 'izone_auth_token';
 const LOGGED_OUT_FLAG_KEY = 'izone_session_logged_out';
 const RECENT_BOOTSTRAP_CACHE_KEY = 'izone_recent_bootstrap_cache_v2';
 
@@ -33,7 +34,7 @@ export function eraseCookie(name: string) {
 // ------------------------------------
 
 // Save logged-in user in localStorage
-export function saveUserSession(currentUser: User | null, rootUser: User | null) {
+export function saveUserSession(currentUser: User | null, rootUser: User | null, token?: string | null) {
   if (currentUser) {
     // Clear logged-out marker
     try {
@@ -45,10 +46,12 @@ export function saveUserSession(currentUser: User | null, rootUser: User | null)
     const str = JSON.stringify(safeCurrent);
     try {
       localStorage.setItem(LOGGED_USER_STORAGE_KEY, str);
+      if (token) localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
     } catch (_e) {}
   } else {
     try {
       localStorage.removeItem(LOGGED_USER_STORAGE_KEY);
+      localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       localStorage.setItem(LOGGED_OUT_FLAG_KEY, 'true');
     } catch (_e) {}
     eraseCookie(LOGGED_USER_STORAGE_KEY);
@@ -69,7 +72,7 @@ export function saveUserSession(currentUser: User | null, rootUser: User | null)
 }
 
 // Load logged-in user session with strict check against logged-out state
-export function loadUserSession(): { currentUser: User | null; rootUser: User | null } {
+export function loadUserSession(): { currentUser: User | null; rootUser: User | null; token: string | null } {
   let currentUser: User | null = null;
   let rootUser: User | null = null;
 
@@ -77,7 +80,7 @@ export function loadUserSession(): { currentUser: User | null; rootUser: User | 
     // If explicitly logged out, never restore from stale storage
     const isLoggedOut = localStorage.getItem(LOGGED_OUT_FLAG_KEY);
     if (isLoggedOut === 'true') {
-      return { currentUser: null, rootUser: null };
+      return { currentUser: null, rootUser: null, token: null };
     }
 
     const currentStr = localStorage.getItem(LOGGED_USER_STORAGE_KEY);
@@ -93,7 +96,7 @@ export function loadUserSession(): { currentUser: User | null; rootUser: User | 
     // Ignore parse errors
   }
 
-  return { currentUser, rootUser };
+  return { currentUser, rootUser, token: localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) };
 }
 
 export function clearUserSession() {
@@ -101,6 +104,7 @@ export function clearUserSession() {
     localStorage.setItem(LOGGED_OUT_FLAG_KEY, 'true');
     localStorage.removeItem(LOGGED_USER_STORAGE_KEY);
     localStorage.removeItem(ROOT_USER_STORAGE_KEY);
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
     localStorage.removeItem('izone_logged_user');
     localStorage.removeItem('izone_root_user');
     localStorage.removeItem(RECENT_BOOTSTRAP_CACHE_KEY);

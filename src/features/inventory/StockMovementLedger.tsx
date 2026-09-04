@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
@@ -53,7 +53,55 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewTab, setViewTab] = useState<'SUMMARY_MATRIX' | 'TRANSACTION_LOGS'>('SUMMARY_MATRIX');
 
+  // Keep the ledger branch filter aligned with the global branch context.
+  useEffect(() => {
+    setActiveBranchId(selectedBranchId);
+  }, [selectedBranchId]);
+
   const categories = Array.from(new Set(products.map((p) => p.category)));
+
+  // Older stock-operation records may predate transaction-log creation. Add
+  // them as ledger movements unless a persisted transaction already exists
+  // for the operation, so historical cards and current live events reconcile.
+  const operationLedgerLogs: TransactionLog[] = stockOperations.flatMap((operation) => {
+    if (!['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE'].includes(operation.type)) return [];
+    const items = operation.items?.length
+      ? operation.items
+      : operation.productId
+      ? [{
+          productId: operation.productId,
+          productName: operation.productName || '',
+          sku: '',
+          quantity: Math.abs(Number(operation.quantityChanged) || 0),
+          unitCost: Number(operation.costPerUnit) || 0,
+          totalValue: operation.totalValue,
+        }]
+      : [];
+    return items
+      .filter((item) => !(operation.type === 'PULLOUT' && (item as { condition?: string }).condition === 'DAMAGED_STOCK'))
+      .map((item, index) => {
+        const product = products.find((candidate) => candidate.id === item.productId);
+        const quantity = Number(item.quantity) || 0;
+        return {
+          id: `operation-ledger-${operation.id}-${item.productId}-${index}`,
+          transactionNumber: `${operation.referenceNumber}-${index + 1}`,
+          productId: item.productId,
+          productSku: product?.sku || item.sku || '',
+          productName: product?.name || item.productName || 'Product',
+          branchId: operation.branchId,
+          changeType: operation.type as TransactionLog['changeType'],
+          quantityBefore: 0,
+          quantityChanged: -quantity,
+          quantityAfter: 0,
+          unitCost: Number(item.unitCost) || Number(operation.costPerUnit) || product?.costPrice || 0,
+          referenceDocId: operation.referenceNumber,
+          timestampAD: operation.dateAD,
+          timestampBS: operation.dateBS,
+        };
+      });
+  }).filter((operationLog) => !transactionLogs.some((log) => log.referenceDocId === operationLog.referenceDocId));
+
+  const effectiveTransactionLogs = [...transactionLogs, ...operationLedgerLogs];
 
   // Date Presets
   const applyPreset = (preset: 'THIS_MONTH' | 'LAST_30_DAYS' | 'THIS_YEAR' | 'ALL_TIME') => {
@@ -84,11 +132,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   };
 
   // Filter logs based on branch, date, search
-  const filteredLogs = transactionLogs.filter((log) => {
+  const filteredLogs = effectiveTransactionLogs.filter((log) => {
     if (activeBranchId !== 'ALL' && log.branchId !== activeBranchId) return false;
 
     // Extract date YYYY-MM-DD
-    const logDate = log.timestampAD.split('T')[0];
+    const logDate = String(log.timestampAD || '').split('T')[0];
     if (startDateAD && logDate < startDateAD) return false;
     if (endDateAD && logDate > endDateAD) return false;
 
@@ -97,10 +145,14 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       const matchName = (log?.productName || '').toLowerCase().includes(q);
       const matchSku = (log?.productSku || '').toLowerCase().includes(q);
       const matchedProd = products.find((p) => p.id === log.productId || p.sku === log.productSku);
+      if (selectedCategory !== 'ALL' && matchedProd?.category !== selectedCategory) return false;
       const matchBarcode = matchedProd?.barcode ? (matchedProd?.barcode || '').toLowerCase().includes(q) : false;
       const matchTx = (log?.transactionNumber || '').toLowerCase().includes(q);
       const matchType = (log?.changeType || '').toLowerCase().includes(q);
       if (!matchName && !matchSku && !matchBarcode && !matchTx && !matchType) return false;
+    } else if (selectedCategory !== 'ALL') {
+      const matchedProd = products.find((p) => p.id === log.productId || p.sku === log.productSku);
+      if (matchedProd?.category !== selectedCategory) return false;
     }
 
     return true;
@@ -109,19 +161,17 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   // Calculate product-level ledger metrics (Opening, Received, Delivered, Damaged, Closing)
   const productLedgerMatrix = products.map((prod) => {
     let currentOnHand = 0;
-    let currentBranchDamagedQty = 0;
     const branchScope = activeBranchId === 'ALL' ? branches : branches.filter((b) => b.id === activeBranchId);
 
     branchScope.forEach((b) => {
       const st = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
       if (st) {
         currentOnHand += st.quantityOnHand;
-        currentBranchDamagedQty += st.damagedQty || 0;
       }
     });
 
     // Get logs for this product in current branch scope
-    const prodLogs = transactionLogs.filter((l) => {
+    const prodLogs = effectiveTransactionLogs.filter((l) => {
       if (l.productId !== prod.id) return false;
       if (activeBranchId !== 'ALL' && l.branchId !== activeBranchId) return false;
       return true;
@@ -134,7 +184,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     let totalAfterPeriodQtyChanges = 0;
 
     prodLogs.forEach((l) => {
-      const logDate = l.timestampAD.split('T')[0];
+      const logDate = String(l.timestampAD || '').split('T')[0];
 
       if (startDateAD && logDate < startDateAD) {
         // Log is BEFORE start date
@@ -160,11 +210,6 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }
       }
     });
-
-    // Fallback: If no explicit damage logs recorded in period, but current stock holds recorded damagedQty, use currentBranchDamagedQty so damage is populated
-    if (damagedQty === 0 && currentBranchDamagedQty > 0) {
-      damagedQty = currentBranchDamagedQty;
-    }
 
     // Opening Qty = CurrentOnHand - (net movement in period) - (net movement after period)
     const netPeriodMovement = receivedQty - deliveredQty - damagedQty;
@@ -235,6 +280,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     activeBranchId,
     startDateAD,
     endDateAD,
+    selectedCategory,
     searchQuery,
   ]);
 
@@ -294,7 +340,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     exportToCSV({
       filename: 'Stock_Movement_Ledger_Report',
       reportTitle: 'Stock Movement Ledger Summary Matrix',
-      branchName: selectedBranchId && selectedBranchId !== 'ALL' ? branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}` : 'All Branches (Consolidated)',
+      branchName: activeBranchId && activeBranchId !== 'ALL' ? branches.find((b) => b.id === activeBranchId)?.name || `Branch ${activeBranchId}` : 'All Branches (Consolidated)',
       data: rows,
       columns,
     });
@@ -332,7 +378,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     exportToCSV({
       filename: 'Stock_Movement_Logs_Detail',
       reportTitle: 'Stock Movement Event & Transaction Logs Report',
-      branchName: selectedBranchId && selectedBranchId !== 'ALL' ? branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}` : 'All Branches (Consolidated)',
+      branchName: activeBranchId && activeBranchId !== 'ALL' ? branches.find((b) => b.id === activeBranchId)?.name || `Branch ${activeBranchId}` : 'All Branches (Consolidated)',
       data: filteredLogs,
       columns,
     });

@@ -25,7 +25,6 @@ import {
   ArrowLeftRight,
   Settings,
   CheckCircle2,
-  HelpCircle,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -182,8 +181,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           type="button"
-          onClick={() => onSelectTab && onSelectTab('company-setup')}
-          title={`Company Setup Database: ${companyProfile?.name || 'EXAMPLE NETWORKS PVT. LTD.'} (PAN/VAT: ${companyProfile?.panVatNumber || '000000000'}) - Synced with PostgreSQL - Click to manage setup`}
+          onClick={() => onSelectTab && onSelectTab('dashboard')}
+          title={`${companyProfile?.name || 'EXAMPLE NETWORKS PVT. LTD.'} - Open Executive Dashboard`}
           className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
         >
           {companyProfile?.logoUrl ? (
@@ -191,13 +190,13 @@ export const Header: React.FC<HeaderProps> = ({
               src={companyProfile.logoUrl}
               alt={companyProfile.name || 'Company Logo'}
               referrerPolicy="no-referrer"
-              className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/30 shadow-xs group-hover:scale-105 transition-transform"
+              className="h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain bg-white p-0.5 group-hover:scale-105 transition-transform"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-500/20 font-serif font-bold text-sm tracking-tight border border-indigo-400/30 group-hover:scale-105 transition-transform">
+            <div className="flex h-10 w-10 items-center justify-center rounded-none bg-white text-indigo-700 font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform">
               {companyProfile?.name
                 ? companyProfile.name
                     .split(' ')
@@ -283,7 +282,7 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="Select fiscal-year view"
               className="max-w-28 bg-transparent font-medium outline-none cursor-pointer"
             >
-              {fiscalYears.map((fiscalYear) => (
+              {[...fiscalYears].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))).map((fiscalYear) => (
                 <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">
                   {fiscalYear.code}
                   {fiscalYear.isCurrent ? ' (Active)' : ''}
@@ -397,19 +396,6 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="ml-0.5 rounded bg-indigo-950/80 px-1 py-0.2 font-bold text-[9px] text-indigo-300 border border-indigo-400/20 uppercase">
             {dateMode}
           </span>
-        </button>
-
-        {/* Help Center Button */}
-        <button
-          onClick={() => onSelectTab('help-documentation')}
-          title="In-App Help Center & Manual (Alt+H)"
-          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-            isDarkMode
-              ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800/60'
-              : 'text-white/80 hover:text-white hover:bg-white/20'
-          }`}
-        >
-          <HelpCircle className="h-4 w-4" />
         </button>
 
         {/* Refresh button */}

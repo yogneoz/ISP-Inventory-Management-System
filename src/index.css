@@ -31,6 +31,22 @@
 }
 
 @media screen and (max-width: 1366px) {
+  /* Compact desktop profile for common 1366x768 business displays. This is
+     intentionally modest so text remains readable while the application
+     gains useful horizontal and vertical room. */
+  html {
+    font-size: 94%;
+  }
+
+  .responsive-sidebar-rail {
+    width: 64px;
+  }
+
+  .responsive-sidebar-panel {
+    left: 64px;
+    width: 16rem;
+  }
+
   :root {
     --spacing: 0.21rem; /* 84% of the default 0.25rem */
   }

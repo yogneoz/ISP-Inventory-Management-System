@@ -108,6 +108,7 @@ export type NavTab =
   | 'audit'
   | 'warranty-products'
   | 'company-setup'
+  | 'data-recalculation'
   | 'help-documentation'
   | 'clear-demo-data';
 
@@ -165,6 +166,7 @@ export const NAV_TABS: NavTab[] = [
   'audit',
   'warranty-products',
   'company-setup',
+  'data-recalculation',
   'help-documentation',
   'clear-demo-data',
 ];
@@ -451,6 +453,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },
         { id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList },
+        { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw },
         { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true },
       ],
     });
@@ -539,9 +542,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isDarkMode ? 'bg-[#0f1218] text-slate-300' : 'bg-white text-slate-800'
       }`}
     >
-      {/* PRIMARY NARROW RAIL (76px wide) */}
+      {/* PRIMARY NARROW RAIL (responsive: 76px standard, 64px compact desktop) */}
       <div
-        className={`w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 ${
+        className={`responsive-sidebar-rail w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 ${
           isDarkMode ? 'border-slate-800/80 bg-[#0f1218]' : 'border-slate-200 bg-slate-50/90'
         }`}
       >
@@ -607,10 +610,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* SECONDARY SUBMENU FLYOUT PANEL (OVERLAY - 288px wide) */}
+      {/* SECONDARY SUBMENU FLYOUT PANEL (responsive overlay) */}
       {isSubPanelExpanded && (
         <div
-          className={`absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 ${
+          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 ${
             isDarkMode ? 'border-slate-800/90 bg-[#0c0e13]/98' : 'border-slate-200/90 bg-white/98 backdrop-blur-md'
           }`}
         >

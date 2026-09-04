@@ -4,6 +4,7 @@ import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
+import { calculateFixedAssetValues } from '../../utils/depreciation';
 import {
   Landmark,
   Plus,
@@ -25,6 +26,7 @@ interface FixedAssetRegisterProps {
   assets: Asset[];
   branches: Branch[];
   selectedBranchId: string;
+  asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
   currentUser?: User | null;
@@ -39,6 +41,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   assets,
   branches,
   selectedBranchId,
+  asOfDateAD,
   dateMode,
   autoOpenModal = false,
   currentUser,
@@ -74,9 +77,15 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     return matchesBranch && matchesSearch;
   });
 
-  const totalCost = filteredAssets.reduce((sum, a) => sum + a.acquisitionCost, 0);
-  const totalAccumDep = filteredAssets.reduce((sum, a) => sum + a.accumulatedDepreciation, 0);
-  const totalNBV = filteredAssets.reduce((sum, a) => sum + a.netBookValue, 0);
+  const totalCost = filteredAssets.reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0);
+  const totalAccumDep = filteredAssets.reduce(
+    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation,
+    0
+  );
+  const totalNBV = filteredAssets.reduce(
+    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue,
+    0
+  );
 
   const assetsPagination = useClientPagination(filteredAssets, 15, [selectedBranchId, search]);
 
@@ -93,6 +102,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       branchId,
       acquisitionDateAD,
       acquisitionDateBS: bsObj.formattedBSShort,
+      purchaseInvoiceDateAD: acquisitionDateAD,
+      purchaseInvoiceDateBS: bsObj.formattedBSShort,
+      capitalizationDateAD: acquisitionDateAD,
+      placedInServiceDateAD: acquisitionDateAD,
       acquisitionCost: Number(acquisitionCost),
       depreciationMethod,
       depreciationRatePercent: Number(depreciationRatePercent),
@@ -222,6 +235,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               ) : (
                 assetsPagination.pagedItems.map((asset) => {
                   const branch = branches.find((b) => b.id === asset.branchId);
+                  const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
                   return (
                     <tr
                       key={asset.id}
@@ -248,7 +262,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                         {asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SL' : 'RB'} @ {asset.depreciationRatePercent}%
                       </td>
                       <td className="p-2.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                        {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(financials.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <select
@@ -306,7 +320,11 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             </div>
 
             <div className="p-5 space-y-4 text-xs">
-              <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900">
+              {(() => {
+                const financials = calculateFixedAssetValues({ ...selectedAssetDetail, acquisitionDateAD: selectedAssetDetail.placedInServiceDateAD || selectedAssetDetail.acquisitionDateAD, asOfDateAD });
+                return (
+                  <>
+                    <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900">
                 <span className="text-[10px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">
                   Asset Identification
                 </span>
@@ -350,7 +368,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Party Invoice / Purchase Date:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.acquisitionDateAD} ({selectedAssetDetail.acquisitionDateBS})</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.purchaseInvoiceDateAD || selectedAssetDetail.acquisitionDateAD} ({selectedAssetDetail.purchaseInvoiceDateBS || selectedAssetDetail.acquisitionDateBS})</span>
                 </div>
                 {selectedAssetDetail.invoiceNo && (
                   <div className="flex justify-between text-slate-600 dark:text-slate-400">
@@ -365,16 +383,20 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   </div>
                 )}
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Placed in Service Date:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.placedInServiceDateAD || selectedAssetDetail.acquisitionDateAD}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Gross Acquisition Cost:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{(selectedAssetDetail.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-rose-600 dark:text-rose-400">
                   <span>Accumulated Depreciation:</span>
-                  <span className="font-mono font-bold">{(selectedAssetDetail.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-bold">{(financials.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-bold border-t border-slate-200 dark:border-slate-800 pt-2">
                   <span>Current Net Book Value:</span>
-                  <span className="font-mono">{(selectedAssetDetail.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono">{(financials.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
@@ -387,6 +409,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   Close Window
                 </button>
               </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>

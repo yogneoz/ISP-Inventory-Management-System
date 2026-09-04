@@ -174,14 +174,14 @@ export function DateField({
 
       {showNepaliPicker ? (
         <div ref={wrapperRef} className="relative">
-          <div className="flex gap-1.5">
+          <div className="relative">
             <input
               id={id}
               readOnly
               required={required}
               disabled={disabled}
               aria-label="BS date (click to open the Nepali calendar)"
-              className={`${baseCls} cursor-pointer`}
+              className={`${baseCls} cursor-pointer pr-9`}
               value={derivedBS ? derivedBS.formattedBSShort : ''}
               placeholder="Select BS date"
               onClick={() => !disabled && openPopover()}
@@ -192,9 +192,7 @@ export function DateField({
               disabled={disabled}
               aria-label="Open Nepali calendar"
               onClick={() => openPopover()}
-              className={`flex shrink-0 items-center justify-center rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${
-                compact ? 'px-2' : 'px-2.5'
-              }`}
+              className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <svg
                 className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}

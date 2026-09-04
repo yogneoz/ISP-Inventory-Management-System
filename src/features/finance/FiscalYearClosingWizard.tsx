@@ -121,8 +121,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       annualDepreciation,
       netAssetValue: fixedAssetValue - annualDepreciation,
       vatInputTax,
-      totalCOGS: financialSummary.totalCostOfGoodsSold || inventoryValue * 0.75,
-      totalExpenses: annualDepreciation + 125000,
+      // Do not manufacture accounting entries during close. COGS and
+      // operating expenses are zero until posted sales/expense ledgers exist.
+      totalCOGS: financialSummary.totalCostOfGoodsSold || 0,
+      totalExpenses: 0,
     };
   }, [stock, products, assets, purchaseInvoices, financialSummary]);
 

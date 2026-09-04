@@ -122,6 +122,10 @@ export interface Asset {
   branchId: string;
   acquisitionDateAD: string;
   acquisitionDateBS: string;
+  purchaseInvoiceDateAD?: string;
+  purchaseInvoiceDateBS?: string;
+  capitalizationDateAD?: string;
+  placedInServiceDateAD?: string;
   acquisitionCost: number;
   depreciationMethod: 'STRAIGHT_LINE' | 'REDUCING_BALANCE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
   depreciationRatePercent: number;
@@ -380,6 +384,7 @@ export interface FiscalYear {
   endDateBS: string;
   isCurrent: boolean;
   isClosed: boolean;
+  isDemo?: boolean;
 }
 
 export interface FiscalYearOpeningStockRow {

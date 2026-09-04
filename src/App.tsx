@@ -20,7 +20,7 @@ import {
   ApprovalRequest,
   Category,
 } from './types';
-import { api, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
 import { seedBSYearCalendar } from './utils/nepaliCalendar';
 import {
   saveUserSession,
@@ -76,6 +76,7 @@ import { ImportStock } from './features/inventory/ImportStock';
 import { ExportStock } from './features/inventory/ExportStock';
 import { LocationsManagement } from './features/settings/LocationsManagement';
 import { ImportCustomers } from './features/sales/ImportCustomers';
+import { DataRecalculationMaintenance } from './features/settings/DataRecalculationMaintenance';
 import { HelpDocumentation } from './components/common/HelpDocumentation';
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
@@ -366,7 +367,7 @@ export default function App() {
       }
 
       // Check for restricted tabs
-      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'create-shipment', 'clear-demo-data'];
+      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'data-recalculation', 'create-shipment', 'clear-demo-data'];
       if (adminOnlyTabs.includes(activeTab) && currentUser.role !== 'SUPER_ADMIN') {
         setActiveTab('dashboard');
       }
@@ -421,15 +422,17 @@ export default function App() {
   // Auth actions
   const handleLogin = async (e: string, p: string) => {
     const res = await api.login(e, p);
+    setAuthToken(res.token);
     setCurrentUser(res.user);
     setRootUser(res.user);
-    saveUserSession(res.user, res.user);
+    saveUserSession(res.user, res.user, res.token);
     refreshAllData();
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setRootUser(null);
+    setAuthToken(null);
     setUserContext(null);
     clearUserSession();
     clearRecentBootstrapCache();
@@ -443,8 +446,9 @@ export default function App() {
     }
     try {
       const res = await api.switchProfile(targetUserId);
+      setAuthToken(res.token);
       setCurrentUser(res.user);
-      saveUserSession(res.user, nextRoot);
+      saveUserSession(res.user, nextRoot, res.token);
       await refreshAllData();
     } catch (err: any) {
       // Never fail silently. If the server session is gone (e.g. after a
@@ -469,8 +473,9 @@ export default function App() {
     const rootName = rootUser.name;
     try {
       const res = await api.switchProfile(rootUser.id);
+      setAuthToken(res.token);
       setCurrentUser(res.user);
-      saveUserSession(res.user, rootUser);
+      saveUserSession(res.user, rootUser, res.token);
       await refreshAllData();
     } catch (err: any) {
       // If the root profile can no longer be reached (server restart, data
@@ -837,15 +842,22 @@ export default function App() {
           branches={branches}
           onSetupSuperAdmin={async (data) => {
             const res = await api.setupSuperAdmin(data);
+            setAuthToken(res.token);
             setCurrentUser(res.user);
             setRootUser(res.user);
-            saveUserSession(res.user, res.user);
+            saveUserSession(res.user, res.user, res.token);
             refreshAllData();
           }}
         />
       </div>
     );
   }
+
+  const selectedFiscalYear = fiscalYears.find((fiscalYear) => fiscalYear.id === selectedFiscalYearId);
+  const todayAD = new Date().toISOString().slice(0, 10);
+  const assetReportAsOfDateAD = selectedFiscalYear?.isCurrent
+    ? (todayAD < selectedFiscalYear.startDateAD ? selectedFiscalYear.startDateAD : todayAD)
+    : (selectedFiscalYear?.endDateAD || todayAD);
 
   return (
     <div
@@ -1175,6 +1187,7 @@ export default function App() {
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
                   onCreateAsset={handleCreateAsset}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
@@ -1836,6 +1849,7 @@ export default function App() {
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
@@ -1852,6 +1866,15 @@ export default function App() {
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'data-recalculation' && (
+                <DataRecalculationMaintenance
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  isDarkMode={isDarkMode}
+                  onRefreshData={refreshAllData}
                 />
               )}
 

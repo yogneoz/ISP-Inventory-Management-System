@@ -50,19 +50,15 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   const netEquity = totalAssets - totalLiabilities;
 
   // Income Statement (Profit & Loss) Calculations
-  const grossPurchaseValue = (invoices || []).reduce(
-    (sum, inv) => sum + (inv.taxableAmount ?? inv.subtotalAmount ?? 0),
-    0
-  );
-  const totalVatPaid = (invoices || []).reduce((sum, inv) => sum + (inv.vatAmount ?? 0), 0);
-  const totalDiscountReceived = (invoices || []).reduce(
-    (sum, inv) => sum + (inv.totalDiscount ?? 0),
-    0
-  );
-  const operatingExpenses = Math.round(grossPurchaseValue * 0.12); // Operational overhead estimate
-  const netRevenue = grossPurchaseValue + totalDiscountReceived;
-  const grossProfit = netRevenue - grossPurchaseValue;
-  const netProfit = grossProfit - operatingExpenses;
+  // Purchases are inventory/cash-flow events, not sales revenue. This module
+  // has no posted sales, COGS, or expense journal, so do not invent values in
+  // a statutory-looking profit and loss statement.
+  const salesRevenue = 0;
+  const trackedCOGS = financialSummary?.totalCostOfGoodsSold ?? 0;
+  const trackedExpenses = 0;
+  const netRevenue = salesRevenue;
+  const grossProfit = netRevenue - trackedCOGS;
+  const netProfit = grossProfit - trackedExpenses;
 
   const handlePrint = () => {
     window.print();
@@ -85,10 +81,9 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
       ]);
     } else {
       const data = [
-        { Section: 'Revenue', Item: 'Gross Purchase & Stock Inflows', Amount: grossPurchaseValue },
-        { Section: 'Revenue', Item: 'Volume Discounts Received', Amount: totalDiscountReceived },
-        { Section: 'Cost of Sales', Item: 'Cost of Inventory Acquired', Amount: grossPurchaseValue },
-        { Section: 'Overhead', Item: 'Estimated Logistics & Maintenance', Amount: operatingExpenses },
+        { Section: 'Revenue', Item: 'Posted Sales Revenue', Amount: salesRevenue },
+        { Section: 'Cost of Sales', Item: 'Posted Cost of Goods Sold', Amount: trackedCOGS },
+        { Section: 'Operating Expenses', Item: 'Posted Operating Expenses', Amount: trackedExpenses },
         { Section: 'Net Profit', Item: 'Net Operating Profit', Amount: netProfit },
       ];
       exportToCSV('Profit_And_Loss_Statement', data, [
@@ -328,7 +323,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 NPR {(netRevenue ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Purchase Total (NPR {(grossPurchaseValue ?? 0).toLocaleString('en-IN')}) + Discounts
+                Posted sales ledger (NPR {(salesRevenue ?? 0).toLocaleString('en-IN')})
               </p>
             </div>
 
@@ -342,10 +337,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <ArrowDownRight className="h-4 w-4 text-rose-500" />
               </div>
               <p className="text-xl font-bold font-mono text-rose-500">
-                NPR {(operatingExpenses ?? 0).toLocaleString('en-IN')}
+                NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Logistics, Overhead & Maintenance Estimate
+                Posted expense journal only; no expense ledger is configured.
               </p>
             </div>
 
@@ -383,13 +378,13 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 font-medium">
-                <span>Gross Purchase & Stock Inflows</span>
-                <span className="font-mono">NPR {(grossPurchaseValue ?? 0).toLocaleString('en-IN')}</span>
+                <span>Posted Sales Revenue</span>
+                <span className="font-mono">NPR {(salesRevenue ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-emerald-600 dark:text-emerald-400">
-                <span>Add: Supplier Volume Discounts Received</span>
-                <span className="font-mono">+ NPR {(totalDiscountReceived ?? 0).toLocaleString('en-IN')}</span>
+                <span>Less: Posted Cost of Goods Sold</span>
+                <span className="font-mono">- NPR {(trackedCOGS ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-2.5 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
@@ -398,8 +393,8 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-rose-500">
-                <span>Less: Estimated Operating Overhead & Handling</span>
-                <span className="font-mono">- NPR {(operatingExpenses ?? 0).toLocaleString('en-IN')}</span>
+                <span>Less: Posted Operating Expenses</span>
+                <span className="font-mono">- NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base text-indigo-600 dark:text-indigo-400">

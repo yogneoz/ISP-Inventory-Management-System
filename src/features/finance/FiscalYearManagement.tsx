@@ -204,6 +204,15 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   };
 
   const canManageFiscalYears = currentUser?.role === 'SUPER_ADMIN';
+  const sortedFiscalYears = [...fiscalYears].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD)));
+
+  // Fiscal-year table pagination (default page shows the 3 most recent years)
+  const fiscalYearsPagination = useClientPagination(sortedFiscalYears, 3, []);
+
+  // Page-header fiscal-year switcher (highlights the selected row in the table)
+  const [viewFiscalYearId, setViewFiscalYearId] = useState<string>('');
+  const activeViewFyId =
+    viewFiscalYearId || fiscalYears.find((f) => f.isCurrent)?.id || sortedFiscalYears[0]?.id || '';
 
   return (
     <div className="space-y-3">
@@ -221,13 +230,34 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer w-fit"
-        >
-          <PlusCircle className="h-4 w-4" />
-          <span>Add New Fiscal Year</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Page-header fiscal-year switcher */}
+          <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white text-slate-700'}`}>
+            <CalendarDays className="h-3.5 w-3.5 text-indigo-500" />
+            <label htmlFor="fy-page-switcher" className="sr-only">Select fiscal year to view</label>
+            <select
+              id="fy-page-switcher"
+              value={activeViewFyId}
+              onChange={(e) => setViewFiscalYearId(e.target.value)}
+              className="bg-transparent font-semibold outline-none cursor-pointer"
+            >
+              {sortedFiscalYears.map((fy) => (
+                <option key={fy.id} value={fy.id} className="bg-slate-900 text-white">
+                  FY {fy.code}
+                  {fy.isCurrent ? ' (Active)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer w-fit"
+          >
+            <PlusCircle className="h-4 w-4" />
+            <span>Add New Fiscal Year</span>
+          </button>
+        </div>
       </div>
 
       {/* Success Notification Banner */}
@@ -246,105 +276,69 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           <Lock className="h-4 w-4 text-amber-500" />
           <span>Nepali Fiscal Year Accounting Periods (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>YYYY/YY</code>)</span>
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {fiscalYears.map((fy) => (
-            <div
-              key={fy.id}
-              className={`rounded-2xl p-4 border transition-all ${
-                fy.isCurrent
-                  ? isDarkMode
-                    ? 'bg-gradient-to-br from-indigo-950 via-[#0f1218] to-slate-900 text-white border-indigo-500/60 shadow-xl'
-                    : 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-sm'
-                  : isDarkMode
-                    ? 'bg-[#0f1218] border-slate-800 text-slate-300 hover:border-slate-700'
-                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 shadow-2xs'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span
-                  className={`text-xs font-bold font-mono px-2.5 py-0.5 rounded-full border ${
-                    fy.isCurrent
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+          <table className="w-full min-w-[900px] text-left text-xs">
+            <thead className={`${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-700'} border-b border-slate-200 dark:border-slate-800`}>
+              <tr>
+                <th className="p-3">Fiscal Year</th>
+                <th className="p-3">BS Period</th>
+                <th className="p-3">AD Period</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+              {fiscalYearsPagination.pagedItems.map((fy) => (
+                <tr
+                  key={fy.id}
+                  className={
+                    fy.id === activeViewFyId
                       ? isDarkMode
-                        ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30'
-                        : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                      : isDarkMode
-                        ? 'bg-slate-900 text-slate-400 border-slate-800'
-                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                  }`}
+                        ? 'bg-indigo-950/40'
+                        : 'bg-indigo-50/80'
+                      : fy.isCurrent
+                      ? isDarkMode
+                        ? 'bg-indigo-950/30'
+                        : 'bg-indigo-50/70'
+                      : undefined
+                  }
                 >
-                  FY {fy.code}
-                </span>
-
-                <div className="flex items-center gap-2">
-                  {fy.isCurrent ? (
-                    <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Active
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => onSetCurrentFiscalYear(fy.id)}
-                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                    >
-                      Set Active
-                    </button>
-                  )}
-                  {canManageFiscalYears && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditFiscalYearError('');
-                        setEditingFiscalYear({ ...fy });
-                      }}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
-                      title={`Edit fiscal year ${fy.code}`}
-                      aria-label={`Edit fiscal year ${fy.code}`}
-                    >
-                      <Edit3 className="h-3.5 w-3.5" /> Edit
-                    </button>
-                  )}
-                  {canManageFiscalYears && !fy.isCurrent && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteFiscalYear(fy)}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
-                      title={`Delete fiscal year ${fy.code}`}
-                      aria-label={`Delete fiscal year ${fy.code}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-1.5 text-[11px]">
-                <div className={`flex justify-between border-b pb-1 ${isDarkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>BS Period:</span>
-                  <span className={`font-mono font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                    {fy.startDateBS} to {fy.endDateBS}
-                  </span>
-                </div>
-                <div className={`flex justify-between border-b pb-1 ${isDarkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>AD Period:</span>
-                  <span className={`font-mono font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                    {fy.startDateAD} to {fy.endDateAD}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>Audit Status:</span>
-                  <span className="font-bold flex items-center gap-1">
-                    {fy.isClosed ? (
-                      <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                        <Lock className="h-3 w-3" /> Closed
+                  <td className="p-3 font-bold font-mono">
+                    FY {fy.code}
+                    {fy.id === activeViewFyId && (
+                      <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${isDarkMode ? 'bg-indigo-500/20 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>
+                        Viewing
                       </span>
-                    ) : (
-                      <span className="text-emerald-600 dark:text-emerald-400">Open & Audited</span>
                     )}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
+                  </td>
+                  <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateBS} to {fy.endDateBS}</td>
+                  <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateAD} to {fy.endDateAD}</td>
+                  <td className="p-3 font-bold">
+                    {fy.isCurrent ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Active</span> : fy.isClosed ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"><Lock className="h-3 w-3" /> Closed</span> : <span className="text-emerald-600 dark:text-emerald-400">Open</span>}
+                  </td>
+                  <td className="p-3 text-right">
+                    <div className="flex justify-end items-center gap-2">
+                      {!fy.isCurrent && <button onClick={() => onSetCurrentFiscalYear(fy.id)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">Set Active</button>}
+                      {canManageFiscalYears && <button type="button" onClick={() => { setEditFiscalYearError(''); setEditingFiscalYear({ ...fy }); }} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"><Edit3 className="h-3.5 w-3.5" /> Edit</button>}
+                      {canManageFiscalYears && !fy.isCurrent && <button type="button" onClick={() => handleDeleteFiscalYear(fy)} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+        <TablePagination
+          page={fiscalYearsPagination.page}
+          pageCount={fiscalYearsPagination.pageCount}
+          totalItems={fiscalYearsPagination.totalItems}
+          rangeStart={fiscalYearsPagination.rangeStart}
+          rangeEnd={fiscalYearsPagination.rangeEnd}
+          pageSize={fiscalYearsPagination.pageSize}
+          onPageChange={fiscalYearsPagination.setPage}
+          onPageSizeChange={fiscalYearsPagination.setPageSize}
+          isDarkMode={isDarkMode}
+        />
       </div>
 
       {/* Section 2: DOCUMENT NUMBERING INITIAL SETUP (Dynamic Setup) */}

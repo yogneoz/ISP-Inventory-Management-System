@@ -20,6 +20,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Consumable & Fixed Asset Management**:
   - Consumable Stock Out & Issue logging with work order and technician tagging.
   - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
+  - ERP-style asset dates: supplier invoice date, capitalization date, and placed-in-service date. Depreciation starts from the placed-in-service date and is persisted in PostgreSQL.
 - **Serial, MAC, PON & Customer Device Tracking**:
   - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
@@ -52,7 +53,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   └── App.tsx                   # Main React Application shell
 │
 ├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql                # Full 19-Table PostgreSQL Schema with Indexes & FKs
+│   ├── schema.sql                # PostgreSQL Schema with Indexes, FKs & Asset Date Migrations
+│   ├── demo_dataset.js           # Linked demo products, stock and fixed assets
 │   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
 │   └── setup_db.js               # Node.js runner for database setup & migration
 │
@@ -128,7 +130,7 @@ npm run setup:pg
 **What this script does:**
 1. Detects your OS (Ubuntu, Debian, CentOS, macOS, Docker) and installs/starts PostgreSQL if not running.
 2. Creates the database `inventory_db` and user `inventory_user`.
-3. Migrates all 19 relational tables, constraints, foreign keys, and indexes from `scripts/schema.sql`.
+3. Migrates the relational tables, constraints, foreign keys, indexes, and fixed-asset date columns from `scripts/schema.sql`.
 4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
 
 The application requires PostgreSQL to be available. It does not use local file storage or an in-memory database fallback.
@@ -177,6 +179,31 @@ All seeded accounts, branches, locations, suppliers, and operational records are
 ---
 
 ## 🧹 Managing Demo vs. Clean Operational Data
+
+### Fixed Asset Accounting Dates
+
+Fixed assets are separate from inventory opening stock. The system records:
+
+- **Purchase invoice date**: supplier document date used for invoice/datewise reporting.
+- **Capitalization date**: date the purchase is recognized as a fixed asset.
+- **Placed-in-service date**: date depreciation begins.
+- **Fiscal year**: derived from the asset’s accounting period.
+
+The Fixed Asset Register and Depreciation Register calculate from the placed-in-service date and selected fiscal-year reporting date. They do not use Stock Movement Ledger opening quantities. Asset links to products and purchase invoices are retained in PostgreSQL.
+
+### Administrative Recalculation & Repair
+
+Super Admins can open **Administration & Governance → Data Recalculation & Repair** and run separate, audited operations:
+
+1. **Recalculate Fixed Assets** — persists accumulated depreciation and NBV from asset dates, cost, rate, and method.
+2. **Rebuild Opening Stock** — creates the next fiscal year’s opening register from a closed year while preserving manual adjustments.
+3. **Recalculate Live Stock** — restores live quantities from the latest reliable stock transaction without rewriting transaction history.
+
+Run these after an import correction or database migration, preferably during a controlled maintenance window.
+
+### Resetting a Database for Demo Testing
+
+To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg`. The demo fixed asset `ast-car004` is linked to product `prod-car004` and includes purchase, capitalization, and placed-in-service dates.
 
 ### Default Clean Mode
 The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus Fiscal Years, so you can immediately begin importing your real products or entering stock.

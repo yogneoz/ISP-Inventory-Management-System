@@ -9,6 +9,7 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
+    "integrity:check": "node scripts/integrity_check.mjs",
     "setup:pg": "node scripts/setup_db.js",
     "setup:postgres": "bash scripts/setup_postgres.sh",
     "lint": "tsc --noEmit"

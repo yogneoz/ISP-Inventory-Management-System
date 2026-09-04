@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Asset, Branch } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { calculateFixedAssetValues } from '../../utils/depreciation';
 import {
   Calculator,
   Download,
@@ -21,6 +22,7 @@ interface DepreciationRegisterProps {
   assets: Asset[];
   branches: Branch[];
   selectedBranchId: string;
+  asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
 }
@@ -42,6 +44,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   assets,
   branches,
   selectedBranchId,
+  asOfDateAD,
   dateMode,
   isDarkMode = false,
 }) => {
@@ -88,9 +91,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       };
     }
 
+    const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
     acc[key].totalCost += asset.acquisitionCost ?? 0;
-    acc[key].totalAccumDep += asset.accumulatedDepreciation ?? 0;
-    acc[key].totalNBV += asset.netBookValue ?? 0;
+    acc[key].totalAccumDep += financials.accumulatedDepreciation ?? 0;
+    acc[key].totalNBV += financials.netBookValue ?? 0;
     acc[key].lotCount += 1;
     acc[key].lots.push(asset);
 
@@ -101,15 +105,21 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
   // Overall KPI totals
   const totalCost = filteredAssets.reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0);
-  const totalAccumDep = filteredAssets.reduce((sum, a) => sum + (a.accumulatedDepreciation ?? 0), 0);
-  const totalNBV = filteredAssets.reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
+  const totalAccumDep = filteredAssets.reduce(
+    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation,
+    0
+  );
+  const totalNBV = filteredAssets.reduce(
+    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue,
+    0
+  );
 
   const categories = Array.from(new Set((assets || []).map((a) => a.category)));
 
   // Sorted list for Date wise view (Newest Party Invoice Date first)
   const sortedDatewiseAssets = [...filteredAssets].sort((a, b) => {
-    const dateA = a.acquisitionDateAD || '';
-    const dateB = b.acquisitionDateAD || '';
+    const dateA = a.purchaseInvoiceDateAD || a.acquisitionDateAD || '';
+    const dateB = b.purchaseInvoiceDateAD || b.acquisitionDateAD || '';
     return dateB.localeCompare(dateA);
   });
 
@@ -140,8 +150,8 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       const data = sortedDatewiseAssets.map((a) => {
         const bObj = branches.find((b) => b.id === a.branchId);
         return {
-          PartyInvoiceDateAD: a.acquisitionDateAD,
-          PartyInvoiceDateBS: a.acquisitionDateBS,
+          PartyInvoiceDateAD: a.purchaseInvoiceDateAD || a.acquisitionDateAD,
+          PartyInvoiceDateBS: a.purchaseInvoiceDateBS || a.acquisitionDateBS,
           InvoiceNumber: a.invoiceNo || 'N/A',
           Supplier: a.supplierName || 'N/A',
           TagNumber: a.tagNumber,
@@ -488,10 +498,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                           {(lot.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                         <td className="px-2.5 py-1.5 text-right text-rose-500 font-semibold">
-                                          {(lot.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                         <td className="px-2.5 py-1.5 text-right text-emerald-600 dark:text-emerald-400 font-extrabold">
-                                          {(lot.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                       </tr>
                                     ))}
@@ -599,10 +609,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-semibold">
-                        {(asset.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
-                        {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))

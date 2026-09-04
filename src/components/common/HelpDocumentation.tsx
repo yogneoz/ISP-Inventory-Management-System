@@ -405,6 +405,24 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
       category: 'Finance',
     },
     {
+      question: 'Which date starts fixed-asset depreciation?',
+      answer:
+        'The Depreciation Register uses the placed-in-service date as the depreciation start date. Purchase invoice date is retained for invoice reporting, while capitalization date identifies when the asset entered the accounting register. Fixed assets are not calculated from opening-stock quantities.',
+      category: 'Finance',
+    },
+    {
+      question: 'How do I correct old or zero fixed-asset values?',
+      answer:
+        'As a Super Admin, open Administration & Governance -> Data Recalculation & Repair and run Recalculate Fixed Assets. The operation persists accumulated depreciation and net book value in PostgreSQL and records an audit entry. It does not rewrite purchase invoices or transaction history.',
+      category: 'Administration',
+    },
+    {
+      question: 'What is the difference between opening stock and fixed assets?',
+      answer:
+        'Opening stock carries product quantities and costs from a closed fiscal year into the next year. Fixed assets are individual capital records linked to products or invoices and depreciate from their placed-in-service dates. Use separate repair actions for each area.',
+      category: 'Inventory',
+    },
+    {
       question: 'Where can I inspect system changes and user activity?',
       answer:
         'Navigate to Administration -> Audit Activities Log. The audit log immutably records all user actions, IP addresses, timestamps in AD and BS, and before/after value changes.',
@@ -694,7 +712,41 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
               </div>
             )}
 
-            {activeChapter !== 'overview' && activeChapter !== 'roles' && activeChapter !== 'getting-started' && (
+            {activeChapter === 'tax-depreciation' && (
+              <div className="space-y-5 text-sm leading-relaxed">
+                <div className="flex items-center gap-3 border-b pb-3 border-slate-200 dark:border-slate-800">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <FileSpreadsheet className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold font-serif">8. Financials, VAT Register & Depreciation</h2>
+                    <p className="text-xs text-slate-500">Backend-persisted fixed-asset accounting</p>
+                  </div>
+                </div>
+                <p>Fixed assets are maintained independently from inventory opening stock. The asset register stores the supplier invoice date, capitalization date, and placed-in-service date.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <h4 className="font-bold text-xs text-indigo-500">Purchase Invoice Date</h4>
+                    <p className="mt-1 text-xs text-slate-500">Used for invoice/datewise purchase reporting and linked to the source invoice.</p>
+                  </div>
+                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <h4 className="font-bold text-xs text-indigo-500">Capitalization Date</h4>
+                    <p className="mt-1 text-xs text-slate-500">Identifies when the purchase entered the fixed-asset accounting register.</p>
+                  </div>
+                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <h4 className="font-bold text-xs text-indigo-500">Placed-in-Service Date</h4>
+                    <p className="mt-1 text-xs text-slate-500">The date used as the start point for straight-line or reducing-balance depreciation.</p>
+                  </div>
+                </div>
+                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-amber-950/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+                  <h4 className="font-bold text-xs text-amber-700 dark:text-amber-300">Correcting persisted values</h4>
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Super Admins can open Administration & Governance → Data Recalculation & Repair and run Recalculate Fixed Assets. This writes accumulated depreciation and net book value to PostgreSQL and creates an audit entry.</p>
+                </div>
+                <button onClick={() => onNavigateTab?.('data-recalculation')} className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer"><span>Open Data Recalculation & Repair</span><ArrowRight className="h-3.5 w-3.5" /></button>
+              </div>
+            )}
+
+            {activeChapter !== 'overview' && activeChapter !== 'roles' && activeChapter !== 'getting-started' && activeChapter !== 'tax-depreciation' && (
               <div className="space-y-4 text-sm leading-relaxed">
                 <div className="flex items-center gap-3 border-b pb-3 border-slate-200 dark:border-slate-800">
                   <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">

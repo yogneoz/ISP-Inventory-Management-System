@@ -3,8 +3,10 @@ module.exports = {
     {
       name: 'enterprise-erp',
       script: 'dist/server.cjs',
-      instances: 'max',
-      exec_mode: 'cluster',
+      // Runtime sessions, caches, and SSE clients are process-local. Run one
+      // worker until those concerns are moved to shared infrastructure.
+      instances: 1,
+      exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
         PORT: 3000,

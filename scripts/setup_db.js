@@ -201,14 +201,15 @@ async function ensureEnterpriseColumns(client) {
 async function seedFiscalYears(client) {
   for (const fy of DEFAULT_FISCAL_YEARS) {
     await client.query(
-      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7)
+      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, TRUE)
        ON CONFLICT (id) DO UPDATE SET
          code = EXCLUDED.code,
          start_date_ad = EXCLUDED.start_date_ad,
          end_date_ad = EXCLUDED.end_date_ad,
          start_date_bs = EXCLUDED.start_date_bs,
-         end_date_bs = EXCLUDED.end_date_bs`,
+         end_date_bs = EXCLUDED.end_date_bs,
+         is_demo = EXCLUDED.is_demo`,
       [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isClosed]
     );
   }
@@ -490,11 +491,25 @@ async function seedDemoData(client) {
 
   if (!(await skipTable('fixed_assets'))) {
     for (const a of dataset.assetRegister) {
+      const serviceDate = new Date(`${a.placedInServiceDateAD || a.acquisitionDateAD}T00:00:00`);
+      const today = new Date();
+      const monthsElapsed = Math.max(
+        0,
+        (today.getFullYear() - serviceDate.getFullYear()) * 12 +
+          (today.getMonth() - serviceDate.getMonth()) +
+          (today.getDate() >= serviceDate.getDate() ? 0 : -1)
+      );
+      const annualDepreciation = Number(a.acquisitionCost || 0) * Number(a.depreciationRatePercent || 0) / 100;
+      const accumulatedDepreciation = Math.min(
+        Number(a.acquisitionCost || 0),
+        annualDepreciation * monthsElapsed / 12
+      );
+      const netBookValue = Math.max(0, Number(a.acquisitionCost || 0) - accumulatedDepreciation);
       await client.query(
-        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, is_demo, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ACTIVE', TRUE, 'setup:pg demo seeder')
+        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, placed_in_service_date_ad, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, product_id, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'ACTIVE', $17, TRUE, 'setup:pg demo seeder')
          ON CONFLICT (id) DO NOTHING`,
-        [a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD, a.acquisitionDateBS, a.acquisitionCost, a.depreciationMethod, a.depreciationRatePercent, a.accumulatedDepreciation, a.netBookValue]
+        [a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD, a.acquisitionDateBS, a.purchaseInvoiceDateAD || a.acquisitionDateAD, a.purchaseInvoiceDateBS || a.acquisitionDateBS, a.capitalizationDateAD || a.acquisitionDateAD, a.placedInServiceDateAD || a.acquisitionDateAD, a.acquisitionCost, a.depreciationMethod, a.depreciationRatePercent, accumulatedDepreciation, netBookValue, a.productId || null]
       );
     }
     summary.fixed_assets = dataset.assetRegister.length;

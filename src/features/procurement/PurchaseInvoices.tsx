@@ -1012,12 +1012,31 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6" id="pi-form-element">
-            {/* Top Form Fields: Purchase Date, Vendor, Vendor Bill #, Vendor Bill Date, Branch */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-4 rounded-xl border ${
+            {/* Invoice Details: compact metadata and taxation controls in one card */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 p-3 rounded-xl border ${
               isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
+              {/* Destination Branch is first because it determines where stock is received. */}
+              <div className="lg:max-w-[11rem]">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Destination Branch *
+                </label>
+                <select
+                  id="pi-branch-select"
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {allowedBranches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Purchase Date Field (must be selected by the user; never auto-filled to today) */}
-              <div>
+              <div className="lg:max-w-[11rem]">
                 <DateField
                   label="Purchase Date"
                   mode={dateMode}
@@ -1026,6 +1045,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   required
                   id="pi-purchase-date"
                   min={vendorBillDateAD || undefined}
+                  compact
                   controlClassName={
                     purchaseDateAD && vendorBillDateAD > purchaseDateAD
                       ? 'border-rose-400 dark:border-rose-700'
@@ -1035,11 +1055,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
 
               {/* Vendor Searchable Field */}
-              <div className="relative" ref={supplierDropdownRef}>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              <div className="relative sm:col-span-2 lg:col-span-2" ref={supplierDropdownRef}>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Supplier / Vendor *
                 </label>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 flex items-center">
+                <div className="relative w-full flex items-center">
                   <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
@@ -1054,7 +1074,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Search supplier name or PAN..."
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-8 py-2 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-8 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   {supplierName ? (
                     <button
@@ -1122,8 +1142,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 )}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+              <div className="lg:max-w-[11rem]">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Vendor Bill / Invoice # *
                 </label>
                 <input
@@ -1133,11 +1153,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   value={vendorBillNumber}
                   onChange={(e) => setVendorBillNumber(e.target.value)}
                   placeholder="e.g. BILL-99201"
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
-              <div>
+              <div className="lg:max-w-[11rem]">
                 <DateField
                   label="Vendor Bill Date"
                   mode={dateMode}
@@ -1146,6 +1166,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   required
                   id="pi-vendor-bill-date"
                   max={purchaseDateAD || undefined}
+                  compact
                   controlClassName={
                     purchaseDateAD && vendorBillDateAD > purchaseDateAD
                       ? 'border-rose-400 dark:border-rose-700'
@@ -1159,33 +1180,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 )}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Destination Branch *
-                </label>
-                <select
-                  id="pi-branch-select"
-                  value={branchId}
-                  onChange={(e) => setBranchId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
-                >
-                  {allowedBranches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Whole Bill Taxation Terms Selection */}
-            <div className={`p-4 rounded-xl border ${
-              isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-50 border-slate-200'
-            }`}>
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+              {/* Whole Bill Taxation Terms Selection */}
+              <div className="sm:col-span-2 lg:col-span-6 border-t border-slate-200 dark:border-slate-800 pt-2">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                 Whole-Bill Taxation Mode
               </span>
-              <div className="flex flex-wrap items-center gap-6 text-xs">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
@@ -1216,18 +1216,18 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
             </div>
 
-            {/* Purchase Order Linking Banner */}
-            <div className="rounded-xl border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/70 dark:bg-indigo-950/40 p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                    <ShoppingCart className="h-5 w-5" />
+            {/* Purchase Order Linking — kept in the same compact invoice details card */}
+            <div className="sm:col-span-2 lg:col-span-6 border-t border-indigo-200 dark:border-indigo-800/60 pt-2">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                    <ShoppingCart className="h-4 w-4" />
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                    <div className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
                       Link Existing Purchase Order Reference (Optional)
                     </div>
-                    <div className="text-[11px] text-indigo-800/80 dark:text-indigo-400">
+                    <div className="text-[10px] text-indigo-800/80 dark:text-indigo-400">
                       {activePO ? (
                         <span className="font-semibold">
                           Linked to <strong className="text-indigo-950 dark:text-white">PO #{activePO.poNumber}</strong> ({activePO.supplierName} • {activePO.items.length} item lines)
@@ -1239,11 +1239,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => setIsPoSelectModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
                   >
                     <Link className="h-3.5 w-3.5" />
                     <span>{activePO ? 'Change Linked PO' : 'Link / Import PO'}</span>
@@ -1272,6 +1272,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   )}
                 </div>
               </div>
+            </div>
             </div>
 
             {/* Product Search & Barcode Scan Bar */}

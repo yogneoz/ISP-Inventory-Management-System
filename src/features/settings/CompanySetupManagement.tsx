@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CompanyProfile, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
+import { processLogoFile } from '../../utils/logoImage';
 import {
   Building2,
   Globe,
@@ -132,19 +133,18 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        setErrorMessage('Logo image file must be under 2MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoUrl(reader.result as string);
+      try {
         setErrorMessage('');
-      };
-      reader.readAsDataURL(file);
+        setLogoUrl(await processLogoFile(file));
+      } catch (err: any) {
+        setErrorMessage(err?.message || 'Unable to process the selected logo image.');
+      } finally {
+        // Allow selecting the same file again after an error or replacement.
+        e.target.value = '';
+      }
     }
   };
 
@@ -711,7 +711,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                   </label>
                 </div>
                 <span className="text-[10px] text-slate-400 block">
-                  Recommended size: 300x100px PNG transparent background. Max 2MB.
+                  The image is automatically cropped to its visible bounds, resized, and compressed while preserving its aspect ratio.
                 </span>
               </div>
             </div>
