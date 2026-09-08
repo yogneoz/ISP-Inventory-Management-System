@@ -92,9 +92,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
     }
 
     const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
-    acc[key].totalCost += asset.acquisitionCost ?? 0;
-    acc[key].totalAccumDep += financials.accumulatedDepreciation ?? 0;
-    acc[key].totalNBV += financials.netBookValue ?? 0;
+    acc[key].totalCost += Number(asset.acquisitionCost ?? 0);
+    acc[key].totalAccumDep += Number(financials.accumulatedDepreciation ?? 0);
+    acc[key].totalNBV += Number(financials.netBookValue ?? 0);
     acc[key].lotCount += 1;
     acc[key].lots.push(asset);
 
@@ -103,14 +103,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
   const groupedSummaryList: AssetGroup[] = Object.values(groupedSummaryMap);
 
-  // Overall KPI totals
-  const totalCost = filteredAssets.reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0);
+  // Overall KPI totals — ensure numeric addition by wrapping with Number()
+  const totalCost = filteredAssets.reduce((sum, a) => sum + Number(a.acquisitionCost ?? 0), 0);
   const totalAccumDep = filteredAssets.reduce(
-    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation,
+    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0),
     0
   );
   const totalNBV = filteredAssets.reduce(
-    (sum, a) => sum + calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue,
+    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0),
     0
   );
 
@@ -437,7 +437,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                           </td>
                           <td className="px-2.5 py-1.5 text-slate-500">{grp.category}</td>
                           <td className="px-2.5 py-1.5 text-center">
-                            <span className="inline-flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            <span className={`inline-flex items-center gap-1 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                               <Layers className="h-3.5 w-3.5" />
                               {grp.lotCount} Batch{grp.lotCount > 1 ? 'es' : ''}
                             </span>
@@ -453,7 +453,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                           <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-bold">
                             {(grp.totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2.5 py-1.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                             {(grp.totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
@@ -463,7 +463,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                           <tr className={isDarkMode ? 'bg-slate-950/80' : 'bg-slate-50/80'}>
                             <td colSpan={8} className="p-2.5 pl-12 border-t border-b border-indigo-200 dark:border-indigo-900/40">
                               <div className="space-y-2">
-                                <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider">
+                                <div className={`text-[11px] font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center gap-1.5 uppercase tracking-wider`}>
                                   <FileText className="h-3.5 w-3.5" />
                                   <span>Individual Purchase Invoices & Datewise Depreciation Lots ({grp.masterName})</span>
                                 </div>
@@ -482,7 +482,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                                     {grp.lots.map((lot) => (
                                       <tr key={lot.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
-                                        <td className="px-2.5 py-1.5 font-bold text-indigo-600 dark:text-indigo-400">
+                                        <td className={`px-2.5 py-1.5 font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                                           {lot.acquisitionDateAD} ({lot.acquisitionDateBS})
                                         </td>
                                         <td className="px-2.5 py-1.5 text-slate-700 dark:text-slate-300 font-semibold">
@@ -500,7 +500,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                         <td className="px-2.5 py-1.5 text-right text-rose-500 font-semibold">
                                           {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
-                                        <td className="px-2.5 py-1.5 text-right text-emerald-600 dark:text-emerald-400 font-extrabold">
+                                        <td className={`px-2.5 py-1.5 text-right ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-extrabold`}>
                                           {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                       </tr>
@@ -531,7 +531,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                   <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
                     {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                  <td className={`px-2.5 py-1.5 text-right font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                     {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
@@ -580,7 +580,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         isDarkMode ? 'text-slate-300' : 'text-slate-800'
                       }`}
                     >
-                      <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className={`px-2.5 py-1.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         <div className="flex items-center gap-1.5">
                           <Calendar className="h-3.5 w-3.5 text-slate-400" />
                           <span>{formatDualDate(asset.acquisitionDateAD, dateMode)}</span>
@@ -611,7 +611,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                       <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-semibold">
                         {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2.5 py-1.5 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                      <td className={`px-2.5 py-1.5 text-right font-mono font-extrabold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                         {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
@@ -634,7 +634,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                   <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
                     {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                  <td className={`px-2.5 py-1.5 text-right font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                     {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>

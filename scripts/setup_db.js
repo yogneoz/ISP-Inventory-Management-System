@@ -489,6 +489,51 @@ async function seedDemoData(client) {
     summary.inventory_stock = dataset.inventoryStock.length;
   }
 
+  // Seed damage_records table (proper damage tracking with audit trail)
+  if (!(await skipTable('damage_records'))) {
+    for (const dm of (dataset.damageRecords || [])) {
+      await client.query(
+        `INSERT INTO damage_records (id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost, damage_date_ad, damage_date_bs, damage_reason, status, disposal_date_ad, disposal_date_bs, disposal_method, salvage_value, gl_account_code, write_off_loss, approved_by, notes, fiscal_year_id, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, TRUE, $21)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          dm.id, dm.damageReference, dm.productId, dm.branchId, dm.quantityDamaged,
+          dm.unitCost, dm.totalCost, dm.damageDateAD, dm.damageDateBS, dm.damageReason,
+          dm.status, dm.disposalDateAD, dm.disposalDateBS, dm.disposalMethod,
+          dm.salvageValue, dm.glAccountCode, dm.writeOffLoss, dm.approvedBy, dm.notes,
+          dm.fiscalYearId, dm.createdBy
+        ]
+      );
+    }
+    summary.damage_records = (dataset.damageRecords || []).length;
+  }
+
+  // Seed locations table
+  if (!(await skipTable('locations'))) {
+    for (const loc of (dataset.locations || [])) {
+      await client.query(
+        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+         ON CONFLICT (id) DO NOTHING`,
+        [loc.id, loc.name, loc.type, loc.branchId, loc.address, JSON.stringify(loc.coordinates || {}), loc.contactPerson, loc.contactPhone, loc.notes, loc.activeAssetsCount || 0]
+      );
+    }
+    summary.locations = (dataset.locations || []).length;
+  }
+
+  // Seed customer_records table
+  if (!(await skipTable('customer_records'))) {
+    for (const cust of (dataset.customerRecords || [])) {
+      await client.query(
+        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE)
+         ON CONFLICT (id) DO NOTHING`,
+        [cust.id, cust.customerId, cust.customerName, cust.username, cust.contactNumber, cust.branchId, cust.address, cust.email, cust.status, cust.creditLimit || 0, cust.assignedDevicesCount || 0]
+      );
+    }
+    summary.customer_records = (dataset.customerRecords || []).length;
+  }
+
   if (!(await skipTable('fixed_assets'))) {
     for (const a of dataset.assetRegister) {
       const serviceDate = new Date(`${a.placedInServiceDateAD || a.acquisitionDateAD}T00:00:00`);

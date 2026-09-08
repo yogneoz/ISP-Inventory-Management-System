@@ -282,7 +282,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
               isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
             }`}
           >
-            <Download className="h-4 w-4 text-emerald-600" />
+            <Download className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
             <span>Download CSV Template (.csv)</span>
           </button>
 
@@ -324,7 +324,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Upload CSV File</span>
               </label>
-              <span className="text-[10px] text-emerald-600 font-mono font-bold">.csv, .txt</span>
+              <span className={`text-[10px] font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>.csv, .txt</span>
             </div>
 
             <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
@@ -339,13 +339,13 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
 
-              <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3">
+              <div className={`h-12 w-12 rounded-2xl bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} flex items-center justify-center mb-3`}>
                 <Upload className="h-6 w-6" />
               </div>
 
               {selectedFileName ? (
                 <div>
-                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 block truncate max-w-[200px]">
+                  <span className={`font-bold text-xs block truncate max-w-[200px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -436,7 +436,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
                       <td className="p-2.5">
-                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">{row.customerId}</div>
+                        <div className={`font-mono font-bold text-[11px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{row.customerId}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.customerName}</div>
                       </td>
                       <td className="p-2.5 text-[11px]">

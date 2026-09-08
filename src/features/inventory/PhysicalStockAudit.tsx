@@ -902,7 +902,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* 1. SUPER ADMIN / STOCK MANAGER RECONCILIATION REVIEW PANEL */}
       {isReviewMode && pendingAuditRequest && (
-        <div className="p-5 rounded-3xl border-2 border-purple-400 dark:border-purple-600 bg-gradient-to-r from-purple-50 via-indigo-50/50 to-purple-50 dark:from-purple-950/60 dark:via-slate-900 dark:to-purple-950/60 text-purple-950 dark:text-purple-100 shadow-xl space-y-3.5">
+        <div className={`p-5 rounded-3xl border-2 shadow-xl space-y-3.5 ${isDarkMode ? 'border-purple-600 from-purple-950/60 via-slate-900 to-purple-950/60 text-purple-100' : 'border-purple-400 from-purple-50 via-indigo-50/50 to-purple-50 text-purple-950'} bg-gradient-to-r`}>
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="p-2.5 rounded-2xl bg-purple-600 text-white shadow-md">
@@ -910,17 +910,17 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </div>
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-extrabold text-base text-purple-900 dark:text-purple-200">
+                  <span className={`font-extrabold text-base ${isDarkMode ? 'text-purple-200' : 'text-purple-900'}`}>
                     Administrative Review & Reconciliation Mode
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-mono font-bold uppercase tracking-wider">
                     REQUEST #{pendingAuditRequest.requestNumber}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-[10px] font-bold">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isDarkMode ? 'bg-purple-900 text-purple-200' : 'bg-purple-200 text-purple-800'}`}>
                     {activeBranch?.name} ({activeBranch?.code})
                   </span>
                 </div>
-                <p className="text-xs text-purple-800 dark:text-purple-300 leading-relaxed max-w-3xl">
+                <p className={`text-xs leading-relaxed max-w-3xl ${isDarkMode ? 'text-purple-300' : 'text-purple-800'}`}>
                   Submitted by <strong>{pendingAuditRequest.requestedByName}</strong> ({pendingAuditRequest.requestedByRole}) for Batch{' '}
                   <strong className="font-mono">{pendingAuditRequest.auditData?.auditRefNumber || pendingAuditRequest.deviceSerial}</strong>.
                   Inspect the physical counts and discrepancy reasons below. You may perform fine-tuned adjustments to quantities before executing reconciliation.
@@ -934,10 +934,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 type="button"
                 onClick={() => setShowRejectModal(true)}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 rounded-xl border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+                className={`px-4 py-2.5 rounded-xl border font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all ${isDarkMode ? 'border-rose-700 bg-rose-950/60 hover:bg-rose-900/60 text-rose-300' : 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700'}`}
                 title="Reject audit and unlock table for branch recount"
               >
-                <XCircle className="h-4 w-4 text-rose-600" />
+                <XCircle className={`h-4 w-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`} />
                 <span>Reject Audit</span>
               </button>
 
@@ -955,22 +955,22 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           </div>
 
           {/* Quick Discrepancy Snapshot Pill */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-purple-200 dark:border-purple-800 text-xs">
-            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-purple-100 dark:border-purple-900">
-              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block">Discrepancy Items</span>
-              <span className="font-extrabold font-mono text-purple-900 dark:text-purple-100">{stats.discrepancyCount} SKUs</span>
+          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t text-xs ${isDarkMode ? 'border-purple-800' : 'border-purple-200'}`}>
+            <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-purple-900' : 'bg-white/70 border-purple-100'}`}>
+              <span className={`text-[10px] font-bold block ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`}>Discrepancy Items</span>
+              <span className={`font-extrabold font-mono ${isDarkMode ? 'text-purple-100' : 'text-purple-900'}`}>{stats.discrepancyCount} SKUs</span>
             </div>
-            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-rose-200 dark:border-rose-900/40">
-              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold block">Total Shortage</span>
-              <span className="font-extrabold font-mono text-rose-600">-{stats.shortageQty} Units (-NPR {(stats.shortageValue ?? 0).toLocaleString()})</span>
+            <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-rose-900/40' : 'bg-white/70 border-rose-200'}`}>
+              <span className={`text-[10px] font-bold block ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>Total Shortage</span>
+              <span className={`font-extrabold font-mono ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>-{stats.shortageQty} Units (-NPR {(stats.shortageValue ?? 0).toLocaleString()})</span>
             </div>
-            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-emerald-200 dark:border-emerald-900/40">
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">Total Excess</span>
-              <span className="font-extrabold font-mono text-emerald-600">+{stats.excessQty} Units (+NPR {(stats.excessValue ?? 0).toLocaleString()})</span>
+            <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-emerald-900/40' : 'bg-white/70 border-emerald-200'}`}>
+              <span className={`text-[10px] font-bold block ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Total Excess</span>
+              <span className={`font-extrabold font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>+{stats.excessQty} Units (+NPR {(stats.excessValue ?? 0).toLocaleString()})</span>
             </div>
-            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-purple-200 dark:border-purple-800">
-              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block">Net Valuation Impact</span>
-              <span className={`font-extrabold font-mono ${stats.netValueVariance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-purple-800' : 'bg-white/70 border-purple-200'}`}>
+              <span className={`text-[10px] font-bold block ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`}>Net Valuation Impact</span>
+              <span className={`font-extrabold font-mono ${stats.netValueVariance >= 0 ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : (isDarkMode ? 'text-rose-400' : 'text-rose-600')}`}>
                 {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
@@ -980,7 +980,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* 2. TABLE LOCKED BANNER (When Audit is Submitted or Pending) */}
       {isTableLocked && (
-        <div className="p-3 rounded-2xl border-2 border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex flex-col md:flex-row md:items-center justify-start gap-3 shadow-xs">
+        <div className={`p-3 rounded-2xl border-2 flex flex-col md:flex-row md:items-center justify-start gap-3 shadow-xs ${isDarkMode ? 'border-amber-700/60 bg-amber-950/40 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-amber-500 text-white shadow-xs shrink-0 mt-0.5">
               <Lock className="h-5 w-5" />
@@ -991,11 +991,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   Stock Count Table Locked — Audit Pending Authorization{' '}
                   {pendingAuditRequest ? `(#${pendingAuditRequest.requestNumber})` : `(#${auditRefNumber})`}
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100 text-[10px] uppercase font-mono font-bold">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-mono font-bold ${isDarkMode ? 'bg-amber-800 text-amber-100' : 'bg-amber-200 text-amber-900'}`}>
                   LOCKED
                 </span>
               </div>
-              <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+              <p className={`leading-relaxed ${isDarkMode ? 'text-amber-300' : 'text-amber-800'}`}>
                 Physical stock count for <strong>{activeBranch?.name}</strong> was submitted by{' '}
                 <strong>{pendingAuditRequest?.requestedByName || currentUser?.name || auditorName}</strong>{' '}
                 {pendingAuditRequest?.requestedAtAD ? `on ${formatDualDate(pendingAuditRequest.requestedAtAD, dateMode)}` : ''}.
@@ -1040,9 +1040,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* RECENTLY APPROVED NOTIFICATION */}
       {recentApprovedAuditRequest && !pendingAuditRequest && (
-        <div className="p-3.5 rounded-2xl border border-emerald-300 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3 text-xs">
+        <div className={`p-3.5 rounded-2xl border bg-emerald-50 flex items-center justify-between gap-3 text-xs ${isDarkMode ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-200' : 'border-emerald-300 text-emerald-900'}`}>
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <CheckCircle2 className={`h-4 w-4 shrink-0 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
             <span>
               Audit Batch <strong>{recentApprovedAuditRequest.auditData?.auditRefNumber}</strong> was authorized & reconciled by <strong>{recentApprovedAuditRequest.processedByName}</strong> on {recentApprovedAuditRequest.processedAtBS || '2083 BS'}. Physical and system stock balances are synchronized.
             </span>
@@ -1051,7 +1051,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       )}
 
       {/* AUDIT WORKFLOW TAB SWITCHER */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+      <div className={`flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl border ${isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1059,13 +1059,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
               activeAuditTab === 'SINGLE_BRANCH'
                 ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                : isDarkMode
+                ? 'text-slate-300 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Building className="h-4 w-4" />
             <span>Branch Floor Audit Session ({activeBranch?.name})</span>
             {isEffectiveBlindAudit && (
-              <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${isDarkMode ? 'bg-amber-600 text-amber-100' : 'bg-amber-400 text-slate-950'}`}>
                 BLIND
               </span>
             )}
@@ -1077,13 +1079,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
               activeAuditTab === 'CONSOLIDATED_MATRIX'
                 ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                : isDarkMode
+                ? 'text-slate-300 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <TableProperties className="h-4 w-4" />
             <span>Multi-Branch Audit Matrix & Approver View</span>
             {visiblePendingAuditRequests.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black animate-pulse">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black animate-pulse ${isDarkMode ? 'bg-amber-600 text-amber-100' : 'bg-amber-500 text-slate-950'}`}>
                 {visiblePendingAuditRequests.length} PENDING
               </span>
             )}
@@ -1123,19 +1127,19 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
                     <span>Physical Stock Count & Reconciliation Audit</span>
                     {isTableLocked && (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono flex items-center gap-1 font-bold ${isDarkMode ? 'bg-amber-950 text-amber-300' : 'bg-amber-100 text-amber-800'}`}>
                         <Lock className="h-3 w-3" />
                         <span>LOCKED</span>
                       </span>
                     )}
                     {isReviewMode && (
-                      <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono flex items-center gap-1 font-bold ${isDarkMode ? 'bg-purple-950 text-purple-300' : 'bg-purple-100 text-purple-800'}`}>
                         <ShieldCheck className="h-3 w-3" />
                         <span>MANAGER REVIEW</span>
                       </span>
                     )}
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Count branch inventory, record discrepancy justifications, and submit for management authorization to reconcile physical stock.
                   </p>
                 </div>
@@ -1144,22 +1148,22 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {/* Branch Selector with Permission Locking */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold">
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
                 <Building className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                <span className="text-slate-500 dark:text-slate-400">Location:</span>
+                <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>Location:</span>
                 {isBranchLockedForUser ? (
-                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                  <span className={`font-bold flex items-center gap-1 ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
                     <span>{activeBranch?.name}</span>
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400">({activeBranch?.code})</span>
+                    <span className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>({activeBranch?.code})</span>
                   </span>
                 ) : (
                   <select
                     value={activeBranchId}
                     onChange={(e) => setActiveBranchId(e.target.value)}
-                    className="bg-transparent font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
+                    className={`bg-transparent font-bold focus:outline-none cursor-pointer ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}
                   >
                     {allowedBranches.map((b) => (
-                      <option key={b.id} value={b.id} className="dark:bg-slate-900">
+                      <option key={b.id} value={b.id} className={isDarkMode ? 'bg-slate-900' : 'bg-white'}>
                         {b.name} ({b.code})
                       </option>
                     ))}
@@ -1185,7 +1189,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
                     isCompanyWideBlindCount
                       ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      : isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                   }`}
                   title="Enable Blind Count Mode across all company branches simultaneously"
                 >
@@ -1217,10 +1221,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
                   !canToggleBlindCount || isCompanyWideBlindCount
-                    ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    ? isDarkMode ? 'opacity-70 cursor-not-allowed bg-slate-800/60 text-slate-400 border-slate-800' : 'opacity-70 cursor-not-allowed bg-slate-100 text-slate-500 border-slate-200'
                     : isBlindAuditMode
                     ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-extrabold cursor-pointer'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200 cursor-pointer'
+                    : isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                 }`}
                 title={
                   !canToggleBlindCount
@@ -1230,12 +1234,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     : 'Blind Stock Audit: Hide book quantities from floor count staff to prevent bias'
                 }
               >
-                <Lock className={`h-4 w-4 ${isEffectiveBlindAudit ? 'text-slate-950 dark:text-amber-400' : 'text-amber-500'}`} />
+                <Lock className={`h-4 w-4 ${isEffectiveBlindAudit ? (isDarkMode ? 'text-amber-400' : 'text-slate-950') : 'text-amber-500'}`} />
                 <span>
                   Branch Blind Count: {isCompanyWideBlindCount ? 'ON (Enforced)' : isBlindAuditMode ? 'ON (Hidden)' : 'OFF'}
                 </span>
                 {!canToggleBlindCount && (
-                  <span className="text-[9px] uppercase px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-extrabold">
+                  <span className={`text-[9px] uppercase px-1 py-0.5 rounded font-extrabold ${isDarkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600'}`}>
                     Locked
                   </span>
                 )}
@@ -1245,10 +1249,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowConsolidatedModal(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${isDarkMode ? 'border-indigo-800 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300' : 'border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700'}`}
                 title="Open Consolidated Multi-Branch Stock Audit Report"
               >
-                <TableProperties className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <TableProperties className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
                 <span>Consolidated Matrix</span>
               </button>
 
@@ -1256,10 +1260,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-700'}`}
                 title="Download Branch Audit CSV Report"
               >
-                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                <FileSpreadsheet className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                 <span>Export Branch CSV</span>
               </button>
 
@@ -1273,7 +1277,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer ${
                     stats.discrepancyCount > 0 && !isTableLocked
                       ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95'
-                      : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
+                      : isDarkMode ? 'bg-slate-800 text-slate-200 cursor-not-allowed opacity-60' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60'
                   }`}
                   title={
                     stats.discrepancyCount === 0
@@ -1301,7 +1305,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all ${
                     stats.discrepancyCount > 0 || pendingAuditRequest
                       ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95'
-                      : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
+                      : isDarkMode ? 'bg-slate-800 text-slate-200 cursor-not-allowed opacity-60' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60'
                   }`}
                   title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
                 >
@@ -1320,10 +1324,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
           }`}
         >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Total Audit SKUs
           </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-slate-900 dark:text-slate-100">
+          <p className={`text-xl font-extrabold font-mono mt-1 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
             {stats.totalItems}
           </p>
           <p className="text-[10px] text-slate-400 mt-0.5">
@@ -1337,10 +1341,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
           }`}
         >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Book System Qty
           </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-slate-700 dark:text-slate-300">
+          <p className={`text-xl font-extrabold font-mono mt-1 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
             {(stats.totalBookQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-slate-400 mt-0.5">
@@ -1352,7 +1356,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         <div
           className={`p-4 rounded-2xl border ${
             stats.shortageQty > 0
-              ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-950 dark:text-rose-100'
+              ? isDarkMode ? 'bg-rose-950/40 border-rose-900/50 text-rose-100' : 'bg-rose-50/70 border-rose-200 text-rose-950'
               : isDarkMode
               ? 'bg-slate-900/60 border-slate-800'
               : 'bg-white border-slate-200 shadow-xs'
@@ -1362,7 +1366,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <TrendingDown className="h-3 w-3" />
             <span>Shortage (-)</span>
           </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-rose-600 dark:text-rose-400">
+          <p className={`text-xl font-extrabold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
             -{(stats.shortageQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-rose-500/80 font-mono mt-0.5">
@@ -1374,7 +1378,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         <div
           className={`p-4 rounded-2xl border ${
             stats.excessQty > 0
-              ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50 text-emerald-950 dark:text-emerald-100'
+              ? isDarkMode ? 'bg-emerald-950/40 border-emerald-900/50 text-emerald-100' : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
               : isDarkMode
               ? 'bg-slate-900/60 border-slate-800'
               : 'bg-white border-slate-200 shadow-xs'
@@ -1384,7 +1388,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <TrendingUp className="h-3 w-3" />
             <span>Excess / Surplus (+)</span>
           </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-emerald-600 dark:text-emerald-400">
+          <p className={`text-xl font-extrabold font-mono mt-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
             +{(stats.excessQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">
@@ -1397,14 +1401,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           className={`p-4 rounded-2xl border ${
             stats.netValueVariance !== 0
               ? stats.netValueVariance < 0
-                ? 'bg-rose-500/10 border-rose-500/30 text-rose-900 dark:text-rose-100'
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900 dark:text-emerald-100'
+                ? isDarkMode ? 'bg-rose-500/10 border-rose-500/30 text-rose-100' : 'bg-rose-500/10 border-rose-500/30 text-rose-900'
+                : isDarkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-100' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900'
               : isDarkMode
               ? 'bg-slate-900/60 border-slate-800'
               : 'bg-white border-slate-200 shadow-xs'
           }`}
         >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <p className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Net Value Impact
           </p>
           <p
@@ -1426,7 +1430,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
       {/* BLIND AUDIT ACTIVE BANNER & UNSEAL ACTION */}
       {isEffectiveBlindAudit && (
-        <div className="p-3 rounded-2xl border-2 border-indigo-400 dark:border-indigo-600 bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-start gap-3 shadow-lg">
+        <div className={`p-3 rounded-2xl border-2 bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-start gap-3 shadow-lg ${isDarkMode ? 'border-indigo-600' : 'border-indigo-400'}`}>
           <div className="flex items-start gap-3">
             <div className="p-2.5 rounded-xl bg-indigo-500 text-white shadow-md shrink-0">
               <Lock className="h-5 w-5" />
@@ -1501,7 +1505,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               placeholder="Search by SKU, Barcode, Product Name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className={`w-full pl-9 pr-4 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
             />
           </div>
 
@@ -1510,7 +1514,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
             >
               <option value="ALL">All Categories</option>
               {categories.map((c) => (
@@ -1524,7 +1528,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <select
               value={filterVariance}
               onChange={(e) => setFilterVariance(e.target.value as any)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
             >
               <option value="ALL">All Stock Rows ({auditRows.length})</option>
               <option value="DISCREPANCY">Discrepancies Only ({stats.discrepancyCount})</option>
@@ -1533,14 +1537,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <option value="EXCESS">Excess (+) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) > 0).length})</option>
             </select>
 
-            <div className="h-5 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block" />
+            <div className={`h-5 w-[1px] mx-1 hidden sm:block ${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />
 
             {/* Bulk Quick Fill buttons */}
             <button
               type="button"
               onClick={handleSetZeroAll}
               disabled={isTableLocked}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-rose-600 dark:text-rose-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-rose-400' : 'border-slate-200 hover:bg-slate-100 text-rose-600'}`}
               title="Zero out all physical counts for fresh manual stock count"
             >
               Zero All Counts
@@ -1559,7 +1563,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead
               className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                isDarkMode ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-100/90 border-slate-200 text-slate-700'
+                isDarkMode ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
               }`}
             >
               <tr>
@@ -1593,20 +1597,20 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors ${
                         variance !== 0
                           ? variance < 0
-                            ? 'bg-rose-500/5 dark:bg-rose-950/20'
-                            : 'bg-emerald-500/5 dark:bg-emerald-950/20'
+                            ? isDarkMode ? 'bg-rose-950/20' : 'bg-rose-500/5'
+                            : isDarkMode ? 'bg-emerald-950/20' : 'bg-emerald-500/5'
                           : ''
                       }`}
                     >
                       {/* SKU & Barcode */}
                       <td className="p-2.5 font-mono font-medium">
-                        <div className="font-bold text-slate-900 dark:text-slate-100">{row.sku}</div>
+                        <div className={`font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{row.sku}</div>
                         <div className="text-[10px] text-slate-400">{row.barcode || '—'}</div>
                       </td>
 
                       {/* Product Name & Category */}
                       <td className="p-2.5">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <div className={`font-semibold flex items-center gap-1.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                           <span>{row.productName}</span>
                           {row.requiresSerialTracking && (
                             <span className="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-500 text-[9px] font-bold border border-indigo-500/20">
@@ -1618,15 +1622,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Unit Cost */}
-                      <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
+                      <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                         NPR {(row.unitCost ?? 0).toLocaleString()}
                       </td>
 
                       {/* Book System Qty */}
-                      <td className="p-2.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                      <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                         {isEffectiveBlindAudit && !isBlindRevealed ? (
-                          <span className="px-2 py-1 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300 dark:border-amber-800 flex items-center justify-center gap-1">
-                            <Lock className="h-3 w-3 text-amber-600" />
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold border flex items-center justify-center gap-1 ${isDarkMode ? 'bg-amber-950/80 text-amber-300 border-amber-800' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                            <Lock className={`h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                             <span>Hidden (Blind)</span>
                           </span>
                         ) : (
@@ -1644,7 +1648,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             type="button"
                             onClick={() => handleQuickAdjust(row.productId, -1)}
                             disabled={isTableLocked}
-                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            className={`p-1 rounded-lg border cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-200 text-slate-600'}`}
                             title="Decrease Count (-1)"
                           >
                             <Minus className="h-3.5 w-3.5" />
@@ -1658,18 +1662,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             className={`w-18 text-center font-mono font-bold py-1.5 px-2 text-xs rounded-xl border focus:outline-none focus:ring-2 disabled:opacity-75 disabled:cursor-not-allowed ${
                               !isEffectiveBlindAudit || isBlindRevealed
                                 ? variance < 0
-                                  ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 focus:ring-rose-400'
+                                  ? isDarkMode ? 'border-rose-400 bg-rose-950/50 text-rose-300 focus:ring-rose-400' : 'border-rose-400 bg-rose-50 text-rose-700 focus:ring-rose-400'
                                   : variance > 0
-                                  ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 focus:ring-emerald-400'
-                                  : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-indigo-500'
-                                : 'border-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100 focus:ring-indigo-500'
+                                  ? isDarkMode ? 'border-emerald-400 bg-emerald-950/50 text-emerald-300 focus:ring-emerald-400' : 'border-emerald-400 bg-emerald-50 text-emerald-700 focus:ring-emerald-400'
+                                  : isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100 focus:ring-indigo-500' : 'border-slate-300 bg-slate-50 text-slate-900 focus:ring-indigo-500'
+                                : isDarkMode ? 'border-indigo-400 bg-indigo-950/40 text-indigo-100 focus:ring-indigo-500' : 'border-indigo-400 bg-indigo-50/60 text-indigo-950 focus:ring-indigo-500'
                             }`}
                           />
                           <button
                             type="button"
                             onClick={() => handleQuickAdjust(row.productId, 1)}
                             disabled={isTableLocked}
-                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            className={`p-1 rounded-lg border cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-200 text-slate-600'}`}
                             title="Increase Count (+1)"
                           >
                             <Plus className="h-3.5 w-3.5" />
@@ -1687,11 +1691,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             <span>0</span>
                           </span>
                         ) : variance < 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border ${isDarkMode ? 'bg-rose-950/80 text-rose-300 border-rose-800' : 'bg-rose-100 text-rose-700 border-rose-300'}`}>
                             <span>{variance}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border ${isDarkMode ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' : 'bg-emerald-100 text-emerald-700 border-emerald-300'}`}>
                             <span>+{variance}</span>
                           </span>
                         )}
@@ -1703,9 +1707,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                           isEffectiveBlindAudit && !isBlindRevealed
                             ? 'text-slate-400 font-normal italic'
                             : variance < 0
-                            ? 'text-rose-600 dark:text-rose-400'
+                            ? `${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`
                             : variance > 0
-                            ? 'text-emerald-600 dark:text-emerald-400'
+                            ? `${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`
                             : 'text-slate-400 font-normal'
                         }`}
                       >
@@ -1722,10 +1726,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                           value={row.varianceReason}
                           onChange={(e) => handleReasonChange(row.productId, e.target.value)}
                           disabled={variance === 0 || isTableLocked}
-                          className={`w-full py-1.5 px-2.5 text-xs rounded-xl border bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed ${
+                          className={`w-full py-1.5 px-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed ${
                             variance === 0
-                              ? 'border-transparent text-slate-400 opacity-60 cursor-not-allowed'
-                              : 'border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+                              ? `border-transparent text-slate-400 opacity-60 cursor-not-allowed ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'}`
+                              : isDarkMode
+                              ? 'bg-slate-800 border-slate-700 text-slate-200'
+                              : 'bg-slate-50 border-slate-300 text-slate-800'
                           }`}
                         >
                           <option value="Verified Matched">Verified Matched</option>
@@ -1746,7 +1752,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             disabled={isTableLocked}
                             value={row.customReason || ''}
                             onChange={(e) => handleCustomReasonChange(row.productId, e.target.value)}
-                            className="w-full py-1 px-2 text-[11px] rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            className={`w-full py-1 px-2 text-[11px] rounded-lg border bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDarkMode ? 'border-indigo-700 bg-slate-800 text-slate-200' : 'border-indigo-300 text-slate-800'}`}
                           />
                         )}
                       </td>
@@ -1766,7 +1772,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         <div className="space-y-3">
           {/* Executive Approver Summary Banner */}
           {visiblePendingAuditRequests.length > 0 ? (
-            <div className="p-5 rounded-3xl border-2 border-amber-400 dark:border-amber-600 bg-amber-500/10 text-amber-950 dark:text-amber-100 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+            <div className={`p-5 rounded-3xl border-2 bg-amber-500/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg ${isDarkMode ? 'border-amber-600 text-amber-100' : 'border-amber-400 text-amber-950'}`}>
               <div className="flex items-start gap-3">
                 <div className="p-3 rounded-2xl bg-amber-500 text-slate-950 font-bold shrink-0">
                   <ShieldCheck className="h-6 w-6" />
@@ -1778,7 +1784,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       ACTION REQUIRED
                     </span>
                   </h3>
-                  <p className="text-xs text-amber-900/80 dark:text-amber-200/90 mt-1">
+                  <p className={`text-xs mt-1 ${isDarkMode ? 'text-amber-200/90' : 'text-amber-900/80'}`}>
                     Branch floor staff have completed stock counts and submitted audit reports. As an authorized approver, you can unseal system book balances, review variances, and approve stock reconciliation.
                   </p>
 
@@ -1787,10 +1793,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     {visiblePendingAuditRequests.map((req) => (
                       <div
                         key={req.id}
-                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-xs flex items-center gap-2 shadow-xs"
+                        className={`px-3 py-1.5 rounded-xl border text-xs flex items-center gap-2 shadow-xs ${isDarkMode ? 'bg-slate-900 border-amber-800' : 'bg-white border-amber-300'}`}
                       >
-                        <Building className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                        <Building className={`h-3.5 w-3.5 shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                        <span className={`font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                           {req.branchName}
                         </span>
                         <span className="font-mono text-[10px] text-slate-500">
@@ -1829,9 +1835,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               )}
             </div>
           ) : (
-            <div className="p-4 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3 text-xs">
+            <div className={`p-4 rounded-2xl border bg-emerald-50/70 flex items-center justify-between gap-3 text-xs ${isDarkMode ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200' : 'border-emerald-300 text-emerald-900'}`}>
               <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <CheckCircle2 className={`h-5 w-5 shrink-0 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                 <span>
                   <strong>Branch Stock Audits Up to Date:</strong> No pending stock reconciliation requests. Stock records are currently synchronized with physical ledger counts.
                 </span>
@@ -1843,14 +1849,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-start gap-3 ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
           }`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
+            <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 placeholder="Search matrix by SKU, Product Name, or Category..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={`w-full pl-9 pr-4 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
               />
             </div>
 
@@ -1858,7 +1864,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+                className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
               >
                 <option value="ALL">All Categories</option>
                 {categories.map((c) => (
@@ -1869,7 +1875,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-700'}`}
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Export Full Company Matrix CSV</span>
@@ -1887,39 +1893,39 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
                 }`}>
                   <tr>
-                    <th className="px-2.5 py-1.5 sticky left-0 z-20 bg-slate-100 dark:bg-slate-800 min-w-[180px]">Product / SKU</th>
-                    <th className="px-2.5 py-1.5 text-right">Cost Price</th>
+                    <th className={`px-2.5 py-1.5 sticky left-0 z-20 min-w-[180px] ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>Product / SKU</th>
+                    <th className="px-2.5 py-1.5 text-right">Cost Price (NPR)</th>
                     {visibleBranches.map((b) => {
                       const hasPending = approvalRequests.some(
                         (r) => r.type === 'STOCK_AUDIT_RECONCILIATION' && r.branchId === b.id && r.status === 'PENDING'
                       );
                       return (
-                        <th key={b.id} className="px-2.5 py-1.5 text-center min-w-[110px] border-l border-slate-200 dark:border-slate-800">
+                        <th key={b.id} className={`px-2.5 py-1.5 text-center min-w-[110px] border-l ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                           <div className="flex items-center justify-center gap-1 font-bold">
                             <span>{b.code}</span>
                             {hasPending && (
                               <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" title="Pending Approval" />
                             )}
                           </div>
-                          <div className="text-[9px] text-slate-400 font-normal truncate max-w-[90px]">{b.name}</div>
+                          <div className={`text-[9px] font-normal truncate max-w-[90px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{b.name}</div>
                         </th>
                       );
                     })}
-                    <th className="px-2.5 py-1.5 text-center border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className={`px-2.5 py-1.5 text-center border-l-2 font-extrabold ${isDarkMode ? 'border-indigo-800 bg-indigo-900/40 text-indigo-300' : 'border-indigo-200 bg-indigo-50/60 text-indigo-700'}`}>
                       Co. Total Book
                     </th>
-                    <th className="px-2.5 py-1.5 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className={`px-2.5 py-1.5 text-center font-extrabold ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50/60 text-indigo-700'}`}>
                       Co. Total Counted
                     </th>
-                    <th className="px-2.5 py-1.5 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className={`px-2.5 py-1.5 text-center font-extrabold ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50/60 text-indigo-700'}`}>
                       Net Variance
                     </th>
-                    <th className="px-2.5 py-1.5 text-right bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                    <th className={`px-2.5 py-1.5 text-right font-extrabold ${isDarkMode ? 'bg-indigo-900/40 text-indigo-300' : 'bg-indigo-50/60 text-indigo-700'}`}>
                       Net NPR Impact
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                <tbody className={`divide-y font-mono ${isDarkMode ? 'divide-slate-700' : 'divide-slate-200'}`}>
                   {consolidatedMatrix
                     .filter((row) => {
                       const q = searchQuery.toLowerCase().trim();
@@ -1928,38 +1934,39 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       return matchSearch && matchCat;
                     })
                     .map((row) => (
-                      <tr key={row.productId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="p-2.5 font-sans sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
-                          <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">{row.productName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{row.sku}</div>
+                      <tr key={row.productId} className={`transition-colors ${isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}`}>
+                        <td className={`p-2.5 font-sans sticky left-0 z-10 border-r ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+                          <div className={`font-bold text-xs ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{row.productName}</div>
+                          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-400'}`}>{row.sku}</div>
                         </td>
-                        <td className="p-2.5 text-right text-slate-600 dark:text-slate-400">
+                        <td className={`p-2.5 text-right ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                          NPR {(row.unitCost || 0).toLocaleString()}
                           NPR {(row.unitCost || 0).toLocaleString()}
                         </td>
                         {row.branches.map((b) => (
-                          <td key={b.branchId} className="p-2.5 text-center border-l border-slate-200 dark:border-slate-800">
-                            <div className="text-slate-800 dark:text-slate-200 font-bold">{b.countedQty}</div>
-                            <div className="text-[10px] text-slate-400 font-normal">Bk: {b.bookQty}</div>
+                          <td key={b.branchId} className={`p-2.5 text-center border-l ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                            <div className={`font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{b.countedQty}</div>
+                            <div className={`text-[10px] font-normal ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Bk: {b.bookQty}</div>
                             {b.variance !== 0 && (
-                              <div className={`text-[10px] font-black ${b.variance < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                              <div className={`text-[10px] font-black ${b.variance < 0 ? (isDarkMode ? 'text-rose-400' : 'text-rose-600') : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')}`}>
                                 {b.variance > 0 ? `+${b.variance}` : b.variance}
                               </div>
                             )}
                           </td>
                         ))}
-                        <td className="p-2.5 text-center font-bold border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-800 dark:text-slate-200">
+                        <td className={`p-2.5 text-center font-bold border-l-2 ${isDarkMode ? 'border-indigo-800 bg-indigo-950/20 text-indigo-200' : 'border-indigo-200 bg-indigo-50/20 text-slate-800'}`}>
                           {row.companyTotalBookQty}
                         </td>
-                        <td className="p-2.5 text-center font-bold bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-900 dark:text-slate-100">
+                        <td className={`p-2.5 text-center font-bold ${isDarkMode ? 'bg-indigo-950/20 text-indigo-100' : 'bg-indigo-50/20 text-slate-900'}`}>
                           {row.companyTotalCountedQty}
                         </td>
-                        <td className={`p-2.5 text-center font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
-                          row.companyTotalVarianceQty < 0 ? 'text-rose-600' : row.companyTotalVarianceQty > 0 ? 'text-emerald-600' : 'text-slate-400'
+                        <td className={`p-2.5 text-center font-extrabold ${isDarkMode ? 'bg-indigo-950/20' : 'bg-indigo-50/20'} ${
+                          row.companyTotalVarianceQty < 0 ? (isDarkMode ? 'text-rose-400' : 'text-rose-600') : row.companyTotalVarianceQty > 0 ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : isDarkMode ? 'text-slate-400' : 'text-slate-500'
                         }`}>
                           {row.companyTotalVarianceQty > 0 ? `+${row.companyTotalVarianceQty}` : row.companyTotalVarianceQty}
                         </td>
-                        <td className={`p-2.5 text-right font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
-                          row.totalVarianceVal < 0 ? 'text-rose-600' : row.totalVarianceVal > 0 ? 'text-emerald-600' : 'text-slate-400'
+                        <td className={`p-2.5 text-right font-extrabold ${isDarkMode ? 'bg-indigo-950/20' : 'bg-indigo-50/20'} ${
+                          row.totalVarianceVal < 0 ? (isDarkMode ? 'text-rose-400' : 'text-rose-600') : row.totalVarianceVal > 0 ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : isDarkMode ? 'text-slate-400' : 'text-slate-500'
                         }`}>
                           {row.totalVarianceVal === 0 ? 'NPR 0' : `${row.totalVarianceVal > 0 ? '+' : ''}NPR ${row.totalVarianceVal.toLocaleString()}`}
                         </td>
@@ -1980,15 +1987,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className={`flex items-center justify-between border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'} pb-3`}>
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-600 text-white">
                   <Send className="h-5 w-5" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base">Submit Physical Stock Audit for Authorization</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Location: <strong>{activeBranch?.name}</strong> • Batch <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">#{auditRefNumber}</span>
+                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Location: <strong>{activeBranch?.name}</strong> • Batch <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>#{auditRefNumber}</span>
                   </p>
                 </div>
               </div>
@@ -2001,7 +2008,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </button>
             </div>
 
-            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-300 flex items-start gap-2.5">
+            <div className={`p-3 rounded-2xl border text-xs flex items-start gap-2.5 ${isDarkMode ? 'bg-amber-950/40 border-amber-800/60 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
               <Lock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
               <span>
                 <strong>Important:</strong> Submitting this stock audit will create an official request in the <strong>Workflow Approval Center</strong> and <strong>LOCK</strong> this branch's stock count table until authorized by the Super Admin or Stock Manager.
@@ -2010,27 +2017,27 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
             {/* Audit Summary Grid */}
             <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border text-xs">
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-slate-800/60' : 'bg-slate-50'}`}>
                 <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Audited</span>
-                <span className="font-extrabold text-base text-slate-800 dark:text-slate-200">{stats.totalItems} SKUs</span>
+                <span className={`font-extrabold text-base ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{stats.totalItems} SKUs</span>
                 <span className="text-[10px] text-slate-400 block">Discrepancies: {stats.discrepancyCount}</span>
               </div>
-              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs">
-                <span className="text-[10px] uppercase font-bold text-rose-500 block">Shortages (-)</span>
-                <span className="font-extrabold text-base text-rose-600 font-mono">-{(stats.shortageQty ?? 0)} Units</span>
-                <span className="text-[10px] text-rose-500 block font-mono">-NPR {(stats.shortageValue ?? 0).toLocaleString()}</span>
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-rose-950/30 border-rose-900/40' : 'bg-rose-50 border-rose-200'}`}>
+                <span className={`text-[10px] uppercase font-bold block ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>Shortages (-)</span>
+                <span className={`font-extrabold text-base font-mono ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>-{(stats.shortageQty ?? 0)} Units</span>
+                <span className={`text-[10px] block font-mono ${isDarkMode ? 'text-rose-500' : 'text-rose-500'}`}>-NPR {(stats.shortageValue ?? 0).toLocaleString()}</span>
               </div>
-              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-xs">
-                <span className="text-[10px] uppercase font-bold text-emerald-500 block">Excess (+)</span>
-                <span className="font-extrabold text-base text-emerald-600 font-mono">+{(stats.excessQty ?? 0)} Units</span>
-                <span className="text-[10px] text-emerald-500 block font-mono">+NPR {(stats.excessValue ?? 0).toLocaleString()}</span>
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-emerald-950/30 border-emerald-900/40' : 'bg-emerald-50 border-emerald-200'}`}>
+                <span className={`text-[10px] uppercase font-bold block ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>Excess (+)</span>
+                <span className={`font-extrabold text-base font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>+{(stats.excessQty ?? 0)} Units</span>
+                <span className={`text-[10px] block font-mono ${isDarkMode ? 'text-emerald-500' : 'text-emerald-500'}`}>+NPR {(stats.excessValue ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
             {/* Discrepancy Breakdown Table */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
+            <div className={`rounded-2xl overflow-hidden max-h-48 overflow-y-auto ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                <thead className={`text-[10px] font-bold ${isDarkMode ? 'bg-slate-800/80 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
                   <tr>
                     <th className="px-2.5 py-1.5">SKU / Item</th>
                     <th className="px-2.5 py-1.5 text-center">Book</th>
@@ -2040,7 +2047,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     <th className="px-2.5 py-1.5">Reason for Discrepancy</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                <tbody className={`divide-y font-mono ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                   {stats.discrepancyRows.map((r) => {
                     const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
                     const delta = c - r.bookQty;
@@ -2052,26 +2059,26 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     return (
                       <tr key={r.productId}>
                         <td className="p-2.5 font-sans">
-                          <div className="font-bold font-mono text-slate-900 dark:text-slate-100">{r.sku}</div>
+                          <div className={`font-bold font-mono ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{r.sku}</div>
                           <div className="text-[10px] text-slate-500 truncate max-w-[140px]">{r.productName}</div>
                         </td>
-                        <td className="p-2.5 text-center text-slate-600 dark:text-slate-400">{r.bookQty}</td>
-                        <td className="p-2.5 text-center font-bold text-slate-900 dark:text-slate-100">{c}</td>
+                        <td className={`p-2.5 text-center ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{r.bookQty}</td>
+                        <td className={`p-2.5 text-center font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{c}</td>
                         <td
                           className={`p-2.5 text-center font-extrabold ${
-                            delta < 0 ? 'text-rose-500' : 'text-emerald-500'
+                            isDarkMode ? (delta < 0 ? 'text-rose-400' : 'text-emerald-400') : (delta < 0 ? 'text-rose-500' : 'text-emerald-500')
                           }`}
                         >
                           {delta > 0 ? `+${delta}` : delta}
                         </td>
                         <td
                           className={`p-2.5 text-right font-bold ${
-                            val < 0 ? 'text-rose-500' : 'text-emerald-500'
+                            isDarkMode ? (val < 0 ? 'text-rose-400' : 'text-emerald-400') : (val < 0 ? 'text-rose-500' : 'text-emerald-500')
                           }`}
                         >
                           {(val ?? 0).toLocaleString()}
                         </td>
-                        <td className="p-2.5 text-[11px] font-sans text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                        <td className={`p-2.5 text-[11px] font-sans truncate max-w-[150px] ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
                           {reason}
                         </td>
                       </tr>
@@ -2083,7 +2090,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
             {/* Notes / Reason for Approver */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+              <label className={`text-xs font-bold block ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                 Auditor Statement & Notes for Super Admin / Stock Manager:
               </label>
               <textarea
@@ -2091,11 +2098,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 value={approvalNotes}
                 onChange={(e) => setApprovalNotes(e.target.value)}
                 placeholder="e.g. Completed periodic physical stock verification. Minor shrinkage in patch cables; router CPE models matched ledger perfectly."
-                className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={`w-full text-xs rounded-xl border p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-700'}`}
               />
             </div>
 
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 font-semibold">
+            <div className={`flex items-center justify-between p-3 rounded-2xl border text-xs font-semibold ${isDarkMode ? 'bg-indigo-950/40 border-indigo-800 text-indigo-200' : 'bg-indigo-50 border-indigo-200 text-indigo-900'}`}>
               <span>Net Financial Impact:</span>
               <span className="font-extrabold font-mono text-sm">
                 {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
@@ -2106,7 +2113,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowApprovalModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
               >
                 Cancel
               </button>
@@ -2141,17 +2148,17 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className={`flex items-center justify-between pb-3 ${isDarkMode ? 'border-b border-slate-800' : 'border-b border-slate-200'}`}>
               <div className="flex items-center gap-2.5">
                 <div className="p-2.5 rounded-2xl bg-emerald-600 text-white shadow-md">
                   <CheckCircle2 className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">
+                  <h3 className={`font-extrabold text-base ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                     Approve & Reconcile Physical Stock
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Audit Batch <span className="font-mono font-bold text-purple-600">#{pendingAuditRequest?.auditData?.auditRefNumber || auditRefNumber}</span> for <strong>{activeBranch?.name}</strong>
+                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Audit Batch <span className={`font-mono font-bold ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`}>#{pendingAuditRequest?.auditData?.auditRefNumber || auditRefNumber}</span> for <strong>{activeBranch?.name}</strong>
                   </p>
                 </div>
               </div>
@@ -2164,9 +2171,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </button>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
+            <div className={`p-3.5 rounded-2xl border text-xs space-y-1 ${isDarkMode ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
               <p className="font-bold flex items-center gap-1.5">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <ShieldCheck className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                 <span>Executive Stock Adjustment Authorization</span>
               </p>
               <p className="leading-relaxed">
@@ -2175,9 +2182,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
 
             {/* List of items to be adjusted */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-52 overflow-y-auto">
+            <div className={`rounded-2xl overflow-hidden max-h-52 overflow-y-auto ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                <thead className={`text-[10px] font-bold ${isDarkMode ? 'bg-slate-800/80 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
                   <tr>
                     <th className="px-2.5 py-1.5">SKU / Item</th>
                     <th className="px-2.5 py-1.5 text-center">System Book</th>
@@ -2186,7 +2193,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     <th className="px-2.5 py-1.5 text-right">Net Impact (NPR)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                <tbody className={`divide-y font-mono ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                   {stats.discrepancyRows.map((r) => {
                     const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
                     const delta = c - r.bookQty;
@@ -2195,21 +2202,21 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     return (
                       <tr key={r.productId}>
                         <td className="p-2.5 font-sans">
-                          <div className="font-bold font-mono text-slate-900 dark:text-slate-100">{r.sku}</div>
+                          <div className={`font-bold font-mono ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{r.sku}</div>
                           <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{r.productName}</div>
                         </td>
-                        <td className="p-2.5 text-center text-slate-600 dark:text-slate-400">{r.bookQty}</td>
-                        <td className="p-2.5 text-center font-bold text-slate-900 dark:text-slate-100">{c}</td>
+                        <td className={`p-2.5 text-center ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{r.bookQty}</td>
+                        <td className={`p-2.5 text-center font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{c}</td>
                         <td
                           className={`p-2.5 text-center font-extrabold ${
-                            delta < 0 ? 'text-rose-500' : 'text-emerald-500'
+                            isDarkMode ? (delta < 0 ? 'text-rose-400' : 'text-emerald-400') : (delta < 0 ? 'text-rose-500' : 'text-emerald-500')
                           }`}
                         >
                           {delta > 0 ? `+${delta} (EXCESS)` : `${delta} (SHORTAGE)`}
                         </td>
                         <td
                           className={`p-2.5 text-right font-bold ${
-                            val < 0 ? 'text-rose-500' : 'text-emerald-500'
+                            isDarkMode ? (val < 0 ? 'text-rose-400' : 'text-emerald-400') : (val < 0 ? 'text-rose-500' : 'text-emerald-500')
                           }`}
                         >
                           {(val ?? 0).toLocaleString()}
@@ -2221,9 +2228,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </table>
             </div>
 
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
+            <div className={`flex items-center justify-between p-3 rounded-2xl text-xs font-semibold ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
               <span>Total Financial Adjustment:</span>
-              <span className="font-extrabold font-mono text-sm text-slate-900 dark:text-slate-100">
+              <span className={`font-extrabold font-mono text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                 {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
@@ -2233,7 +2240,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 type="button"
                 onClick={() => setShowApproveReconcileModal(false)}
                 disabled={isSubmitting}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
               >
                 Cancel
               </button>
@@ -2273,12 +2280,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <span>Reject Stock Audit Request</span>
             </div>
 
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               Rejecting this request will unlock the stock count table for <strong>{activeBranch?.name}</strong> so that branch staff can perform a recount.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+              <label className={`text-xs font-bold block ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                 Reason for Rejection / Recount Instructions:
               </label>
               <textarea
@@ -2286,7 +2293,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="e.g. Discrepancies exceed threshold; please recount warehouse bay 2 and verify unboxed returns before re-submitting."
-                className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className={`w-full text-xs rounded-xl border p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-700'}`}
               />
             </div>
 
@@ -2294,7 +2301,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowRejectModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
               >
                 Cancel
               </button>
@@ -2319,7 +2326,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className={`flex items-center justify-between pb-3 ${isDarkMode ? 'border-b border-slate-800' : 'border-b border-slate-200'}`}>
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-amber-500" />
                 <h3 className="font-bold text-base">Direct Stock Reconcile (Admin Direct Override)</h3>
@@ -2333,12 +2340,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </button>
             </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               As an Administrator, you can directly post stock adjustments for batch <strong className="text-indigo-500 font-mono">{auditRefNumber}</strong> at <strong>{activeBranch?.name}</strong>.
               This will update on-hand stock quantities immediately.
             </p>
 
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300">
+            <div className={`flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
               <span>Total Discrepancies: <strong>{stats.discrepancyCount} items</strong></span>
               <span>Net Financial Impact: <strong>NPR {(stats.netValueVariance ?? 0).toLocaleString()}</strong></span>
             </div>
@@ -2347,7 +2354,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDirectReconcileModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
               >
                 Cancel
               </button>
@@ -2380,19 +2387,19 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             }`}
           >
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0">
+            <div className={`p-5 flex items-center justify-between gap-4 shrink-0 ${isDarkMode ? 'border-b border-slate-800' : 'border-b border-slate-200'}`}>
               <div className="flex items-center gap-2.5">
-                <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-600 border border-indigo-500/20">
+                <div className={`p-2.5 rounded-2xl border ${isDarkMode ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30' : 'bg-indigo-600/10 text-indigo-600 border-indigo-500/20'}`}>
                   <TableProperties className="h-6 w-6" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base flex items-center gap-2">
                     <span>Consolidated Multi-Branch Stock Audit Report</span>
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 text-[10px] font-mono font-bold">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${isDarkMode ? 'bg-indigo-950 text-indigo-300' : 'bg-indigo-100 text-indigo-800'}`}>
                       ALL BRANCHES MATRIX
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Comprehensive cross-location physical stock count vs. system ledger comparison across all branches.
                   </p>
                 </div>
@@ -2418,47 +2425,47 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
 
             {/* Consolidated High-level Metrics */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
+            <div className={`p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0 ${isDarkMode ? 'bg-slate-800/40 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Company Book Stock</span>
-                <span className="text-lg font-extrabold font-mono text-slate-900 dark:text-slate-100">
+                <span className={`text-lg font-extrabold font-mono ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                   {(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units
                 </span>
               </div>
-              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Physical Counted Stock</span>
-                <span className="text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
+                <span className={`text-lg font-extrabold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                   {(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units
                 </span>
               </div>
-              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs">
-                <span className="text-[10px] font-bold text-rose-500 uppercase block">Consolidated Shortage</span>
-                <span className="text-lg font-extrabold font-mono text-rose-600">
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-rose-950/30 border-rose-900/50' : 'bg-rose-50 border-rose-200'}`}>
+                <span className={`text-[10px] font-bold uppercase block ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>Consolidated Shortage</span>
+                <span className={`text-lg font-extrabold font-mono ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
                   -{(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units
                 </span>
-                <span className="text-[10px] text-rose-500 font-mono block">-NPR {(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}</span>
+                <span className={`text-[10px] font-mono block ${isDarkMode ? 'text-rose-500' : 'text-rose-500'}`}>-NPR {(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}</span>
               </div>
-              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs">
-                <span className="text-[10px] font-bold text-emerald-500 uppercase block">Consolidated Excess</span>
-                <span className="text-lg font-extrabold font-mono text-emerald-600">
+              <div className={`p-3 rounded-2xl border text-xs ${isDarkMode ? 'bg-emerald-950/30 border-emerald-900/50' : 'bg-emerald-50 border-emerald-200'}`}>
+                <span className={`text-[10px] font-bold uppercase block ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>Consolidated Excess</span>
+                <span className={`text-lg font-extrabold font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                   +{(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units
                 </span>
-                <span className="text-[10px] text-emerald-500 font-mono block">+NPR {(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}</span>
+                <span className={`text-[10px] font-mono block ${isDarkMode ? 'text-emerald-500' : 'text-emerald-500'}`}>+NPR {(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
             {/* Consolidated Matrix Table */}
             <div className="flex-1 overflow-auto p-4">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-300 border-b z-10">
+                <thead className={`sticky top-0 text-[10px] font-bold border-b z-10 ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
                   <tr>
-                    <th className="px-2.5 py-1.5 border-r border-slate-200 dark:border-slate-700">SKU / Item</th>
-                    <th className="px-2.5 py-1.5 text-right border-r border-slate-200 dark:border-slate-700">Cost</th>
+                    <th className={`px-2.5 py-1.5 border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>SKU / Item</th>
+                    <th className={`px-2.5 py-1.5 text-right border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>Cost</th>
                     {branches.map((b) => (
                       <th
                         key={b.id}
                         colSpan={3}
-                        className="p-2 text-center border-r border-slate-200 dark:border-slate-700 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold"
+                        className={`p-2 text-center border-r font-extrabold ${isDarkMode ? 'border-slate-700 bg-indigo-950/30' : 'border-slate-200 bg-indigo-50/50'}`}
                       >
                         {b.name} ({b.code})
                       </th>
@@ -2468,14 +2475,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     <th className="px-2.5 py-1.5 text-center font-extrabold">Net Variance</th>
                     <th className="px-2.5 py-1.5 text-right font-extrabold">Net Value (NPR)</th>
                   </tr>
-                  <tr className="bg-slate-200/70 dark:bg-slate-800/90 text-[9px] text-slate-500 dark:text-slate-400">
-                    <th className="p-1 border-r border-slate-200 dark:border-slate-700" />
-                    <th className="p-1 border-r border-slate-200 dark:border-slate-700" />
+                  <tr className={`text-[9px] ${isDarkMode ? 'bg-slate-800/90 text-slate-400' : 'bg-slate-200/70 text-slate-500'}`}>
+                    <th className={`p-1 border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`} />
+                    <th className={`p-1 border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`} />
                     {branches.map((b) => (
                       <React.Fragment key={`sub-${b.id}`}>
                         <th className="p-1 text-center font-normal">Book</th>
                         <th className="p-1 text-center font-normal">Count</th>
-                        <th className="p-1 text-center font-normal border-r border-slate-200 dark:border-slate-700">Diff</th>
+                        <th className={`p-1 text-center font-normal border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>Diff</th>
                       </React.Fragment>
                     ))}
                     <th className="p-1 text-center" />
@@ -2498,28 +2505,28 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         }`}
                       >
                         {/* SKU & Name */}
-                        <td className="p-2.5 border-r border-slate-200 dark:border-slate-700 font-sans">
-                          <div className="font-bold text-slate-900 dark:text-slate-100 font-mono">{item.sku}</div>
+                        <td className={`p-2.5 border-r font-sans ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                          <div className={`font-bold font-mono ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{item.sku}</div>
                           <div className="text-[11px] text-slate-500 truncate max-w-[160px]">{item.productName}</div>
                         </td>
 
                         {/* Unit Cost */}
-                        <td className="p-2.5 text-right border-r border-slate-200 dark:border-slate-700">
+                        <td className={`p-2.5 text-right border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                           {(item.unitCost ?? 0).toLocaleString()}
                         </td>
 
                         {/* Branch by Branch Columns */}
                         {item.branches.map((b) => (
                           <React.Fragment key={`cell-${b.branchId}`}>
-                            <td className="p-1 text-center text-slate-600 dark:text-slate-400">{b.bookQty}</td>
-                            <td className="p-1 text-center font-bold text-slate-900 dark:text-slate-100">{b.countedQty}</td>
+                            <td className={`p-1 text-center ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{b.bookQty}</td>
+                            <td className={`p-1 text-center font-bold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{b.countedQty}</td>
                             <td
-                              className={`p-1 text-center font-extrabold border-r border-slate-200 dark:border-slate-700 ${
+                              className={`p-1 text-center font-extrabold border-r ${isDarkMode ? 'border-slate-700' : 'border-slate-200'} ${
                                 b.variance === 0
-                                  ? 'text-slate-300'
+                                  ? isDarkMode ? 'text-slate-600' : 'text-slate-300'
                                   : b.variance < 0
-                                  ? 'text-rose-500'
-                                  : 'text-emerald-500'
+                                  ? isDarkMode ? 'text-rose-400' : 'text-rose-500'
+                                  : isDarkMode ? 'text-emerald-400' : 'text-emerald-500'
                               }`}
                             >
                               {b.variance > 0 ? `+${b.variance}` : b.variance}
@@ -2528,12 +2535,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         ))}
 
                         {/* Company Total Book */}
-                        <td className="p-2.5 text-center font-bold text-slate-700 dark:text-slate-300">
+                        <td className={`p-2.5 text-center font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                           {item.companyTotalBookQty}
                         </td>
 
                         {/* Company Total Physical Counted */}
-                        <td className="p-2.5 text-center font-bold text-indigo-600 dark:text-indigo-400">
+                        <td className={`p-2.5 text-center font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                           {item.companyTotalCountedQty}
                         </td>
 
@@ -2541,10 +2548,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         <td
                           className={`p-2.5 text-center font-extrabold ${
                             item.companyTotalVarianceQty === 0
-                              ? 'text-slate-300'
+                              ? isDarkMode ? 'text-slate-500' : 'text-slate-300'
                               : item.companyTotalVarianceQty < 0
-                              ? 'text-rose-500'
-                              : 'text-emerald-500'
+                              ? isDarkMode ? 'text-rose-400' : 'text-rose-500'
+                              : isDarkMode ? 'text-emerald-400' : 'text-emerald-500'
                           }`}
                         >
                           {item.companyTotalVarianceQty > 0 ? `+${item.companyTotalVarianceQty}` : item.companyTotalVarianceQty}
@@ -2554,10 +2561,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                         <td
                           className={`p-2.5 text-right font-bold ${
                             item.totalVarianceVal === 0
-                              ? 'text-slate-400'
+                              ? isDarkMode ? 'text-slate-500' : 'text-slate-400'
                               : item.totalVarianceVal < 0
-                              ? 'text-rose-500'
-                              : 'text-emerald-500'
+                              ? isDarkMode ? 'text-rose-400' : 'text-rose-500'
+                              : isDarkMode ? 'text-emerald-400' : 'text-emerald-500'
                           }`}
                         >
                           {(item.totalVarianceVal ?? 0).toLocaleString()}
@@ -2570,14 +2577,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+            <div className={`p-4 border-t flex items-center justify-between shrink-0 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
               <div className="text-xs text-slate-500">
                 <span>Total Catalog Items: <strong>{products.length}</strong></span> • <span>Locations: <strong>{branches.length} Branches</strong></span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowConsolidatedModal(false)}
-                className="px-5 py-2 rounded-xl bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 text-xs font-bold cursor-pointer"
+                className={`px-5 py-2 rounded-xl text-xs font-bold cursor-pointer ${isDarkMode ? 'bg-slate-200 text-slate-900' : 'bg-slate-800 text-white'}`}
               >
                 Close Matrix View
               </button>

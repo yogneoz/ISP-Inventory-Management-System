@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
+import { filterFiscalYears } from '../../utils/permissions';
 import {
   Branch,
   FiscalYear,
@@ -66,6 +67,9 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
     const open = fiscalYears.find((f) => !f.isClosed);
     return (open || fiscalYears[0])?.id || '';
   }, [fiscalYears]);
+
+  // Filter fiscal years using shared utility: show closed, current, and within-date-range years only
+  const availableFiscalYears = useMemo(() => filterFiscalYears(fiscalYears), [fiscalYears]);
 
   const [selectedFyId, setSelectedFyId] = useState<string>(defaultFyId);
   const [data, setData] = useState<FiscalYearOpeningStockResponse | null>(null);
@@ -376,8 +380,8 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
               isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
             }`}
           >
-            {fiscalYears.length === 0 && <option value="">No fiscal years</option>}
-            {fiscalYears.map((f) => (
+            {availableFiscalYears.length === 0 && <option value="">No fiscal years</option>}
+            {availableFiscalYears.map((f) => (
               <option key={f.id} value={f.id}>
                 FY {f.code}
                 {f.isCurrent ? ' (Current)' : ''}
@@ -503,7 +507,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           <button
             type="button"
             onClick={() => setShowAddRow(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-50 text-indigo-600 border-indigo-200"
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-50 ${isDarkMode ? 'text-indigo-400 border-indigo-800' : 'text-indigo-600 border-indigo-200'}`}
           >
             <Plus className="h-3.5 w-3.5" /> Add Row
           </button>

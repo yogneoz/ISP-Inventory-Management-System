@@ -555,7 +555,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               isDarkMode ? 'text-white' : 'text-slate-900'
             }`}
           >
-            <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <Receipt className={`h-5 w-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
             <span>Purchase Invoices & Vendor Bills</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -739,8 +739,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
-              <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">13% Input VAT</span>
-              <div className="text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1">
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>13% Input VAT</span>
+              <div className={`text-lg font-mono font-extrabold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} mt-1`}>
                 Rs. {(totalVAT ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
@@ -759,8 +759,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
-              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Vendor Credit Payable</span>
-              <div className="text-lg font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Vendor Credit Payable</span>
+              <div className={`text-lg font-mono font-extrabold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} mt-1`}>
                 Rs. {(totalUnpaid ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
@@ -860,7 +860,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                           }`}
                         >
-                          <td className="p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400">
+                          <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                             {inv.invoiceNumber}
                           </td>
                           <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
@@ -884,7 +884,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-2.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
                             Rs. {(inv.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="p-2.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                          <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                             Rs. {(inv.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
@@ -903,7 +903,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 title="View List of Products Purchased in this Invoice"
                                 className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
                               >
-                                <PackageCheck className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                                <PackageCheck className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
                                 <span className="hidden md:inline">Products ({inv.items?.length || 0})</span>
                               </button>
 
@@ -930,7 +930,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   }
                                 }}
                                 title="Delete Purchase Invoice"
-                                className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 cursor-pointer transition-colors"
+                                className={`p-1.5 rounded-lg border ${isDarkMode ? 'border-rose-800 hover:bg-rose-950 text-rose-400' : 'border-rose-200 hover:bg-rose-50 text-rose-600'} cursor-pointer transition-colors`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>}
@@ -968,16 +968,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           }`}
         >
           {/* Form Banner Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <div className={`p-3 rounded-2xl border ${isDarkMode ? 'bg-blue-950/60 text-blue-400 border-blue-800' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
                 <Receipt className="h-6 w-6" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                   Record Vendor Purchase Bill (Inline POS Entry)
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Scan barcode / enter items, assign Serial & PON numbers, calculate 13% VAT, and record credit transaction.
                 </p>
               </div>
@@ -987,7 +987,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               <button
                 type="button"
                 onClick={handleResetForm}
-                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${isDarkMode ? 'border-amber-800/60 bg-amber-950/40 text-amber-400 hover:bg-amber-900/60' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
                 title="Reset invoice form"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -1018,14 +1018,18 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             }`}>
               {/* Destination Branch is first because it determines where stock is received. */}
               <div className="lg:max-w-[11rem]">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Destination Branch *
                 </label>
                 <select
                   id="pi-branch-select"
                   value={branchId}
                   onChange={(e) => setBranchId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDarkMode 
+                      ? 'border-slate-700 bg-slate-900 text-slate-100' 
+                      : 'border-slate-300 bg-white text-slate-900'
+                  }`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -1046,11 +1050,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   id="pi-purchase-date"
                   min={vendorBillDateAD || undefined}
                   compact
-                  controlClassName={
+                  isDarkMode={isDarkMode}
+                  controlClassName={`h-9 ${
                     purchaseDateAD && vendorBillDateAD > purchaseDateAD
                       ? 'border-rose-400 dark:border-rose-700'
                       : 'border-slate-300 dark:border-slate-700'
-                  }
+                  }`}
                 />
               </div>
 
@@ -1074,7 +1079,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Search supplier name or PAN..."
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-8 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      isDarkMode 
+                        ? 'border-slate-700 bg-slate-900 text-slate-100' 
+                        : 'border-slate-300 bg-white text-slate-900'
+                    }`}
                   />
                   {supplierName ? (
                     <button
@@ -1083,7 +1092,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                         setSupplierName('');
                         setIsSupplierDropdownOpen(true);
                       }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
                       title="Clear vendor selection"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -1092,7 +1101,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsSupplierDropdownOpen((prev) => !prev)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
@@ -1101,11 +1110,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                 {/* Floating Search Dropdown Overlay */}
                 {isSupplierDropdownOpen && (
-                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800">
+                  <div className={`absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl divide-y ${isDarkMode ? 'border-slate-700 bg-slate-900 divide-slate-800' : 'border-slate-200 bg-white divide-slate-100'}`}>
                     {filteredSuppliers.length === 0 ? (
                       <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
                         <div>No matching supplier in directory.</div>
-                        <div className="mt-1 font-semibold text-blue-600 dark:text-blue-400">
+                        <div className={`mt-1 font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                           Press enter or tab to use "{supplierName}".
                         </div>
                       </div>
@@ -1125,15 +1134,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             }`}
                           >
                             <div className="min-w-0 pr-2">
-                              <div className="font-semibold text-slate-900 dark:text-white text-xs truncate">
+                              <div className={`font-semibold text-xs truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                                 {s.name}
                               </div>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                              <div className={`flex items-center gap-2 text-[10px] font-mono mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                                 {s.panVatNumber && <span>PAN: {s.panVatNumber}</span>}
                                 {s.phone && <span>• {s.phone}</span>}
                               </div>
                             </div>
-                            {isSelected && <Check className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />}
+                            {isSelected && <Check className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />}
                           </button>
                         );
                       })
@@ -1143,7 +1152,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
 
               <div className="lg:max-w-[11rem]">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Vendor Bill / Invoice # *
                 </label>
                 <input
@@ -1153,7 +1162,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   value={vendorBillNumber}
                   onChange={(e) => setVendorBillNumber(e.target.value)}
                   placeholder="e.g. BILL-99201"
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDarkMode 
+                      ? 'border-slate-700 bg-slate-900 text-slate-100' 
+                      : 'border-slate-300 bg-white text-slate-900'
+                  }`}
                 />
               </div>
 
@@ -1167,22 +1180,23 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   id="pi-vendor-bill-date"
                   max={purchaseDateAD || undefined}
                   compact
-                  controlClassName={
+                  isDarkMode={isDarkMode}
+                  controlClassName={`h-9 ${
                     purchaseDateAD && vendorBillDateAD > purchaseDateAD
-                      ? 'border-rose-400 dark:border-rose-700'
-                      : 'border-slate-300 dark:border-slate-700'
-                  }
+                      ? isDarkMode ? 'border-rose-700' : 'border-rose-400'
+                      : isDarkMode ? 'border-slate-700' : 'border-slate-300'
+                  }`}
                 />
                 {purchaseDateAD && vendorBillDateAD > purchaseDateAD && (
-                  <div className="mt-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                  <div className={`mt-1 text-[10px] font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
                     Bill date is after the purchase date — bill cannot be saved.
                   </div>
                 )}
               </div>
 
               {/* Whole Bill Taxation Terms Selection */}
-              <div className="sm:col-span-2 lg:col-span-6 border-t border-slate-200 dark:border-slate-800 pt-2">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+              <div className={`sm:col-span-2 lg:col-span-6 border-t pt-2 ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+              <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                 Whole-Bill Taxation Mode
               </span>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
@@ -1193,9 +1207,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     value="TAXABLE_13"
                     checked={taxationType === 'TAXABLE_13'}
                     onChange={() => setTaxationType('TAXABLE_13')}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                    className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} focus:ring-blue-500`}
                   />
-                  <span className="font-bold text-slate-900 dark:text-white">
+                  <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     13% Taxable Bill (Standard VAT Applicable)
                   </span>
                 </label>
@@ -1207,9 +1221,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     value="TAX_EXEMPTED"
                     checked={taxationType === 'TAX_EXEMPTED'}
                     onChange={() => setTaxationType('TAX_EXEMPTED')}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                    className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} focus:ring-blue-500`}
                   />
-                  <span className="font-bold text-slate-900 dark:text-white">
+                  <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     Tax Exempted Bill (0% Tax / Non-Taxable)
                   </span>
                 </label>
@@ -1217,20 +1231,20 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             {/* Purchase Order Linking — kept in the same compact invoice details card */}
-            <div className="sm:col-span-2 lg:col-span-6 border-t border-indigo-200 dark:border-indigo-800/60 pt-2">
+            <div className={`sm:col-span-2 lg:col-span-6 border-t pt-2 ${isDarkMode ? 'border-indigo-800/60' : 'border-indigo-200'}`}>
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                  <div className={`p-1.5 rounded-lg ${isDarkMode ? 'bg-indigo-900/60 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>
                     <ShoppingCart className="h-4 w-4" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
+                    <div className={`text-[11px] font-bold ${isDarkMode ? 'text-indigo-200' : 'text-indigo-950'}`}>
                       Link Existing Purchase Order Reference (Optional)
                     </div>
-                    <div className="text-[10px] text-indigo-800/80 dark:text-indigo-400">
+                    <div className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-800/80'}`}>
                       {activePO ? (
                         <span className="font-semibold">
-                          Linked to <strong className="text-indigo-950 dark:text-white">PO #{activePO.poNumber}</strong> ({activePO.supplierName} • {activePO.items.length} item lines)
+                          Linked to <strong className={isDarkMode ? 'text-white' : 'text-indigo-950'}>PO #{activePO.poNumber}</strong> ({activePO.supplierName} • {activePO.items.length} item lines)
                         </span>
                       ) : (
                         'Link a PO to verify items against order and track fulfillment in real-time.'
@@ -1263,7 +1277,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       <button
                         type="button"
                         onClick={() => setSelectedPoId('')}
-                        className="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors cursor-pointer"
+                        className={`p-1.5 rounded-xl transition-colors cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-950' : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50'}`}
                         title="Unlink PO"
                       >
                         <X className="h-4 w-4" />
@@ -1276,13 +1290,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             {/* Product Search & Barcode Scan Bar */}
-            <div className="bg-blue-50/70 dark:bg-blue-950/40 p-4 rounded-xl border border-blue-200 dark:border-blue-800/60 space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-300">
+            <div className={`p-4 rounded-xl border space-y-2 ${isDarkMode ? 'bg-blue-950/40 border-blue-800/60' : 'bg-blue-50/70 border-blue-200'}`}>
+              <div className={`flex items-center justify-between text-xs font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
                 <span className="flex items-center gap-1.5">
                   <Search className="h-4 w-4" />
                   <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
                 </span>
-                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 hidden sm:inline">
+                <span className={`text-[11px] font-normal hidden sm:inline ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Scan barcode to add item row and autofocus Device Serial number
                 </span>
               </div>
@@ -1291,18 +1305,19 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 onAddOrIncrementProduct={handleAddOrIncrementProduct}
                 placeholder="Scan barcode or type code/item name and press Enter to add..."
                 inputId="purchase-product-search-input"
+                isDarkMode={isDarkMode}
               />
             </div>
 
             {/* POS Multi-Line Table */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                   <Calculator className="h-4 w-4 text-blue-500" />
                   <span>Bill Items Table ({lines.length} items)</span>
                 </h4>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Transaction Mode: <strong className="text-amber-600 dark:text-amber-400">CREDIT</strong>
+                <span className={`text-[11px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Transaction Mode: <strong className={isDarkMode ? 'text-amber-400' : 'text-amber-600'}>CREDIT</strong>
                 </span>
               </div>
 
@@ -1334,7 +1349,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-400 italic">
+                        <td colSpan={7} className={`p-8 text-center italic ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                           No items added yet. Use the product search & barcode scan bar above to scan or enter items.
                         </td>
                       </tr>
@@ -1349,7 +1364,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             <td className="p-2.5 text-center font-mono font-bold text-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="p-2.5 font-bold text-slate-900 dark:text-white">
+                            <td className={`p-2.5 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                               <div>{line.productName}</div>
                               {activePO && (() => {
                                 const poItem = activePO.items.find((p) => p.productId === line.productId);
@@ -1360,10 +1375,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                     <div
                                       className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
                                         isExact
-                                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                          ? isDarkMode ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' : 'bg-emerald-100 text-emerald-800 border-emerald-300'
                                           : isExceed
-                                          ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700'
-                                          : 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                          ? isDarkMode ? 'bg-rose-950/80 text-rose-300 border-rose-700' : 'bg-rose-100 text-rose-800 border-rose-300'
+                                          : isDarkMode ? 'bg-amber-950/80 text-amber-300 border-amber-700' : 'bg-amber-100 text-amber-800 border-amber-300'
                                       }`}
                                     >
                                       <CheckCircle2 className="h-3 w-3" />
@@ -1372,8 +1387,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   );
                                 } else {
                                   return (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                      <AlertTriangle className="h-3 w-3 text-amber-600" />
+                                    <div className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${isDarkMode ? 'bg-amber-950/80 text-amber-300 border-amber-700' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                                      <AlertTriangle className={`h-3 w-3 ${isDarkMode ? 'text-amber-500' : 'text-amber-600'}`} />
                                       <span>⚠️ Extra / Not in PO #{activePO.poNumber}</span>
                                     </div>
                                   );
@@ -1383,17 +1398,17 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 const prod = products.find((p) => p.id === line.productId);
                                 const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
                                 return isSerialized ? (
-                                  <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
+                                  <div className={`text-[10px] font-medium mt-0.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                                     Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
                                   </div>
                                 ) : (
-                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                                  <div className={`text-[10px] font-medium mt-0.5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                                     Bulk Consumable Item ({line.quantity} {line.unit})
                                   </div>
                                 );
                               })()}
                             </td>
-                            <td className="p-2.5 font-mono text-slate-500 dark:text-slate-400">
+                            <td className={`p-2.5 font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                               {line.sku}
                             </td>
                             <td className="p-2.5 text-center">
@@ -1402,7 +1417,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 min={1}
                                 value={line.quantity}
                                 onChange={(e) => updateLineQty(idx, Number(e.target.value))}
-                                className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
+                                className={`w-20 text-center rounded-lg border p-1.5 text-xs font-mono font-bold ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}
                               />
                             </td>
                             <td className="p-2.5 text-right">
@@ -1411,10 +1426,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 min={0}
                                 value={line.unitPrice}
                                 onChange={(e) => updateLinePrice(idx, Number(e.target.value))}
-                                className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
+                                className={`w-28 text-right rounded-lg border p-1.5 text-xs font-mono font-medium ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}
                               />
                             </td>
-                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                            <td className={`p-2.5 text-right font-mono font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                               Rs. {(line.netSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td className="p-2.5 text-center">
@@ -1450,7 +1465,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               <tr className="bg-blue-50/40 dark:bg-blue-950/30 border-b border-slate-200 dark:border-slate-800">
                                 <td colSpan={7} className="px-2.5 py-1.5">
                                   <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
-                                    <Barcode className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                    <Barcode className={`h-3.5 w-3.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                                     <span>Serial Numbers for {line.productName} ({line.quantity} Units)</span>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1522,9 +1537,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             {/* Bill Totals Summary & Remarks */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-200 dark:border-slate-800 pt-5">
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-5 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-200'} pt-5`}>
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Bill Remarks / Vendor Terms
                 </label>
                 <textarea
@@ -1533,7 +1548,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Enter vendor invoice terms, delivery challan reference, or ledger notes..."
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                  className={`w-full rounded-xl border p-3 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    isDarkMode 
+                      ? 'border-slate-600 bg-slate-800 text-white placeholder-slate-500' 
+                      : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400'
+                  }`}
                 />
               </div>
 
@@ -1551,25 +1570,25 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/40 p-2 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+                <div className={`flex justify-between items-center ${isDarkMode ? 'text-amber-400 bg-amber-950/40 border-amber-800/40' : 'text-amber-600 bg-amber-50/70 border-amber-200/60'} p-2 rounded-xl border`}>
                   <span className="font-bold">Bill Discount (NPR):</span>
                   <input
                     type="number"
                     min={0}
                     value={billDiscountValue}
                     onChange={(e) => setBillDiscountValue(Math.max(0, Number(e.target.value)))}
-                    className="w-28 text-right rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
+                    className={`w-28 text-right rounded-lg border ${isDarkMode ? 'border-amber-700 bg-slate-900 text-amber-400' : 'border-amber-300 bg-white text-amber-600'} px-2 py-1 text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500`}
                   />
                 </div>
 
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Taxation Status:</span>
-                  <span className="font-bold text-blue-600 dark:text-blue-400">
+                  <span className={`font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                     {isBillTaxable ? '13% Taxable Bill' : 'Tax Exempted Bill'}
                   </span>
                 </div>
 
-                <div className="flex justify-between text-blue-600 dark:text-blue-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
+                <div className={`flex justify-between ${isDarkMode ? 'text-blue-400 border-slate-800' : 'text-blue-600 border-slate-200'} font-semibold border-t pt-2`}>
                   <span>13% Input VAT:</span>
                   <span className="font-mono font-bold">
                     Rs. {(billVatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1578,7 +1597,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
                   <span>Grand Total (Credit Mode):</span>
-                  <span className="font-mono text-blue-600 dark:text-blue-400 text-lg">
+                  <span className={`font-mono ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} text-lg`}>
                     Rs. {(grandTotalCalculated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -1652,7 +1671,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">{companyProfile?.address || 'Registered address unavailable'}</p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">PAN/VAT: {companyProfile?.panVatNumber || 'Not configured'}{companyProfile?.phone ? ` | ${companyProfile.phone}` : ''}</p>
               </div>
-              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 mb-1">
+              <div className={`flex items-center gap-2 text-xs font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} mb-1`}>
                 <Receipt className="h-4 w-4" />
                 <span>Vendor Purchase Bill Document</span>
               </div>
@@ -1668,7 +1687,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             <div className="text-left sm:text-right">
-              <div className="text-base font-mono font-extrabold text-blue-600 dark:text-blue-400">
+              <div className={`text-base font-mono font-extrabold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                 {viewingInvoice.invoiceNumber}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -1715,10 +1734,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-t border-slate-200 dark:border-slate-800 pt-4">
             <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
               <div>
-                Transaction Mode: <span className="font-bold text-amber-600 dark:text-amber-400">CREDIT MODE</span>
+                Transaction Mode: <span className={`font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>CREDIT MODE</span>
               </div>
               <div>
-                Status: <span className="font-bold text-amber-600 dark:text-amber-400">UNPAID (Pending Accounting Settlement)</span>
+                Status: <span className={`font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>UNPAID (Pending Accounting Settlement)</span>
               </div>
             </div>
 
@@ -1728,13 +1747,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <span>Taxable Base:</span>
                   <span>Rs. {(viewingInvoice.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
-                <div className="flex justify-between text-blue-600 dark:text-blue-400 font-semibold">
+                <div className={`flex justify-between ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} font-semibold`}>
                   <span>13% VAT:</span>
                   <span>Rs. {(viewingInvoice.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                   <span>Grand Total:</span>
-                  <span className="text-blue-600 dark:text-blue-400">
+                  <span className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                     Rs. {(viewingInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -1781,7 +1800,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
               <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <ShoppingCart className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
                 <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                   Select Purchase Order to Link / Receive
                 </h3>
@@ -1832,7 +1851,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-extrabold text-xs text-indigo-600 dark:text-indigo-400">
+                            <span className={`font-mono font-extrabold text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                               PO #{po.poNumber}
                             </span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 uppercase">
@@ -2047,7 +2066,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Total Items</span>
-                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{productsModalInvoice.items?.length ?? 0} Lines</span>
+                  <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{productsModalInvoice.items?.length ?? 0} Lines</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Taxable Subtotal</span>
@@ -2055,7 +2074,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Grand Total</span>
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">Rs. {(productsModalInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className={`font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Rs. {(productsModalInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
@@ -2068,14 +2087,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-bold text-slate-900 dark:text-white">{item.productName || prod?.name}</p>
-                          <p className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">{item.sku || prod?.sku}</p>
+                          <p className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.sku || prod?.sku}</p>
                         </div>
-                        <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.quantity} {prod?.unit || 'Pcs'}</span>
+                        <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.quantity} {prod?.unit || 'Pcs'}</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-[10px]">
                         <span>Unit<br /><strong>Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN')}</strong></span>
                         <span>Discount<br /><strong>Rs. {(item.discount ?? 0).toLocaleString('en-IN')}</strong></span>
-                        <span>Total<br /><strong className="text-emerald-600">Rs. {(item.total ?? item.quantity * item.unitPrice).toLocaleString('en-IN')}</strong></span>
+                        <span>Total<br /><strong className={isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}>Rs. {(item.total ?? item.quantity * item.unitPrice).toLocaleString('en-IN')}</strong></span>
                       </div>
                       {item.deviceSerials?.length ? (
                         <div className="flex flex-wrap gap-1">
@@ -2114,11 +2133,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
                           <td className="p-2.5">
                             <span className="font-bold block text-slate-900 dark:text-white">{item.productName || prod?.name}</span>
-                            <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
+                            <span className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                               SKU: {item.sku || prod?.sku} | {prod?.category || 'Inventory'}
                             </span>
                           </td>
-                          <td className="p-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                             {item.quantity} {prod?.unit || 'Pcs'}
                           </td>
                           <td className="p-2.5 text-right font-mono">
@@ -2127,7 +2146,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-2.5 text-right font-mono text-slate-500">
                             Rs. {(item.discount ?? 0).toLocaleString('en-IN')}
                           </td>
-                          <td className="p-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                             Rs. {(item.total ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="p-2.5">

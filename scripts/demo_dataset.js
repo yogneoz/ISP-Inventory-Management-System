@@ -127,6 +127,7 @@ export function buildDemoDataset(branches) {
 
   // Demo stock: every product in every branch (consumables in larger volumes).
   const demoInventoryStock = [];
+  const demoDamageRecords = [];
   let seededDamagedCount = 0;
 
   demoProducts.forEach((p, index) => {
@@ -141,6 +142,37 @@ export function buildDemoDataset(branches) {
       if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
         damagedQty = 1;
         seededDamagedCount += 1;
+
+        // Create a proper damage record for this damaged item
+        const damageReasons = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'QUALITY_DEFECT'];
+        const damageReason = damageReasons[(index + bIdx) % damageReasons.length];
+        const damageDateAD = '2026-08-15';
+        const damageDateBS = '2083-04-31 BS';
+
+        demoDamageRecords.push({
+          id: `dmr-${p.id.toLowerCase()}-${branch.id.toLowerCase()}`,
+          damageReference: `DMR-${p.sku}-${branch.id}-001`,
+          productId: p.id,
+          branchId: branch.id,
+          quantityDamaged: damagedQty,
+          unitCost: p.costPrice,
+          totalCost: damagedQty * p.costPrice,
+          damageDateAD,
+          damageDateBS,
+          damageReason,
+          status: 'IDENTIFIED',
+          disposalDateAD: null,
+          disposalDateBS: null,
+          disposalMethod: null,
+          salvageValue: 0,
+          glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
+          writeOffLoss: 0,
+          approvedBy: 'System (Demo)',
+          notes: `Demo damage record for ${p.name} at ${branch.name}`,
+          fiscalYearId: 'fy-4',
+          isDemo: true,
+          createdBy: 'System Seeder',
+        });
       }
 
       const branchMinReorder = branch.isHeadquarters
@@ -256,6 +288,93 @@ export function buildDemoDataset(branches) {
     customerMasterRecords: [],
     customerDeviceRecords: [],
     approvalRequests: [],
+    damageRecords: demoDamageRecords,
+    locations: [
+      {
+        id: 'LOC-001',
+        name: 'Example Location 1 - Server Room',
+        type: 'POP_SERVER_ROOM',
+        branchId: 'WH001',
+        address: 'Example Street, Example City, Nepal',
+        coordinates: { latitude: 0, longitude: 0 },
+        contactPerson: 'Example Contact 1',
+        contactPhone: '9800000001',
+        notes: 'Dummy location for testing (example data).',
+        activeAssetsCount: 0,
+        isDemo: true,
+      },
+      {
+        id: 'LOC-002',
+        name: 'Example Location 2 - Warehouse',
+        type: 'WAREHOUSE',
+        branchId: 'BRH01',
+        address: 'Example Avenue, Example City, Nepal',
+        coordinates: { latitude: 0, longitude: 0 },
+        contactPerson: 'Example Contact 2',
+        contactPhone: '9800000002',
+        notes: 'Dummy location for testing (example data).',
+        activeAssetsCount: 0,
+        isDemo: true,
+      },
+    ],
+    customerRecords: [
+      {
+        id: 'CUS-10291',
+        customerId: 'CUS-10291',
+        customerName: 'Example Customer 1',
+        username: 'example.customer1',
+        contactNumber: '9800000011',
+        branchId: 'WH001',
+        address: 'Example Street, Example City, Nepal',
+        email: 'example.customer1@example.com',
+        status: 'ACTIVE',
+        creditLimit: 50000,
+        assignedDevicesCount: 0,
+        isDemo: true,
+      },
+      {
+        id: 'CUS-10292',
+        customerId: 'CUS-10292',
+        customerName: 'Example Customer 2',
+        username: 'example.customer2',
+        contactNumber: '9800000012',
+        branchId: 'BRH01',
+        address: 'Example Avenue, Example City, Nepal',
+        email: 'example.customer2@example.com',
+        status: 'ACTIVE',
+        creditLimit: 75000,
+        assignedDevicesCount: 0,
+        isDemo: true,
+      },
+      {
+        id: 'CUS-10293',
+        customerId: 'CUS-10293',
+        customerName: 'Example Customer 3',
+        username: 'example.customer3',
+        contactNumber: '9800000013',
+        branchId: 'WH001',
+        address: 'Example Road, Example City, Nepal',
+        email: 'example.customer3@example.com',
+        status: 'ACTIVE',
+        creditLimit: 100000,
+        assignedDevicesCount: 0,
+        isDemo: true,
+      },
+      {
+        id: 'CUS-10294',
+        customerId: 'CUS-10294',
+        customerName: 'Example Customer 4',
+        username: 'example.customer4',
+        contactNumber: '9800000014',
+        branchId: 'BRH01',
+        address: 'Example Lane, Example City, Nepal',
+        email: 'example.customer4@example.com',
+        status: 'ACTIVE',
+        creditLimit: 60000,
+        assignedDevicesCount: 0,
+        isDemo: true,
+      },
+    ],
   };
 }
 

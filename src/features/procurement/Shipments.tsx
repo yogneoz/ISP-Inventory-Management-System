@@ -670,7 +670,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <Truck className="h-5 w-5 text-indigo-500" />
+            <Truck className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
             <span>Warehouse Logistics & Stock Dispatches</span>
           </h2>
           <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -694,7 +694,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
           {!isSuperAdmin ? (
             <div className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
-              <PackageCheck className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+              <PackageCheck className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
               <span>Branch Inbound Mode: Receive incoming stock shipments below.</span>
             </div>
           ) : null}
@@ -886,7 +886,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Boxes className="h-4 w-4 text-indigo-500" />
+                  <Boxes className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                   <span>Transfer Line Items ({lines.length})</span>
                 </h4>
                 <button
@@ -958,7 +958,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                             <button
                               type="button"
                               onClick={() => removeLine(idx)}
-                              className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                              className={`p-1 ${isDarkMode ? 'text-slate-400 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'} cursor-pointer`}
                               title="Remove item line"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1290,7 +1290,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                   title="Request Super Admin approval to cancel received stock transfer"
                                   className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-semibold text-[11px] cursor-pointer transition-all"
                                 >
-                                  <RotateCcw className="h-3.5 w-3.5 text-amber-500" />
+                                  <RotateCcw className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
                                   <span>Request Cancel</span>
                                 </button>
                               ) : isSuperOrInventory ? (
@@ -1437,7 +1437,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Boxes className="h-4 w-4 text-indigo-500" />
+                    <Boxes className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                     <span>Transfer Line Items ({lines.length})</span>
                   </h4>
                   <button
@@ -1509,7 +1509,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                               <button
                                 type="button"
                                 onClick={() => removeLine(idx)}
-                                className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                className={`p-1 ${isDarkMode ? 'text-slate-400 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'} cursor-pointer`}
                                 title="Remove item line"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1605,7 +1605,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
               <h3 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                <Truck className="h-4 w-4 text-indigo-500" />
+                <Truck className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                 <span>Stock Transfer Manifest — {viewingShipment.trackingCode}</span>
               </h3>
               <button
@@ -1622,7 +1622,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Source Branch</span>
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.sourceBranchName || 'Central Warehouse'}</span>
                 </div>
-                <ArrowRight className="h-5 w-5 text-indigo-500" />
+                <ArrowRight className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                 <div className="text-right">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination Branch</span>
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.destinationBranchName}</span>
@@ -1689,7 +1689,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
             }`}>
               <div className="flex items-center gap-2">
-                <PackageCheck className="h-5 w-5 text-emerald-500" />
+                <PackageCheck className={`h-5 w-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                 <div>
                   <h3 className="font-bold text-sm">
                     Inbound Stock Physical Verification — {receivingShipmentModal.trackingCode}
@@ -1716,8 +1716,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{receivingShipmentModal.sourceBranchName || 'Central Warehouse'}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="font-mono text-[10px] text-indigo-500 font-bold">{receivingShipmentModal.dispatchDateAD}</span>
-                  <ArrowRight className="h-4 w-4 text-indigo-500 my-0.5" />
+                  <span className={`font-mono text-[10px] font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{receivingShipmentModal.dispatchDateAD}</span>
+                  <ArrowRight className={`h-4 w-4 my-0.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                   <span className="text-[10px] text-emerald-600 font-bold uppercase">Receiving Inspection</span>
                 </div>
                 <div className="text-right">
@@ -1830,7 +1830,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                     </div>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')}`}>
                                   {s.isChecked ? 'Verified' : 'Missing'}
                                 </span>
                               </label>

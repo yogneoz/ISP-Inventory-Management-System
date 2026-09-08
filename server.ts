@@ -26,6 +26,7 @@ import {
   UnitOfMeasure,
   LocationRecord,
   DocumentNumberConfig,
+  DamageRecord,
 } from './src/types';
 import { calculateFixedAssetValues } from './src/utils/depreciation';
 
@@ -772,7 +773,9 @@ app.get('/api/bootstrap', async (req, res) => {
       };
 
       const stockScope = scoped({ branchCol: 'branch_id' });
-      const assetScope = scoped({ branchCol: 'branch_id', dateCol: 'acquisition_date_ad' });
+      // Fixed assets are long-term assets that persist across all fiscal years — do NOT
+      // filter by acquisition_date_ad / fiscal year scope; only filter by branch.
+      const assetScope = scoped({ branchCol: 'branch_id' });
       const deviceScope = scoped({ branchCol: 'branch_id', dateCol: 'issued_date_ad' });
       const customerScope = scoped({ branchCol: 'branch_id' });
       const poScope = scoped({ branchCol: 'branch_id', dateCol: 'order_date_ad' });
@@ -784,8 +787,10 @@ app.get('/api/bootstrap', async (req, res) => {
       const approvalScope = scoped({ branchCol: 'branch_id', dateCol: 'requested_at_ad' });
       const locationScope = scoped({ branchCol: 'branch_id' });
 
+      const damageScope = scoped({ branchCol: 'branch_id', dateCol: 'damage_date_ad' });
+
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes
       ] = await Promise.all([
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
@@ -806,6 +811,7 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
         pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
+        pgPool.query(`SELECT id, damage_reference AS "damageReference", product_id AS "productId", branch_id AS "branchId", quantity_damaged AS "quantityDamaged", unit_cost AS "unitCost", total_cost AS "totalCost", damage_date_ad AS "damageDateAD", damage_date_bs AS "damageDateBS", damage_reason AS "damageReason", status, disposal_date_ad AS "disposalDateAD", disposal_date_bs AS "disposalDateBS", disposal_method AS "disposalMethod", salvage_value AS "salvageValue", gl_account_code AS "glAccountCode", write_off_loss AS "writeOffLoss", approved_by AS "approvedBy", notes, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM damage_records${damageScope.where} ORDER BY damage_date_ad DESC`, damageScope.params),
       ]);
 
       let pgStock = sRes.rows;
@@ -881,6 +887,7 @@ app.get('/api/bootstrap', async (req, res) => {
         uom: uomRes.rows,
         locations: locRes.rows,
         companyProfile: compDbRes.rows[0] || companyProfile,
+        damageRecords: dmgRes.rows,
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',

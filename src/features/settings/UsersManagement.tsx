@@ -240,7 +240,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <Users className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
             <span>User Access & Role Administration</span>
           </h2>
           <p className="truncate text-slate-500 text-xs mt-0.5">
@@ -283,7 +283,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
             <div key={u.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30">
+                  <div className={`h-10 w-10 rounded-full bg-indigo-600/20 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center justify-center font-bold text-sm border border-indigo-500/30`}>
                     {u.name.charAt(0)}
                   </div>
                   <div>
@@ -296,7 +296,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleOpenResetModal(u)}
                     title="Reset Password"
-                    className="p-1.5 rounded-lg text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1 font-semibold text-[10px]"
+                    className={`p-1.5 rounded-lg ${isDarkMode ? 'text-amber-400 bg-amber-950/60' : 'text-amber-600 bg-amber-50'} hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1 font-semibold text-[10px]`}
                   >
                     <Key className="h-3.5 w-3.5" />
                     <span>Reset Pass</span>
@@ -305,7 +305,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleOpenEditModal(u)}
                     title="Edit User"
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-indigo-400 hover:bg-indigo-950/60' : 'hover:text-indigo-600 hover:bg-indigo-50'} transition-colors cursor-pointer`}
                   >
                     <Edit className="h-3.5 w-3.5" />
                   </button>
@@ -313,7 +313,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleDelete(u)}
                     title="Delete User"
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-rose-400 hover:bg-rose-950/60' : 'hover:text-rose-600 hover:bg-rose-50'} transition-colors cursor-pointer`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -338,7 +338,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     {u.role === 'SUPER_ADMIN' || u.role === 'INVENTORY_MANAGER' ? (
                       <span className="text-purple-600 dark:text-purple-400 font-bold">All Branches (Global Access)</span>
                     ) : u.allowedBranchIds && u.allowedBranchIds.length > 1 ? (
-                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                      <span className={`${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-bold`}>
                         {u.allowedBranchIds.length} Branches Assigned ({u.allowedBranchIds.map((id) => branches.find((b) => b.id === id)?.name || id).join(', ')})
                       </span>
                     ) : (
@@ -349,7 +349,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
               </div>
 
               <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <span className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-semibold flex items-center gap-1`}>
                   <CheckCircle2 className="h-3 w-3" /> Active Account
                 </span>
                 <span className="text-slate-400 font-mono">ID: {u.id}</span>
@@ -380,7 +380,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
             }`}
           >
             <h3 className="text-base font-bold mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-indigo-600" />
+              <Users className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
               <span>{editingUser ? 'Edit User & Credentials' : 'Add System User'}</span>
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
@@ -493,7 +493,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => toggleBranchPermission(b.id)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                              className={`rounded border-slate-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} focus:ring-indigo-500 h-4 w-4`}
                             />
                             <span className="font-medium text-slate-800 dark:text-slate-200">
                               {b.name} ({b.code})
@@ -541,7 +541,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400">
+                <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-amber-950/80 text-amber-400' : 'bg-amber-100 text-amber-600'}`}>
                   <Key className="h-5 w-5" />
                 </div>
                 <div>
@@ -562,7 +562,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 space-y-2">
                   <div className="flex items-center gap-2 font-bold text-emerald-900 dark:text-emerald-100">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    <CheckCircle2 className={`h-5 w-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                     <span>Password Successfully Reset!</span>
                   </div>
                   <p className="text-[11px]">{resetSuccessMsg}</p>
@@ -601,7 +601,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     <button
                       type="button"
                       onClick={handleGeneratePasswordClick}
-                      className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      className={`text-[10px] font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} hover:underline flex items-center gap-1 cursor-pointer`}
                     >
                       <Wand2 className="h-3 w-3" />
                       <span>Auto Generate Strong Password</span>
@@ -629,7 +629,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyPassword}
-                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                        className={`p-1 text-slate-400 ${isDarkMode ? 'hover:text-indigo-400' : 'hover:text-indigo-600'}`}
                         title="Copy password"
                       >
                         {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}

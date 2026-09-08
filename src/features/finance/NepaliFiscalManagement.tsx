@@ -430,7 +430,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <CalendarDays className="h-5 w-5 text-indigo-500" />
+            <CalendarDays className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
             <span>Nepali Bikram Sambat Calendar & Fiscal Year Management</span>
           </h2>
           <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -485,7 +485,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             ? 'text-slate-400 bg-slate-950/60 border-slate-800'
             : 'text-slate-700 bg-white border-slate-200 shadow-2xs'
         }`}>
-          <Layers className="h-4 w-4 text-indigo-500" />
+          <Layers className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
           <span>{bounds.mappedYearsCount} Mapped BS Years ({bounds.mappedYears.join(', ')})</span>
         </div>
       </div>
@@ -493,7 +493,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       {/* Fiscal Year Lock Cards Grid */}
       <div>
         <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-          <Lock className="h-4 w-4 text-amber-500" />
+          <Lock className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
           <span>Nepali Fiscal Year Accounting Periods (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>YYYY-YY</code> Legitimate Standard)</span>
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -650,7 +650,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           {/* Quick Preset Buttons */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
             <span className={`text-[11px] font-bold flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              <Zap className="h-3 w-3 text-amber-500" />
+              <Zap className={`h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
               <span>Quick Seed Presets:</span>
             </span>
 
@@ -694,9 +694,9 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             }`}
           >
             {seedStatus.type === 'success' ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              <CheckCircle2 className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
             ) : (
-              <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+              <AlertCircle className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
             )}
             <span>{seedStatus.message}</span>
           </div>
@@ -736,7 +736,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 <div className={`p-2 rounded-xl border ${
                   isDarkMode ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-200'
                 }`}>
-                  <Sliders className="h-5 w-5" />
+                  <Sliders className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                 </div>
                 <div>
                   <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
@@ -872,7 +872,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                             ? isDarkMode ? 'bg-amber-950/20 hover:bg-amber-950/30' : 'bg-amber-50/60 hover:bg-amber-50'
                             : isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
                         }`}>
-                          <td className="p-2.5 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
+                          <td className={`p-2.5 font-bold text-sm whitespace-nowrap ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`}>
                             <div className="flex items-center gap-1.5">
                               <span>{y.yearBS} BS</span>
                               {isRecent && (
@@ -941,7 +941,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           }`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
-                <Sliders className="h-5 w-5 text-indigo-500" />
+                <Sliders className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                 <h3 className="text-base font-bold">
                   Update BS Year {editingYearData.yearBS} Month Array & Start Date
                 </h3>
@@ -959,7 +959,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               <div className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
                 isDarkMode ? 'bg-rose-950/80 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}>
-                <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+                <AlertCircle className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
                 <span>{editError}</span>
               </div>
             )}
@@ -1068,7 +1068,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           isDarkMode ? 'border-slate-800' : 'border-slate-200'
         }`}>
           <div className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <CalendarDays className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
             <div>
               <h3 className={`font-bold text-sm sm:text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                 Nepali Calendar & BS Date Conversion Suite (<code className={isDarkMode ? 'text-amber-300 font-mono text-xs' : 'text-amber-700 font-mono text-xs'}>BSDayRecord</code>)
@@ -1093,7 +1093,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
           }`}>
             <div className={`flex items-center gap-1.5 text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-              <Zap className="h-3.5 w-3.5 text-amber-500" />
+              <Zap className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
               <span>Targeted Date Range Conversion (AD → BS)</span>
             </div>
 
@@ -1149,7 +1149,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           }`}>
             <div className="flex items-center justify-between">
               <div className={`flex items-center gap-1.5 text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                <CalendarIcon className="h-3.5 w-3.5 text-indigo-500" />
+                <CalendarIcon className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                 <span>Single Date Lookup & Bounds Checker</span>
               </div>
               {boundsCheck.inBounds ? (
@@ -1213,7 +1213,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               : 'bg-amber-50 border-amber-200 text-amber-800'
           }`}>
             <div className="flex items-center gap-2 font-semibold">
-              <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <AlertCircle className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
               <span>{rangeConversionStatus.message}</span>
             </div>
 
@@ -1249,7 +1249,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
               : 'bg-rose-50 border-rose-200 text-rose-800'
           }`}>
-            <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+            <AlertCircle className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
             <span>{rangeConversionStatus.message}</span>
           </div>
         )}
@@ -1341,9 +1341,9 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 }`}
               >
                 {sqlSyncSuccess.success ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle2 className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                 ) : (
-                  <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+                  <AlertCircle className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
                 )}
                 <span>{sqlSyncSuccess.message}</span>
               </div>
@@ -1357,7 +1357,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 <div className={`flex items-center gap-1.5 text-xs font-bold ${
                   isDarkMode ? 'text-slate-200' : 'text-slate-800'
                 }`}>
-                  <Database className="h-3.5 w-3.5 text-amber-500" />
+                  <Database className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
                   <span>
                     Converted Day-by-Day Table Records (<code className={isDarkMode ? 'text-amber-300 font-mono text-[11px]' : 'text-amber-700 font-mono text-[11px]'}>BSDayRecord</code>)
                   </span>

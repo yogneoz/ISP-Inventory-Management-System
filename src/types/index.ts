@@ -114,6 +114,37 @@ export interface InventoryStock {
   minReorderLevel?: number;
 }
 
+export type DamageReason = 'PHYSICAL_DAMAGE' | 'TRANSIT_DAMAGE' | 'STORAGE_DAMAGE' | 'EXPIRED' | 'RETURN_DAMAGE' | 'QUALITY_DEFECT' | 'OTHER';
+export type DamageStatus = 'IDENTIFIED' | 'UNDER_REVIEW' | 'DISPOSED' | 'WRITTEN_OFF' | 'RETURNED_TO_SUPPLIER' | 'CANCELLED';
+export type DisposalMethod = 'SCRAP_DESTRUCTION' | 'SALVAGE_E_WASTE' | 'VENDOR_RMA' | 'INSURANCE_CLAIM' | 'WRITE_OFF' | 'RETURN_TO_SUPPLIER' | 'AUCTION';
+
+export interface DamageRecord {
+  id: string;
+  damageReference: string;
+  productId: string;
+  branchId: string;
+  quantityDamaged: number;
+  unitCost: number;
+  totalCost: number;
+  damageDateAD: string;
+  damageDateBS: string;
+  damageReason: DamageReason;
+  status: DamageStatus;
+  disposalDateAD?: string | null;
+  disposalDateBS?: string | null;
+  disposalMethod?: DisposalMethod | null;
+  salvageValue?: number;
+  glAccountCode?: string;
+  writeOffLoss?: number;
+  approvedBy?: string;
+  notes?: string;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Asset {
   id: string;
   tagNumber: string;
@@ -580,6 +611,7 @@ export interface BootstrapState {
   uom?: UnitOfMeasure[];
   locations?: LocationRecord[];
   companyProfile?: CompanyProfile;
+  damageRecords?: DamageRecord[];
   postgresDatabaseStatus?: {
     isConnected: boolean;
     host: string;

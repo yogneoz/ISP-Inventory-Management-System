@@ -16,6 +16,7 @@ interface NepaliCalendarGridProps {
   maxYearBS: number;
   onPick: (adISODate: string) => void;
   onMonthChange: (yearBS: number, monthBS: number) => void;
+  isDarkMode?: boolean;
 }
 
 const WEEKDAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -42,18 +43,22 @@ export function NepaliCalendarGrid({
   maxYearBS,
   onPick,
   onMonthChange,
+  isDarkMode = false,
 }: NepaliCalendarGridProps) {
   const cells = getBSMonthGrid(yearBS, monthBS, { todayAD, selectedAD, minAD, maxAD });
   const monthName = NEPALI_MONTHS_EN[monthBS - 1] || 'Baisakh';
   const canPrev = yearBS > minYearBS || monthBS > 1;
   const canNext = yearBS < maxYearBS || monthBS < 12;
 
-  const navCls =
-    'flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40';
+  const navCls = `flex h-6 w-6 items-center justify-center rounded-md border text-xs disabled:cursor-not-allowed disabled:opacity-40 ${
+    isDarkMode
+      ? 'border-slate-700 text-slate-400 hover:bg-slate-800'
+      : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+  }`;
 
   if (!cells) {
     return (
-      <div className="p-4 text-xs text-slate-500 dark:text-slate-400">
+      <div className={`p-4 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         No BS calendar seeded for {monthName} {yearBS}.
       </div>
     );
@@ -71,7 +76,7 @@ export function NepaliCalendarGrid({
         >
           ‹
         </button>
-        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+        <div className={`text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
           {monthName} {yearBS} BS
         </div>
         <button
@@ -89,7 +94,7 @@ export function NepaliCalendarGrid({
         {WEEKDAY_LETTERS.map((w, i) => (
           <div
             key={`${w}-${i}`}
-            className="flex h-5 items-center justify-center text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500"
+            className={`flex h-5 items-center justify-center text-[9px] font-bold uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
           >
             {w}
           </div>
@@ -104,8 +109,8 @@ export function NepaliCalendarGrid({
             cell.isSelected
               ? 'bg-indigo-600 font-bold text-white'
               : disabled
-                ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
-                : 'text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/40'
+                ? `cursor-not-allowed ${isDarkMode ? 'text-slate-600' : 'text-slate-300'}`
+                : `${isDarkMode ? 'text-slate-200 hover:bg-indigo-900/40' : 'text-slate-700 hover:bg-indigo-50'}`
           } ${cell.isToday && !cell.isSelected ? 'font-semibold ring-1 ring-inset ring-indigo-500' : ''}`;
           return (
             <button
@@ -131,7 +136,7 @@ export function NepaliCalendarGrid({
         })}
       </div>
 
-      <div className="mt-1.5 border-t border-slate-100 dark:border-slate-800 pt-1.5 text-[9px] leading-snug text-slate-400 dark:text-slate-500">
+      <div className={`mt-1.5 border-t pt-1.5 text-[9px] leading-snug ${isDarkMode ? 'border-slate-800 text-slate-500' : 'border-slate-100 text-slate-400'}`}>
         Faded days are outside the mapped BS calendar or the allowed range.
       </div>
     </div>

@@ -117,7 +117,7 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
               <div className="mb-3 flex items-center gap-2"><Icon className="h-5 w-5 text-indigo-500" /><h3 className="font-bold text-sm">{operation.title}</h3></div>
               <p className="min-h-16 text-xs leading-5 text-slate-500 dark:text-slate-400">{operation.description}</p>
               {operation.id === 'opening-stock' && (
-                <select value={sourceFiscalYearId} onChange={(event) => setSourceFiscalYearId(event.target.value)} className="mb-3 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950">
+                  <select value={sourceFiscalYearId} onChange={(event) => setSourceFiscalYearId(event.target.value)} className={`mb-3 w-full rounded-xl border px-3 py-2 text-xs ${isDarkMode ? 'border-slate-700 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-900'}`}>
                   <option value="">Select closed source year…</option>
                   {fiscalYears.filter((fiscalYear) => fiscalYear.isClosed).map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — closed</option>)}
                 </select>

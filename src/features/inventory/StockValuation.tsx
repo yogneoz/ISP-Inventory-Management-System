@@ -55,8 +55,8 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     visibleBranches.forEach((b) => {
       const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
       if (item) {
-        totalOnHand += item.quantityOnHand;
-        totalDamaged += item.damagedQty || 0;
+        totalOnHand += Number(item.quantityOnHand);
+        totalDamaged += Number(item.damagedQty) || 0;
       }
     });
 
@@ -154,11 +154,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     products.forEach((prod) => {
       const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
       if (item) {
-        bUnits += item.quantityOnHand;
-        bDamaged += item.damagedQty || 0;
-        bCostVal += item.quantityOnHand * prod.costPrice;
-        bRetailVal += item.quantityOnHand * prod.sellingPrice;
-        bDamagedLoss += (item.damagedQty || 0) * prod.costPrice;
+        bUnits += Number(item.quantityOnHand);
+        bDamaged += Number(item.damagedQty) || 0;
+        bCostVal += Number(item.quantityOnHand) * (prod.costPrice || 0);
+        bRetailVal += Number(item.quantityOnHand) * (prod.sellingPrice || 0);
+        bDamagedLoss += (Number(item.damagedQty) || 0) * (prod.costPrice || 0);
       }
     });
 
@@ -200,7 +200,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
+            isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'
           }`}>
             <Coins className="h-5 w-5 text-emerald-500" />
             <span>Stock Valuation & Profit Margin Analysis</span>
@@ -419,7 +419,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                 {filteredItemized.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500">
+                    <td colSpan={9} className={`p-8 text-center ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                       No stock valuation records match criteria.
                     </td>
                   </tr>
@@ -427,8 +427,8 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   itemizedPagination.pagedItems.map(({ prod, totalOnHand, costValuation, retailValuation, potentialMargin, marginPercent, damagedLoss, totalDamaged }) => (
                     <tr key={prod.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                       <td className="p-2.5">
-                        <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                        <div className="text-[10px] font-mono text-indigo-500">SKU: {prod.sku}</div>
+                        <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{prod.name}</div>
+                        <div className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>SKU: {prod.sku}</div>
                       </td>
 
                       <td className="p-2.5 text-center">
@@ -439,16 +439,16 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                         </span>
                       </td>
 
-                      <td className="p-2.5 text-right font-mono text-slate-500">
+                      <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                         {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                       </td>
 
-                      <td className="p-2.5 text-right font-mono text-slate-500">
+                      <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                         {(prod.sellingPrice ?? 0).toLocaleString('en-IN')}
                       </td>
 
-                      <td className="p-2.5 text-center font-mono font-bold">
-                        {totalOnHand} <span className="text-[10px] font-normal text-slate-400">{prod.unit}</span>
+                      <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
+                        {totalOnHand} <span className={`text-[10px] font-normal ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{prod.unit}</span>
                       </td>
 
                       <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
@@ -460,17 +460,17 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       </td>
 
                       <td className="p-2.5 text-right font-mono">
-                        <div className="font-bold text-emerald-500">
+                        <div className={`font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                           +{(potentialMargin ?? 0).toLocaleString('en-IN')}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-semibold">
+                        <div className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-500' : 'text-slate-400 dark:text-slate-500'}`}>
                           {marginPercent.toFixed(1)}% margin
                         </div>
                       </td>
 
                       <td className="p-2.5 text-center font-mono">
                         {totalDamaged > 0 ? (
-                          <span className="text-rose-500 font-bold">
+                          <span className={`text-rose-500 font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
                             {totalDamaged} Pcs ({(damagedLoss ?? 0).toLocaleString('en-IN')})
                           </span>
                         ) : (
@@ -521,29 +521,29 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                 {categoryBreakdown.map((catRow) => (
                   <tr key={catRow.category} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className={`p-2.5 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                    <td className={`p-2.5 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
                       {catRow.category}
                     </td>
-                    <td className="p-2.5 text-center font-mono">{catRow.skusCount} SKUs</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{(catRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
-                    <td className="p-2.5 text-right font-mono font-bold text-indigo-500">
+                    <td className={`p-2.5 text-center font-mono ${isDarkMode ? 'text-slate-300' : 'text-slate-700 dark:text-slate-300'}`}>{catRow.skusCount} SKUs</td>
+                    <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{(catRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500 dark:text-indigo-400'}`}>
                       {(catRow.costValuation ?? 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-sky-500">
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-500 dark:text-sky-400'}`}>
                       {(catRow.retailValuation ?? 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-emerald-500">
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
                       +{(catRow.margin ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-2.5 text-right font-mono">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div className={`w-16 rounded-full h-2 overflow-hidden ${isDarkMode ? 'bg-slate-800' : 'bg-slate-200 dark:bg-slate-700'}`}>
                           <div
-                            className="bg-indigo-500 h-full rounded-full"
+                            className={`h-full rounded-full ${isDarkMode ? 'bg-indigo-400' : 'bg-indigo-500 dark:bg-indigo-500'}`}
                             style={{ width: `${Math.min(100, catRow.sharePercent)}%` }}
                           />
                         </div>
-                        <span className="font-bold">{catRow.sharePercent.toFixed(1)}%</span>
+                        <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{catRow.sharePercent.toFixed(1)}%</span>
                       </div>
                     </td>
                   </tr>
@@ -577,24 +577,24 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                 {branchBreakdown.map((bRow) => (
                   <tr key={bRow.branch.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-2.5">
-                      <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
                         {bRow.branch.name}
                       </div>
-                      <div className="text-[10px] text-slate-400 font-mono">
+                      <div className={`text-[10px] font-mono ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                         Code: {bRow.branch.code} {bRow.branch.isHeadquarters ? '• Central HQ' : ''}
                       </div>
                     </td>
-                    <td className="p-2.5 text-center font-mono font-bold">{(bRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
-                    <td className="p-2.5 text-center font-mono text-rose-500 font-bold">
+                    <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900 dark:text-white'}`}>{(bRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
+                    <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
                       {bRow.damagedUnits} Pcs
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-indigo-500">
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
                       {(bRow.costValuation ?? 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-sky-500">
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
                       {(bRow.retailValuation ?? 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-emerald-500">
+                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                       +{(bRow.margin ?? 0).toLocaleString('en-IN')}
                     </td>
                   </tr>

@@ -393,17 +393,17 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950 px-2.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                          <span className={`font-mono text-xs font-extrabold ${isDarkMode ? 'text-indigo-400 bg-indigo-950' : 'text-indigo-600 bg-indigo-100'} px-2.5 py-0.5 rounded-md border ${isDarkMode ? 'border-indigo-800' : 'border-indigo-200'}`}>
                             {op.referenceNumber}
                           </span>
                           {isReceived ? (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                              <CheckCircle2 className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                               <span>RECEIVED AT WH001</span>
                             </span>
                           ) : (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 animate-pulse">
-                              <Clock className="h-3 w-3 text-amber-600" />
+                              <Clock className={`h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                               <span>DISPATCHED / PENDING WH INTAKE</span>
                             </span>
                           )}
@@ -411,7 +411,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
                         <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2 mt-1">
                           <span className="text-slate-500 font-normal">Source:</span>
-                          <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{op.branchName || op.branchId}</span>
+                          <span className={`${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-extrabold`}>{op.branchName || op.branchId}</span>
                           <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
                           <span className="text-slate-500 font-normal">Destination:</span>
                           <span className="text-slate-900 dark:text-white font-extrabold">{op.destinationWarehouseName || 'HQ Central Warehouse (WH001)'}</span>
@@ -473,7 +473,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                             {op.items.map((item) => (
                               <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                                 <td className="p-2.5">
-                                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[10px] block">
+                                  <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[10px] block`}>
                                     [{item.sku}]
                                   </span>
                                   <span className="font-bold text-slate-900 dark:text-white">{item.productName}</span>
@@ -708,7 +708,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                           Condition: <strong className={item.condition === 'DAMAGED_STOCK' ? 'text-rose-500' : 'text-emerald-500'}>{item.condition}</strong>
                         </div>
                       </div>
-                      <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <div className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         {item.quantity} {item.unit || 'pcs'}
                       </div>
                     </div>

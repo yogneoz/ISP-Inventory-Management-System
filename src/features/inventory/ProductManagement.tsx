@@ -419,7 +419,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <Package className="h-5 w-5 text-indigo-500" />
+            <Package className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
             <span>{mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}</span>
           </h2>
           <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -447,8 +447,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
             title="Print All Item Barcodes formatted in A4 Sheet PDF Grid (Code 39 format)"
           >
-            <Printer className="h-4 w-4 text-indigo-500" />
-            <Barcode className="h-4 w-4 text-emerald-500" />
+            <Printer className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+            <Barcode className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
             <span>Print All Barcodes (A4 PDF)</span>
           </button>
 
@@ -783,7 +783,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
               } print:hidden`}>
                 <div className="flex items-center gap-2">
-                  <Printer className="h-5 w-5 text-indigo-500" />
+                  <Printer className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                   <h3 className="font-bold text-sm">Print Product Code Barcode Label</h3>
                 </div>
                 <button
@@ -1401,8 +1401,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
               } print:hidden`}>
                 <div className="flex items-center gap-2">
-                  <Printer className="h-5 w-5 text-indigo-500" />
-                  <Barcode className="h-5 w-5 text-emerald-500" />
+                  <Printer className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                  <Barcode className={`h-5 w-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                   <h3 className="font-bold text-sm">
                     Print Item Barcodes (A4 Sheet PDF Format — Code 39)
                   </h3>

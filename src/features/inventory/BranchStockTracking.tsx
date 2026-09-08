@@ -48,7 +48,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   const productsWithStock = products.map((prod) => {
     const totalQty = activeBranches.reduce((sum, b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-      return sum + (item ? item.quantityOnHand : 0);
+      return sum + (item ? Number(item.quantityOnHand) : 0);
     }, 0);
     return { prod, totalQty };
   });
@@ -80,7 +80,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       label: `${b.name} (On-Hand)`,
       formatter: (_: any, prod: Product) => {
         const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-        return item ? item.quantityOnHand : 0;
+        return item ? Number(item.quantityOnHand) : 0;
       },
     }));
 
@@ -100,7 +100,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
         formatter: (_: any, prod: Product) => {
           return activeBranches.reduce((sum, b) => {
             const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-            return sum + (item ? item.quantityOnHand : 0);
+            return sum + (item ? Number(item.quantityOnHand) : 0);
           }, 0);
         },
       },
@@ -110,7 +110,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
         formatter: (_: any, prod: Product) => {
           const qty = activeBranches.reduce((sum, b) => {
             const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-            return sum + (item ? item.quantityOnHand : 0);
+            return sum + (item ? Number(item.quantityOnHand) : 0);
           }, 0);
           return qty * (prod.costPrice || 0);
         },
@@ -156,8 +156,8 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export full Branch Stock Matrix with uniform BS Date (YYYY-MM-DD)"
           >
-            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <Download className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <FileSpreadsheet className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
             <span>Export Matrix CSV (BS Date)</span>
           </button>
 
@@ -216,9 +216,9 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories ({products.length})</option>
+            <option value="ALL" className={`${isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}`}>All Categories ({products.length})</option>
             {categories.map((cat) => (
-              <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+              <option key={cat} value={cat} className={`${isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}`}>
                 {cat}
               </option>
             ))}
@@ -271,12 +271,12 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 branchStockPagination.pagedItems.map((prod) => {
                   const systemTotalUsable = branches.reduce((sum, b) => {
                     const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
-                    return sum + (st ? st.quantityOnHand : 0);
+                    return sum + (st ? Number(st.quantityOnHand) : 0);
                   }, 0);
 
                   const systemTotalDamaged = branches.reduce((sum, b) => {
                     const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
-                    return sum + (st ? st.damagedQty || 0 : 0);
+                    return sum + (st ? Number(st.damagedQty) || 0 : 0);
                   }, 0);
 
                   return (
@@ -287,7 +287,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
                       }`}>
                         <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                        <div className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-mono mt-0.5`}>
                           SKU: {prod.sku}
                         </div>
                       </td>
@@ -315,7 +315,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                             {systemTotalUsable} <span className="text-[10px] font-normal opacity-75">{prod.unit}</span>
                           </span>
                           {systemTotalDamaged > 0 && (
-                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
+                            <span className={`text-[9px] ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-semibold mt-0.5`}>
                               ({systemTotalDamaged} damaged)
                             </span>
                           )}
@@ -351,21 +351,21 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                             <span
                               className={`font-mono font-bold text-xs ${
                                 isLow
-                                  ? 'text-rose-600 dark:text-rose-400'
+                                  ? (isDarkMode ? 'text-rose-400' : 'text-rose-600')
                                   : isDarkMode ? 'text-slate-200' : 'text-slate-800'
                               }`}
                             >
                               {s.quantityOnHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
                             </span>
                             {(s.damagedQty || 0) > 0 && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800/50 mt-0.5">
+                              <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold ${isDarkMode ? 'text-amber-400 bg-amber-950/60 border-amber-800/50' : 'text-amber-600 bg-amber-50 border-amber-200'} px-1.5 py-0.2 rounded border mt-0.5`}>
                                 <AlertTriangle className="h-2.5 w-2.5" />
                                 <span>{s.damagedQty} damaged</span>
                               </span>
                             )}
                           </div>
                           {isLow && (
-                            <div className="flex items-center justify-center gap-1 text-[9px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
+                            <div className={`flex items-center justify-center gap-1 text-[9px] ${isDarkMode ? 'text-rose-400' : 'text-rose-600'} font-semibold mt-0.5`}>
                               <AlertTriangle className="h-2.5 w-2.5" />
                               <span>Low Stock</span>
                             </div>

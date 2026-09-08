@@ -160,6 +160,42 @@ CREATE TABLE IF NOT EXISTS inventory_stock (
 );
 
 -- ==========================================
+-- 7b. Damage Records Table (tracks damage lifecycle: identified -> disposed/written-off)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS damage_records (
+    id VARCHAR(50) PRIMARY KEY,
+    damage_reference VARCHAR(100) UNIQUE NOT NULL,
+    product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    quantity_damaged INT NOT NULL CHECK (quantity_damaged > 0),
+    unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    damage_date_ad DATE NOT NULL,
+    damage_date_bs VARCHAR(20) NOT NULL,
+    damage_reason VARCHAR(100) NOT NULL CHECK (damage_reason IN ('PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER')),
+    status VARCHAR(30) NOT NULL DEFAULT 'IDENTIFIED' CHECK (status IN ('IDENTIFIED', 'UNDER_REVIEW', 'DISPOSED', 'WRITTEN_OFF', 'RETURNED_TO_SUPPLIER', 'CANCELLED')),
+    disposal_date_ad DATE,
+    disposal_date_bs VARCHAR(20),
+    disposal_method VARCHAR(50) CHECK (disposal_method IN ('SCRAP_DESTRUCTION', 'SALVAGE_E_WASTE', 'VENDOR_RMA', 'INSURANCE_CLAIM', 'WRITE_OFF', 'RETURN_TO_SUPPLIER', 'AUCTION')),
+    salvage_value NUMERIC(15, 2) DEFAULT 0,
+    gl_account_code VARCHAR(100),
+    write_off_loss NUMERIC(15, 2) DEFAULT 0,
+    approved_by VARCHAR(150),
+    notes TEXT,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_damage_records_product ON damage_records(product_id);
+CREATE INDEX IF NOT EXISTS idx_damage_records_branch ON damage_records(branch_id);
+CREATE INDEX IF NOT EXISTS idx_damage_records_status ON damage_records(status);
+CREATE INDEX IF NOT EXISTS idx_damage_records_fiscal_year ON damage_records(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_damage_records_demo ON damage_records(id) WHERE is_demo = TRUE;
+
+-- ==========================================
 -- 8. Fixed Assets Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS fixed_assets (

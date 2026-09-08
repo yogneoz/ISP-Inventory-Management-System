@@ -119,7 +119,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Factory className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <Factory className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
             <span>Supplier & Vendor Register</span>
           </h2>
           <p className="truncate text-slate-500 text-xs mt-0.5">
@@ -176,7 +176,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleOpenEditModal(s)}
                       title="Edit Supplier"
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                      className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-indigo-400 hover:bg-indigo-950/60' : 'hover:text-indigo-600 hover:bg-indigo-50'} transition-colors cursor-pointer`}
                     >
                       <Edit className="h-3.5 w-3.5" />
                     </button>
@@ -184,7 +184,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleDelete(s)}
                       title="Delete Supplier"
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                      className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-rose-400 hover:bg-rose-950/60' : 'hover:text-rose-600 hover:bg-rose-50'} transition-colors cursor-pointer`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -213,7 +213,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+              <span className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-semibold flex items-center gap-1`}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Verified Vendor
               </span>
               <span className="text-slate-400 font-mono">ID: {s.id}</span>

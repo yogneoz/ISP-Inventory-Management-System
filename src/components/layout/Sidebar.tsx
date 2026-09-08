@@ -565,7 +565,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? 'bg-indigo-600/25 text-indigo-300 font-bold border border-indigo-500/50 shadow-xs'
                       : 'bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs'
                     : isDarkMode
-                    ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    ? 'text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'
                     : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60'
                 }`}
               >
@@ -597,7 +597,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isSubPanelExpanded ? 'Collapse Submenu Panel' : 'Expand Submenu Panel'}
             className={`p-2 rounded-xl transition-all cursor-pointer ${
               isDarkMode
-                ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                ? 'text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
                 : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
             }`}
           >
@@ -620,7 +620,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Mobile Header bar with close button */}
           {onCloseMobile && (
             <div className="flex md:hidden items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Navigation</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-300">Navigation</span>
               <button
                 onClick={onCloseMobile}
                 className="rounded-lg p-1 text-slate-400 hover:text-slate-800 dark:hover:text-white"
@@ -641,7 +641,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {currentGroupDef && (
                 <>
                   <currentGroupDef.icon className="h-4.5 w-4.5 text-indigo-500 flex-shrink-0" />
-                  <span className="text-xs font-bold uppercase tracking-wider truncate text-slate-800 dark:text-slate-100">
+                  <span className={`text-xs font-bold uppercase tracking-wider truncate ${isDarkMode ? 'text-indigo-400' : 'text-slate-800'}`}>
                     {currentGroupDef.title}
                   </span>
                 </>
@@ -672,7 +672,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   placeholder="Filter menu options..."
                   value={menuFilter}
                   onChange={(e) => setMenuFilter(e.target.value)}
-                  className="w-full bg-transparent text-[11px] focus:outline-none placeholder:text-slate-400"
+                  className="w-full bg-transparent text-[11px] focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
                 {menuFilter && (
                   <button onClick={() => setMenuFilter('')} className="text-[10px] text-slate-400 hover:text-slate-200">
@@ -701,10 +701,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer font-medium ${
                       isActive
                         ? isDarkMode
-                          ? 'bg-indigo-600/20 text-indigo-300 font-semibold border-l-3 border-indigo-500 shadow-xs'
+                          ? 'bg-indigo-600/20 dark:text-indigo-300 font-semibold border-l-3 border-indigo-500 shadow-xs'
                           : 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs'
                         : isDarkMode
-                        ? 'border-l-3 border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        ? 'border-l-3 border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
                         : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100'
                     }`}
                   >
@@ -747,7 +747,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 src={companyProfile.logoUrl}
                 alt={companyProfile.name || 'Company Logo'}
                 referrerPolicy="no-referrer"
-                className="flex-shrink-0 w-8 h-8 rounded-xl object-contain bg-white/10 p-0.5 border border-slate-300/30 shadow-xs group-hover:scale-105 transition-transform"
+                className={`flex-shrink-0 w-8 h-8 rounded-xl object-contain p-0.5 shadow-xs group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800/50 border border-slate-700/50' : 'bg-white/10 border border-slate-300/30'}`}
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}

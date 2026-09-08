@@ -103,7 +103,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
     activeBranches.forEach((b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-      const onHand = item ? item.quantityOnHand : 0;
+      const onHand = item ? Number(item.quantityOnHand) : 0;
       totalOnHand += onHand;
 
       const branchMinReorder = getBranchReorderThreshold(prod, item);
@@ -252,7 +252,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       lastUpdated: new Date().toISOString(),
     };
     setEditingStock({ stockItem: safeStockItem, product: p, branch: b, mode });
-    setNewQty(safeStockItem.quantityOnHand);
+    setNewQty(Number(safeStockItem.quantityOnHand));
     setNewReorderLevel(safeStockItem.minReorderLevel ?? p.minReorderLevel ?? 5);
     setReason('Reorder threshold adjustment');
   };
@@ -321,8 +321,8 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export Reorder Levels & Deficits report with uniform BS Date (YYYY-MM-DD)"
           >
-            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <Download className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <FileSpreadsheet className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
             <span>Export Reorder CSV (BS Date)</span>
           </button>
 
@@ -482,7 +482,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 </th>
                 <th className="px-2.5 py-1.5 text-center sticky top-0 bg-inherit">Cat</th>
                 <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit">Catalog Default</th>
-                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit font-bold text-indigo-600 dark:text-indigo-400">
+                <th className={`px-2.5 py-1.5 text-right sticky top-0 bg-inherit font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                   Consolidated Min
                 </th>
                 <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit font-bold">
@@ -533,7 +533,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
                     }`}>
                       <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                      <div className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-mono`}>
                         SKU: {prod.sku}
                       </div>
                     </td>
@@ -554,14 +554,14 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       {prod.minReorderLevel} {prod.unit}
                     </td>
 
-                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
+                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                       {totalConsolidatedReorderLevel} {prod.unit}
                     </td>
 
                     <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${
                       totalOnHand <= totalConsolidatedReorderLevel
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-emerald-600 dark:text-emerald-400'
+                        ? (isDarkMode ? 'text-rose-400' : 'text-rose-600')
+                        : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')
                     }`}>
                       {totalOnHand} {prod.unit}
                     </td>
@@ -569,7 +569,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                     {/* Total Required Deficit Column */}
                     <td className={`px-2.5 py-1.5 text-center border-l border-r font-mono font-bold ${
                       totalDeficit > 0
-                        ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-slate-200 dark:border-slate-800'
+                        ? (isDarkMode ? 'bg-rose-950/30 text-rose-400 border-slate-800' : 'bg-rose-50 text-rose-600 border-slate-200')
                         : isDarkMode ? 'bg-slate-900/20 text-slate-500 border-slate-800' : 'bg-slate-50 text-slate-400 border-slate-200'
                     }`}>
                       <div className="flex flex-col items-center">
@@ -599,7 +599,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                         lastUpdated: new Date().toISOString(),
                       };
 
-                      const onHand = s.quantityOnHand;
+                      const onHand = Number(s.quantityOnHand);
                       const branchMin = getBranchReorderThreshold(prod, s);
                       const isLow = branchMin > 0 ? onHand <= branchMin : onHand < 0;
                       const branchDeficit = branchMin > 0 ? Math.max(0, branchMin - onHand) : (onHand < 0 ? Math.abs(onHand) : 0);
@@ -617,7 +617,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                             <div className="flex flex-col items-start text-left">
                               <div className="flex items-center gap-1 font-mono text-xs">
                                 <span className={`font-bold ${
-                                  isLow ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
+                                  isLow ? (isDarkMode ? 'text-rose-400' : 'text-rose-600') : (isDarkMode ? 'text-slate-200' : 'text-slate-800')
                                 }`}>
                                   {onHand}
                                 </span>
@@ -626,15 +626,15 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
                               <div className="flex items-center gap-1 mt-0.5">
                                 <span className="text-[9px] font-mono font-medium text-slate-400">
-                                  Min: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{branchMin}</span>
+                                  Min: <span className={`${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-bold`}>{branchMin}</span>
                                 </span>
 
                                 {branchDeficit > 0 ? (
-                                  <span className="text-[9px] text-rose-500 font-bold font-mono">
+                                  <span className={`text-[9px] ${isDarkMode ? 'text-rose-400' : 'text-rose-500'} font-bold font-mono`}>
                                     (-{branchDeficit})
                                   </span>
                                 ) : (
-                                  <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
+                                  <span className={`text-[9px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-medium`}>
                                     OK
                                   </span>
                                 )}

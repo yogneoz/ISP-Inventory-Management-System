@@ -284,13 +284,13 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
 
-              <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
+              <div className={`h-12 w-12 rounded-2xl bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center justify-center mb-3`}>
                 <Upload className="h-6 w-6" />
               </div>
 
               {selectedFileName ? (
                 <div>
-                  <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 block truncate max-w-[200px]">
+                  <span className={`font-bold text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block truncate max-w-[200px]`}>
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -381,7 +381,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
                       <td className="p-2.5">
-                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">{row.sku}</div>
+                        <div className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[11px]`}>{row.sku}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.name}</div>
                       </td>
                       <td className="p-2.5 text-[11px]">
@@ -392,7 +392,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                         <div>रु {(row.costPrice ?? 0).toLocaleString('en-IN')}</div>
                         <div className="text-slate-400 text-[10px]">रु {(row.sellingPrice ?? 0).toLocaleString('en-IN')}</div>
                       </td>
-                      <td className="p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                         {row.initialQty} {row.unit}
                       </td>
                       <td className="p-2.5">

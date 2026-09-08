@@ -423,7 +423,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
               </span>
             </div>
             <p className={`text-xs font-mono mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-              AD Range: <span className="text-amber-600 dark:text-amber-300 font-bold">{bounds.minAD}</span> to <span className="text-amber-600 dark:text-amber-300 font-bold">{bounds.maxAD}</span> | BS Range: <span className="text-indigo-600 dark:text-indigo-300 font-bold">{bounds.minBS}</span> to <span className="text-indigo-600 dark:text-indigo-300 font-bold">{bounds.maxBS}</span>
+              AD Range: <span className={`${isDarkMode ? 'text-amber-300' : 'text-amber-600'} font-bold`}>{bounds.minAD}</span> to <span className={`${isDarkMode ? 'text-amber-300' : 'text-amber-600'} font-bold`}>{bounds.maxAD}</span> | BS Range: <span className={`${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} font-bold`}>{bounds.minBS}</span> to <span className={`${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} font-bold`}>{bounds.maxBS}</span>
             </p>
           </div>
         </div>
@@ -532,7 +532,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                     type="checkbox"
                     checked={seedOnlyIfNew}
                     onChange={(e) => setSeedOnlyIfNew(e.target.checked)}
-                    className="rounded text-indigo-600 h-4 w-4"
+                    className={`rounded ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} h-4 w-4`}
                   />
                   <span>Seed only if new</span>
                 </label>

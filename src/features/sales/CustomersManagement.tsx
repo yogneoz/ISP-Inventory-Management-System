@@ -445,7 +445,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
             }`}
           >
-            <Download className="h-4 w-4 text-blue-500" />
+            <Download className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
             <span>Export CSV ({filteredRecords.length})</span>
           </button>
 
@@ -517,7 +517,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}>
  <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500" />
+          <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
           <input
             type="text"
             value={searchQuery}
@@ -544,11 +544,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 : 'bg-white border-slate-200 text-slate-700'
             }`}
           >
-            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Statuses</option>
-            <option value="RENTAL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-blue-400">RENTAL (Rental Product)</option>
-            <option value="SOLD" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400">SOLD (Sold Product)</option>
-            <option value="ROUTER_COLLECTED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400">ROUTER COLLECTED (Disconnected)</option>
-            <option value="EXCHANGED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-400">EXCHANGED</option>
+            <option value="ALL" className={isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}>All Statuses</option>
+            <option value="RENTAL" className={isDarkMode ? 'bg-slate-800 text-blue-400' : 'bg-white text-slate-900'}>RENTAL (Rental Product)</option>
+            <option value="SOLD" className={isDarkMode ? 'bg-slate-800 text-purple-400' : 'bg-white text-slate-900'}>SOLD (Sold Product)</option>
+            <option value="ROUTER_COLLECTED" className={isDarkMode ? 'bg-slate-800 text-rose-400' : 'bg-white text-slate-900'}>ROUTER COLLECTED (Disconnected)</option>
+            <option value="EXCHANGED" className={isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-900'}>EXCHANGED</option>
           </select>
         </div>
       </div>
@@ -632,7 +632,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
                           isDarkMode ? 'bg-blue-950/60 border-blue-800' : 'bg-blue-50 border-blue-200'
                         }`}>
-                          <Barcode className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                          <Barcode className={`h-3.5 w-3.5 shrink-0 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
                           <span className={`font-mono font-extrabold text-xs select-all break-all ${
                             isDarkMode ? 'text-blue-300' : 'text-blue-900'
                           }`}>
@@ -642,10 +642,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                             type="button"
                             onClick={() => handleCopy(rec.deviceSerial)}
                             title="Copy Device Serial"
-                            className="p-0.5 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer ml-1 shrink-0"
+                            className={`p-0.5 ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-700'} dark:hover:text-blue-300 cursor-pointer ml-1 shrink-0`}
                           >
                             {copiedText === rec.deviceSerial ? (
-                              <Check className="h-3 w-3 text-emerald-500" />
+                              <Check className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                             ) : (
                               <Copy className="h-3 w-3" />
                             )}
@@ -663,7 +663,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
                           isDarkMode ? 'bg-indigo-950/60 border-indigo-800' : 'bg-indigo-50 border-indigo-200'
                         }`}>
-                          <Wifi className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                          <Wifi className={`h-3.5 w-3.5 shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                           <span className={`font-mono font-extrabold text-xs select-all break-all ${
                             isDarkMode ? 'text-indigo-300' : 'text-indigo-900'
                           }`}>
@@ -673,10 +673,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                             type="button"
                             onClick={() => handleCopy(rec.ponSerial)}
                             title="Copy PON Serial"
-                            className="p-0.5 text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer ml-1 shrink-0"
+                            className={`p-0.5 ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-500 hover:text-indigo-700'} cursor-pointer ml-1 shrink-0`}
                           >
                             {copiedText === rec.ponSerial ? (
-                              <Check className="h-3 w-3 text-emerald-500" />
+                              <Check className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
                             ) : (
                               <Copy className="h-3 w-3" />
                             )}
@@ -834,7 +834,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               isDarkMode ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-slate-50'
             }`}>
               <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Wifi className="h-4 w-4 text-blue-500" />
+                <Wifi className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
                 <span>Customer Hardware Deployment Details</span>
               </h3>
               <button
@@ -853,7 +853,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   <div className={`text-base font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     {viewingRecord.customerName}
                   </div>
-                  <div className="text-xs text-blue-500 dark:text-blue-400 font-mono font-bold mt-0.5">
+                  <div className={`text-xs ${isDarkMode ? 'text-blue-400' : 'text-blue-500'} dark:text-blue-400 font-mono font-bold mt-0.5`}>
                     Account: {viewingRecord.customerCode} | Phone: {viewingRecord.contactPhone}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
@@ -927,7 +927,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   }`}>
                     {viewingRecord.deviceSerial}
                   </div>
-                  <div className="text-[10px] text-blue-500 mt-0.5">Physical Barcode Label</div>
+                  <div className={`text-[10px] ${isDarkMode ? 'text-blue-400' : 'text-blue-500'} mt-0.5`}>Physical Barcode Label</div>
                 </div>
 
                 <div className={`p-3.5 rounded-xl border ${
@@ -943,7 +943,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   }`}>
                     {viewingRecord.ponSerial}
                   </div>
-                  <div className="text-[10px] text-indigo-500 mt-0.5">Optical Line Terminal ID</div>
+                  <div className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'} mt-0.5`}>Optical Line Terminal ID</div>
                 </div>
               </div>
 
@@ -979,7 +979,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 {viewingRecord.purchaseBillRef && (
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>Origin Purchase Bill #:</span>
-                    <span className="font-mono font-bold text-blue-500">{viewingRecord.purchaseBillRef}</span>
+                    <span className={`font-mono font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`}>{viewingRecord.purchaseBillRef}</span>
                   </div>
                 )}
               </div>
@@ -1031,7 +1031,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               isDarkMode ? 'border-slate-800 bg-slate-900/90' : 'border-slate-200 bg-slate-50'
             }`}>
               <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Wifi className="h-4 w-4 text-blue-500" />
+                <Wifi className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
                 <span>Assign Customer Device (Device & PON Serial Entry)</span>
               </h3>
               <button
@@ -1114,14 +1114,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     isDarkMode ? 'text-indigo-300' : 'text-indigo-900'
                   }`}>
                     <span className="flex items-center gap-1">
-                      <UserCheck className="h-3.5 w-3.5 text-indigo-500" />
+                      <UserCheck className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
                       Auto-fill from Customer Master Directory
                     </span>
                     {onNavigateToMaster && (
                       <button
                         type="button"
                         onClick={onNavigateToMaster}
-                        className="text-[10px] text-indigo-500 hover:underline flex items-center gap-0.5 cursor-pointer font-semibold"
+                        className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'} hover:underline flex items-center gap-0.5 cursor-pointer font-semibold`}
                       >
                         Master Directory <ExternalLink className="h-2.5 w-2.5" />
                       </button>
@@ -1279,7 +1279,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 <span className={`text-xs font-bold block flex items-center gap-1 ${
                   isDarkMode ? 'text-blue-300' : 'text-blue-900'
                 }`}>
-                  <Barcode className="h-4 w-4 text-blue-500" />
+                  <Barcode className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
                   Hardware Device Identification Numbers
                 </span>
 

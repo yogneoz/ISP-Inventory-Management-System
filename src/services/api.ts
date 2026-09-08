@@ -73,7 +73,14 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(errorBody.message || `Request failed with status ${res.status}`);
+        const error = new Error(errorBody.message || `Request failed with status ${res.status}`);
+        // Attach status code for 401 detection
+        (error as any).status = res.status;
+        // Dispatch auth expiration event on 401 so App can force logout
+        if (res.status === 401) {
+          window.dispatchEvent(new CustomEvent('izone_auth_expired', { detail: { message: error.message } }));
+        }
+        throw error;
       }
       return await res.json();
     } finally {

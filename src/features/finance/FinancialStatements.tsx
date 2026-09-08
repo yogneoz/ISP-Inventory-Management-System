@@ -226,7 +226,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
               }`}
             >
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className="font-bold text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} flex items-center gap-2`}>
                   <Building className="h-4 w-4" />
                   <span>ASSETS</span>
                 </h3>
@@ -274,7 +274,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
               }`}
             >
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className="font-bold text-sm text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center gap-2`}>
                   <Scale className="h-4 w-4" />
                   <span>LIABILITIES & EQUITY</span>
                 </h3>
@@ -382,7 +382,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span className="font-mono">NPR {(salesRevenue ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
-              <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-emerald-600 dark:text-emerald-400">
+              <div className={`flex justify-between items-center py-2 border-b ${isDarkMode ? 'border-slate-800/80 text-emerald-400' : 'border-slate-100 text-emerald-600'}`}>
                 <span>Less: Posted Cost of Goods Sold</span>
                 <span className="font-mono">- NPR {(trackedCOGS ?? 0).toLocaleString('en-IN')}</span>
               </div>
@@ -397,7 +397,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span className="font-mono">- NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
-              <div className="flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base text-indigo-600 dark:text-indigo-400">
+              <div className={`flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                 <span>NET OPERATING PROFIT / SURPLUS</span>
                 <span className="font-mono">NPR {(netProfit ?? 0).toLocaleString('en-IN')}</span>
               </div>

@@ -690,15 +690,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
 
             <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
-              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Pending Deliveries</span>
-              <div className="text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Pending Deliveries</span>
+              <div className={`text-xl font-mono font-extrabold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} mt-1`}>
                 {filteredPOs.filter((p) => p.status === 'SENT' || p.status === 'APPROVED' || p.status === 'IN_PROGRESS' || (p.status as string) === 'INPROGRESS').length} Orders
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/10 shadow-xs">
-              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Order Value</span>
-              <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>Pending Order Value</span>
+              <div className={`text-xl font-mono font-extrabold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} mt-1`}>
                 Rs. {(filteredPOs
                   .filter((p) => p.status !== 'RECEIVED' && p.status !== 'CANCELLED')
                   .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
@@ -707,8 +707,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
 
             <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/10 shadow-xs">
-              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Value</span>
-              <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Received Stock Value</span>
+              <div className={`text-xl font-mono font-extrabold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} mt-1`}>
                 Rs. {(filteredPOs
                   .filter((p) => p.status === 'RECEIVED')
                   .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
@@ -818,7 +818,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                             isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                           }`}
                         >
-                          <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                             {po.poNumber}
                           </td>
                           <td className="p-2.5 font-bold text-slate-900 dark:text-white">
@@ -845,7 +845,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                           <td className="p-2.5 text-right font-mono font-medium text-slate-600 dark:text-slate-400">
                             {(po.subtotalAmount ?? 0).toLocaleString('en-IN')}
                           </td>
-                          <td className="p-2.5 text-right font-mono font-medium text-indigo-600 dark:text-indigo-400">
+                          <td className={`p-2.5 text-right font-mono font-medium ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                             {(po.taxAmount ?? 0).toLocaleString('en-IN')}
                           </td>
                           <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
@@ -892,7 +892,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   }
                                 }}
                                 title="Delete Purchase Order"
-                                className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 cursor-pointer transition-colors"
+                                className={`p-1.5 rounded-lg border ${isDarkMode ? 'border-rose-800 hover:bg-rose-950 text-rose-400' : 'border-rose-200 hover:bg-rose-50 text-rose-600'} cursor-pointer transition-colors`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>}
@@ -911,7 +911,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   className={`p-1.5 rounded-lg border transition-colors ${
                                     po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS'
                                       ? 'opacity-40 cursor-not-allowed text-slate-400 border-slate-300 dark:border-slate-800'
-                                      : 'border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-indigo-600 dark:text-indigo-400 cursor-pointer'
+                                      : isDarkMode ? 'border-indigo-800 hover:bg-indigo-950 text-indigo-400 cursor-pointer' : 'border-indigo-200 hover:bg-indigo-50 text-indigo-600 cursor-pointer'
                                   }`}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
@@ -987,16 +987,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
           }`}
         >
           {/* Form Banner Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+              <div className={`p-3 rounded-2xl border ${isDarkMode ? 'bg-indigo-950/60 text-indigo-400 border-indigo-800' : 'bg-indigo-50 text-indigo-600 border-indigo-200'}`}>
                 <ShoppingCart className="h-6 w-6" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                <h3 className={`font-bold text-base flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                   <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry (Full Page Inline Form)'}</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Scan barcodes or search products, configure quantity & unit prices, and calculate 13% VAT with bill-wise discount.
                 </p>
               </div>
@@ -1032,15 +1032,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
           <form onSubmit={handleSubmit} className="space-y-6" id="po-form-element">
             {/* Top Form Fields: Vendor, Branch, Tax Mode, Expected Delivery */}
-            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-xl border ${
+            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl border ${
               isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
               {/* Vendor Searchable Field */}
               <div className="relative" ref={supplierDropdownRef}>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Vendor / Supplier Name *
                 </label>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 flex items-center">
+                <div className="relative w-full flex items-center">
                   <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
@@ -1055,7 +1055,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Search supplier name or PAN..."
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-8 py-2 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className={`w-full rounded-xl border pl-9 pr-8 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100 focus:border-indigo-500' : 'border-slate-300 bg-white text-slate-900 focus:border-indigo-500'
+                    }`}
                   />
                   {supplierName ? (
                     <button
@@ -1064,7 +1066,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                         setSupplierName('');
                         setIsSupplierDropdownOpen(true);
                       }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
                       title="Clear vendor selection"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -1073,7 +1075,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsSupplierDropdownOpen((prev) => !prev)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
@@ -1082,11 +1084,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
                 {/* Floating Search Dropdown Overlay */}
                 {isSupplierDropdownOpen && (
-                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800">
+                  <div className={`absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl ${isDarkMode ? 'border-slate-700 bg-slate-900 divide-slate-800' : 'border-slate-200 bg-white divide-slate-100'}`}>
                     {filteredSuppliers.length === 0 ? (
                       <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
                         <div>No matching supplier in directory.</div>
-                        <div className="mt-1 font-semibold text-indigo-600 dark:text-indigo-400">
+                        <div className={`mt-1 font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                           Press enter or tab to use "{supplierName}".
                         </div>
                       </div>
@@ -1101,20 +1103,22 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               setSupplierName(s.name);
                               setIsSupplierDropdownOpen(false);
                             }}
-                            className={`w-full text-left p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
-                              isSelected ? 'bg-indigo-50/70 dark:bg-indigo-950/40' : ''
+                            className={`w-full text-left p-2.5 transition-colors cursor-pointer flex items-center justify-between ${
+                              isDarkMode
+                                ? `hover:bg-slate-800 ${isSelected ? 'bg-indigo-950/40' : ''}`
+                                : `hover:bg-indigo-50 ${isSelected ? 'bg-indigo-50/70' : ''}`
                             }`}
                           >
                             <div className="min-w-0 pr-2">
-                              <div className="font-semibold text-slate-900 dark:text-white text-xs truncate">
+                              <div className={`font-semibold text-xs truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                                 {s.name}
                               </div>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                              <div className={`flex items-center gap-2 text-[10px] font-mono mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                                 {s.panVatNumber && <span>PAN: {s.panVatNumber}</span>}
                                 {s.phone && <span>• {s.phone}</span>}
                               </div>
                             </div>
-                            {isSelected && <Check className="h-4 w-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />}
+                            {isSelected && <Check className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />}
                           </button>
                         );
                       })
@@ -1124,16 +1128,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Destination Branch *
                 </label>
                 <select
                   id="po-branch-select"
                   value={branchId}
                   onChange={(e) => setBranchId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                  className={`w-full rounded-xl border px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'
+                  }`}
                 >
-                                  {allowedBranches.map((b) => (
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name} ({b.code})
                     </option>
@@ -1142,7 +1148,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Taxation Term *
                 </label>
                 <select
@@ -1153,7 +1159,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     setTaxationType(val);
                     setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
                   }}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  className={`w-full rounded-xl border px-2.5 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-900'
+                  }`}
                 >
                   <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
                   <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
@@ -1168,18 +1176,19 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   onChange={setExpectedDeliveryDateAD}
                   required
                   id="po-delivery-date"
+                  isDarkMode={isDarkMode}
                 />
               </div>
             </div>
 
             {/* Product Search & Barcode Scan Bar */}
-            <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-xl border border-indigo-200 dark:border-indigo-800/60 space-y-2">
+            <div className={`p-3 rounded-xl border space-y-2 ${isDarkMode ? 'bg-indigo-950/40 border-indigo-800/60' : 'bg-indigo-50/70 border-indigo-200'}`}>
               <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-300">
-                <span className="flex items-center gap-1.5">
+                <span className={`flex items-center gap-1.5 ${isDarkMode ? 'text-indigo-300' : 'text-indigo-700'}`}>
                   <Search className="h-4 w-4" />
                   <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
                 </span>
-                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 hidden sm:inline">
+                <span className={`text-[10px] font-normal hidden sm:inline ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Scan or type item name to instantly add or increment quantity
                 </span>
               </div>
@@ -1188,6 +1197,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 onAddOrIncrementProduct={handleAddOrIncrementProduct}
                 placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
                 inputId="po-product-search-input"
+                isDarkMode={isDarkMode}
               />
             </div>
 
@@ -1213,7 +1223,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     type="button"
                     id="btn-po-add-line"
                     onClick={addLine}
-                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
+                    className={`flex items-center gap-1 text-xs font-bold ${isDarkMode ? 'text-indigo-400 bg-indigo-950/50 border-indigo-800/50' : 'text-indigo-600 bg-indigo-50 border-indigo-200'} hover:underline cursor-pointer px-3 py-1.5 rounded-lg border`}
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>Add Item Line</span>
@@ -1332,9 +1342,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
 
             {/* POS Summary Calculations & Remarks */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-200 dark:border-slate-800 pt-5">
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-5 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-200'} pt-5`}>
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Order Remarks / Terms & Conditions
                 </label>
                 <textarea
@@ -1343,7 +1353,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Enter dispatch instructions, payment terms, warranty terms, or vendor agreement reference..."
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  className={`w-full rounded-xl border p-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                    isDarkMode 
+                      ? 'border-slate-600 bg-slate-800 text-white placeholder-slate-500' 
+                      : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400'
+                  }`}
                 />
               </div>
 
@@ -1363,7 +1377,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 </div>
 
                 {/* Bill Wise Discount Input */}
-                <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+                <div className={`flex justify-between items-center ${isDarkMode ? 'text-amber-400 bg-amber-950/40 border-amber-800/40' : 'text-amber-600 bg-amber-50/70 border-amber-200/60'} p-2.5 rounded-xl border`}>
                   <span className="font-bold">Bill Wise Discount (NPR):</span>
                   <input
                     type="number"
@@ -1371,7 +1385,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     id="po-bill-discount-input"
                     value={billWiseDiscount}
                     onChange={(e) => setBillWiseDiscount(Math.max(0, Number(e.target.value)))}
-                    className="w-32 text-right rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
+                    className={`w-32 text-right rounded-lg border ${isDarkMode ? 'border-amber-700 bg-slate-900 text-amber-400' : 'border-amber-300 bg-white text-amber-600'} px-2 py-1 text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500`}
                   />
                 </div>
 
@@ -1382,7 +1396,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                <div className={`flex justify-between items-center ${isDarkMode ? 'text-indigo-400 border-slate-800' : 'text-indigo-600 border-slate-200'} font-semibold border-t pt-2.5`}>
                   <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
                   <span className="font-mono font-bold">
                     Rs. {(totalVAT ?? 0).toLocaleString('en-IN')}
@@ -1391,7 +1405,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
                 <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2.5 border-t border-slate-300 dark:border-slate-700">
                   <span>Grand Total Order Amount:</span>
-                  <span className="font-mono text-indigo-600 dark:text-indigo-400 text-lg">
+                  <span className={`font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-lg`}>
                     Rs. {(grandTotal ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -1454,7 +1468,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">{companyProfile?.address || 'Registered address unavailable'}</p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">PAN/VAT: {companyProfile?.panVatNumber || 'Not configured'}{companyProfile?.phone ? ` | ${companyProfile.phone}` : ''}</p>
               </div>
-              <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+              <div className={`flex items-center gap-2 text-xs font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} mb-1`}>
                 <FileText className="h-4 w-4" />
                 <span>Official Purchase Order Document</span>
               </div>
@@ -1467,7 +1481,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
 
             <div className="text-left sm:text-right">
-              <div className="text-base font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
+              <div className={`text-base font-mono font-extrabold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                 PO #{viewingPO.poNumber}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -1544,7 +1558,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <td className="p-2.5 text-right font-mono">
                       Rs. {(item.subtotal ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN')}
                     </td>
-                    <td className="p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                    <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                       Rs. {(item.taxAmount ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -1570,13 +1584,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <span>Subtotal:</span>
                 <span>Rs. {(viewingPO.subtotalAmount ?? 0).toLocaleString('en-IN')}</span>
               </div>
-              <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
+              <div className={`flex justify-between ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-semibold`}>
                 <span>13% VAT:</span>
                 <span>Rs. {(viewingPO.taxAmount ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                 <span>Grand Total:</span>
-                <span className="text-indigo-600 dark:text-indigo-400">
+                <span className={isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}>
                   Rs. {(viewingPO.totalAmount ?? 0).toLocaleString('en-IN')}
                 </span>
               </div>

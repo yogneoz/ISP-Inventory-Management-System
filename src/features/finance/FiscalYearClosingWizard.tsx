@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User } from '../../types';
 import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { filterFiscalYears } from '../../utils/permissions';
 import {
   Lock,
   Unlock,
@@ -289,8 +290,8 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               onChange={(event) => setSelectedFiscalYearId(event.target.value)}
               className="ml-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
             >
-              {fiscalYears.map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
+              {filterFiscalYears(fiscalYears).map((fiscalYear) => (
+                <option key={fiscalYear.id} value={fiscalYear.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
               ))}
             </select>
           </label>

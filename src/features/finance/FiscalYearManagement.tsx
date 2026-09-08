@@ -8,6 +8,7 @@ import {
   generateNextDocumentNumber,
   resetDocumentSequence,
 } from '../../utils/documentNumbering';
+import { filterFiscalYears } from '../../utils/permissions';
 import {
   CalendarDays,
   CheckCircle2,
@@ -241,8 +242,8 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               onChange={(e) => setViewFiscalYearId(e.target.value)}
               className="bg-transparent font-semibold outline-none cursor-pointer"
             >
-              {sortedFiscalYears.map((fy) => (
-                <option key={fy.id} value={fy.id} className="bg-slate-900 text-white">
+              {filterFiscalYears(sortedFiscalYears).map((fy) => (
+                <option key={fy.id} value={fy.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                   FY {fy.code}
                   {fy.isCurrent ? ' (Active)' : ''}
                 </option>
@@ -314,13 +315,13 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateBS} to {fy.endDateBS}</td>
                   <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateAD} to {fy.endDateAD}</td>
                   <td className="p-3 font-bold">
-                    {fy.isCurrent ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Active</span> : fy.isClosed ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"><Lock className="h-3 w-3" /> Closed</span> : <span className="text-emerald-600 dark:text-emerald-400">Open</span>}
+                    {fy.isCurrent ? <span className={`inline-flex items-center gap-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}><CheckCircle2 className="h-3.5 w-3.5" /> Active</span> : fy.isClosed ? <span className={`inline-flex items-center gap-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><Lock className="h-3 w-3" /> Closed</span> : <span className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Open</span>}
                   </td>
                   <td className="p-3 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      {!fy.isCurrent && <button onClick={() => onSetCurrentFiscalYear(fy.id)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">Set Active</button>}
+                      {!fy.isCurrent && <button onClick={() => onSetCurrentFiscalYear(fy.id)} className={`text-xs font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} hover:underline cursor-pointer`}>Set Active</button>}
                       {canManageFiscalYears && <button type="button" onClick={() => { setEditFiscalYearError(''); setEditingFiscalYear({ ...fy }); }} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"><Edit3 className="h-3.5 w-3.5" /> Edit</button>}
-                      {canManageFiscalYears && !fy.isCurrent && <button type="button" onClick={() => handleDeleteFiscalYear(fy)} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
+                      {canManageFiscalYears && !fy.isCurrent && <button type="button" onClick={() => handleDeleteFiscalYear(fy)} className={`inline-flex items-center gap-1 text-xs font-semibold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'} hover:underline cursor-pointer`}><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -676,7 +677,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           }`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Inventory Asset Opening</span>
             <span className="text-sm font-mono font-bold text-emerald-500">NPR 14,850,000</span>
-            <span className="text-[10px] text-emerald-600 block mt-0.5">✓ Reconciled with Stock Audit</span>
+            <span className={`text-[10px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} block mt-0.5`}>✓ Reconciled with Stock Audit</span>
           </div>
 
           <div className={`p-3 rounded-xl border ${
@@ -684,7 +685,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           }`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Fixed Asset Opening</span>
             <span className="text-sm font-mono font-bold text-indigo-500">NPR 8,240,000</span>
-            <span className="text-[10px] text-indigo-600 block mt-0.5">✓ WDV Carried Forward</span>
+            <span className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block mt-0.5`}>✓ WDV Carried Forward</span>
           </div>
 
           <div className={`p-3 rounded-xl border ${
@@ -692,7 +693,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           }`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Accounts Payable Opening</span>
             <span className="text-sm font-mono font-bold text-amber-500">NPR 3,120,000</span>
-            <span className="text-[10px] text-amber-600 block mt-0.5">✓ Vendor Ledgers Synced</span>
+            <span className={`text-[10px] ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} block mt-0.5`}>✓ Vendor Ledgers Synced</span>
           </div>
         </div>
       </div>
@@ -809,7 +810,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                       resetEveryFiscalYear: e.target.checked,
                     })
                   }
-                  className="rounded text-indigo-600 h-4 w-4"
+                  className={`rounded ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} h-4 w-4`}
                 />
                 <span>Reset sequence counter to 1 when a new Fiscal Year begins</span>
               </label>
@@ -830,7 +831,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               {/* Sample Output Live Preview Box */}
               <div className="p-3.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800">
                 <span className="text-[10px] text-slate-400 uppercase font-bold block">Live Formatted Preview</span>
-                <span className="text-base font-mono font-bold text-indigo-600 dark:text-indigo-300">
+                <span className={`text-base font-mono font-bold ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
                   {formatDocumentNumber(editingDocConfig)}
                 </span>
               </div>

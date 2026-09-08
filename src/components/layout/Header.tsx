@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
-import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../../utils/permissions';
+import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
 import { NavTab } from './Sidebar';
 import { NotificationCenter } from '../common/NotificationCenter';
 import {
@@ -190,13 +190,13 @@ export const Header: React.FC<HeaderProps> = ({
               src={companyProfile.logoUrl}
               alt={companyProfile.name || 'Company Logo'}
               referrerPolicy="no-referrer"
-              className="h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain bg-white p-0.5 group-hover:scale-105 transition-transform"
+              className={`h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain p-0.5 group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
           ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded-none bg-white text-indigo-700 font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-none font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800 text-indigo-300' : 'bg-white text-indigo-700'}`}>
               {companyProfile?.name
                 ? companyProfile.name
                     .split(' ')
@@ -280,10 +280,14 @@ export const Header: React.FC<HeaderProps> = ({
               value={selectedFiscalYearId}
               onChange={(e) => onSelectFiscalYear(e.target.value)}
               aria-label="Select fiscal-year view"
-              className="max-w-28 bg-transparent font-medium outline-none cursor-pointer"
+              className={`max-w-28 font-medium outline-none cursor-pointer rounded px-1 py-0.5 ${
+                isDarkMode
+                  ? 'bg-slate-800 text-slate-200'
+                  : 'bg-white/20 text-white'
+              }`}
             >
-              {[...fiscalYears].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))).map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">
+              {[...filterFiscalYears(fiscalYears)].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))).map((fiscalYear) => (
+                <option key={fiscalYear.id} value={fiscalYear.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                   {fiscalYear.code}
                   {fiscalYear.isCurrent ? ' (Active)' : ''}
                 </option>

@@ -285,7 +285,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                         isDarkMode ? 'text-slate-300' : 'text-slate-800'
                       }`}
                     >
-                      <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className={`px-2.5 py-1.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         {inv.invoiceNumber}
                       </td>
                       <td className="px-2.5 py-1.5 font-mono text-[11px]">
@@ -329,10 +329,10 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                 <td colSpan={4} className="px-2.5 py-1.5 text-right uppercase tracking-wider">
                   Total Tax Register Balance:
                 </td>
-                <td className="px-2.5 py-1.5 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                <td className={`px-2.5 py-1.5 text-right font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                   {(totalTaxableAmount ?? 0).toLocaleString('en-IN')}
                 </td>
-                <td className="px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                <td className={`px-2.5 py-1.5 text-right font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                   {(totalVatAmount ?? 0).toLocaleString('en-IN')}
                 </td>
                 <td className="px-2.5 py-1.5 text-right font-mono">

@@ -586,7 +586,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <Cpu className="h-4 w-4" />
             <span>Serialized Devices (SN / PON / MAC)</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
-              viewMode === 'SERIALIZED_DEVICES' ? 'bg-white/20 text-white' : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
+              viewMode === 'SERIALIZED_DEVICES' ? 'bg-white/20 text-white' : isDarkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-500/15 text-indigo-600'
             }`}>
               {filteredSerializedDevices.length}
             </span>
@@ -611,7 +611,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 {totalLowStockCount} items
               </span>
             ) : (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
                 Healthy
               </span>
             )}
@@ -921,7 +921,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         <td className="p-2.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {dev.productName}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} whitespace-nowrap`}>
                           <div className="flex items-center gap-1.5">
                             <span>{dev.deviceSerial}</span>
                             <button
@@ -1040,7 +1040,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} whitespace-nowrap`}>
                           {p.sku}
                         </td>
                         <td className="p-2.5 font-bold text-slate-900 dark:text-white">
@@ -1078,7 +1078,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                                 {lowBranchesCount} / {totalBranchesCount} Branches Low
                               </span>
                             ) : (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
+                              <span className={isDarkMode ? 'text-emerald-400 font-medium text-[11px]' : 'text-emerald-600 font-medium text-[11px]'}>
                                 All 19 OK
                               </span>
                             )}
@@ -1086,14 +1086,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         )}
                         <td className="p-2.5 text-center font-mono font-bold whitespace-nowrap">
                           {deficit > 0 ? (
-                            <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 text-xs">
+                            <span className={`px-2 py-0.5 rounded ${isDarkMode ? 'bg-rose-950/60 text-rose-400' : 'bg-rose-100 text-rose-600'} text-xs`}>
                               -{deficit} {p.unit}
                             </span>
                           ) : (
                             <span className="text-slate-400 font-normal">0</span>
                           )}
                         </td>
-                        <td className="p-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} whitespace-nowrap`}>
                           {suggestedReorderQty > 0 ? `+${suggestedReorderQty} ${p.unit}` : '-'}
                         </td>
                         <td className="p-2.5 text-center whitespace-nowrap">
@@ -1119,7 +1119,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         </td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {estimatedReorderBudget > 0 ? (
-                            <span className="text-rose-600 dark:text-rose-400">
+                            <span className={isDarkMode ? 'text-rose-400' : 'text-rose-600'}>
                               रु {(estimatedReorderBudget ?? 0).toLocaleString('en-IN')}
                             </span>
                           ) : (
@@ -1177,7 +1177,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         {p.sku}
                       </td>
                       <td className="p-2.5 font-bold text-slate-900 dark:text-white">
@@ -1257,7 +1257,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                      <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} whitespace-nowrap`}>
                         {p.sku}
                       </td>
                       <td className="p-2.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
@@ -1286,7 +1286,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           </td>
                         );
                       })}
-                      <td className="p-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                      <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} whitespace-nowrap`}>
                         {total} {p.unit}
                       </td>
                     </tr>

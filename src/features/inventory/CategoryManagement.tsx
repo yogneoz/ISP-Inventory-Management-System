@@ -138,14 +138,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
         }`}>
           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Total Categories</span>
-          <div className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">{categories.length}</div>
+          <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{categories.length}</div>
         </div>
 
         <div className={`p-2.5 rounded-xl border ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
         }`}>
           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Categorized Catalog SKUs</span>
-          <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{products.length} Items</div>
+          <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>{products.length} Items</div>
         </div>
 
         <div className={`p-2.5 rounded-xl border ${
@@ -207,7 +207,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                     <tr key={c.id} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
-                      <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <td className={`px-2.5 py-1.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         {c.code}
                       </td>
                       <td className="px-2.5 py-1.5 font-bold text-slate-900 dark:text-white">
@@ -230,14 +230,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                             <button
                               onClick={() => openEditModal(c)}
                               title="Edit Category"
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                              className={`p-1.5 text-slate-400 ${isDarkMode ? 'hover:text-indigo-400 hover:bg-slate-800' : 'hover:text-indigo-600 hover:bg-slate-100'} rounded transition-colors cursor-pointer`}
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={() => handleDelete(c.id)}
                               title="Delete Category"
-                              className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                              className={`p-1.5 text-slate-400 ${isDarkMode ? 'hover:text-rose-400 hover:bg-rose-950/30' : 'hover:text-rose-600 hover:bg-rose-50'} rounded transition-colors cursor-pointer`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>

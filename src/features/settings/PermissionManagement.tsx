@@ -482,7 +482,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-xs cursor-pointer transition-colors"
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors ${isDarkMode ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300' : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'}`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Defaults</span>
@@ -505,7 +505,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       )}
 
       {/* Filter and Search Bar */}
-      <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-center justify-start gap-3">
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row items-center justify-start gap-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
  <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
@@ -560,7 +560,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           return (
             <div
               key={role.key}
-              className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between"
+              className={`p-3.5 rounded-xl border shadow-xs flex items-center justify-between ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}
             >
               <div>
                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${role.badgeColor}`}>
@@ -581,7 +581,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       {/* Group-Wise Permission Cards */}
       <div className="space-y-3">
         {filteredGroups.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
+          <div className={`p-8 text-center rounded-2xl border text-xs ${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
             No operations found matching your search filter "{searchQuery}".
           </div>
         ) : (
@@ -592,14 +592,14 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
             return (
               <div
                 key={group.id}
-                className={`rounded-2xl border ${group.borderColor} bg-white dark:bg-slate-900 shadow-xs overflow-hidden transition-all`}
+                className={`rounded-2xl border shadow-xs overflow-hidden transition-all ${group.borderColor} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
               >
                 {/* Group Header */}
                 <div
                   className={`p-4 ${group.bgColor} border-b ${group.borderColor} flex flex-col md:flex-row md:items-center justify-between gap-3`}
                 >
                   <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleGroupCollapse(group.id)}>
-                    <div className={`p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-xs ${group.color}`}>
+                    <div className={`p-2.5 rounded-xl shadow-xs ${group.color} ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}>
                       <GroupIcon className="h-5 w-5" />
                     </div>
                     <div>

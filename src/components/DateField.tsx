@@ -34,6 +34,7 @@ interface DateFieldProps {
   controlClassName?: string;
   /** Tighter padding for filter toolbars. */
   compact?: boolean;
+  isDarkMode?: boolean;
 }
 
 function normalizeAD(v: string | null | undefined): string {
@@ -67,6 +68,7 @@ export function DateField({
   id,
   controlClassName = '',
   compact,
+  isDarkMode = false,
 }: DateFieldProps) {
   const adValue = normalizeAD(value);
 
@@ -152,9 +154,11 @@ export function DateField({
     }
   }, [adValue]);
 
-  const pad = compact ? 'px-2 py-1' : 'px-3 py-2';
-  const baseCls = `w-full rounded-xl border bg-white dark:bg-slate-900 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${pad} ${
-    controlClassName || 'border-slate-300 dark:border-slate-700'
+  const pad = compact ? 'px-2' : 'px-3 py-2';
+  const baseCls = `w-full rounded-xl border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 ${pad} ${compact ? 'h-9' : ''} ${
+    isDarkMode
+      ? 'bg-slate-900 border-slate-700 text-slate-100'
+      : 'bg-white border-slate-300 text-slate-900'
   }`;
   const showNepaliPicker = mode === 'BS' && bsYears.length > 0 && (Boolean(derivedBS) || !adValue);
 
@@ -210,7 +214,7 @@ export function DateField({
           </div>
 
           {popoverOpen && viewYear !== null && viewMonth !== null && (
-            <div className="absolute left-0 top-full z-30 mt-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-xl">
+            <div className={`absolute left-0 top-full z-30 mt-1 rounded-xl border p-2 shadow-xl ${isDarkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
               <NepaliCalendarGrid
                 yearBS={viewYear}
                 monthBS={viewMonth}
@@ -228,6 +232,7 @@ export function DateField({
                   setViewYear(y);
                   setViewMonth(m);
                 }}
+                isDarkMode={isDarkMode}
               />
             </div>
           )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder } from '../../types';
+import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder, DamageRecord } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -26,6 +26,7 @@ interface StockMovementLedgerProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
+  damageRecords?: DamageRecord[];
   stockOperations?: StockOperation[];
   shipments?: Shipment[];
   purchaseOrders?: PurchaseOrder[];
@@ -39,6 +40,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   products,
   branches,
   stock,
+  damageRecords = [],
   stockOperations = [],
   shipments = [],
   purchaseOrders = [],
@@ -439,10 +441,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Inbound Received</div>
-          <div className="text-base font-bold font-mono mt-0.5 text-emerald-500">
+          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
             +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-mono">+{totalReceivedQty} Units</div>
+          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-emerald-400/80' : 'text-emerald-600/80'}`}>+{totalReceivedQty} Units</div>
         </div>
 
         {/* Delivered Value */}
@@ -450,10 +452,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Outbound Delivered</div>
-          <div className="text-base font-bold font-mono mt-0.5 text-sky-500">
+          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
             -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className="text-[10px] text-sky-600/80 dark:text-sky-400/80 font-mono">-{totalDeliveredQty} Units</div>
+          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-sky-400/80' : 'text-sky-600/80'}`}>-{totalDeliveredQty} Units</div>
         </div>
 
         {/* Damaged Value */}
@@ -461,10 +463,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Damaged Loss</div>
-          <div className="text-base font-bold font-mono mt-0.5 text-rose-500">
+          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
             -रु {(totalDamagedVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className="text-[10px] text-rose-600/80 dark:text-rose-400/80 font-mono">-{totalDamagedQty} Units</div>
+          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-rose-400/80' : 'text-rose-600/80'}`}>-{totalDamagedQty} Units</div>
         </div>
 
         {/* Closing Value */}
@@ -475,7 +477,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
             रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className="text-[10px] text-indigo-500 font-mono">{totalClosingQty} Units</div>
+          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{totalClosingQty} Units</div>
         </div>
       </div>
 
@@ -494,19 +496,19 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px]">
-            <button onClick={() => applyPreset('THIS_MONTH')} className="text-indigo-500 font-semibold hover:underline cursor-pointer">
+            <button onClick={() => applyPreset('THIS_MONTH')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
               This Month
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('LAST_30_DAYS')} className="text-indigo-500 font-semibold hover:underline cursor-pointer">
+            <button onClick={() => applyPreset('LAST_30_DAYS')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
               Last 30 Days
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('THIS_YEAR')} className="text-indigo-500 font-semibold hover:underline cursor-pointer">
+            <button onClick={() => applyPreset('THIS_YEAR')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
               This Year
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('ALL_TIME')} className="text-rose-500 font-semibold hover:underline cursor-pointer">
+            <button onClick={() => applyPreset('ALL_TIME')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
               All Time
             </button>
           </div>
@@ -635,13 +637,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <th className="px-2.5 py-1.5 text-center">Unit Cost</th>
                   <th className="px-2.5 py-1.5 text-center border-l bg-slate-500/5">Opening Qty</th>
                   <th className="px-2.5 py-1.5 text-right border-r bg-slate-500/5">Opening Value</th>
-                  <th className="px-2.5 py-1.5 text-center bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Qty</th>
-                  <th className="px-2.5 py-1.5 text-right border-r bg-emerald-500/5 text-emerald-600 dark:text-emerald-400">Received Value</th>
-                  <th className="px-2.5 py-1.5 text-center bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Qty</th>
-                  <th className="px-2.5 py-1.5 text-right border-r bg-sky-500/5 text-sky-600 dark:text-sky-400">Delivered Value</th>
-                  <th className="px-2.5 py-1.5 text-center bg-rose-500/5 text-rose-500">Damaged Qty</th>
-                  <th className="px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 text-indigo-500">Closing Qty</th>
-                  <th className="px-2.5 py-1.5 text-right bg-indigo-500/10 text-indigo-500">Closing Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Received Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right border-r bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Received Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>Delivered Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right border-r bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>Delivered Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-rose-500/5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>Damaged Qty</th>
+                  <th className={`px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>Closing Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>Closing Value</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
@@ -658,7 +660,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                         isDarkMode ? 'bg-[#0f1218]' : 'bg-white'
                       }`}>
                         <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                        <div className="text-[10px] text-indigo-500 font-mono">SKU: {prod.sku} • {prod.category}</div>
+                        <div className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>SKU: {prod.sku} • {prod.category}</div>
                       </td>
 
                       <td className="p-2.5 text-center font-mono text-slate-500">
@@ -674,28 +676,28 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                       </td>
 
                       {/* Received */}
-                      <td className="p-2.5 text-center font-mono font-bold bg-emerald-500/5 text-emerald-500">
+                      <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                         +{receivedQty}
                       </td>
-                      <td className="p-2.5 text-right font-mono border-r bg-emerald-500/5 text-emerald-500 font-semibold">
+                      <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/5 font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                         +रु {(receivedValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Delivered */}
-                      <td className="p-2.5 text-center font-mono font-bold bg-sky-500/5 text-sky-500">
+                      <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
                         -{deliveredQty}
                       </td>
-                      <td className="p-2.5 text-right font-mono border-r bg-sky-500/5 text-sky-500 font-semibold">
+                      <td className={`p-2.5 text-right font-mono border-r bg-sky-500/5 font-semibold ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
                         -रु {(deliveredValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Damaged */}
-                      <td className="p-2.5 text-center font-mono font-bold bg-rose-500/5 text-rose-500">
+                      <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
                         {damagedQty > 0 ? `-${damagedQty}` : '0'}
                       </td>
 
                       {/* Closing */}
-                      <td className="p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/10 text-indigo-500 text-xs">
+                      <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/10 text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
                         {closingQty} {prod.unit}
                       </td>
                       <td className={`p-2.5 text-right font-mono font-bold bg-indigo-500/10 ${
@@ -724,25 +726,25 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <td className="p-2.5 text-right font-mono border-r bg-slate-500/10">
                     रु {(totalOpeningVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold bg-emerald-500/10 text-emerald-500">
+                  <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                     +{totalReceivedQty}
                   </td>
-                  <td className="p-2.5 text-right font-mono border-r bg-emerald-500/10 text-emerald-500">
+                  <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
                     +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold bg-sky-500/10 text-sky-500">
+                  <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/10 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
                     -{totalDeliveredQty}
                   </td>
-                  <td className="p-2.5 text-right font-mono border-r bg-sky-500/10 text-sky-500">
+                  <td className={`p-2.5 text-right font-mono border-r bg-sky-500/10 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
                     -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold bg-rose-500/10 text-rose-500">
+                  <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/10 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
                     -{totalDamagedQty}
                   </td>
-                  <td className="p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/20 text-indigo-500">
+                  <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/20 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
                     {totalClosingQty}
                   </td>
-                  <td className="p-2.5 text-right font-mono font-extrabold bg-indigo-500/20 text-indigo-500">
+                  <td className={`p-2.5 text-right font-mono font-extrabold bg-indigo-500/20 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
                     रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>
@@ -803,7 +805,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
                     return (
                       <tr key={log.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                        <td className="p-2.5 font-bold font-mono text-indigo-500">{log.transactionNumber}</td>
+                        <td className={`p-2.5 font-bold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{log.transactionNumber}</td>
                         <td className="p-2.5 text-slate-500">{formattedDate}</td>
                         <td className="p-2.5">
                           <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{log.productName}</div>
@@ -813,28 +815,28 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                         <td className="p-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                             log.changeType === 'INBOUND_PO'
-                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                              ? `bg-emerald-500/10 border border-emerald-500/20 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`
                               : log.changeType === 'SHIPMENT_TRANSFER'
-                              ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                              ? `bg-amber-500/10 border border-amber-500/20 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`
                               : log.changeType === 'DAMAGE'
-                              ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                              ? `bg-rose-500/10 border border-rose-500/20 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`
                               : log.changeType === 'CONSUMABLE_ISSUE'
-                              ? 'bg-amber-600/10 text-amber-600 dark:text-amber-400 border border-amber-600/20'
-                              : 'bg-sky-500/10 text-sky-500 border border-sky-500/20'
+                              ? `bg-amber-600/10 border border-amber-600/20 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+                              : `bg-sky-500/10 border border-sky-500/20 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`
                           }`}>
                             {log.changeType}
                           </span>
                         </td>
                         <td className="p-2.5 text-center font-mono text-slate-400">{log.quantityBefore}</td>
                         <td className={`p-2.5 text-center font-mono font-bold ${
-                          isPositive ? 'text-emerald-500' : 'text-rose-500'
+                          isPositive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')
                         }`}>
                           {isPositive ? `+${log.quantityChanged}` : log.quantityChanged}
                         </td>
                         <td className="p-2.5 text-center font-mono font-bold">{log.quantityAfter}</td>
                         <td className="p-2.5 text-right font-mono text-slate-500">रु {(log.unitCost ?? 0).toLocaleString('en-IN')}</td>
                         <td className={`p-2.5 text-right font-mono font-bold ${
-                          isPositive ? 'text-emerald-500' : 'text-sky-500'
+                          isPositive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-sky-400' : 'text-sky-500')
                         }`}>
                           रु {(movementVal ?? 0).toLocaleString('en-IN')}
                         </td>
@@ -852,12 +854,12 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     Total Movement Logs ({filteredLogs.length} Events):
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
-                  <td className={`p-2.5 text-center font-mono font-bold ${totalLogQtyChanged >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        <td className={`p-2.5 text-center font-mono font-bold ${totalLogQtyChanged >= 0 ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')}`}>
                     {totalLogQtyChanged > 0 ? `+${totalLogQtyChanged}` : totalLogQtyChanged}
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
-                  <td className="p-2.5 text-right font-mono font-extrabold text-indigo-500">
+                  <td className={`p-2.5 text-right font-mono font-extrabold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
                     रु {(totalLogVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>

@@ -203,7 +203,9 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                     <td className="p-2.5 text-right font-mono text-slate-500 dark:text-slate-400">{log.quantityBefore}</td>
                     <td
                       className={`p-3 text-right font-mono font-extrabold ${
-                        log.quantityChanged > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                        log.quantityChanged > 0
+                          ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
+                          : isDarkMode ? 'text-rose-400' : 'text-rose-600'
                       }`}
                     >
                       {log.quantityChanged > 0 ? `+${log.quantityChanged}` : log.quantityChanged}

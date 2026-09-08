@@ -19,6 +19,8 @@ import {
   CustomerRecord,
   ApprovalRequest,
   Category,
+  DamageRecord,
+  LocationRecord,
 } from './types';
 import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
 import { seedBSYearCalendar } from './utils/nepaliCalendar';
@@ -146,6 +148,18 @@ export default function App() {
     setUserContext(currentUser);
   }, [currentUser]);
 
+  // Force logout when token expires (401 from any API call)
+  useEffect(() => {
+    const handleAuthExpired = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      console.warn('Session expired:', customEvent.detail?.message);
+      handleLogout();
+      alert('Your session has expired. Please log in again to continue.');
+    };
+    window.addEventListener('izone_auth_expired', handleAuthExpired);
+    return () => window.removeEventListener('izone_auth_expired', handleAuthExpired);
+  }, []);
+
   useEffect(() => {
     setFiscalYearContext(selectedFiscalYearId || null);
   }, [selectedFiscalYearId]);
@@ -196,6 +210,8 @@ export default function App() {
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+  const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
+  const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary>({
     totalInventoryAssetValue: 0,
     totalFixedAssetValue: 0,
@@ -236,6 +252,8 @@ export default function App() {
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
     if (data.auditLogs) setAuditLogs(data.auditLogs);
     if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
+    if (data.damageRecords) setDamageRecords(data.damageRecords);
+    if (data.locations) setLocations(data.locations);
     if (data.financialSummary) setFinancialSummary(data.financialSummary);
     if (data.suppliers) setSuppliers(data.suppliers);
     if (data.users) setUsers(data.users as User[]);
@@ -983,6 +1001,7 @@ export default function App() {
                   financialSummary={financialSummary}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  asOfDateAD={assetReportAsOfDateAD}
                   approvalRequests={approvalRequests}
                   onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
@@ -1126,6 +1145,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  damageRecords={damageRecords}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateOperation={handleCreateOperation}
@@ -1150,6 +1170,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  damageRecords={damageRecords}
                   stockOperations={stockOperations}
                   shipments={shipments}
                   purchaseOrders={purchaseOrders}
@@ -1380,6 +1401,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1428,6 +1450,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1483,6 +1506,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1514,6 +1538,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1545,6 +1570,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1567,6 +1593,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1588,6 +1615,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1619,6 +1647,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1650,6 +1679,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1681,6 +1711,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
@@ -1948,6 +1979,7 @@ export default function App() {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         products={products}
+        isDarkMode={isDarkMode}
       />
 
       {/* Global Quick Search Modal */}

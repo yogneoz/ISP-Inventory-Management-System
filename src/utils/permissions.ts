@@ -1,4 +1,4 @@
-import { UserRole, User, Branch } from '../types';
+import { UserRole, User, Branch, FiscalYear } from '../types';
 
 /**
  * Super admin and Stock Manager (INVENTORY_MANAGER) can see ALL branches.
@@ -190,4 +190,28 @@ export const canUserDisposeDamagedStock = (user: User | null | undefined): boole
   if (user.role === 'SUPER_ADMIN' || user.role === 'INVENTORY_MANAGER') return true;
   return isOperationAllowed('stock-disposal-writeoff', user.role);
 };
+
+/**
+ * Filters fiscal years to show only relevant ones:
+ * - All closed (historical) fiscal years
+ * - The current fiscal year (isCurrent = true)
+ * - Any fiscal year whose date range includes today
+ * - Hides future fiscal years that haven't started yet
+ */
+export function filterFiscalYears(fiscalYears: FiscalYear[]): FiscalYear[] {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  return fiscalYears.filter((fy) => {
+    // Always show closed years (historical)
+    if (fy.isClosed) return true;
+    // Show the current open year
+    if (fy.isCurrent) return true;
+    // Show if we're currently within this fiscal year's date range
+    if (fy.startDateAD && fy.endDateAD) {
+      return todayStr >= fy.startDateAD && todayStr <= fy.endDateAD;
+    }
+    // Hide future fiscal years that haven't started yet
+    return false;
+  });
+}
 
