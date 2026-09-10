@@ -32,7 +32,6 @@ interface FiscalYearClosingWizardProps {
     id: string
   ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
   dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
   financialSummary: FinancialSummary;
   products: Product[];
   stock: InventoryStock[];
@@ -49,7 +48,6 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   onReopenFiscalYear,
   onInitializeOpeningStock,
   dateMode,
-  isDarkMode = false,
   financialSummary,
   products,
   stock,
@@ -255,11 +253,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
     <div className="space-y-3">
       {/* HEADER BAR */}
       <div
-        className={`p-3 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-start gap-3 ${
-          isDarkMode
-            ? 'bg-slate-900/90 border-slate-800 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-        }`}
+        className={`p-3 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-start gap-3 bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-slate-900/90 dark:border-slate-800 dark:text-slate-100`}
       >
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
@@ -291,7 +285,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               className="ml-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
             >
               {filterFiscalYears(fiscalYears).map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
+                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
               ))}
             </select>
           </label>
@@ -391,9 +385,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
       {/* STEPPER NAV BAR */}
       <div
-        className={`p-3 rounded-2xl border ${
-          isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}
+        className={`p-3 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
       >
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           {wizardSteps.map((step) => {
@@ -404,22 +396,10 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <button
                 key={step.number}
                 onClick={() => setCurrentStep(step.number)}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${
-                  isActive
-                    ? 'bg-indigo-600 text-white font-bold shadow-md'
-                    : isDarkMode
-                    ? 'bg-slate-800/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-                }`}
+                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left isActive ? bg-indigo-600 text-white font-bold shadow-md : bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200`}
               >
                 <div
-                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${
-                    isActive
-                      ? 'bg-white text-indigo-700'
-                      : isDarkMode
-                      ? 'bg-slate-700 text-slate-300'
-                      : 'bg-slate-200 text-slate-700'
-                  }`}
+                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold isActive ? bg-white text-indigo-700 : bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300`}
                 >
                   {step.number}
                 </div>
@@ -434,9 +414,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
       {/* WIZARD STEP CONTENT PANELS */}
       <div
-        className={`p-4 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 ${
-          isDarkMode ? 'bg-slate-900/60 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-        }`}
+        className={`p-4 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200`}
       >
         {/* STEP 1: PRE-CLOSING DIAGNOSTICS */}
         {currentStep === 1 && (

@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X, ExternalLink } from 'lucide-react';
 
-interface DatabaseSetupBannerProps {
-  isDarkMode?: boolean;
-  onRefresh?: () => void;
+interface DatabaseSetupBannerProps {  onRefresh?: () => void;
   /** True while the app is still loading its initial bootstrap data. */
   loading?: boolean;
   postgresConfig?: {
@@ -16,9 +14,7 @@ interface DatabaseSetupBannerProps {
   };
 }
 
-export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
-  isDarkMode = false,
-  onRefresh,
+export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({  onRefresh,
   loading = false,
   postgresConfig = {
     host: 'localhost',
@@ -67,11 +63,7 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
     return (
       <div
         id="db-connected-notification-banner"
-        className={`border-b shadow-xs ${
-          isDarkMode
-            ? 'bg-emerald-950/50 border-emerald-800/60 text-emerald-200'
-            : 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900'
-        }`}
+        className={`border-b shadow-xs bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200`}
       >
         <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6">
           <div className="flex items-center justify-between gap-3">
@@ -121,11 +113,7 @@ POSTGRES_PASSWORD="securepassword"`;
   return (
     <div
       id="db-setup-notification-banner"
-      className={`border-b transition-colors shadow-xs ${
-        isDarkMode
-          ? 'bg-amber-950/40 border-amber-800/60 text-amber-200'
-          : 'bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-amber-300 text-amber-900'
-      }`}
+      className={`border-b transition-colors shadow-xs bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800/60 dark:text-amber-200`}
     >
       <div className="max-w-7xl mx-auto px-4 py-2.5 sm:px-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
@@ -165,11 +153,7 @@ POSTGRES_PASSWORD="securepassword"`;
             <button
               id="btn-toggle-db-setup-instructions"
               onClick={() => setIsExpanded(!isExpanded)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer border ${
-                isDarkMode
-                  ? 'border-amber-700/60 hover:bg-amber-900/40 text-amber-300'
-                  : 'border-amber-300 hover:bg-amber-100 text-amber-800'
-              }`}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer border border-amber-300 hover:bg-amber-100 text-amber-800 dark:border-amber-700/60 dark:hover:bg-amber-900/40 dark:text-amber-300`}
             >
               <Terminal className="w-3.5 h-3.5" />
               <span>{isExpanded ? 'Hide Setup Commands' : 'Setup Instructions'}</span>
@@ -185,15 +169,11 @@ POSTGRES_PASSWORD="securepassword"`;
         {/* Expandable Setup Instructions Accordion */}
         {isExpanded && (
           <div
-            className={`mt-3 pt-3 border-t grid grid-cols-1 md:grid-cols-3 gap-3 text-xs ${
-              isDarkMode ? 'border-amber-800/60 text-slate-300' : 'border-amber-200 text-slate-700'
-            }`}
+            className={`mt-3 pt-3 border-t grid grid-cols-1 md:grid-cols-3 gap-3 text-xs border-amber-200 text-slate-700 dark:border-amber-800/60 dark:text-slate-300`}
           >
             {/* Step 1: Automated Script */}
             <div
-              className={`p-3 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200 shadow-xs'
-              }`}
+              className={`p-3 rounded-lg border bg-white/80 border-amber-200 shadow-xs dark:bg-slate-900/80 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between font-semibold mb-1.5 text-slate-900 dark:text-white">
                 <span className="flex items-center gap-1.5">
@@ -219,9 +199,7 @@ POSTGRES_PASSWORD="securepassword"`;
 
             {/* Step 2: Docker Option */}
             <div
-              className={`p-3 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200 shadow-xs'
-              }`}
+              className={`p-3 rounded-lg border bg-white/80 border-amber-200 shadow-xs dark:bg-slate-900/80 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between font-semibold mb-1.5 text-slate-900 dark:text-white">
                 <span className="flex items-center gap-1.5">
@@ -247,9 +225,7 @@ POSTGRES_PASSWORD="securepassword"`;
 
             {/* Step 3: Environment Configuration */}
             <div
-              className={`p-3 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200 shadow-xs'
-              }`}
+              className={`p-3 rounded-lg border bg-white/80 border-amber-200 shadow-xs dark:bg-slate-900/80 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between font-semibold mb-1.5 text-slate-900 dark:text-white">
                 <span className="flex items-center gap-1.5">

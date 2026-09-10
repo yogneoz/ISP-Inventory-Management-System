@@ -9,18 +9,14 @@ interface BranchesManagementProps {
   currentUser?: User | null;
   onCreateBranch?: (branch: Omit<Branch, 'id'>) => Promise<void>;
   onUpdateBranch?: (id: string, branch: Partial<Branch>) => Promise<void>;
-  onDeleteBranch?: (id: string) => Promise<void>;
-  isDarkMode?: boolean;
-}
+  onDeleteBranch?: (id: string) => Promise<void>;}
 
 export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   branches,
   currentUser,
   onCreateBranch,
   onUpdateBranch,
-  onDeleteBranch,
-  isDarkMode = false,
-}) => {
+  onDeleteBranch,}) => {
   const canManageBranches = isOperationAllowed('admin-branches', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -116,9 +112,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
 
   return (
     <div className="space-y-3">
@@ -152,11 +146,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search branch by name, code, or location..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none ${
-              isDarkMode
-                ? 'border border-slate-800 bg-slate-900 text-white placeholder-slate-500'
-                : 'border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
       </div>
@@ -249,7 +239,6 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
         pageSize={branchPagination.pageSize}
         onPageChange={branchPagination.setPage}
         onPageSizeChange={branchPagination.setPageSize}
-        isDarkMode={isDarkMode}
         className="mt-1"
       />
 
@@ -257,9 +246,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
               {editingBranch ? '✏️ Edit Branch Details' : '➕ Add New Branch'}

@@ -6,7 +6,6 @@ import { FiscalYear, User } from '../../types';
 interface DataRecalculationMaintenanceProps {
   currentUser: User | null;
   fiscalYears: FiscalYear[];
-  isDarkMode?: boolean;
   onRefreshData?: () => Promise<void>;
 }
 
@@ -45,7 +44,6 @@ const operations: Array<{
 export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenanceProps> = ({
   currentUser,
   fiscalYears,
-  isDarkMode = false,
   onRefreshData,
 }) => {
   const [busy, setBusy] = useState<Operation | null>(null);
@@ -88,7 +86,7 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
 
   return (
     <div className="space-y-4">
-      <div className={`rounded-2xl border p-5 ${isDarkMode ? 'bg-slate-900/80 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-xs'}`}>
+      <div className={`rounded-2xl border p-5 bg-white border-slate-200 text-slate-900 shadow-xs dark:bg-slate-900/80 dark:border-slate-800 dark:text-slate-100`}>
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-500"><ShieldCheck className="h-5 w-5" /></div>
           <div>
@@ -113,11 +111,11 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
           const Icon = operation.icon;
           const isBusy = busy === operation.id;
           return (
-            <div key={operation.id} className={`rounded-2xl border p-5 ${isDarkMode ? 'bg-slate-900/60 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-xs'}`}>
+            <div key={operation.id} className={`rounded-2xl border p-5 bg-white border-slate-200 text-slate-900 shadow-xs dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-100`}>
               <div className="mb-3 flex items-center gap-2"><Icon className="h-5 w-5 text-indigo-500" /><h3 className="font-bold text-sm">{operation.title}</h3></div>
               <p className="min-h-16 text-xs leading-5 text-slate-500 dark:text-slate-400">{operation.description}</p>
               {operation.id === 'opening-stock' && (
-                  <select value={sourceFiscalYearId} onChange={(event) => setSourceFiscalYearId(event.target.value)} className={`mb-3 w-full rounded-xl border px-3 py-2 text-xs ${isDarkMode ? 'border-slate-700 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-900'}`}>
+                  <select value={sourceFiscalYearId} onChange={(event) => setSourceFiscalYearId(event.target.value)} className={`mb-3 w-full rounded-xl border px-3 py-2 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white`}>
                   <option value="">Select closed source year…</option>
                   {fiscalYears.filter((fiscalYear) => fiscalYear.isClosed).map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — closed</option>)}
                 </select>

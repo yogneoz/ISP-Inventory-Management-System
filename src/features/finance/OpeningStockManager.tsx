@@ -29,9 +29,7 @@ interface OpeningStockManagerProps {
   currentUser?: User | null;
   fiscalYears: FiscalYear[];
   branches: Branch[];
-  products: Product[];
-  isDarkMode?: boolean;
-  onRefreshData?: () => void;
+  products: Product[];  onRefreshData?: () => void;
 }
 
 type Draft = { quantityOnHand: string; damagedQty: string; unitCost: string };
@@ -55,9 +53,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   currentUser,
   fiscalYears,
   branches,
-  products,
-  isDarkMode = false,
-  onRefreshData,
+  products,  onRefreshData,
 }) => {
   const role = currentUser?.role;
   const canView = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'ACCOUNTANT';
@@ -338,9 +334,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   if (!canView) {
     return (
       <div
-        className={`flex flex-col items-center justify-center h-full min-h-[420px] text-center ${
-          isDarkMode ? 'text-slate-400' : 'text-slate-500'
-        }`}
+        className={`flex flex-col items-center justify-center h-full min-h-[420px] text-center text-slate-500 dark:text-slate-400`}
       >
         <Lock className="h-10 w-10 mb-3 opacity-60" />
         <h2 className="text-lg font-bold">Permission Denied</h2>
@@ -355,19 +349,17 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
     <div className="flex flex-col h-full min-h-0 gap-4">
       {/* ===== Header ===== */}
       <div
-        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 shadow-sm shrink-0 ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 shadow-sm shrink-0 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className={`p-2.5 rounded-xl shrink-0 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-50'}`}>
-            <Scale className={`h-6 w-6 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+          <div className={`p-2.5 rounded-xl shrink-0 bg-indigo-50 dark:bg-indigo-500/10`}>
+            <Scale className={`h-6 w-6 text-indigo-600 dark:text-indigo-400`} />
           </div>
           <div className="min-w-0">
-            <h2 className={`text-base font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <h2 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
               Fiscal Year Opening Stock Register
             </h2>
-            <p className={`text-xs mt-0.5 truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
               Posted opening balances (product × branch) that all historical period calculations are based on.
             </p>
           </div>
@@ -376,9 +368,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           <select
             value={selectedFyId}
             onChange={(e) => setSelectedFyId(e.target.value)}
-            className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-              isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-            }`}
+            className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
           >
             {availableFiscalYears.length === 0 && <option value="">No fiscal years</option>}
             {availableFiscalYears.map((f) => (
@@ -404,9 +394,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       {/* ===== Period-lock / access banners ===== */}
       {periodLocked ? (
         <div
-          className={`flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold shrink-0 ${
-            isDarkMode ? 'bg-rose-500/5 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
-          }`}
+          className={`flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold shrink-0 bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300`}
         >
           <Lock className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
@@ -417,9 +405,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       ) : (
         !canEditRole && data && data.rows.length > 0 && (
           <div
-            className={`flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold shrink-0 ${
-              isDarkMode ? 'bg-amber-500/5 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'
-            }`}
+            className={`flex items-start gap-2.5 rounded-xl border p-3 text-xs font-semibold shrink-0 bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/5 dark:border-amber-500/30 dark:text-amber-300`}
           >
             <Pencil className="h-4 w-4 mt-0.5 shrink-0" />
             <span>Read-only for your role. Opening-stock adjustments require Super Admin or Inventory Manager.</span>
@@ -438,44 +424,36 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           ].map((card) => (
             <div
               key={card.label}
-              className={`rounded-xl border p-3 shadow-sm ${
-                isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`rounded-xl border p-3 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
             >
               <div className="flex items-center gap-2">
-                <card.icon className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
-                <span className={`text-[11px] font-bold uppercase tracking-wide ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                <card.icon className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
+                <span className={`text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500`}>
                   {card.label}
                 </span>
               </div>
-              <div className={`text-lg font-extrabold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{card.value}</div>
+              <div className={`text-lg font-extrabold mt-1 text-slate-900 dark:text-white`}>{card.value}</div>
             </div>
           ))}
         </div>
       )}
       {/* ===== Filters & actions ===== */}
       <div
-        className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 shadow-sm shrink-0 ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}
+        className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 shadow-sm shrink-0 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
       >
         <div className="relative">
-          <Search className={`h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
+          <Search className={`h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500`} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search product name or SKU…"
-            className={`pl-8 pr-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 ${
-              isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-            }`}
+            className={`pl-8 pr-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
           />
         </div>
         <select
           value={branchFilter}
           onChange={(e) => setBranchFilter(e.target.value)}
-          className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-            isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-          }`}
+          className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
         >
           <option value="ALL">All Branches</option>
           {branches.map((b) => (
@@ -484,11 +462,11 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
             </option>
           ))}
         </select>
-        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
           <input type="checkbox" checked={zeroOnly} onChange={(e) => setZeroOnly(e.target.checked)} className="rounded" />
           Zero-qty only
         </label>
-        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
           <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} className="rounded" />
           Changed only
         </label>
@@ -497,9 +475,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           type="button"
           onClick={handleExport}
           disabled={loading || filteredRows.length === 0}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed ${
-            isDarkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
         >
           <Download className="h-3.5 w-3.5" /> Export CSV
         </button>
@@ -507,7 +483,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           <button
             type="button"
             onClick={() => setShowAddRow(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-50 ${isDarkMode ? 'text-indigo-400 border-indigo-800' : 'text-indigo-600 border-indigo-200'}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-50 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800`}
           >
             <Plus className="h-3.5 w-3.5" /> Add Row
           </button>
@@ -527,15 +503,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       {/* ===== Save / generate feedback ===== */}
       {(saveMessage || genMessage) && (
         <div
-          className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold shrink-0 ${
-            saveMessage?.type === 'error' || (genMessage && !data?.rows.length)
-              ? isDarkMode
-                ? 'bg-rose-500/5 border-rose-500/30 text-rose-300'
-                : 'bg-rose-50 border-rose-200 text-rose-700'
-              : isDarkMode
-              ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-300'
-              : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-          }`}
+          className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold shrink-0 'saveMessage?.type === 'error || (genMessage && !data?.rows.length) ? bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300 : bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300`}
         >
           {saveMessage?.type === 'error' ? (
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -547,23 +515,17 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       )}
       {/* ===== Register table / empty state ===== */}
       <div
-        className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}
+        className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
       >
         {loading ? (
           <div
-            className={`flex-1 flex items-center justify-center text-sm font-semibold ${
-              isDarkMode ? 'text-slate-400' : 'text-slate-500'
-            }`}
+            className={`flex-1 flex items-center justify-center text-sm font-semibold text-slate-500 dark:text-slate-400`}
           >
             Loading opening-stock register…
           </div>
         ) : loadError ? (
           <div
-            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-2 ${
-              isDarkMode ? 'text-slate-400' : 'text-slate-500'
-            }`}
+            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-2 text-slate-500 dark:text-slate-400`}
           >
             <AlertTriangle className="h-8 w-8 text-rose-500" />
             <p className="text-sm font-semibold max-w-lg">{loadError}</p>
@@ -577,9 +539,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           </div>
         ) : !data || data.rows.length === 0 ? (
           <div
-            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-3 ${
-              isDarkMode ? 'text-slate-400' : 'text-slate-500'
-            }`}
+            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-3 text-slate-500 dark:text-slate-400`}
           >
             <Layers className="h-10 w-10 opacity-50" />
             <div>
@@ -605,7 +565,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className={isDarkMode ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-500'}>
+                <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                   {[
                     'Product',
                     'Branch',
@@ -619,9 +579,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                   ].map((h) => (
                     <th
                       key={h}
-                      className={`px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b ${
-                        isDarkMode ? 'border-slate-800' : 'border-slate-200'
-                      }`}
+                      className={`px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800`}
                     >
                       {h}
                     </th>
@@ -633,9 +591,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                   <tr>
                     <td
                       colSpan={9}
-                      className={`px-3 py-8 text-center text-xs font-semibold ${
-                        isDarkMode ? 'text-slate-500' : 'text-slate-400'
-                      }`}
+                      className={`px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500`}
                     >
                       No rows match the current filters.
                     </td>
@@ -647,28 +603,22 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                   const effQty = changed ? Number(draft.quantityOnHand) || 0 : row.quantityOnHand;
                   const effCost = changed ? Number(draft.unitCost) || 0 : row.unitCost;
                   const valueMismatchesLive = Number(row.liveQty) !== Number(row.quantityOnHand);
-                  const inputBase = `px-2 py-1 rounded-md border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-300 text-slate-700'
-                  } ${changed ? 'border-amber-400' : ''}`;
+                  const inputBase = `px-2 py-1 rounded-md border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 ${changed ? 'border-amber-400' : ''}`;
                   return (
                     <tr
                       key={row.id}
-                      className={`border-b transition-colors ${
-                        isDarkMode ? 'border-slate-800/70' : 'border-slate-100'
-                      } ${changed ? (isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50') : ''}`}
+                      className={`border-b transition-colors border-slate-100 dark:border-slate-800/70 changed ? bg-amber-50 dark:bg-amber-500/10 : `}
                     >
                       <td className="px-3 py-2">
-                        <div className={`text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                        <div className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
                           {row.productName}
                         </div>
-                        <div className={`text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        <div className={`text-[10px] text-slate-400 dark:text-slate-500`}>
                           {row.productSku}
                         </div>
                       </td>
                       <td
-                        className={`px-3 py-2 text-xs font-semibold whitespace-nowrap ${
-                          isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                        }`}
+                        className={`px-3 py-2 text-xs font-semibold whitespace-nowrap text-slate-600 dark:text-slate-300`}
                       >
                         {row.branchName}
                       </td>
@@ -713,17 +663,13 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                         />
                       </td>
                       <td
-                        className={`px-3 py-2 text-xs font-bold whitespace-nowrap ${
-                          isDarkMode ? 'text-slate-200' : 'text-slate-800'
-                        }`}
+                        className={`px-3 py-2 text-xs font-bold whitespace-nowrap text-slate-800 dark:text-slate-200`}
                       >
                         {formatNPR(effQty * effCost)}
                       </td>
                       <td className="px-3 py-2">
                         <span
-                          className={`text-xs font-semibold ${
-                            valueMismatchesLive ? 'text-amber-500' : isDarkMode ? 'text-slate-500' : 'text-slate-400'
-                          }`}
+                          className={`text-xs font-semibold valueMismatchesLive ? text-amber-500 : text-slate-400 dark:text-slate-500`}
                         >
                           {row.liveQty}
                           {valueMismatchesLive ? ' ⚠' : ''}
@@ -741,7 +687,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <div className={`text-[10px] leading-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        <div className={`text-[10px] leading-tight text-slate-400 dark:text-slate-500`}>
                           <div className="font-semibold truncate max-w-[130px]">{row.postedBy || '—'}</div>
                           <div>{row.postedAt ? row.postedAt.replace('T', ' ').slice(0, 16) : '—'}</div>
                         </div>
@@ -758,23 +704,19 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       {showAddRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowAddRow(false)}>
           <div
-            className={`w-full max-w-md rounded-2xl border shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-            }`}
+            className={`w-full max-w-md rounded-2xl border shadow-2xl bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className={`flex items-center justify-between px-5 py-4 border-b ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}
+              className={`flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800`}
             >
-              <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`text-sm font-bold text-slate-900 dark:text-white`}>
                 Add Opening-Stock Row — FY {fy?.code || '—'}
               </h3>
               <button
                 type="button"
                 onClick={() => setShowAddRow(false)}
-                className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}
+                className="text-slate-500 dark:text-slate-400"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -782,16 +724,14 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
             <div className="p-5 space-y-3">
               <div>
                 <label
-                  className={`block text-[11px] font-bold uppercase mb-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
+                  className={`block text-[11px] font-bold uppercase mb-1 text-slate-400 dark:text-slate-500`}
                 >
                   Product
                 </label>
                 <select
                   value={addProductId}
                   onChange={(e) => setAddProductId(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-                  }`}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 >
                   <option value="">Select a product…</option>
                   {products.map((p) => (
@@ -803,16 +743,14 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
               </div>
               <div>
                 <label
-                  className={`block text-[11px] font-bold uppercase mb-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
+                  className={`block text-[11px] font-bold uppercase mb-1 text-slate-400 dark:text-slate-500`}
                 >
                   Branch
                 </label>
                 <select
                   value={addBranchId}
                   onChange={(e) => setAddBranchId(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-                  }`}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 >
                   <option value="">Select a branch…</option>
                   {branches.map((b) => (
@@ -830,9 +768,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                 ].map((f) => (
                   <div key={f.label}>
                     <label
-                      className={`block text-[11px] font-bold uppercase mb-1 ${
-                        isDarkMode ? 'text-slate-500' : 'text-slate-400'
-                      }`}
+                      className={`block text-[11px] font-bold uppercase mb-1 text-slate-400 dark:text-slate-500`}
                     >
                       {f.label}
                     </label>
@@ -842,25 +778,19 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                       step={f.step}
                       value={f.value}
                       onChange={(e) => f.set(e.target.value)}
-                      className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-                      }`}
+                      className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                     />
                   </div>
                 ))}
               </div>
             </div>
             <div
-              className={`flex justify-end gap-2 px-5 py-4 border-t ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}
+              className={`flex justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-800`}
             >
               <button
                 type="button"
                 onClick={() => setShowAddRow(false)}
-                className={`px-4 py-2 rounded-lg border text-xs font-bold ${
-                  isDarkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-                }`}
+                className={`px-4 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>

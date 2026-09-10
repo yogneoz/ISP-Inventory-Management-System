@@ -9,18 +9,14 @@ interface SuppliersManagementProps {
   currentUser?: User | null;
   onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<void>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
-  onDeleteSupplier?: (id: string) => Promise<void>;
-  isDarkMode?: boolean;
-}
+  onDeleteSupplier?: (id: string) => Promise<void>;}
 
 export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   suppliers,
   currentUser,
   onCreateSupplier,
   onUpdateSupplier,
-  onDeleteSupplier,
-  isDarkMode = false,
-}) => {
+  onDeleteSupplier,}) => {
   const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -110,16 +106,14 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
 
   return (
     <div className="space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Factory className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+            <Factory className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
             <span>Supplier & Vendor Register</span>
           </h2>
           <p className="truncate text-slate-500 text-xs mt-0.5">
@@ -146,11 +140,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search supplier by name or PAN/VAT number..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none ${
-              isDarkMode
-                ? 'border border-slate-800 bg-slate-900 text-white placeholder-slate-500'
-                : 'border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
       </div>
@@ -176,7 +166,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleOpenEditModal(s)}
                       title="Edit Supplier"
-                      className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-indigo-400 hover:bg-indigo-950/60' : 'hover:text-indigo-600 hover:bg-indigo-50'} transition-colors cursor-pointer`}
+                      className={`p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer`}
                     >
                       <Edit className="h-3.5 w-3.5" />
                     </button>
@@ -184,7 +174,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleDelete(s)}
                       title="Delete Supplier"
-                      className={`p-1.5 rounded-lg text-slate-500 ${isDarkMode ? 'hover:text-rose-400 hover:bg-rose-950/60' : 'hover:text-rose-600 hover:bg-rose-50'} transition-colors cursor-pointer`}
+                      className={`p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 transition-colors cursor-pointer`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -213,7 +203,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
-              <span className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-semibold flex items-center gap-1`}>
+              <span className={`text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1`}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Verified Vendor
               </span>
               <span className="text-slate-400 font-mono">ID: {s.id}</span>
@@ -230,7 +220,6 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
         pageSize={suppliersPagination.pageSize}
         onPageChange={suppliersPagination.setPage}
         onPageSizeChange={suppliersPagination.setPageSize}
-        isDarkMode={isDarkMode}
         className="mt-1"
       />
 
@@ -238,9 +227,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
               {editingSupplier ? '✏️ Edit Supplier Details' : '🏭 Register New Supplier'}

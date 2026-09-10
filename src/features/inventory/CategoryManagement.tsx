@@ -6,15 +6,11 @@ import { api } from '../../services/api';
 
 interface CategoryManagementProps {
   products: Product[];
-  currentUser?: User | null;
-  isDarkMode?: boolean;
-}
+  currentUser?: User | null;}
 
 export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   products,
-  currentUser,
-  isDarkMode = false,
-}) => {
+  currentUser,}) => {
   const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -110,13 +106,11 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <Grid className="h-5 w-5 text-indigo-500" />
             <span>Category Management</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Organize inventory items and fixed assets into distinct classification categories.
           </p>
         </div>
@@ -134,32 +128,24 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-none">
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Total Categories</span>
-          <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{categories.length}</div>
+          <div className={`text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400`}>{categories.length}</div>
         </div>
 
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Categorized Catalog SKUs</span>
-          <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>{products.length} Items</div>
+          <div className={`text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400`}>{products.length} Items</div>
         </div>
 
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Primary Asset Group</span>
           <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Fixed Assets & Fiber Gear</div>
         </div>
       </div>
 
       {/* Filter bar */}
-      <div className={`p-2 rounded-xl border shadow-2xs flex items-center justify-between gap-2 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`p-2 rounded-xl border shadow-2xs flex items-center justify-between gap-2 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
  <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
@@ -167,24 +153,16 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search Category Name, Code, or Description..."
-            className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-200 placeholder-slate-500'
-                : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 dark:placeholder-slate-500`}
           />
         </div>
       </div>
 
       {/* Categories Table */}
-      <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs ${
-              isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
               <tr>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category Code</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category Name</th>
@@ -193,7 +171,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Actions</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
               {filteredCategories.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-slate-500">
@@ -204,10 +182,8 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                 filteredCategories.map((c) => {
                   const count = getProductCountForCategory(c.name);
                   return (
-                    <tr key={c.id} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                    }`}>
-                      <td className={`px-2.5 py-1.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                    <tr key={c.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                      <td className={`px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                         {c.code}
                       </td>
                       <td className="px-2.5 py-1.5 font-bold text-slate-900 dark:text-white">
@@ -230,14 +206,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                             <button
                               onClick={() => openEditModal(c)}
                               title="Edit Category"
-                              className={`p-1.5 text-slate-400 ${isDarkMode ? 'hover:text-indigo-400 hover:bg-slate-800' : 'hover:text-indigo-600 hover:bg-slate-100'} rounded transition-colors cursor-pointer`}
+                              className={`p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:text-indigo-400 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer`}
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={() => handleDelete(c.id)}
                               title="Delete Category"
-                              className={`p-1.5 text-slate-400 ${isDarkMode ? 'hover:text-rose-400 hover:bg-rose-950/30' : 'hover:text-rose-600 hover:bg-rose-50'} rounded transition-colors cursor-pointer`}
+                              className={`p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -258,13 +234,9 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
+              <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
                 {editingCat ? 'Edit Category' : 'Create Category'}
               </h3>
               <button
@@ -283,9 +255,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                   required
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
@@ -297,9 +267,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Routers & ONTs"
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
@@ -310,23 +278,15 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Category specification / usage notes..."
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
-              <div className={`pt-3 border-t flex items-center justify-end gap-2 ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}>
+              <div className={`pt-3 border-t flex items-center justify-end gap-2 border-slate-200 dark:border-slate-800`}>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                    isDarkMode
-                      ? 'border-slate-700 text-slate-400 hover:bg-slate-800'
-                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

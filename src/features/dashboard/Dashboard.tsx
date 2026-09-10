@@ -15,6 +15,7 @@ import { ApprovalWorkflowCenter } from '../settings/ApprovalWorkflowCenter';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed, getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   TrendingUp,
   AlertTriangle,
@@ -65,7 +66,6 @@ interface DashboardProps {
   onSelectBranch?: (branchId: string) => void;
   onGroupLowStockPO?: () => void;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
-  isDarkMode?: boolean;
 }
 
 export type SpecialCategoryKey = 'ALL' | 'ROUTER' | 'DROP_CABLE' | 'TV_DEVICES' | 'FIBER';
@@ -136,7 +136,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectBranch,
   onGroupLowStockPO,
   onUpdateStockLevel,
-  isDarkMode = false,
 }) => {
   // Quick Stock Adjustment Modal State
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
@@ -311,21 +310,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   });
 
   // Card container class helper
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
-  const cardTitleText = isDarkMode ? 'text-white' : 'text-slate-900';
-  const cardSubText = isDarkMode ? 'text-slate-400' : 'text-slate-600';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
+  const cardTitleText = 'text-slate-900 dark:text-white';
+  const cardSubText = 'text-slate-600 dark:text-slate-400';
 
   return (
     <div className="space-y-3">
       {/* Top Welcome Banner */}
       <div
-        className={`rounded-xl p-3.5 text-white shadow-md border relative overflow-hidden transition-colors duration-200 ${
-          isDarkMode
-            ? 'bg-gradient-to-r from-[#0f1218] via-indigo-950/40 to-[#0f1218] border-slate-800'
-            : 'bg-gradient-to-r from-[#1a237e] via-[#283593] to-[#0d47a1] border-indigo-900'
-        }`}
+        className={`rounded-xl p-3.5 text-white shadow-md border relative overflow-hidden transition-colors duration-200 bg-gradient-to-r from-[#1a237e] via-[#283593] to-[#0d47a1] border-indigo-900 dark:bg-gradient-to-r dark:from-[#0f1218] dark:via-indigo-950/40 dark:to-[#0f1218] dark:border-slate-800`}
       >
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <div>
@@ -362,18 +355,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase ${
-                isDarkMode ? 'text-slate-400' : 'text-slate-500'
-              }`}
+              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
             >
               Total Stock Valuation
             </span>
             <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
-                isDarkMode
-                  ? 'bg-indigo-950/60 text-indigo-400 border-indigo-500/20'
-                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-              }`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-400 dark:border-indigo-500/20`}
             >
               <Package className="h-3.5 w-3.5" />
             </div>
@@ -383,7 +370,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>{filteredStock.length} SKU Locations</span>
-            <span className={`font-medium ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>Cost Basis</span>
+            <span className={`font-medium text-indigo-600 dark:text-indigo-400`}>Cost Basis</span>
           </div>
         </div>
 
@@ -391,18 +378,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase ${
-                isDarkMode ? 'text-slate-400' : 'text-slate-500'
-              }`}
+              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
             >
               Fixed Asset Net Value
             </span>
             <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
-                isDarkMode
-                  ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/20'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              }`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-500/20`}
             >
               <Landmark className="h-3.5 w-3.5" />
             </div>
@@ -412,46 +393,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>{assets.length} Active Assets</span>
-            <span className={`font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Net Book Value</span>
+            <span className={`font-medium text-emerald-600 dark:text-emerald-400`}>Net Book Value</span>
           </div>
         </div>
 
         {/* KPI 3: Low Stock Warning */}
         <div
           onClick={() => onNavigateTab('reorder-stock')}
-          className={`rounded-xl p-3 border shadow-2xs transition-all cursor-pointer group ${
-            isDarkMode
-              ? 'bg-[#0f1218] border-slate-800 hover:border-slate-700'
-              : 'bg-white border-rose-200 hover:border-rose-300 hover:shadow-xs'
-          }`}
+          className={`rounded-xl p-3 border shadow-2xs transition-all cursor-pointer group bg-white border-rose-200 hover:border-rose-300 hover:shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:hover:border-slate-700`}
         >
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase ${
-                isDarkMode ? 'text-slate-400' : 'text-slate-500'
-              }`}
+              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
             >
               Low Stock Alerts
             </span>
             <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border group-hover:scale-105 transition-transform ${
-                isDarkMode
-                  ? 'bg-rose-950/60 text-rose-400 border-rose-500/20'
-                  : 'bg-rose-50 text-rose-600 border-rose-200'
-              }`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg border group-hover:scale-105 transition-transform bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-500/20`}
             >
               <AlertTriangle className="h-3.5 w-3.5" />
             </div>
           </div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className={`text-xl font-serif font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+            <span className={`text-xl font-serif font-bold text-rose-600 dark:text-rose-400`}>
               {consolidatedLowStockProducts.length} SKUs
             </span>
-            <span className={`text-[10px] font-medium ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>Below Reorder</span>
+            <span className={`text-[10px] font-medium text-rose-600 dark:text-rose-400`}>Below Reorder</span>
           </div>
           <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>Requires Action</span>
-            <span className={`font-medium group-hover:underline flex items-center gap-0.5 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+            <span className={`font-medium group-hover:underline flex items-center gap-0.5 text-rose-600 dark:text-rose-400`}>
               <span>View Reorder</span>
               <ArrowRight className="h-3 w-3" />
             </span>
@@ -462,18 +433,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase ${
-                isDarkMode ? 'text-slate-400' : 'text-slate-500'
-              }`}
+              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
             >
               Procurement & Shipments
             </span>
             <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
-                isDarkMode
-                  ? 'bg-blue-950/60 text-blue-400 border-blue-500/20'
-                  : 'bg-blue-50 text-blue-700 border-blue-200'
-              }`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-400 dark:border-blue-500/20`}
             >
               <Truck className="h-3.5 w-3.5" />
             </div>
@@ -489,9 +454,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <button
               onClick={() => onNavigateTab('po-list')}
-              className={`p-1 rounded-lg transition-colors cursor-pointer ${
-                isDarkMode ? 'text-blue-400 hover:bg-slate-800' : 'text-blue-600 hover:bg-slate-100'
-              }`}
+              className={`p-1 rounded-lg transition-colors cursor-pointer text-blue-600 hover:bg-slate-100 dark:text-blue-400 dark:hover:bg-slate-800`}
             >
               <ArrowUpRight className="h-3.5 w-3.5" />
             </button>
@@ -502,9 +465,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 1. LOW STOCK & REORDER ALERTS (Consolidated Total - Top Priority) */}
       <div className={`rounded-2xl border shadow-xs overflow-hidden ${cardBg}`}>
         <div
-          className={`flex flex-wrap items-center justify-between p-4 sm:p-5 gap-3 border-b ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50/70'
-          }`}
+          className={`flex flex-wrap items-center justify-between p-4 sm:p-5 gap-3 border-b border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/30`}
         >
           <div>
             <div className="flex items-center gap-2">
@@ -525,11 +486,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigateTab('reorder-stock')}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'bg-amber-950/80 text-amber-300 border-amber-500/40 hover:bg-amber-900'
-                  : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-500/40 dark:hover:bg-amber-900`}
             >
               <Eye className="h-3.5 w-3.5 text-amber-500" />
               <span>View Reorder Stocks</span>
@@ -546,11 +503,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     type="button"
                     title="Quick Stock Entry or Removal"
                     onClick={() => setIsAdjustModalOpen(true)}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
-                      isDarkMode
-                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900'
-                        : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                    }`}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-500/40 dark:hover:bg-emerald-900`}
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>Quick Add / Remove Stock</span>
@@ -566,11 +519,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         onNavigateTab('create-po');
                       }
                     }}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
-                      isDarkMode
-                        ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-500 shadow-md shadow-indigo-950/50'
-                        : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200'
-                    }`}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:bg-indigo-600 dark:text-white dark:border-indigo-500 dark:hover:bg-indigo-500 dark:shadow-md dark:shadow-indigo-950/50`}
                   >
                     <ShoppingCart className="h-3.5 w-3.5" />
                     <span>Group Products & Create Single PO</span>
@@ -590,11 +539,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
-                className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode
-                    ? 'bg-slate-900/50 text-slate-400 border-slate-800'
-                    : 'bg-slate-50 text-slate-600 border-slate-200'
-                }`}
+                className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-800`}
               >
                 <tr>
                   <th className="px-2.5 py-1.5 w-8"></th>
@@ -603,7 +548,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="px-2.5 py-1.5">Category</th>
                   <th className="px-2.5 py-1.5 text-center">UOM</th>
                   <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
-                  <th className={`px-2.5 py-1.5 text-right font-extrabold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                  <th className={`px-2.5 py-1.5 text-right font-extrabold text-rose-600 dark:text-rose-400`}>
                     Total Available Stock
                   </th>
                   <th className="px-2.5 py-1.5 text-right">Min Reorder Level</th>
@@ -612,7 +557,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </tr>
               </thead>
               <tbody
-                className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}
+                className={`divide-y divide-slate-100 dark:divide-slate-800`}
               >
                 {consolidatedLowStockProducts.map((prod) => {
                   const isExpanded = expandedLowStockIds.has(prod.id);
@@ -651,23 +596,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <React.Fragment key={prod.id}>
                       <tr
                         onClick={() => toggleLowStockExpand(prod.id)}
-                        className={`transition-colors cursor-pointer ${
-                          isExpanded
-                            ? isDarkMode
-                              ? 'bg-rose-950/30'
-                              : 'bg-rose-50/50'
-                            : isDarkMode
-                            ? 'hover:bg-slate-800/40'
-                            : 'hover:bg-slate-50'
-                        }`}
+                        className={`transition-colors cursor-pointer isExpanded ? bg-rose-50/50 dark:bg-rose-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}
                       >
                         <td className="p-2.5 text-center">
                           <button
                             type="button"
-                            className={`p-1 cursor-pointer ${isDarkMode ? 'text-slate-400 hover:text-rose-400' : 'text-slate-400 hover:text-rose-600'}`}
+                            className={`p-1 cursor-pointer text-slate-400 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400`}
                           >
                             {isExpanded ? (
-                              <ChevronUp className={`h-4 w-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`} />
+                              <ChevronUp className={`h-4 w-4 text-rose-600 dark:text-rose-400`} />
                             ) : (
                               <ChevronDown className="h-4 w-4" />
                             )}
@@ -688,15 +625,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           {prod.unit}
                         </td>
 
-                        <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                        <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-400 dark:text-slate-400`}>
                           {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
-                        <td className={`p-2.5 text-right font-mono font-extrabold text-sm ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                        <td className={`p-2.5 text-right font-mono font-extrabold text-sm text-rose-600 dark:text-rose-400`}>
                           {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
-                        <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                        <td className={`p-2.5 text-right font-mono text-slate-500 dark:text-slate-400`}>
                           {totalConsolidatedReorder || prod.minReorderLevel} {prod.unit}
                         </td>
 
@@ -719,7 +656,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               e.stopPropagation();
                               toggleLowStockExpand(prod.id);
                             }}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${isDarkMode ? 'bg-rose-950/80 text-rose-300 border-rose-800 hover:bg-rose-900' : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'}`}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 dark:hover:bg-rose-900`}
                           >
                             {isExpanded ? 'Hide' : 'Branch Wise'}
                           </button>
@@ -728,7 +665,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                       {/* Expandable Branch Breakdown for Low Stock Item */}
                       {isExpanded && (
-                        <tr className={isDarkMode ? 'bg-slate-900/80' : 'bg-slate-50'}>
+                        <tr className="bg-slate-50 dark:bg-slate-900/80">
                           <td
                             colSpan={10}
                             className="p-4 border-t border-b border-rose-200/50"
@@ -736,7 +673,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             <div className="space-y-2 text-xs">
                               <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
                                 <span className="flex items-center gap-1.5">
-                                  <Layers className={`h-3.5 w-3.5 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`} />
+                                  <Layers className={`h-3.5 w-3.5 text-rose-600 dark:text-rose-400`} />
                                   <span>Branch-wise Available Stock Breakdown for {prod.name}:</span>
                                 </span>
                                 <span className="text-[11px] text-slate-500 font-mono">
@@ -757,15 +694,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         if (onSelectBranch) onSelectBranch(bb.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
-                                        isBranchLow
-                                          ? isDarkMode
-                                            ? 'bg-rose-950/40 border-rose-800 hover:border-rose-500'
-                                            : 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs'
-                                          : isDarkMode
-                                          ? 'bg-slate-800/80 border-slate-700 hover:border-emerald-500'
-                                          : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs'
-                                      }`}
+                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer isBranchLow ? bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500 : bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500`}
                                       title={`Click to view matrix for ${bb.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -812,14 +741,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className={`rounded-2xl border shadow-xs overflow-hidden ${cardBg}`}>
         {/* Header & Tab Controls */}
         <div
-          className={`p-4 sm:p-5 border-b space-y-3 ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50/80'
-          }`}
+          className={`p-4 sm:p-5 border-b space-y-3 border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/40`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <Radio className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                <Radio className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
                 <h3 className={`font-bold text-base ${cardTitleText}`}>
                   Special Hardware Stock (Consolidated Total)
                 </h3>
@@ -840,11 +767,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 placeholder="Search Router, Fiber, Cable..."
                 value={specialSearchQuery}
                 onChange={(e) => setSpecialSearchQuery(e.target.value)}
-                className={`w-full rounded-xl border pl-8 pr-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-700 text-slate-200 placeholder-slate-500'
-                    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400'
-                }`}
+                className={`w-full rounded-xl border pl-8 pr-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 dark:placeholder-slate-500`}
               />
             </div>
           </div>
@@ -854,13 +777,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                specialCategoryTab === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               <span>All Special Types</span>
@@ -869,13 +786,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('ROUTER')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                specialCategoryTab === 'ROUTER'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'ROUTER ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
             >
               <Radio className="h-3.5 w-3.5 text-amber-500" />
               <span>Routers & ONUs</span>
@@ -884,13 +795,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('DROP_CABLE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                specialCategoryTab === 'DROP_CABLE'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'DROP_CABLE ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
             >
               <Cable className="h-3.5 w-3.5 text-emerald-500" />
               <span>Drop Cables</span>
@@ -899,13 +804,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('TV_DEVICES')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                specialCategoryTab === 'TV_DEVICES'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'TV_DEVICES ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
             >
               <Tv className="h-3.5 w-3.5 text-purple-500" />
               <span>Tv Devices & STBs</span>
@@ -914,13 +813,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('FIBER')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                specialCategoryTab === 'FIBER'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'FIBER ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
             >
               <Network className="h-3.5 w-3.5 text-blue-500" />
               <span>Fiber Cables</span>
@@ -937,11 +830,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
-                className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode
-                    ? 'bg-slate-900/60 text-slate-400 border-slate-800'
-                    : 'bg-slate-100/70 text-slate-600 border-slate-200'
-                }`}
+                className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100/70 text-slate-600 border-slate-200 dark:bg-slate-900/60 dark:text-slate-400 dark:border-slate-800`}
               >
                 <tr>
                   <th className="px-2.5 py-1.5 w-8"></th>
@@ -950,7 +839,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="px-2.5 py-1.5">Type / Category</th>
                   <th className="px-2.5 py-1.5 text-center">UOM</th>
                   <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
-                  <th className={`px-2.5 py-1.5 text-right font-extrabold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                  <th className={`px-2.5 py-1.5 text-right font-extrabold text-indigo-600 dark:text-indigo-400`}>
                     Total Stock (All Branches)
                   </th>
                   <th className="px-2.5 py-1.5 text-right">Total Valuation</th>
@@ -958,7 +847,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="px-2.5 py-1.5 text-center w-28">Action</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
+              <tbody className={`divide-y divide-slate-100 dark:divide-slate-800`}>
                 {specialProducts.map((prod) => {
                   const isExpanded = expandedSpecialProductIds.has(prod.id);
                   const catGroup = getSpecialCategory(prod);
@@ -990,15 +879,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <React.Fragment key={prod.id}>
                       <tr
                         onClick={() => toggleSpecialExpand(prod.id)}
-                        className={`transition-colors cursor-pointer ${
-                          isExpanded
-                            ? isDarkMode
-                              ? 'bg-indigo-950/30'
-                              : 'bg-indigo-50/50'
-                            : isDarkMode
-                            ? 'hover:bg-slate-800/40'
-                            : 'hover:bg-slate-50'
-                        }`}
+                        className={`transition-colors cursor-pointer isExpanded ? bg-indigo-50/50 dark:bg-indigo-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}
                       >
                         <td className="p-2.5 text-center">
                           <button
@@ -1023,23 +904,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                         <td className="p-2.5">
                           <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              catGroup === 'ROUTER'
-                                ? isDarkMode
-                                  ? 'bg-amber-950 text-amber-300 border-amber-800'
-                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border 'catGroup === 'ROUTER'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
                                 : catGroup === 'DROP_CABLE'
-                                ? isDarkMode
-                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : catGroup === 'TV_DEVICES'
-                                ? isDarkMode
-                                  ? 'bg-purple-950 text-purple-300 border-purple-800'
-                                  : 'bg-purple-50 text-purple-800 border-purple-200'
-                                : isDarkMode
-                                ? 'bg-blue-950 text-blue-300 border-blue-800'
-                                : 'bg-blue-50 text-blue-800 border-blue-200'
-                            }`}
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800'
+                                : catGroup === 'TV_DEVICES ? bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 : bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800`}
                           >
                             {prod.category}
                           </span>
@@ -1053,7 +922,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
-                        <td className={`p-2.5 text-right font-mono font-extrabold text-sm ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                        <td className={`p-2.5 text-right font-mono font-extrabold text-sm text-indigo-600 dark:text-indigo-400`}>
                           {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
@@ -1084,7 +953,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               e.stopPropagation();
                               toggleSpecialExpand(prod.id);
                             }}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${isDarkMode ? 'bg-indigo-950/80 text-indigo-300 border-indigo-800 hover:bg-indigo-900' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'}`}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/80 dark:text-indigo-300 dark:border-indigo-800 dark:hover:bg-indigo-900`}
                           >
                             {isExpanded ? 'Hide' : 'Branch Wise'}
                           </button>
@@ -1093,12 +962,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                       {/* Expandable Sub-Row for Branch Breakdown */}
                       {isExpanded && (
-                        <tr className={isDarkMode ? 'bg-slate-900/80' : 'bg-slate-50/90'}>
+                        <tr className="bg-slate-50/90 dark:bg-slate-900/80">
                           <td colSpan={10} className="p-2.5 border-t border-b border-indigo-200/50">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                  <Layers className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                                  <Layers className={`h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400`} />
                                   <span>Branch-wise Available Stock Breakdown for {prod.name}:</span>
                                 </span>
                                 <span className="text-[11px] text-slate-500 font-mono">
@@ -1116,15 +985,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         if (onSelectBranch) onSelectBranch(b.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
-                                        hasStock
-                                          ? isDarkMode
-                                            ? 'bg-slate-800/80 border-slate-700 hover:border-indigo-500'
-                                            : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs'
-                                          : isDarkMode
-                                          ? 'bg-slate-900/40 border-slate-800/80 opacity-60'
-                                          : 'bg-slate-100/60 border-slate-200 opacity-60'
-                                      }`}
+                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer hasStock ? bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500 : bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60`}
                                       title={`Click to view matrix for ${b.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -1146,7 +1007,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         >
                                           {b.quantityOnHand} {prod.unit}
                                         </span>
-                                        <span className={`text-[10px] font-bold underline ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                                        <span className={`text-[10px] font-bold underline text-indigo-600 dark:text-indigo-400`}>
                                           View →
                                         </span>
                                       </div>
@@ -1190,15 +1051,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <Layers className="h-4 w-4 text-indigo-600" />
                   <span>Branch Stock Summary Cards</span>
                   <span
-                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                      !isGlobalUser
-                        ? isDarkMode
-                          ? 'bg-amber-950/60 text-amber-400 border-amber-800/60'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                        : isDarkMode
-                        ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60'
-                        : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                    }`}
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border !isGlobalUser ? bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800/60 : bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/60`}
                   >
                     {!isGlobalUser
                       ? `Assigned: ${branchesToDisplay[0]?.name || currentUser?.branchId}`
@@ -1213,7 +1066,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <button
                 onClick={() => onNavigateTab('branch-stock')}
-                className={`text-xs font-bold hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-700'}`}
+                className={`text-xs font-bold hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300`}
               >
                 <span>Full Matrix View</span>
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1238,15 +1091,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       if (onSelectBranch) onSelectBranch(b.id);
                       onNavigateTab('branch-stock');
                     }}
-                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
-                      isSelected
-                        ? isDarkMode
-                          ? 'border-indigo-500 bg-indigo-950/50 shadow-md ring-1 ring-indigo-500/50'
-                          : 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50'
-                        : isDarkMode
-                        ? 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/80 hover:border-indigo-500/50 hover:shadow-md'
-                        : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md'
-                    }`}
+                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between isSelected ? border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50 dark:border-indigo-500 dark:bg-indigo-950/50 dark:shadow-md dark:ring-1 dark:ring-indigo-500/50 : border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50 dark:hover:shadow-md`}
                     title={`Click to view ${b.name} inventory matrix`}
                   >
                     <div>
@@ -1255,11 +1100,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           {b.name}
                         </span>
                         <span
-                          className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 ${
-                            isDarkMode
-                              ? 'text-indigo-300 bg-indigo-950/80 border-indigo-500/30'
-                              : 'text-indigo-700 bg-indigo-100/80 border-indigo-200'
-                          }`}
+                          className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 text-indigo-700 bg-indigo-100/80 border-indigo-200 dark:text-indigo-300 dark:bg-indigo-950/80 dark:border-indigo-500/30`}
                         >
                           {b.code}
                         </span>
@@ -1267,12 +1108,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <div className={`text-xs font-serif font-extrabold mt-1 ${cardTitleText}`}>
                         {formatNPR(totalBranchVal)}
                       </div>
-                      <div className={`text-[10px] font-medium mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <div className={`text-[10px] font-medium mt-0.5 text-slate-500 dark:text-slate-400`}>
                         {totalBranchQty} Items in Stock
                       </div>
                     </div>
 
-                    <div className={`mt-2.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[10px] font-bold group-hover:translate-x-0.5 transition-transform ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                    <div className={`mt-2.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[10px] font-bold group-hover:translate-x-0.5 transition-transform text-indigo-600 dark:text-indigo-400`}>
                       <span>View Matrix</span>
                       <ArrowRight className="h-3 w-3" />
                     </div>
@@ -1322,9 +1163,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 4. REALTIME STOCK AUDIT STREAM */}
       <div className={`rounded-2xl border shadow-xs p-5 ${cardBg}`}>
         <div
-          className={`flex items-center justify-between mb-4 border-b pb-3 ${
-            isDarkMode ? 'border-slate-800' : 'border-slate-200'
-          }`}
+          className={`flex items-center justify-between mb-4 border-b pb-3 border-slate-200 dark:border-slate-800`}
         >
           <h3 className={`font-bold text-sm flex items-center gap-2 ${cardTitleText}`}>
             <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -1332,7 +1171,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </h3>
           <button
             onClick={() => onNavigateTab('stock-ledger')}
-            className={`text-xs font-medium hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}
+            className={`text-xs font-medium hover:underline cursor-pointer text-indigo-600 dark:text-indigo-400`}
           >
             View Full Ledger →
           </button>
@@ -1349,22 +1188,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
               return (
                 <div
                   key={log.id}
-                  className={`p-3 rounded-xl border text-xs space-y-1 transition-colors ${
-                    isDarkMode
-                      ? 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
-                      : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                  }`}
+                  className={`p-3 rounded-xl border text-xs space-y-1 transition-colors bg-slate-50 border-slate-200 hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:hover:border-slate-700`}
                 >
                   <div className="flex items-center justify-between">
                     <span className={`font-semibold truncate max-w-[140px] ${cardTitleText}`}>
                       {log.productName}
                     </span>
                     <span
-                      className={`font-mono font-bold flex items-center text-xs ${
-                        isPositive
-                          ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
-                          : isDarkMode ? 'text-rose-400' : 'text-rose-600'
-                      }`}
+                      className={`font-mono font-bold flex items-center text-xs isPositive ? text-emerald-600 dark:text-emerald-400 : text-rose-600 dark:text-rose-400`}
                     >
                       {isPositive ? (
                         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1376,11 +1207,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-500">
                     <span
-                      className={`rounded px-1.5 py-0.5 font-mono ${
-                        isDarkMode
-                          ? 'bg-slate-800 text-slate-300'
-                          : 'bg-slate-200 text-slate-700'
-                      }`}
+                      className={`rounded px-1.5 py-0.5 font-mono bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
                     >
                       {log.changeType.replace('_', ' ')}
                     </span>

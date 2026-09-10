@@ -30,9 +30,7 @@ interface ProfileSwitchModalProps {
   branches: Branch[];
   onSwitchProfile: (targetUserId: string) => Promise<void>;
   onUpdateProfile: (data: Partial<User> & { newPassword?: string }) => Promise<void>;
-  onLogout: () => void;
-  isDarkMode?: boolean;
-}
+  onLogout: () => void;}
 
 export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   isOpen,
@@ -44,9 +42,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   branches,
   onSwitchProfile,
   onUpdateProfile,
-  onLogout,
-  isDarkMode = false,
-}) => {
+  onLogout,}) => {
   const [activeTab, setActiveTab] = useState<'switch' | 'edit' | 'info'>('switch');
   const [search, setSearch] = useState('');
   const [switchingId, setSwitchingId] = useState<string | null>(null);

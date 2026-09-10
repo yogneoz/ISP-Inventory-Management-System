@@ -24,17 +24,13 @@ interface BarcodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   products?: Product[];
-  onScanResult?: (code: string) => void;
-  isDarkMode?: boolean;
-}
+  onScanResult?: (code: string) => void;}
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
   products = [],
-  onScanResult,
-  isDarkMode = false,
-}) => {
+  onScanResult,}) => {
   const [activeTab, setActiveTab] = useState<'SCANNER' | 'GENERATOR'>('SCANNER');
   const [scannedInput, setScannedInput] = useState('');
   const [isTorchOn, setIsTorchOn] = useState(false);
@@ -469,7 +465,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   </span>
                 </div>
 
-                <div className={`border-2 rounded-3xl p-6 shadow-2xl relative overflow-hidden max-w-lg mx-auto ${isDarkMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-700 bg-white text-slate-950'}`}>
+                <div className={`border-2 rounded-3xl p-6 shadow-2xl relative overflow-hidden max-w-lg mx-auto border-slate-700 bg-white text-slate-950 dark:border-slate-600 dark:bg-slate-900 dark:text-white`}>
                   {/* Header */}
                   {showCompany && (
                     <div className="flex items-center justify-between border-b-2 border-slate-900 pb-2 mb-2">

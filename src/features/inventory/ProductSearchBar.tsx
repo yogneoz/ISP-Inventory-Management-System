@@ -9,9 +9,7 @@ interface ProductSearchBarProps {
   inputId?: string;
   stock?: InventoryStock[];
   selectedBranchId?: string;
-  showStockBadges?: boolean;
-  isDarkMode?: boolean;
-}
+  showStockBadges?: boolean;}
 
 export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   products,
@@ -20,9 +18,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   inputId,
   stock,
   selectedBranchId,
-  showStockBadges = true,
-  isDarkMode = false,
-}) => {
+  showStockBadges = true,}) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -96,7 +92,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsOpen(true)}
           placeholder={placeholder}
-          className={`w-full rounded-xl border pl-10 sm:pl-16 pr-4 py-2.5 text-xs font-medium shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${isDarkMode ? 'border-slate-700 bg-slate-800 text-white placeholder-slate-400' : 'border-blue-200 bg-white text-slate-900 placeholder-slate-400'} focus:border-blue-600`}
+          className={`w-full rounded-xl border pl-10 sm:pl-16 pr-4 py-2.5 text-xs font-medium shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 border-blue-200 bg-white text-slate-900 placeholder-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-400 focus:border-blue-600`}
         />
         {query && (
           <button
@@ -114,11 +110,9 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
 
       {/* Autocomplete dropdown */}
       {isOpen && query.trim().length > 0 && (
-        <div className={`absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl border shadow-xl ${
-          isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-blue-200 bg-white'
-        }`}>
+        <div className={`absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl border shadow-xl border-blue-200 bg-white dark:border-slate-600 dark:bg-slate-800`}>
           {matchingProducts.length === 0 ? (
-            <div className={`p-3 text-xs text-center font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <div className={`p-3 text-xs text-center font-medium text-slate-500 dark:text-slate-400`}>
               No product found matching "{query}". Check SKU code or Barcode.
             </div>
           ) : (
@@ -143,54 +137,36 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
                   key={prod.id}
                   type="button"
                   onClick={() => handleSelect(prod)}
-                  className={`w-full text-left px-4 py-2.5 flex items-center justify-between border-b last:border-b-0 transition-colors cursor-pointer ${
-                    isDarkMode ? 'border-slate-700 hover:bg-slate-700' : 'border-slate-100 hover:bg-blue-50/80'
-                  }`}
+                  className={`w-full text-left px-4 py-2.5 flex items-center justify-between border-b last:border-b-0 transition-colors cursor-pointer border-slate-100 hover:bg-blue-50/80 dark:border-slate-700 dark:hover:bg-slate-700`}
                 >
                   <div className="flex-1 pr-2">
-                    <div className={`text-xs font-bold flex items-center gap-2 flex-wrap ${
-                      isDarkMode ? 'text-white' : 'text-slate-900'
-                    }`}>
-                      <span className={`font-mono px-1.5 py-0.5 rounded text-[11px] ${
-                        isDarkMode ? 'text-blue-300 bg-blue-900/50' : 'text-blue-700 bg-blue-100'
-                      }`}>
+                    <div className={`text-xs font-bold flex items-center gap-2 flex-wrap text-slate-900 dark:text-white`}>
+                      <span className={`font-mono px-1.5 py-0.5 rounded text-[11px] text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/50`}>
                         {prod.sku}
                       </span>
                       <span>{prod.name}</span>
                     </div>
 
-                    <div className={`text-[11px] flex items-center gap-3 mt-1 flex-wrap ${
-                      isDarkMode ? 'text-slate-400' : 'text-slate-500'
-                    }`}>
-                      <span>Barcode: <strong className={`font-mono ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{prod.barcode || '-'}</strong></span>
+                    <div className={`text-[11px] flex items-center gap-3 mt-1 flex-wrap text-slate-500 dark:text-slate-400`}>
+                      <span>Barcode: <strong className={`font-mono text-slate-700 dark:text-slate-300`}>{prod.barcode || '-'}</strong></span>
                       <span>Category: {prod.category || 'General'}</span>
                       <span>Unit: {prod.unit || 'pcs'}</span>
                     </div>
 
                     {showStockBadges && hasStockData && (
                       <div className="flex items-center gap-2 mt-1.5 text-[10px] flex-wrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
-                          qtyOnHand > 0 
-                            ? isDarkMode ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : isDarkMode ? 'bg-slate-700 text-slate-400 border border-slate-600' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold qtyOnHand > 0 ? bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border dark:border-emerald-700 : bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600`}>
                           <Package className="h-3 w-3 text-emerald-600" />
                           <span>Usable: {qtyOnHand} {prod.unit || 'pcs'}</span>
                         </span>
 
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
-                          damagedQty > 0 
-                            ? isDarkMode ? 'bg-amber-900/50 text-amber-300 border border-amber-700' : 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : isDarkMode ? 'bg-slate-700 text-slate-400 border border-slate-600' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold damagedQty > 0 ? bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/50 dark:text-amber-300 dark:border dark:border-amber-700 : bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600`}>
                           <AlertTriangle className="h-3 w-3 text-amber-600" />
                           <span>Damaged: {damagedQty} {prod.unit || 'pcs'}</span>
                         </span>
 
                         {qtyOnHand === 0 && damagedQty === 0 && (
-                          <span className={`font-bold px-1.5 py-0.5 rounded border ${
-                            isDarkMode ? 'text-rose-400 bg-rose-900/50 border-rose-700' : 'text-rose-600 bg-rose-50 border-rose-200'
-                          }`}>
+                          <span className={`font-bold px-1.5 py-0.5 rounded border text-rose-600 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-900/50 dark:border-rose-700`}>
                             Out of Stock at Selected Branch
                           </span>
                         )}
@@ -199,14 +175,10 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className={`text-xs font-bold font-mono block ${
-                      isDarkMode ? 'text-white' : 'text-slate-900'
-                    }`}>
+                    <span className={`text-xs font-bold font-mono block text-slate-900 dark:text-white`}>
                       रु {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
-                    <div className={`text-[10px] font-semibold flex items-center gap-1 justify-end mt-1 ${
-                      isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                    }`}>
+                    <div className={`text-[10px] font-semibold flex items-center gap-1 justify-end mt-1 text-blue-600 dark:text-blue-400`}>
                       <Plus className="h-3 w-3" /> Select / Add
                     </div>
                   </div>

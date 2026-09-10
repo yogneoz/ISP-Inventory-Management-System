@@ -78,9 +78,7 @@ interface TablePaginationProps {
   rangeEnd: number;
   pageSize: number;
   onPageChange: (p: number) => void;
-  onPageSizeChange?: (s: number) => void;
-  isDarkMode?: boolean;
-  className?: string;
+  onPageSizeChange?: (s: number) => void;  className?: string;
   /** Hide the rows-per-page selector (e.g. inside small panels). */
   hidePageSize?: boolean;
 }
@@ -93,32 +91,24 @@ export function TablePagination({
   rangeEnd,
   pageSize,
   onPageChange,
-  onPageSizeChange,
-  isDarkMode = false,
-  className = '',
+  onPageSizeChange,  className = '',
   hidePageSize = false,
 }: TablePaginationProps) {
   if (totalItems === 0) return null;
   const singlePage = totalItems <= pageSize;
 
-  const btnBase = isDarkMode
-    ? 'border-slate-700 text-slate-300 hover:bg-slate-700/60'
-    : 'border-slate-200 text-slate-600 hover:bg-slate-100';
-  const btnDisabled = isDarkMode
-    ? 'border-slate-800 text-slate-600 cursor-not-allowed'
-    : 'border-slate-100 text-slate-300 cursor-not-allowed';
+  const btnBase = 'border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60';
+  const btnDisabled = 'border-slate-100 text-slate-300 cursor-not-allowed dark:border-slate-800 dark:text-slate-600 dark:cursor-not-allowed';
   const activeBtn = 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-600';
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 text-[11px] ${
-        isDarkMode ? 'text-slate-400' : 'text-slate-500'
-      } ${className}`}
+      className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400 ${className}`}
     >
       <span>
-        Showing <strong className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>{rangeStart}</strong>–
-        <strong className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>{rangeEnd}</strong> of{' '}
-        <strong className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>{totalItems.toLocaleString('en-IN')}</strong>{' '}
+        Showing <strong className="text-slate-700 dark:text-slate-200">{rangeStart}</strong>–
+        <strong className="text-slate-700 dark:text-slate-200">{rangeEnd}</strong> of{' '}
+        <strong className="text-slate-700 dark:text-slate-200">{totalItems.toLocaleString('en-IN')}</strong>{' '}
         {totalItems === 1 ? 'record' : 'records'}
       </span>
 
@@ -129,11 +119,7 @@ export function TablePagination({
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className={`rounded-md border px-1.5 py-1 text-[11px] font-medium outline-none cursor-pointer ${
-                isDarkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-200'
-                  : 'bg-white border-slate-200 text-slate-700'
-              }`}
+              className={`rounded-md border px-1.5 py-1 text-[11px] font-medium outline-none cursor-pointer bg-white border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
             >
               {[10, 15, 25, 50, 100].map((s) => (
                 <option key={s} value={s}>

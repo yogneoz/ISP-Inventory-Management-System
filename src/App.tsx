@@ -83,6 +83,7 @@ import { HelpDocumentation } from './components/common/HelpDocumentation';
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
+import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
@@ -177,19 +178,8 @@ export default function App() {
     return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
   }, []);
 
-  // Theme State: default to light mode (false) as requested, with localStorage persistence
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('izone_theme');
-    return saved === 'dark';
-  });
-
-  const handleToggleTheme = () => {
-    setIsDarkMode((prev) => {
-      const next = !prev;
-      localStorage.setItem('izone_theme', next ? 'dark' : 'light');
-      return next;
-    });
-  };
+  // Theme: managed by DarkModeContext (adds/removes `dark` class on <html>)
+  const { isDarkMode, toggleTheme: handleToggleTheme } = useDarkMode();
 
   // App Data State
   const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
@@ -881,9 +871,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div
-        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
-          isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
-        }`}
+        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
       >
         <LoginModal
           onLoginSuccess={handleLogin}
@@ -909,9 +897,7 @@ export default function App() {
 
   return (
     <div
-      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
-        isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
-      }`}
+      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
     >
       {/* Top App Header (Fixed at top) */}
       <Header
@@ -940,7 +926,6 @@ export default function App() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
-        isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         isSidebarOpen={isSidebarOpen}
@@ -956,7 +941,6 @@ export default function App() {
 
       {/* Direct PostgreSQL Database Setup Notification Banner */}
       <DatabaseSetupBanner
-        isDarkMode={isDarkMode}
         onRefresh={refreshAllData}
         loading={loading}
         postgresConfig={{
@@ -1000,16 +984,13 @@ export default function App() {
             pendingApprovalCount={approvalRequests.filter(
               (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
             ).length}
-            isDarkMode={isDarkMode}
             onCloseMobile={() => setIsSidebarOpen(false)}
           />
         </div>
 
         {/* Main Content Viewport */}
         <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 ${
-            isDarkMode ? 'bg-[#0a0c10]' : 'bg-[#f8fafc]'
-          }`}
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#f8fafc] dark:bg-[#0a0c10]`}
         >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-3">
@@ -1040,7 +1021,6 @@ export default function App() {
                   onSelectBranch={handleSelectBranch}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1050,7 +1030,6 @@ export default function App() {
                   branches={branches}
                   currentUser={currentUser}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   onProcessApproval={handleProcessApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToStockAudit={(branchId) => {
@@ -1072,7 +1051,6 @@ export default function App() {
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
-                  isDarkMode={isDarkMode}
                   mode="all-stock"
                   dbCategories={categories}
                 />
@@ -1088,7 +1066,6 @@ export default function App() {
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
-                  isDarkMode={isDarkMode}
                   mode="product-master"
                   dbCategories={categories}
                 />
@@ -1100,7 +1077,6 @@ export default function App() {
                   fiscalYears={fiscalYears}
                   branches={branches}
                   products={products}
-                  isDarkMode={isDarkMode}
                   onRefreshData={refreshAllData}
                 />
               )}
@@ -1109,14 +1085,12 @@ export default function App() {
                 <CategoryManagement
                   currentUser={currentUser}
                   products={products}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'uom-management' && (
                 <UomManagement
                   currentUser={currentUser}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1126,7 +1100,6 @@ export default function App() {
                   products={products}
                   onCreateProduct={handleCreateProduct}
                   onRefreshData={refreshAllData}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1139,7 +1112,6 @@ export default function App() {
                   customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1151,7 +1123,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1167,7 +1138,6 @@ export default function App() {
                   onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onNavigateTab={setActiveTab}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1182,7 +1152,6 @@ export default function App() {
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateOperation={handleCreateOperation}
                   onNavigateTab={setActiveTab}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1192,7 +1161,6 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1208,7 +1176,6 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1220,7 +1187,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   approvalRequests={approvalRequests}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onReconcileStockAudit={async (payload) => {
@@ -1244,7 +1210,6 @@ export default function App() {
                   dateMode={dateMode}
                   onCreateAsset={handleCreateAsset}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1271,7 +1236,6 @@ export default function App() {
                     setActiveTab(tab as any);
                     if (filter) setSearchQuery(filter);
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1297,14 +1261,12 @@ export default function App() {
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToMaster={() => setActiveTab('customers')}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'locations' && (
                 <LocationsManagement
                   branches={branches}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1315,7 +1277,6 @@ export default function App() {
                     await api.bulkImportCustomers(newCustomers);
                     await refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1337,7 +1298,6 @@ export default function App() {
                   onUpdatePO={handleUpdatePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1359,7 +1319,6 @@ export default function App() {
                   onUpdatePO={handleUpdatePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1379,7 +1338,6 @@ export default function App() {
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
                   onDeleteInvoice={handleDeleteInvoice}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1399,7 +1357,6 @@ export default function App() {
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
                   onDeleteInvoice={handleDeleteInvoice}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1423,7 +1380,6 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1440,7 +1396,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="CREATE_TRANSFER"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1468,7 +1423,6 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   approvalRequests={approvalRequests}
-                  isDarkMode={isDarkMode}
                   dateMode={dateMode}
                   onReceiveOperation={handleReceiveOperation}
                   onReceiveShipment={handleReceiveShipment}
@@ -1489,7 +1443,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="RECEIVE_TRANSFER"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1528,7 +1481,6 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1545,7 +1497,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="PULLOUT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1577,7 +1528,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="DAMAGE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1609,7 +1559,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="PULLOUT_REPORT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1632,7 +1581,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="DAMAGE_REPORT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1654,7 +1602,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="STOCK_OUT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1686,7 +1633,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="ASSIGN_ASSET"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1718,7 +1664,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="CONSUMABLE_ISSUE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1750,7 +1695,6 @@ export default function App() {
                   dateMode={dateMode}
                   initialType="DEVICE_EXCHANGE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1777,7 +1721,6 @@ export default function App() {
                   products={products}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1797,7 +1740,6 @@ export default function App() {
                     await api.deleteBranch(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1817,7 +1759,6 @@ export default function App() {
                     await api.deleteSupplier(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1842,12 +1783,11 @@ export default function App() {
                     await api.deleteUser(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'permissions' && (
-                <PermissionManagement currentUser={currentUser} isDarkMode={isDarkMode} />
+                <PermissionManagement currentUser={currentUser} />
               )}
 
               {activeTab === 'company-setup' && (
@@ -1865,7 +1805,6 @@ export default function App() {
                     await refreshAllData();
                     return true;
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1884,7 +1823,6 @@ export default function App() {
                     await refreshAllData();
                   }}
                   onNavigateDashboard={() => setActiveTab('dashboard')}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1895,7 +1833,6 @@ export default function App() {
                   invoices={purchaseInvoices}
                   purchaseOrders={purchaseOrders}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1903,7 +1840,6 @@ export default function App() {
                 <VatRegister
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1914,7 +1850,6 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1928,7 +1863,6 @@ export default function App() {
                   assets={assets}
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1936,7 +1870,6 @@ export default function App() {
                 <DataRecalculationMaintenance
                   currentUser={currentUser}
                   fiscalYears={fiscalYears}
-                  isDarkMode={isDarkMode}
                   onRefreshData={refreshAllData}
                 />
               )}
@@ -1949,7 +1882,6 @@ export default function App() {
                   onReopenFiscalYear={handleReopenFiscalYear}
                   onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   financialSummary={financialSummary}
                   products={products}
                   stock={stock}
@@ -1962,7 +1894,6 @@ export default function App() {
 
               {activeTab === 'bs-calendar' && (
                 <BsCalendarUtility
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1974,20 +1905,17 @@ export default function App() {
                   onDeleteFiscalYear={handleDeleteFiscalYear}
                   currentUser={currentUser}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'nepali-fiscal' && (
                 <BsCalendarUtility
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'help-documentation' && (
                 <HelpDocumentation
                   currentUser={currentUser}
-                  isDarkMode={isDarkMode}
                   onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
                   onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
                   onNavigateTab={(tab) => {
@@ -2011,7 +1939,6 @@ export default function App() {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         products={products}
-        isDarkMode={isDarkMode}
       />
 
       {/* Global Quick Search Modal */}
@@ -2037,7 +1964,6 @@ export default function App() {
           }
           setIsGlobalSearchOpen(false);
         }}
-        isDarkMode={isDarkMode}
       />
 
       {/* Realtime Notification & Action Center Modal */}
@@ -2051,7 +1977,6 @@ export default function App() {
         shipments={shipments}
         branches={branches}
         selectedBranchId={selectedBranchId}
-        isDarkMode={isDarkMode}
         onSelectTab={(tab) => {
           setActiveTab(tab as NavTab);
           setIsNotificationOpen(false);
@@ -2073,7 +1998,6 @@ export default function App() {
         onSwitchProfile={handleSwitchProfile}
         onUpdateProfile={handleUpdateProfile}
         onLogout={handleLogout}
-        isDarkMode={isDarkMode}
       />
     </div>
   );

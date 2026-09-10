@@ -75,9 +75,7 @@ interface ShipmentsProps {
   onRequestApproval?: (
     requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
   ) => Promise<void>;
-  onCancelApproval?: (requestId: string) => Promise<void>;
-  isDarkMode?: boolean;
-}
+  onCancelApproval?: (requestId: string) => Promise<void>;}
 
 interface ShipmentFormLine {
   productId: string;
@@ -100,9 +98,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onReceiveShipment,
   onCancelReceiveShipment,
   onRequestApproval,
-  onCancelApproval,
-  isDarkMode = false,
-}) => {
+  onCancelApproval,}) => {
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
     activeTab === 'create-shipment' ? 'CREATE_SHIPMENT' : 'REGISTER'
   );
@@ -667,13 +663,11 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <Truck className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
+            <Truck className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
             <span>Warehouse Logistics & Stock Dispatches</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Scan barcode or search products to dispatch stock transfers to destination branches or process warehouse sales.
           </p>
         </div>
@@ -686,15 +680,13 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               placeholder="Search Tracking Code..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-              }`}
+              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
             />
           </div>
 
           {!isSuperAdmin ? (
             <div className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
-              <PackageCheck className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+              <PackageCheck className={`h-4 w-4 flex-shrink-0 text-indigo-500 dark:text-indigo-400`} />
               <span>Branch Inbound Mode: Receive incoming stock shipments below.</span>
             </div>
           ) : null}
@@ -703,32 +695,18 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
       {/* Rail Sub-Navigation Tabs Bar (Like Purchase Invoices) */}
       {activeTab !== 'create-shipment' && activeTab !== 'shipment-list' && <div
-        className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}
+        className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto border-slate-200 dark:border-slate-800`}
       >
         <button
           type="button"
           id="tab-shipment-register"
           onClick={() => setInternalTab('REGISTER')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            internalTab === 'REGISTER'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'REGISTER ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
         >
           <History className="h-4 w-4" />
           <span>Shipment & Transfer Register</span>
           <span
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-              internalTab === 'REGISTER'
-                ? 'bg-indigo-800 text-white'
-                : isDarkMode
-                ? 'bg-slate-800 text-slate-300'
-                : 'bg-slate-200 text-slate-700'
-            }`}
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold 'internalTab === 'REGISTER ? bg-indigo-800 text-white : bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
           >
             {filteredShipments.length}
           </span>
@@ -738,13 +716,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           type="button"
           id="tab-shipment-form"
           onClick={() => setInternalTab('CREATE_SHIPMENT')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            internalTab === 'CREATE_SHIPMENT'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'CREATE_SHIPMENT ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
         >
           <Send className="h-4 w-4" />
           <span>New Warehouse Dispatch & Sale Form (Inline POS & Scan)</span>
@@ -766,13 +738,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             type="button"
             id="tab-shipment-view"
             onClick={() => setInternalTab('VIEW')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-              internalTab === 'VIEW'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : isDarkMode
-                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'VIEW ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
           >
             <Eye className="h-4 w-4" />
             <span>Manifest Details #{viewingShipment.trackingCode}</span>
@@ -782,9 +748,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
       {/* CREATE SUBTAB: Embedded Inline Form View */}
       {internalTab === 'CREATE_SHIPMENT' && (
-        <div className={`rounded-2xl border shadow-xl overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`rounded-2xl border shadow-xl overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
@@ -886,7 +850,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Boxes className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                  <Boxes className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                   <span>Transfer Line Items ({lines.length})</span>
                 </h4>
                 <button
@@ -958,7 +922,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                             <button
                               type="button"
                               onClick={() => removeLine(idx)}
-                              className={`p-1 ${isDarkMode ? 'text-slate-400 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'} cursor-pointer`}
+                              className={`p-1 text-slate-400 hover:text-rose-500 dark:text-slate-400 dark:hover:text-rose-400 cursor-pointer`}
                               title="Remove item line"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1061,11 +1025,9 @@ export const Shipments: React.FC<ShipmentsProps> = ({
         <>
           {/* Shipment Metrics */}
           <div className="flex-none grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className={`rounded-2xl p-4 border shadow-sm ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-            }`}>
-              <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Total Transfers Recorded</span>
-              <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <div className={`rounded-2xl p-4 border shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+              <span className={`text-xs font-semibold text-slate-500 dark:text-slate-400`}>Total Transfers Recorded</span>
+              <div className={`text-xl font-mono font-bold mt-1 text-slate-900 dark:text-white`}>
                 {filteredShipments.length} Shipments
               </div>
             </div>
@@ -1093,9 +1055,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           </div>
 
           {/* Report Filters & Export Toolbar */}
-          <div className={`flex flex-wrap items-end gap-3 rounded-2xl border p-3.5 shadow-sm ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`flex flex-wrap items-end gap-3 rounded-2xl border p-3.5 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div>
               <DateField
                 label="Dispatch From"
@@ -1121,9 +1081,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <select
                 value={shipmentStatusFilter}
                 onChange={(e) => setShipmentStatusFilter(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
+                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
               >
                 <option value="ALL">All Statuses</option>
                 <option value="DISPATCHED">Dispatched</option>
@@ -1141,9 +1099,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <select
                 value={shipmentMode}
                 onChange={(e) => setShipmentMode(e.target.value as 'ALL' | 'CREATED' | 'RECEIVED')}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
+                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
               >
                 <option value="ALL">All Directions</option>
                 <option value="CREATED">Outbound (Dispatched From)</option>
@@ -1169,14 +1125,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           </div>
 
           {/* Shipment Table */}
-          <div className={`rounded-2xl border shadow-lg overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`rounded-2xl border shadow-lg overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs ${
-                  isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                }`}>
+                <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
                   <tr>
                     <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Tracking Code</th>
                     <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Shipment Type</th>
@@ -1205,15 +1157,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                       );
 
                       return (
-                      <tr key={sh.id} className={`transition-colors ${
-                        pendingCancelReq
-                          ? isDarkMode
-                            ? 'bg-amber-950/20 hover:bg-amber-950/30'
-                            : 'bg-amber-50/40 hover:bg-amber-50/70'
-                          : isDarkMode
-                          ? 'hover:bg-slate-800/40'
-                          : 'hover:bg-slate-50'
-                      }`}>
+                      <tr key={sh.id} className={`transition-colors pendingCancelReq ? bg-amber-50/40 hover:bg-amber-50/70 dark:bg-amber-950/20 dark:hover:bg-amber-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
                         <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                           {sh.trackingCode}
                         </td>
@@ -1290,7 +1234,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                   title="Request Super Admin approval to cancel received stock transfer"
                                   className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-semibold text-[11px] cursor-pointer transition-all"
                                 >
-                                  <RotateCcw className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+                                  <RotateCcw className={`h-3.5 w-3.5 text-amber-500 dark:text-amber-400`} />
                                   <span>Request Cancel</span>
                                 </button>
                               ) : isSuperOrInventory ? (
@@ -1325,7 +1269,6 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               pageSize={shipmentPagination.pageSize}
               onPageChange={shipmentPagination.setPage}
               onPageSizeChange={shipmentPagination.setPageSize}
-              isDarkMode={isDarkMode}
               className="mt-1"
             />
           </div>
@@ -1437,7 +1380,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Boxes className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                    <Boxes className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                     <span>Transfer Line Items ({lines.length})</span>
                   </h4>
                   <button
@@ -1509,7 +1452,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                               <button
                                 type="button"
                                 onClick={() => removeLine(idx)}
-                                className={`p-1 ${isDarkMode ? 'text-slate-400 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'} cursor-pointer`}
+                                className={`p-1 text-slate-400 hover:text-rose-500 dark:text-slate-400 dark:hover:text-rose-400 cursor-pointer`}
                                 title="Remove item line"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1605,7 +1548,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200 my-8">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
               <h3 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                <Truck className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <Truck className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                 <span>Stock Transfer Manifest — {viewingShipment.trackingCode}</span>
               </h3>
               <button
@@ -1622,7 +1565,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Source Branch</span>
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.sourceBranchName || 'Central Warehouse'}</span>
                 </div>
-                <ArrowRight className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <ArrowRight className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                 <div className="text-right">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination Branch</span>
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.destinationBranchName}</span>
@@ -1682,14 +1625,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* Inbound Physical Stock Verification & Security Audit Modal */}
       {receivingShipmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
-            <div className={`p-4 border-b flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-            }`}>
+          <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+            <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60`}>
               <div className="flex items-center gap-2">
-                <PackageCheck className={`h-5 w-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                <PackageCheck className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
                 <div>
                   <h3 className="font-bold text-sm">
                     Inbound Stock Physical Verification — {receivingShipmentModal.trackingCode}
@@ -1716,8 +1655,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{receivingShipmentModal.sourceBranchName || 'Central Warehouse'}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className={`font-mono text-[10px] font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{receivingShipmentModal.dispatchDateAD}</span>
-                  <ArrowRight className={`h-4 w-4 my-0.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                  <span className={`font-mono text-[10px] font-bold text-indigo-500 dark:text-indigo-400`}>{receivingShipmentModal.dispatchDateAD}</span>
+                  <ArrowRight className={`h-4 w-4 my-0.5 text-indigo-500 dark:text-indigo-400`} />
                   <span className="text-[10px] text-emerald-600 font-bold uppercase">Receiving Inspection</span>
                 </div>
                 <div className="text-right">
@@ -1830,7 +1769,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                     </div>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')}`}>
+                                <span className={`text-[10px] font-bold uppercase s.isChecked ? text-emerald-600 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
                                   {s.isChecked ? 'Verified' : 'Missing'}
                                 </span>
                               </label>
@@ -1870,9 +1809,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             </div>
 
             {/* Modal Actions Footer */}
-            <div className={`p-4 border-t flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-            }`}>
+            <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60`}>
               <button
                 type="button"
                 onClick={() => setReceivingShipmentModal(null)}
@@ -1899,9 +1836,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* ------------------------------------------------------------- */}
       {directCancelModalShipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-rose-900/50 text-slate-200' : 'bg-white border-rose-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-rose-200 text-slate-800 dark:bg-[#0f1218] dark:border-rose-900/50 dark:text-slate-200`}>
             {/* Header */}
             <div className="p-4 bg-rose-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -1924,9 +1859,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             </div>
 
             <form onSubmit={handleDirectCancelSubmit} className="p-5 space-y-4">
-              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
-                isDarkMode ? 'bg-rose-950/30 border-rose-800/50 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
-              }`}>
+              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/30 dark:border-rose-800/50 dark:text-rose-300`}>
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600" />
                 <div className="space-y-1">
                   <div className="font-bold">Inventory Reversal Warning</div>
@@ -1937,7 +1870,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               </div>
 
               {/* Items Summary Table */}
-              <div className={`p-3 rounded-xl border space-y-2 ${isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-xl border space-y-2 bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
                   <span>Stock Items to Revert</span>
                   <span className="font-mono text-indigo-600 dark:text-indigo-400">
@@ -1968,9 +1901,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   value={directCancelReason}
                   onChange={(e) => setDirectCancelReason(e.target.value)}
                   placeholder="e.g. Accidental confirmation by receiving staff, wrong shipment selected, or transit dispute..."
-                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                 />
               </div>
 
@@ -2007,9 +1938,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* ------------------------------------------------------------- */}
       {requestCancelModalShipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-amber-900/50 text-slate-200' : 'bg-white border-amber-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-amber-200 text-slate-800 dark:bg-[#0f1218] dark:border-amber-900/50 dark:text-slate-200`}>
             {/* Header */}
             <div className="p-4 bg-amber-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2032,9 +1961,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             </div>
 
             <form onSubmit={handleRequestCancelSubmit} className="p-5 space-y-4">
-              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
-                isDarkMode ? 'bg-amber-950/30 border-amber-800/50 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
-              }`}>
+              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-300`}>
                 <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
                 <div className="space-y-1">
                   <div className="font-bold">Workflow Approval Process</div>
@@ -2045,7 +1972,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               </div>
 
               {/* Transfer Details Card */}
-              <div className={`p-3 rounded-xl border text-xs space-y-2 ${isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-xl border text-xs space-y-2 bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
                 <div className="flex items-center justify-between text-slate-500 font-medium">
                   <span>Transfer Route:</span>
                   <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1">
@@ -2071,9 +1998,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   value={requestCancelReason}
                   onChange={(e) => setRequestCancelReason(e.target.value)}
                   placeholder="Explain why this transfer receipt needs to be cancelled and reverted to In-Transit..."
-                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                 />
               </div>
 
@@ -2110,9 +2035,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* ------------------------------------------------------------- */}
       {cancelPendingRequestModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
             <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Clock className="h-5 w-5 text-amber-400" />
@@ -2130,7 +2053,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <p>
                 Are you sure you want to withdraw the pending cancellation request for transfer <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{cancelPendingRequestModal.shipment.trackingCode}</span>?
               </p>
-              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
                 <div className="font-bold text-slate-700 dark:text-slate-300">Request #{cancelPendingRequestModal.req.requestNumber}</div>
                 <div className="text-slate-500 mt-1">Reason: {cancelPendingRequestModal.req.reason}</div>
               </div>

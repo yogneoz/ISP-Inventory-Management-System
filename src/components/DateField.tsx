@@ -33,9 +33,7 @@ interface DateFieldProps {
   /** Extra classes for the control (e.g. red border for cross-field validation). */
   controlClassName?: string;
   /** Tighter padding for filter toolbars. */
-  compact?: boolean;
-  isDarkMode?: boolean;
-}
+  compact?: boolean;}
 
 function normalizeAD(v: string | null | undefined): string {
   if (!v) return '';
@@ -67,9 +65,7 @@ export function DateField({
   disabled,
   id,
   controlClassName = '',
-  compact,
-  isDarkMode = false,
-}: DateFieldProps) {
+  compact,}: DateFieldProps) {
   const adValue = normalizeAD(value);
 
   // BS calendar data (localStorage mirror of the seeded bs_calendar_years DB table).
@@ -155,11 +151,7 @@ export function DateField({
   }, [adValue]);
 
   const pad = compact ? 'px-2' : 'px-3 py-2';
-  const baseCls = `w-full rounded-xl border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 ${pad} ${compact ? 'h-9' : ''} ${
-    isDarkMode
-      ? 'bg-slate-900 border-slate-700 text-slate-100'
-      : 'bg-white border-slate-300 text-slate-900'
-  }`;
+  const baseCls = `w-full rounded-xl border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 ${pad} ${compact ? 'h-9' : ''} bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100`;
   const showNepaliPicker = mode === 'BS' && bsYears.length > 0 && (Boolean(derivedBS) || !adValue);
 
   return (
@@ -214,7 +206,7 @@ export function DateField({
           </div>
 
           {popoverOpen && viewYear !== null && viewMonth !== null && (
-            <div className={`absolute left-0 top-full z-30 mt-1 rounded-xl border p-2 shadow-xl ${isDarkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+            <div className={`absolute left-0 top-full z-30 mt-1 rounded-xl border p-2 shadow-xl border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900`}>
               <NepaliCalendarGrid
                 yearBS={viewYear}
                 monthBS={viewMonth}
@@ -232,7 +224,6 @@ export function DateField({
                   setViewYear(y);
                   setViewMonth(m);
                 }}
-                isDarkMode={isDarkMode}
               />
             </div>
           )}

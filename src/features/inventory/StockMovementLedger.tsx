@@ -31,9 +31,7 @@ interface StockMovementLedgerProps {
   shipments?: Shipment[];
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
-  dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
-}
+  dateMode: 'BS' | 'AD';}
 
 export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   transactionLogs,
@@ -45,9 +43,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   shipments = [],
   purchaseOrders = [],
   selectedBranchId,
-  dateMode,
-  isDarkMode = false,
-}) => {
+  dateMode,}) => {
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
   const [startDateAD, setStartDateAD] = useState<string>('');
   const [endDateAD, setEndDateAD] = useState<string>('');
@@ -444,13 +440,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <BookOpen className="h-5 w-5 text-indigo-500" />
             <span>Stock Movement Ledger</span>
           </h2>
-          <p className={`truncate text-[11px] mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-[11px] mt-0.5 text-slate-500 dark:text-slate-400`}>
             Track opening stock balances, inbound receipts, dispatches, damaged stock, and closing valuations.
           </p>
         </div>
@@ -479,89 +473,75 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       {/* KPI Cards Banner - Compact horizontal bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
         {/* Opening Value */}
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Opening Value</div>
-          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+          <div className={`text-base font-bold font-mono mt-0.5 text-slate-800 dark:text-slate-200`}>
             रु {(totalOpeningVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-slate-400 font-mono">{totalOpeningQty} Units</div>
         </div>
 
         {/* Received Value */}
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Inbound Received</div>
-          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
+          <div className={`text-base font-bold font-mono mt-0.5 text-emerald-500 dark:text-emerald-400`}>
             +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-emerald-400/80' : 'text-emerald-600/80'}`}>+{totalReceivedQty} Units</div>
+          <div className={`text-[10px] font-mono text-emerald-600/80 dark:text-emerald-400/80`}>+{totalReceivedQty} Units</div>
         </div>
 
         {/* Delivered Value */}
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Outbound Delivered</div>
-          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
+          <div className={`text-base font-bold font-mono mt-0.5 text-sky-500 dark:text-sky-400`}>
             -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-sky-400/80' : 'text-sky-600/80'}`}>-{totalDeliveredQty} Units</div>
+          <div className={`text-[10px] font-mono text-sky-600/80 dark:text-sky-400/80`}>-{totalDeliveredQty} Units</div>
         </div>
 
         {/* Damaged Value */}
-        <div className={`p-2.5 rounded-xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Damaged Loss</div>
-          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+          <div className={`text-base font-bold font-mono mt-0.5 text-rose-500 dark:text-rose-400`}>
             -रु {(totalDamagedVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-rose-400/80' : 'text-rose-600/80'}`}>-{totalDamagedQty} Units</div>
+          <div className={`text-[10px] font-mono text-rose-600/80 dark:text-rose-400/80`}>-{totalDamagedQty} Units</div>
         </div>
 
         {/* Closing Value */}
-        <div className={`p-2.5 rounded-xl border col-span-2 sm:col-span-1 ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-2.5 rounded-xl border col-span-2 sm:col-span-1 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Closing Value</div>
-          <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+          <div className={`text-base font-bold font-mono mt-0.5 text-indigo-600 dark:text-indigo-400`}>
             रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
           </div>
-          <div className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{totalClosingQty} Units</div>
+          <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>{totalClosingQty} Units</div>
         </div>
       </div>
 
       {/* Date Filter & Control Bar - Compact layout */}
-      <div className={`p-2.5 rounded-xl border space-y-2 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`p-2.5 rounded-xl border space-y-2 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <Filter className="h-3.5 w-3.5 text-indigo-500" />
-            <span className={`text-[11px] font-bold uppercase tracking-wider ${
-              isDarkMode ? 'text-slate-300' : 'text-slate-700'
-            }`}>
+            <span className={`text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300`}>
               Ledger Filters
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px]">
-            <button onClick={() => applyPreset('THIS_MONTH')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+            <button onClick={() => applyPreset('THIS_MONTH')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               This Month
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('LAST_30_DAYS')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+            <button onClick={() => applyPreset('LAST_30_DAYS')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               Last 30 Days
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('THIS_YEAR')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+            <button onClick={() => applyPreset('THIS_YEAR')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
               This Year
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('ALL_TIME')} className={`font-semibold hover:underline cursor-pointer ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+            <button onClick={() => applyPreset('ALL_TIME')} className={`font-semibold hover:underline cursor-pointer text-rose-500 dark:text-rose-400`}>
               All Time
             </button>
           </div>
@@ -598,9 +578,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
             <select
               value={activeBranchId}
               onChange={(e) => setActiveBranchId(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-              }`}
+              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
             >
               <option value="ALL">All Branch Locations</option>
               {branches.map((b) => (
@@ -617,9 +595,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-              }`}
+              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
             >
               <option value="ALL">All Categories</option>
               {categories.map((cat) => (
@@ -640,34 +616,20 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by Product Name, SKU or Barcode..."
-              className={`w-full rounded-lg border pl-8 pr-3 py-1 text-xs font-medium ${
-                isDarkMode
-                  ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500'
-                  : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
-              }`}
+              className={`w-full rounded-lg border pl-8 pr-3 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
             />
           </div>
 
-          <div className={`p-0.5 rounded-lg border flex items-center gap-1 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
-          }`}>
+          <div className={`p-0.5 rounded-lg border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <button
               onClick={() => setViewTab('SUMMARY_MATRIX')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                viewTab === 'SUMMARY_MATRIX'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer 'viewTab === 'SUMMARY_MATRIX ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
             >
               Summary Matrix
             </button>
             <button
               onClick={() => setViewTab('TRANSACTION_LOGS')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                viewTab === 'TRANSACTION_LOGS'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer 'viewTab === 'TRANSACTION_LOGS ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
             >
               Event Logs ({filteredLogs.length})
             </button>
@@ -677,29 +639,25 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
       {/* VIEW 1: Summary Matrix Table - Maximize height */}
       {viewTab === 'SUMMARY_MATRIX' && (
-        <div className={`rounded-xl border shadow-md overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="overflow-x-auto max-h-[calc(100vh-16rem)] overflow-y-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b ${
-                isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5 sticky left-0 z-30 bg-inherit border-r min-w-[180px]">Product SKU & Name</th>
                   <th className="px-2.5 py-1.5 text-center">Unit Cost</th>
                   <th className="px-2.5 py-1.5 text-center border-l bg-slate-500/5">Opening Qty</th>
                   <th className="px-2.5 py-1.5 text-right border-r bg-slate-500/5">Opening Value</th>
-                  <th className={`px-2.5 py-1.5 text-center bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Received Qty</th>
-                  <th className={`px-2.5 py-1.5 text-right border-r bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Received Value</th>
-                  <th className={`px-2.5 py-1.5 text-center bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>Delivered Qty</th>
-                  <th className={`px-2.5 py-1.5 text-right border-r bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>Delivered Value</th>
-                  <th className={`px-2.5 py-1.5 text-center bg-rose-500/5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>Damaged Qty</th>
-                  <th className={`px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>Closing Qty</th>
-                  <th className={`px-2.5 py-1.5 text-right bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>Closing Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-emerald-500/5 text-emerald-600 dark:text-emerald-400`}>Received Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right border-r bg-emerald-500/5 text-emerald-600 dark:text-emerald-400`}>Received Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-sky-500/5 text-sky-600 dark:text-sky-400`}>Delivered Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right border-r bg-sky-500/5 text-sky-600 dark:text-sky-400`}>Delivered Value</th>
+                  <th className={`px-2.5 py-1.5 text-center bg-rose-500/5 text-rose-500 dark:text-rose-400`}>Damaged Qty</th>
+                  <th className={`px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 text-indigo-500 dark:text-indigo-400`}>Closing Qty</th>
+                  <th className={`px-2.5 py-1.5 text-right bg-indigo-500/10 text-indigo-500 dark:text-indigo-400`}>Closing Value</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {filteredProductLedger.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="p-8 text-center text-slate-500">
@@ -708,12 +666,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   </tr>
                 ) : (
                   productLedgerPagination.pagedItems.map(({ prod, unitCost, openingQty, openingValue, receivedQty, receivedValue, deliveredQty, deliveredValue, damagedQty, damagedValue, closingQty, closingValue }) => (
-                    <tr key={prod.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium ${
-                        isDarkMode ? 'bg-[#0f1218]' : 'bg-white'
-                      }`}>
-                        <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                        <div className={`text-[10px] font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>SKU: {prod.sku} • {prod.category}</div>
+                    <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white dark:bg-[#0f1218]`}>
+                        <div className={`font-bold text-slate-900 dark:text-white`}>{prod.name}</div>
+                        <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>SKU: {prod.sku} • {prod.category}</div>
                       </td>
 
                       <td className="p-2.5 text-center font-mono text-slate-500">
@@ -729,33 +685,31 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                       </td>
 
                       {/* Received */}
-                      <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                      <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/5 text-emerald-500 dark:text-emerald-400`}>
                         +{receivedQty}
                       </td>
-                      <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/5 font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                      <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/5 font-semibold text-emerald-500 dark:text-emerald-400`}>
                         +रु {(receivedValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Delivered */}
-                      <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/5 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
+                      <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/5 text-sky-500 dark:text-sky-400`}>
                         -{deliveredQty}
                       </td>
-                      <td className={`p-2.5 text-right font-mono border-r bg-sky-500/5 font-semibold ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
+                      <td className={`p-2.5 text-right font-mono border-r bg-sky-500/5 font-semibold text-sky-500 dark:text-sky-400`}>
                         -रु {(deliveredValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Damaged */}
-                      <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+                      <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/5 text-rose-500 dark:text-rose-400`}>
                         {damagedQty > 0 ? `-${damagedQty}` : '0'}
                       </td>
 
                       {/* Closing */}
-                      <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/10 text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                      <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/10 text-xs text-indigo-500 dark:text-indigo-400`}>
                         {closingQty} {prod.unit}
                       </td>
-                      <td className={`p-2.5 text-right font-mono font-bold bg-indigo-500/10 ${
-                        isDarkMode ? 'text-indigo-400' : 'text-indigo-600'
-                      }`}>
+                      <td className={`p-2.5 text-right font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400`}>
                         रु {(closingValue ?? 0).toLocaleString('en-IN')}
                       </td>
                     </tr>
@@ -763,13 +717,9 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                 )}
               </tbody>
               {/* Grand Total Footer Row */}
-              <tfoot className={`sticky bottom-0 z-20 font-bold uppercase text-[10px] tracking-wider border-t ${
-                isDarkMode ? 'bg-slate-900 text-slate-200 border-slate-800' : 'bg-slate-100 text-slate-800 border-slate-200'
-              }`}>
+              <tfoot className={`sticky bottom-0 z-20 font-bold uppercase text-[10px] tracking-wider border-t bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800`}>
                 <tr>
-                  <td className={`p-2.5 sticky left-0 z-30 border-r font-bold ${
-                    isDarkMode ? 'bg-slate-900' : 'bg-slate-100'
-                  }`}>
+                  <td className={`p-2.5 sticky left-0 z-30 border-r font-bold bg-slate-100 dark:bg-slate-900`}>
                     Grand Total ({filteredProductLedger.length} SKUs)
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
@@ -779,25 +729,25 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <td className="p-2.5 text-right font-mono border-r bg-slate-500/10">
                     रु {(totalOpeningVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                  <td className={`p-2.5 text-center font-mono font-bold bg-emerald-500/10 text-emerald-500 dark:text-emerald-400`}>
                     +{totalReceivedQty}
                   </td>
-                  <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                  <td className={`p-2.5 text-right font-mono border-r bg-emerald-500/10 text-emerald-500 dark:text-emerald-400`}>
                     +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/10 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
+                  <td className={`p-2.5 text-center font-mono font-bold bg-sky-500/10 text-sky-500 dark:text-sky-400`}>
                     -{totalDeliveredQty}
                   </td>
-                  <td className={`p-2.5 text-right font-mono border-r bg-sky-500/10 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`}>
+                  <td className={`p-2.5 text-right font-mono border-r bg-sky-500/10 text-sky-500 dark:text-sky-400`}>
                     -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
                   </td>
-                  <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/10 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+                  <td className={`p-2.5 text-center font-mono font-bold bg-rose-500/10 text-rose-500 dark:text-rose-400`}>
                     -{totalDamagedQty}
                   </td>
-                  <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/20 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                  <td className={`p-2.5 text-center font-mono font-bold border-l border-r bg-indigo-500/20 text-indigo-500 dark:text-indigo-400`}>
                     {totalClosingQty}
                   </td>
-                  <td className={`p-2.5 text-right font-mono font-extrabold bg-indigo-500/20 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                  <td className={`p-2.5 text-right font-mono font-extrabold bg-indigo-500/20 text-indigo-500 dark:text-indigo-400`}>
                     रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>
@@ -813,7 +763,6 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
             pageSize={productLedgerPagination.pageSize}
             onPageChange={productLedgerPagination.setPage}
             onPageSizeChange={productLedgerPagination.setPageSize}
-            isDarkMode={isDarkMode}
             className="mt-1"
           />
         </div>
@@ -821,14 +770,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
       {/* VIEW 2: Detailed Transaction Logs Table - Maximize height */}
       {viewTab === 'TRANSACTION_LOGS' && (
-        <div className={`rounded-xl border shadow-md overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="overflow-x-auto max-h-[calc(100vh-16rem)] overflow-y-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b ${
-                isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+              <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5">Tx Reference</th>
                   <th className="px-2.5 py-1.5">Timestamp</th>
@@ -842,7 +787,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <th className="px-2.5 py-1.5 text-right">Movement Value</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {filteredLogs.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="p-8 text-center text-slate-500">
@@ -857,40 +802,36 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     const movementVal = Math.abs(log.quantityChanged) * log.unitCost;
 
                     return (
-                      <tr key={log.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                        <td className={`p-2.5 font-bold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>{log.transactionNumber}</td>
+                      <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className={`p-2.5 font-bold font-mono text-indigo-500 dark:text-indigo-400`}>{log.transactionNumber}</td>
                         <td className="p-2.5 text-slate-500">{formattedDate}</td>
                         <td className="p-2.5">
-                          <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{log.productName}</div>
+                          <div className={`font-bold text-slate-900 dark:text-white`}>{log.productName}</div>
                           <div className="text-[10px] text-slate-400 font-mono">SKU: {log.productSku}</div>
                         </td>
                         <td className="p-2.5 text-slate-500">{branchName}</td>
                         <td className="p-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                             log.changeType === 'INBOUND_PO'
-                              ? `bg-emerald-500/10 border border-emerald-500/20 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`
+                              ? `bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 dark:text-emerald-400`
                               : log.changeType === 'SHIPMENT_TRANSFER'
-                              ? `bg-amber-500/10 border border-amber-500/20 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`
+                              ? `bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400`
                               : log.changeType === 'DAMAGE'
-                              ? `bg-rose-500/10 border border-rose-500/20 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`
+                              ? `bg-rose-500/10 border border-rose-500/20 text-rose-500 dark:text-rose-400`
                               : log.changeType === 'CONSUMABLE_ISSUE'
-                              ? `bg-amber-600/10 border border-amber-600/20 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
-                              : `bg-sky-500/10 border border-sky-500/20 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`
+                              ? `bg-amber-600/10 border border-amber-600/20 text-amber-600 dark:text-amber-400`
+                              : `bg-sky-500/10 border border-sky-500/20 text-sky-500 dark:text-sky-400`
                           }`}>
                             {log.changeType}
                           </span>
                         </td>
                         <td className="p-2.5 text-center font-mono text-slate-400">{log.quantityBefore}</td>
-                        <td className={`p-2.5 text-center font-mono font-bold ${
-                          isPositive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')
-                        }`}>
+                        <td className={`p-2.5 text-center font-mono font-bold isPositive ? text-emerald-500 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
                           {isPositive ? `+${log.quantityChanged}` : log.quantityChanged}
                         </td>
                         <td className="p-2.5 text-center font-mono font-bold">{log.quantityAfter}</td>
                         <td className="p-2.5 text-right font-mono text-slate-500">रु {(log.unitCost ?? 0).toLocaleString('en-IN')}</td>
-                        <td className={`p-2.5 text-right font-mono font-bold ${
-                          isPositive ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-sky-400' : 'text-sky-500')
-                        }`}>
+                        <td className={`p-2.5 text-right font-mono font-bold isPositive ? text-emerald-500 dark:text-emerald-400 : text-sky-500 dark:text-sky-400`}>
                           रु {(movementVal ?? 0).toLocaleString('en-IN')}
                         </td>
                       </tr>
@@ -899,20 +840,18 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                 )}
               </tbody>
               {/* Grand Total Footer Row */}
-              <tfoot className={`sticky bottom-0 z-20 font-bold uppercase text-[10px] tracking-wider border-t ${
-                isDarkMode ? 'bg-slate-900 text-slate-200 border-slate-800' : 'bg-slate-100 text-slate-800 border-slate-200'
-              }`}>
+              <tfoot className={`sticky bottom-0 z-20 font-bold uppercase text-[10px] tracking-wider border-t bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800`}>
                 <tr>
                   <td colSpan={5} className="p-2.5 text-right font-bold">
                     Total Movement Logs ({filteredLogs.length} Events):
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
-                        <td className={`p-2.5 text-center font-mono font-bold ${totalLogQtyChanged >= 0 ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-500') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')}`}>
+                        <td className={`p-2.5 text-center font-mono font-bold totalLogQtyChanged >= 0 ? text-emerald-500 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
                     {totalLogQtyChanged > 0 ? `+${totalLogQtyChanged}` : totalLogQtyChanged}
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
-                  <td className={`p-2.5 text-right font-mono font-extrabold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                  <td className={`p-2.5 text-right font-mono font-extrabold text-indigo-500 dark:text-indigo-400`}>
                     रु {(totalLogVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>
@@ -928,7 +867,6 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
             pageSize={transactionLogsPagination.pageSize}
             onPageChange={transactionLogsPagination.setPage}
             onPageSizeChange={transactionLogsPagination.setPageSize}
-            isDarkMode={isDarkMode}
             className="mt-1"
           />
         </div>

@@ -35,13 +35,9 @@ import {
   Calendar as CalendarIcon,
 } from 'lucide-react';
 
-interface BsCalendarUtilityProps {
-  isDarkMode?: boolean;
-}
+interface BsCalendarUtilityProps {}
 
-export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
-  isDarkMode = false,
-}) => {
+export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -375,24 +371,18 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <CalendarDays className="h-5 w-5 text-indigo-500" />
             <span>BS Calendar Utility & Date Engine</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Full Day-by-Day Bikram Sambat Calendar Engine, AD ↔ BS Converters, Month Array Seeder & Mapped Database.
           </p>
         </div>
 
         <button
           onClick={handleResetDefaults}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit ${
-            isDarkMode
-              ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
-          }`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
         >
           <RotateCcw className="h-3.5 w-3.5 text-slate-400" />
           <span>Reset Calendar Defaults</span>
@@ -400,49 +390,35 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       </div>
 
       {/* Database Bounds Limiter Banner */}
-      <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 ${
-        isDarkMode
-          ? 'bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border-indigo-800/60'
-          : 'bg-indigo-50/70 border-indigo-200/80'
-      }`}>
+      <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 bg-indigo-50/70 border-indigo-200/80 dark:bg-gradient-to-r dark:from-indigo-950/80 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-800/60`}>
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl border ${
-            isDarkMode ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-indigo-100 text-indigo-700 border-indigo-200'
-          }`}>
+          <div className={`p-2.5 rounded-xl border bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30`}>
             <Database className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <span className={`text-xs font-bold text-slate-900 dark:text-white`}>
                 Nepali Calendar Engine Status:
               </span>
-              <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-bold ${
-                isDarkMode ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-              }`}>
+              <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-bold bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-500/30`}>
                 {(bounds.totalDaysMapped ?? 0).toLocaleString()} Days Pre-Mapped
               </span>
             </div>
-            <p className={`text-xs font-mono mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-              AD Range: <span className={`${isDarkMode ? 'text-amber-300' : 'text-amber-600'} font-bold`}>{bounds.minAD}</span> to <span className={`${isDarkMode ? 'text-amber-300' : 'text-amber-600'} font-bold`}>{bounds.maxAD}</span> | BS Range: <span className={`${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} font-bold`}>{bounds.minBS}</span> to <span className={`${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} font-bold`}>{bounds.maxBS}</span>
+            <p className={`text-xs font-mono mt-0.5 text-slate-700 dark:text-slate-300`}>
+              AD Range: <span className={`text-amber-600 dark:text-amber-300 font-bold`}>{bounds.minAD}</span> to <span className={`text-amber-600 dark:text-amber-300 font-bold`}>{bounds.maxAD}</span> | BS Range: <span className={`text-indigo-600 dark:text-indigo-300 font-bold`}>{bounds.minBS}</span> to <span className={`text-indigo-600 dark:text-indigo-300 font-bold`}>{bounds.maxBS}</span>
             </p>
           </div>
         </div>
 
-        <div className={`flex items-center gap-2 font-mono text-xs px-3 py-2 rounded-xl border ${
-          isDarkMode
-            ? 'text-slate-400 bg-slate-950/60 border-slate-800'
-            : 'text-slate-700 bg-white border-slate-200 shadow-2xs'
-        }`}>
+        <div className={`flex items-center gap-2 font-mono text-xs px-3 py-2 rounded-xl border text-slate-700 bg-white border-slate-200 shadow-2xs dark:text-slate-400 dark:bg-slate-950/60 dark:border-slate-800`}>
           <Layers className="h-4 w-4 text-indigo-500" />
           <span>{bounds.mappedYearsCount} Mapped BS Years ({bounds.mappedYears.join(', ')})</span>
         </div>
       </div>
 
       {/* Date Converter Test Card */}
-      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
-        <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
+        <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
           <CalendarIcon className="h-4 w-4 text-indigo-500" />
           <span>Single AD Date Lookup Tester</span>
         </h3>
@@ -451,15 +427,11 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
             type="date"
             value={testDateAD}
             onChange={(e) => setTestDateAD(e.target.value)}
-            className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none focus:border-indigo-500 ${
-              isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-            }`}
+            className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
           />
 
           {lookedUpDayRecord ? (
-            <div className={`flex-1 p-3 rounded-xl border flex flex-wrap items-center gap-4 text-xs ${
-              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}>
+            <div className={`flex-1 p-3 rounded-xl border flex flex-wrap items-center gap-4 text-xs bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}>
               <div>
                 <span className="text-slate-400 text-[10px] uppercase font-bold block">BS Date</span>
                 <span className="font-mono font-bold text-indigo-500 text-sm">{lookedUpDayRecord.bsDate}</span>
@@ -484,24 +456,18 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       </div>
 
       {/* Month Array Seeder */}
-      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-indigo-900/50' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-indigo-900/50`}>
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-slate-200 dark:border-slate-800`}>
           <div className="flex items-center gap-2.5">
-            <div className={`p-2 rounded-xl border ${
-              isDarkMode ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border-indigo-200'
-            }`}>
+            <div className={`p-2 rounded-xl border bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20`}>
               <Database className="h-5 w-5" />
             </div>
             <div>
-              <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                 Seed BS Month Array & Expand Day-by-Day Database Table
               </h3>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Input 12-month array (e.g. <code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>2082: [31, 31, 32, ...]</code>) to build daily lookup records.
+              <p className={`text-xs text-slate-500 dark:text-slate-400`}>
+                Input 12-month array (e.g. <code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">2082: [31, 31, 32, ...]</code>) to build daily lookup records.
               </p>
             </div>
           </div>
@@ -509,7 +475,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 
         <form onSubmit={handleSeedSubmit} className="space-y-3">
           <div>
-            <label className={`block text-xs font-semibold mb-1 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+            <label className={`block text-xs font-semibold mb-1 text-slate-700 dark:text-slate-300`}>
               Enter BS Year & 12 Month Days Array:
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -518,21 +484,15 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                 value={seedInput}
                 onChange={(e) => setSeedInput(e.target.value)}
                 placeholder="2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"
-                className={`flex-1 rounded-xl border p-3 text-xs font-mono outline-none focus:border-indigo-500 ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-700 text-amber-300 placeholder-slate-500'
-                    : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
-                }`}
+                className={`flex-1 rounded-xl border p-3 text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-300 dark:placeholder-slate-500`}
               />
               <div className="flex items-center gap-2">
-                <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
+                <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}>
                   <input
                     type="checkbox"
                     checked={seedOnlyIfNew}
                     onChange={(e) => setSeedOnlyIfNew(e.target.checked)}
-                    className={`rounded ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} h-4 w-4`}
+                    className={`rounded text-indigo-600 dark:text-indigo-300 h-4 w-4`}
                   />
                   <span>Seed only if new</span>
                 </label>
@@ -549,7 +509,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className={`text-[11px] font-bold flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <span className={`text-[11px] font-bold flex items-center gap-1 text-slate-500 dark:text-slate-400`}>
               <Zap className="h-3 w-3 text-amber-500" />
               <span>Presets:</span>
             </span>
@@ -568,11 +528,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                       : [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]
                   )
                 }
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
               >
                 + Seed {y} BS
               </button>
@@ -582,15 +538,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 
         {seedStatus.message && (
           <div
-            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-              seedStatus.type === 'success'
-                ? isDarkMode
-                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : isDarkMode
-                  ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-                  : 'bg-rose-50 border-rose-200 text-rose-800'
-            }`}
+            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 'seedStatus.type === 'success ? bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:border-emerald-500/40 dark:text-emerald-300 : bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300`}
           >
             {seedStatus.type === 'success' ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
@@ -603,37 +551,27 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       </div>
 
       {/* BS Calendar Years & Month Days Manager */}
-      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
-        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
+        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 border-slate-200 dark:border-slate-800`}>
           <div className="flex items-center gap-2.5">
-            <div className={`p-2 rounded-xl border ${
-              isDarkMode ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-200'
-            }`}>
+            <div className={`p-2 rounded-xl border bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20`}>
               <Sliders className="h-5 w-5" />
             </div>
             <div>
-              <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                 Existing BS Calendar Years & Month Days Array Manager
               </h3>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Inspect & edit 12-month day count arrays (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>[Baisakh..Chaitra]</code>).
+              <p className={`text-xs text-slate-500 dark:text-slate-400`}>
+                Inspect & edit 12-month day count arrays (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">[Baisakh..Chaitra]</code>).
               </p>
             </div>
           </div>
         </div>
 
         {/* Table of Displayed BS Years */}
-        <div className={`overflow-x-auto rounded-xl border ${
-          isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'
-        }`}>
+        <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/40`}>
           <table className="w-full text-left text-xs font-mono">
-            <thead className={`font-bold border-b ${
-              isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
+            <thead className={`font-bold border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
               <tr>
                 <th className="px-2.5 py-1.5">BS Year</th>
                 <th className="px-2.5 py-1.5">Baisakh 1 AD Start</th>
@@ -642,15 +580,11 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                 <th className="px-2.5 py-1.5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${
-              isDarkMode ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'
-            }`}>
+            <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800 dark:text-slate-300`}>
               {sortedYears.map((y) => {
                 const totalDays = y.daysInMonths.reduce((a, b) => a + b, 0);
                 return (
-                  <tr key={y.yearBS} className={`transition-colors ${
-                    isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
-                  }`}>
+                  <tr key={y.yearBS} className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}>
                     <td className="p-2.5 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
                       {y.yearBS} BS
                     </td>
@@ -658,11 +592,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                       {y.startAD}
                     </td>
                     <td className="p-2.5 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                        totalDays === 365
-                          ? isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                          : isDarkMode ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-amber-50 text-amber-700 border-amber-200'
-                      }`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border totalDays === 365 ? bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800 : bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800`}>
                         {totalDays} Days
                       </span>
                     </td>
@@ -671,9 +601,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                         {y.daysInMonths.map((d, idx) => (
                           <span
                             key={idx}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
-                              isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-800'
-                            }`}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono border bg-white border-slate-200 text-slate-800 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300`}
                           >
                             <span className="text-slate-400 mr-0.5">{idx + 1}:</span>
                             <span className="font-bold">{d}</span>
@@ -702,9 +630,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       {/* Edit BS Year Modal */}
       {editingYearData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className={`w-full max-w-2xl rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-2xl rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <Sliders className="h-5 w-5 text-indigo-500" />

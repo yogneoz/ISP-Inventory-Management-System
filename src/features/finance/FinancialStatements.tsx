@@ -23,18 +23,14 @@ interface FinancialStatementsProps {
   assets: Asset[];
   invoices: PurchaseInvoice[];
   purchaseOrders: PurchaseOrder[];
-  dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
-}
+  dateMode: 'BS' | 'AD';}
 
 export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   financialSummary,
   assets,
   invoices,
   purchaseOrders,
-  dateMode,
-  isDarkMode = false,
-}) => {
+  dateMode,}) => {
   const [statementType, setStatementType] = useState<'BALANCE_SHEET' | 'PROFIT_LOSS'>('BALANCE_SHEET');
 
   // PostgreSQL NUMERIC columns arrive as strings over the API. Coerce every
@@ -119,22 +115,14 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExport}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-              isDarkMode
-                ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
-                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Download className="h-3.5 w-3.5 text-slate-400" />
             <span>Export CSV</span>
           </button>
           <button
             onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-              isDarkMode
-                ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800'
-                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
             <span>Print Statement</span>
@@ -174,9 +162,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL ASSETS</span>
@@ -191,9 +177,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL LIABILITIES</span>
@@ -208,9 +192,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET EQUITY</span>
@@ -229,12 +211,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* ASSETS SIDE */}
             <div
-              className={`p-4 rounded-2xl border space-y-4 ${
-                isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border space-y-4 bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} flex items-center gap-2`}>
+                <h3 className={`font-bold text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2`}>
                   <Building className="h-4 w-4" />
                   <span>ASSETS</span>
                 </h3>
@@ -277,12 +257,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
             {/* LIABILITIES & EQUITY SIDE */}
             <div
-              className={`p-4 rounded-2xl border space-y-4 ${
-                isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border space-y-4 bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center gap-2`}>
+                <h3 className={`font-bold text-sm text-indigo-600 dark:text-indigo-400 flex items-center gap-2`}>
                   <Scale className="h-4 w-4" />
                   <span>LIABILITIES & EQUITY</span>
                 </h3>
@@ -319,9 +297,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET REVENUE / INFLOWS</span>
@@ -336,9 +312,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>TOTAL OPERATING COSTS</span>
@@ -353,9 +327,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-              }`}
+              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
             >
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
                 <span>NET OPERATING SURPLUS</span>
@@ -371,9 +343,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           </div>
 
           <div
-            className={`p-4 rounded-2xl border space-y-4 max-w-3xl mx-auto ${
-              isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
-            }`}
+            className={`p-4 rounded-2xl border space-y-4 max-w-3xl mx-auto bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
           >
             <div className="text-center border-b border-slate-200 dark:border-slate-800 pb-4">
               <h3 className="text-lg font-serif font-bold text-slate-900 dark:text-white">
@@ -390,7 +360,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span className="font-mono">NPR {(salesRevenue ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
-              <div className={`flex justify-between items-center py-2 border-b ${isDarkMode ? 'border-slate-800/80 text-emerald-400' : 'border-slate-100 text-emerald-600'}`}>
+              <div className={`flex justify-between items-center py-2 border-b border-slate-100 text-emerald-600 dark:border-slate-800/80 dark:text-emerald-400`}>
                 <span>Less: Posted Cost of Goods Sold</span>
                 <span className="font-mono">- NPR {(trackedCOGS ?? 0).toLocaleString('en-IN')}</span>
               </div>
@@ -405,7 +375,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span className="font-mono">- NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
-              <div className={`flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <div className={`flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base text-indigo-600 dark:text-indigo-400`}>
                 <span>NET OPERATING PROFIT / SURPLUS</span>
                 <span className="font-mono">NPR {(netProfit ?? 0).toLocaleString('en-IN')}</span>
               </div>

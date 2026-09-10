@@ -4,6 +4,7 @@ import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
 import { NavTab } from './Sidebar';
 import { NotificationCenter } from '../common/NotificationCenter';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   Building2,
   Calendar,
@@ -51,7 +52,6 @@ interface HeaderProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   lowStockCount: number;
-  isDarkMode: boolean;
   onToggleTheme: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
@@ -90,7 +90,6 @@ export const Header: React.FC<HeaderProps> = ({
   searchQuery,
   onSearchChange,
   lowStockCount,
-  isDarkMode,
   onToggleTheme,
   onToggleSidebar,
   isSidebarOpen = false,
@@ -104,6 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotification = () => {},
   onOpenProfileModal = () => {},
 }) => {
+  const { isDarkMode } = useDarkMode();
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -152,11 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 ${
-        isDarkMode
-          ? 'border-b border-slate-800 bg-[#0a0c10]/95 text-slate-300'
-          : 'bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900'
-      }`}
+      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900 dark:border-b dark:border-slate-800 dark:bg-[#0a0c10]/95 dark:text-slate-300`}
     >
       {/* Main header row */}
       <div className="flex h-13 w-full items-center justify-between px-3">
@@ -190,13 +186,13 @@ export const Header: React.FC<HeaderProps> = ({
               src={companyProfile.logoUrl}
               alt={companyProfile.name || 'Company Logo'}
               referrerPolicy="no-referrer"
-              className={`h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain p-0.5 group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}
+              className={`h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain p-0.5 group-hover:scale-105 transition-transform bg-white dark:bg-slate-800`}
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
           ) : (
-              <div className={`flex h-10 w-10 items-center justify-center rounded-none font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800 text-indigo-300' : 'bg-white text-indigo-700'}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-none font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform bg-white text-indigo-700 dark:bg-slate-800 dark:text-indigo-300`}>
               {companyProfile?.name
                 ? companyProfile.name
                     .split(' ')
@@ -241,11 +237,7 @@ export const Header: React.FC<HeaderProps> = ({
                 id="branch-select"
                 value={selectedBranchId}
                 onChange={(e) => onSelectBranch(e.target.value)}
-                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'border border-slate-800 bg-[#0f1218] text-slate-300 focus:border-indigo-500'
-                    : 'border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs'
-                }`}
+                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300 dark:focus:border-indigo-500`}
               >
                 {canSeeAll ? (
                   <option value="ALL" className="bg-slate-900 text-white">
@@ -268,26 +260,18 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Fiscal-year scope (grouped with branch as view-scope controls, loaded from PostgreSQL) */}
           <div
-            className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium ${
-              isDarkMode
-                ? 'border-slate-800 bg-[#0f1218] text-slate-300'
-                : 'border-white/30 bg-white/10 text-white backdrop-blur-xs'
-            }`}
+            className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium border-white/30 bg-white/10 text-white backdrop-blur-xs dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300`}
             title="Fiscal-year view"
           >
-            <span className={`text-[9px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-indigo-200'}`}>FY</span>
+            <span className={`text-[9px] font-bold text-indigo-200 dark:text-slate-400`}>FY</span>
             <select
               value={selectedFiscalYearId}
               onChange={(e) => onSelectFiscalYear(e.target.value)}
               aria-label="Select fiscal-year view"
-              className={`max-w-28 font-medium outline-none cursor-pointer rounded px-1 py-0.5 ${
-                isDarkMode
-                  ? 'bg-slate-800 text-slate-200'
-                  : 'bg-white/20 text-white'
-              }`}
+              className={`max-w-28 font-medium outline-none cursor-pointer rounded px-1 py-0.5 bg-white/20 text-white dark:bg-slate-800 dark:text-slate-200`}
             >
               {[...filterFiscalYears(fiscalYears)].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))).map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
                   {fiscalYear.code}
                   {fiscalYear.isCurrent ? ' (Active)' : ''}
                 </option>
@@ -317,11 +301,7 @@ export const Header: React.FC<HeaderProps> = ({
               if (onOpenSearchModal) onOpenSearchModal();
             }}
             placeholder="Scan Barcode or Search Product Name / SKU:"
-            className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer ${
-              isDarkMode
-                ? 'border border-slate-800 bg-[#0f1218] text-slate-200 placeholder-slate-500 focus:bg-slate-900 focus:border-indigo-500'
-                : 'border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20'
-            }`}
+            className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20 dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-200 dark:placeholder-slate-500 dark:focus:bg-slate-900 dark:focus:border-indigo-500`}
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
             {onOpenBarcodeModal && (
@@ -351,11 +331,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenSearchModal}
             title="Global Quick Search (Ctrl+K)"
-            className={`lg:hidden p-1.5 rounded-lg transition-colors cursor-pointer ${
-              isDarkMode
-                ? 'text-slate-300 hover:bg-slate-800 text-indigo-300'
-                : 'text-white/90 hover:bg-white/20'
-            }`}
+            className={`lg:hidden p-1.5 rounded-lg transition-colors cursor-pointer text-white/90 hover:bg-white/20 dark:text-slate-300 dark:hover:bg-slate-800 dark:text-indigo-300`}
           >
             <Search className="h-4 w-4" />
           </button>
@@ -364,11 +340,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onToggleTheme}
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
-            isDarkMode
-              ? 'border border-slate-800 bg-[#0f1218] text-slate-300 hover:bg-slate-800/60'
-              : 'border border-white/30 bg-white/10 text-white hover:bg-white/20'
-          }`}
+          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer border border-white/30 bg-white/10 text-white hover:bg-white/20 dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300 dark:hover:bg-slate-800/60`}
         >
           {isDarkMode ? (
             <>
@@ -387,11 +359,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onToggleDateMode}
           title="Click to toggle between Bikram Sambat (BS) and Anno Domini (AD)"
-          className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-            isDarkMode
-              ? 'border border-slate-800 bg-[#0f1218] hover:bg-slate-800/60 text-slate-300'
-              : 'border border-white/30 bg-white/10 hover:bg-white/20 text-white'
-          }`}
+          className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors border border-white/30 bg-white/10 hover:bg-white/20 text-white dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:hover:bg-slate-800/60 dark:text-slate-300`}
         >
           <Calendar className="h-3.5 w-3.5 text-indigo-200" />
           <span className="font-mono">
@@ -406,11 +374,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onRefreshData}
           title="Refresh realtime stock and logs"
-          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-            isDarkMode
-              ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800/60'
-              : 'text-white/80 hover:text-white hover:bg-white/20'
-          }`}
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-indigo-400 dark:hover:bg-slate-800/60`}
         >
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -420,11 +384,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenNotification}
             title="Notifications & Reorder Alerts"
-            className={`p-1.5 rounded-lg transition-colors relative cursor-pointer ${
-              isDarkMode
-                ? 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/60'
-                : 'text-white/80 hover:text-white hover:bg-white/20'
-            }`}
+            className={`p-1.5 rounded-lg transition-colors relative cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-slate-800/60`}
           >
             <Bell className="h-4 w-4" />
             {totalNotificationBadge > 0 && (
@@ -441,11 +401,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
               title="Click to expand switch user menu & profile options"
-              className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ${
-                isDarkMode
-                  ? 'bg-slate-800/90 text-white border-slate-700 hover:bg-slate-700 hover:border-slate-600'
-                  : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
-              }`}
+              className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs dark:bg-slate-800/90 dark:text-white dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:border-slate-600`}
             >
               <div className="relative flex-shrink-0">
                 <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20">
@@ -660,11 +616,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Switched-session strip: persistent recovery path while impersonating another profile */}
       {isSwitchedSession && (
         <div
-          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 ${
-            isDarkMode
-              ? 'border-amber-500/25 bg-amber-500/10 text-amber-200'
-              : 'border-amber-200/60 bg-amber-300/20 text-amber-50'
-          }`}
+          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 border-amber-200/60 bg-amber-300/20 text-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200`}
         >
           <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
             <ArrowLeftRight className="h-3.5 w-3.5 flex-shrink-0 text-amber-400 dark:text-amber-300" />

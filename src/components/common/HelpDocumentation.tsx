@@ -33,7 +33,6 @@ import { User } from '../../types';
 
 interface HelpDocumentationProps {
   currentUser: User | null;
-  isDarkMode?: boolean;
   onOpenBarcodeModal?: () => void;
   onOpenSearchModal?: () => void;
   onNavigateTab?: (tab: string) => void;
@@ -60,7 +59,6 @@ interface ProcessWorkflow {
 
 export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   currentUser,
-  isDarkMode = false,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onNavigateTab,
@@ -441,7 +439,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   const selectedWorkflow = workflows.find((w) => w.id === selectedWorkflowId) || workflows[0];
 
   return (
-    <div className={`printable-document p-4 sm:p-6 min-h-screen ${isDarkMode ? 'bg-[#0f1218] text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+    <div className={`printable-document p-4 sm:p-6 min-h-screen bg-slate-50 text-slate-800 dark:bg-[#0f1218] dark:text-slate-100`}>
       {/* Top Banner Header */}
       <div className="mb-6 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 text-white shadow-lg border border-indigo-700/40 relative overflow-hidden">
         <div className="absolute right-0 top-0 -mr-16 -mt-16 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none"></div>
@@ -539,9 +537,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Chapter Sidebar */}
           <div
-            className={`rounded-2xl p-4 border ${
-              isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-            }`}
+            className={`rounded-2xl p-4 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
           >
             <div className="mb-3 relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -550,11 +546,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                 placeholder="Search manual chapters..."
                 value={manualSearch}
                 onChange={(e) => setManualSearch(e.target.value)}
-                className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-medium border outline-none transition-all ${
-                  isDarkMode
-                    ? 'bg-[#0b0d13] border-slate-700 text-slate-200 focus:border-indigo-500'
-                    : 'bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500'
-                }`}
+                className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-medium border outline-none transition-all bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500 dark:bg-[#0b0d13] dark:border-slate-700 dark:text-slate-200 dark:focus:border-indigo-500`}
               />
             </div>
 
@@ -572,15 +564,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                     <button
                       key={ch.id}
                       onClick={() => setActiveChapter(ch.id)}
-                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
-                        isActive
-                          ? isDarkMode
-                            ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
-                            : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
-                          : isDarkMode
-                          ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left isActive ? bg-indigo-50 text-indigo-900 border border-indigo-200 dark:bg-indigo-600/30 dark:text-indigo-300 dark:border dark:border-indigo-500/40 : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60`}
                     >
                       <div className="flex items-center gap-2.5 truncate">
                         <IconComp className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
@@ -595,9 +579,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
           {/* Chapter Reading Pane */}
           <div
-            className={`lg:col-span-3 rounded-2xl p-6 border ${
-              isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-            }`}
+            className={`lg:col-span-3 rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
           >
             {activeChapter === 'overview' && (
               <div className="space-y-5 text-sm leading-relaxed">
@@ -617,7 +599,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4">
-                  <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-4 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h3 className="font-bold text-xs uppercase tracking-wider text-indigo-500 mb-2">Core Enterprise Modules</h3>
                     <ul className="space-y-1.5 text-xs">
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Multi-Branch Inventory Matrix</li>
@@ -627,7 +609,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                     </ul>
                   </div>
 
-                  <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-4 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h3 className="font-bold text-xs uppercase tracking-wider text-indigo-500 mb-2">Tax & Governance Standards</h3>
                     <ul className="space-y-1.5 text-xs">
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> 13% Nepali VAT Register Engine</li>
@@ -654,7 +636,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold border-b ${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                    <thead className={`font-bold border-b bg-slate-100 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}>
                       <tr>
                         <th className="p-3">Role</th>
                         <th className="p-3">Scope</th>
@@ -725,20 +707,20 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                 </div>
                 <p>Fixed assets are maintained independently from inventory opening stock. The asset register stores the supplier invoice date, capitalization date, and placed-in-service date.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h4 className="font-bold text-xs text-indigo-500">Purchase Invoice Date</h4>
                     <p className="mt-1 text-xs text-slate-500">Used for invoice/datewise purchase reporting and linked to the source invoice.</p>
                   </div>
-                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h4 className="font-bold text-xs text-indigo-500">Capitalization Date</h4>
                     <p className="mt-1 text-xs text-slate-500">Identifies when the purchase entered the fixed-asset accounting register.</p>
                   </div>
-                  <div className={`rounded-xl border p-3 ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`rounded-xl border p-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h4 className="font-bold text-xs text-indigo-500">Placed-in-Service Date</h4>
                     <p className="mt-1 text-xs text-slate-500">The date used as the start point for straight-line or reducing-balance depreciation.</p>
                   </div>
                 </div>
-                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-amber-950/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+                <div className={`rounded-xl border p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-500/30`}>
                   <h4 className="font-bold text-xs text-amber-700 dark:text-amber-300">Correcting persisted values</h4>
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Super Admins can open Administration & Governance → Data Recalculation & Repair and run Recalculate Fixed Assets. This writes accumulated depreciation and net book value to PostgreSQL and creates an audit entry.</p>
                 </div>
@@ -798,13 +780,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                 <button
                   key={wf.id}
                   onClick={() => setSelectedWorkflowId(wf.id)}
-                  className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative ${
-                    isSelected
-                      ? 'bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-500 shadow-md ring-2 ring-indigo-500/50'
-                      : isDarkMode
-                      ? 'bg-[#151921] border-slate-800 text-slate-300 hover:border-slate-700'
-                      : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 shadow-xs'
-                  }`}
+                  className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative isSelected ? bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-500 shadow-md ring-2 ring-indigo-500/50 : bg-white border-slate-200 text-slate-800 hover:border-slate-300 shadow-xs dark:bg-[#151921] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700`}
                 >
                   <span
                     className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider mb-2 ${
@@ -830,9 +806,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
           {/* Detailed Workflow Flowchart Steps */}
           <div
-            className={`rounded-2xl p-6 border ${
-              isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-            }`}
+            className={`rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 mb-6 border-slate-200 dark:border-slate-800">
               <div>
@@ -866,9 +840,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
                   {/* Step Info Card */}
                   <div
-                    className={`flex-1 rounded-2xl p-4 border transition-all ${
-                      isDarkMode ? 'bg-slate-900/70 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}
+                    className={`flex-1 rounded-2xl p-4 border transition-all bg-slate-50 border-slate-200 dark:bg-slate-900/70 dark:border-slate-800`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                       <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -931,9 +903,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
       {/* TAB 3: KEYBOARD SHORTCUTS CHEAT SHEET */}
       {activeTab === 'shortcuts' && (
         <div
-          className={`rounded-2xl p-6 border ${
-            isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-          }`}
+          className={`rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
         >
           <div className="flex items-center gap-3 border-b pb-4 mb-6 border-slate-200 dark:border-slate-800">
             <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
@@ -949,9 +919,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
             {shortcuts.map((sc) => (
               <div
                 key={sc.key}
-                className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
-                  isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}
+                className={`p-4 rounded-xl border flex items-center justify-between gap-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
               >
                 <div>
                   <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 mb-1">
@@ -986,9 +954,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
       {activeTab === 'faq' && (
         <div className="space-y-6">
           <div
-            className={`rounded-2xl p-6 border ${
-              isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-            }`}
+            className={`rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
           >
             {/* Filter Search Header */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
@@ -999,11 +965,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                   placeholder="Search questions or keywords..."
                   value={faqSearch}
                   onChange={(e) => setFaqSearch(e.target.value)}
-                  className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-medium border outline-none transition-all ${
-                    isDarkMode
-                      ? 'bg-[#0b0d13] border-slate-700 text-slate-200 focus:border-indigo-500'
-                      : 'bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500'
-                  }`}
+                  className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-medium border outline-none transition-all bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500 dark:bg-[#0b0d13] dark:border-slate-700 dark:text-slate-200 dark:focus:border-indigo-500`}
                 />
               </div>
 
@@ -1012,13 +974,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                   <button
                     key={cat}
                     onClick={() => setFaqCategory(cat)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer whitespace-nowrap ${
-                      faqCategory === cat
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isDarkMode
-                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer whitespace-nowrap faqCategory === cat ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
                   >
                     {cat}
                   </button>
@@ -1031,9 +987,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
               {filteredFaqs.map((faq, idx) => (
                 <div
                   key={idx}
-                  className={`p-4 rounded-2xl border transition-all ${
-                    isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                  }`}
+                  className={`p-4 rounded-2xl border transition-all bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 mt-0.5">
@@ -1067,9 +1021,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
       {/* TAB 5: SYSTEM DIAGNOSTICS */}
       {activeTab === 'system-diagnostics' && (
         <div
-          className={`rounded-2xl p-6 border ${
-            isDarkMode ? 'bg-[#151921] border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-          }`}
+          className={`rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}
         >
           <div className="flex items-center justify-between border-b pb-4 mb-6 border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">

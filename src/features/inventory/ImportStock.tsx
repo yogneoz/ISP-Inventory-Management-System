@@ -6,9 +6,7 @@ interface ImportStockProps {
   branches: Branch[];
   products: Product[];
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
-  onRefreshData?: () => void;
-  isDarkMode?: boolean;
-}
+  onRefreshData?: () => void;}
 
 interface ParsedImportRow {
   sku: string;
@@ -32,9 +30,7 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   branches,
   products,
   onCreateProduct,
-  onRefreshData,
-  isDarkMode = false,
-}) => {
+  onRefreshData,}) => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -209,13 +205,11 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <UploadCloud className="h-5 w-5 text-indigo-500" />
             <span>Import Stock Data</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Upload stock spreadsheet template directly. Automatically detects existing SKUs and updates product details without creating duplicate copies.
           </p>
         </div>
@@ -223,9 +217,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCsv}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
-              isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
           >
             <Download className="h-4 w-4" />
             <span>Download CSV Template</span>
@@ -260,9 +252,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       {/* Main Split Screen */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
         {/* Direct File Upload Dropzone */}
-        <div className={`lg:col-span-5 flex flex-col justify-between rounded-2xl border p-5 shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`lg:col-span-5 flex flex-col justify-between rounded-2xl border p-5 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -272,11 +262,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
               <span className="text-[10px] text-slate-400 font-mono">.csv, .txt</span>
             </div>
 
-            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
-              selectedFileName
-                ? isDarkMode ? 'border-indigo-500 bg-indigo-950/20' : 'border-indigo-500 bg-indigo-50/50'
-                : isDarkMode ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700' : 'border-slate-300 bg-slate-50 hover:border-indigo-300'
-            }`}>
+            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all selectedFileName ? border-indigo-500 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/20 : border-slate-300 bg-slate-50 hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700`}>
               <input
                 type="file"
                 accept=".csv,.txt"
@@ -284,13 +270,13 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
 
-              <div className={`h-12 w-12 rounded-2xl bg-indigo-500/10 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center justify-center mb-3`}>
+              <div className={`h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3`}>
                 <Upload className="h-6 w-6" />
               </div>
 
               {selectedFileName ? (
                 <div>
-                  <span className={`font-bold text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block truncate max-w-[200px]`}>
+                  <span className={`font-bold text-xs text-indigo-600 dark:text-indigo-400 block truncate max-w-[200px]`}>
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -340,12 +326,8 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
         </div>
 
         {/* Live Preview Panel */}
-        <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <div className={`p-3.5 border-b flex items-center justify-between ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-          }`}>
+        <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+          <div className={`p-3.5 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
               <span>Parsed Import Preview</span>
@@ -357,9 +339,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
 
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b ${
-                isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5">SKU / Name</th>
                   <th className="px-2.5 py-1.5">Group & Category</th>
@@ -368,7 +348,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                   <th className="px-2.5 py-1.5">Status</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {parsedRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-500 text-xs">
@@ -377,11 +357,9 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                   </tr>
                 ) : (
                   parsedRows.map((row, idx) => (
-                    <tr key={idx} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                    }`}>
+                    <tr key={idx} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
                       <td className="p-2.5">
-                        <div className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[11px]`}>{row.sku}</div>
+                        <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]`}>{row.sku}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.name}</div>
                       </td>
                       <td className="p-2.5 text-[11px]">
@@ -392,7 +370,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                         <div>रु {(row.costPrice ?? 0).toLocaleString('en-IN')}</div>
                         <div className="text-slate-400 text-[10px]">रु {(row.sellingPrice ?? 0).toLocaleString('en-IN')}</div>
                       </td>
-                      <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                      <td className={`p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
                         {row.initialQty} {row.unit}
                       </td>
                       <td className="p-2.5">

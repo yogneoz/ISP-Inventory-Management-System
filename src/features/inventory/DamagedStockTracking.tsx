@@ -34,6 +34,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface DamagedStockTrackingProps {
   currentUser?: User | null;
@@ -45,7 +46,6 @@ interface DamagedStockTrackingProps {
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string, damagedQty?: number, changeType?: string) => Promise<void>;
   onCreateOperation?: (op: Partial<StockOperation>) => Promise<void>;
   onNavigateTab?: (tab: NavTab) => void;
-  isDarkMode?: boolean;
 }
 
 export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
@@ -58,8 +58,8 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   onUpdateStockLevel,
   onCreateOperation,
   onNavigateTab,
-  isDarkMode = false,
 }) => {
+  const { isDarkMode } = useDarkMode();
   // Modal State for adjusting local damaged count
   const [editingStock, setEditingStock] = useState<{
     stockItem: InventoryStock;
@@ -381,9 +381,9 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     <div className="space-y-3">
       {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
       {bsDateStatus === 'missing' && (
-        <div className={`p-3 rounded-2xl bg-red-500/10 border border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-start gap-3 ${isDarkMode ? 'text-red-200' : 'text-red-900'}`}>
+        <div className={`p-3 rounded-2xl bg-red-500/10 border border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-start gap-3 text-red-900 dark:text-red-200`}>
           <div className="flex items-start gap-3">
-            <ShieldAlert className={`h-6 w-6 ${isDarkMode ? 'text-red-400' : 'text-red-500'} flex-shrink-0 mt-0.5`} />
+            <ShieldAlert className={`h-6 w-6 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5`} />
             <div>
               <p className="text-sm font-bold">
                 BS date is not available. Please contact your system administrator for BS month seeding.
@@ -408,14 +408,14 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* Role Restriction Alert Banner if user cannot dispose */}
       {!canDispose && (
-        <div className={`p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs font-medium ${isDarkMode ? 'text-amber-200' : 'text-amber-900'}`}>
+        <div className={`p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs font-medium text-amber-900 dark:text-amber-200`}>
           <div className="flex items-center gap-2.5">
-            <ShieldAlert className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'} flex-shrink-0`} />
+            <ShieldAlert className={`h-5 w-5 text-amber-500 dark:text-amber-400 flex-shrink-0`} />
             <span>
-              <strong>Permission Control Active:</strong> Stock disposal & financial write-off functions are restricted exclusively to <strong>Inventory Manager</strong> and <strong>Super Admin</strong> roles. You are logged in as <span className={`underline font-bold ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>{currentUser?.role || 'Guest'}</span>.
+              <strong>Permission Control Active:</strong> Stock disposal & financial write-off functions are restricted exclusively to <strong>Inventory Manager</strong> and <strong>Super Admin</strong> roles. You are logged in as <span className={`underline font-bold text-amber-700 dark:text-amber-300`}>{currentUser?.role || 'Guest'}</span>.
             </span>
           </div>
-          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/20 flex items-center gap-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/20 flex items-center gap-1 text-amber-700 dark:text-amber-300`}>
             <Lock className="h-3 w-3" />
             <span>Read-Only Audit Mode</span>
           </span>
@@ -425,13 +425,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       {/* Header & Actions */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <AlertTriangle className="h-5 w-5 text-amber-500" />
             <span>Damaged Stock Matrix & Branch Loss Tracking</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Consolidated breakdown of damaged stock units, write-off accounting, and physical disposal workflows.
           </p>
         </div>
@@ -440,23 +438,19 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           <button
             type="button"
             onClick={handleExportDamagedStockReport}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border cursor-pointer shadow-xs transition-all ${isDarkMode ? 'text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-700/60' : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300'}`}
+            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border cursor-pointer shadow-xs transition-all text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-700/60`}
             title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
           >
-            <Download className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
-            <FileSpreadsheet className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
+            <FileSpreadsheet className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
             <span>Export Damage CSV (BS Date)</span>
           </button>
 
           <button
             onClick={() => setShowWriteOffGuide(!showWriteOffGuide)}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-              isDarkMode
-                ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-white text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700`}
           >
-            <HelpCircle className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+            <HelpCircle className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
             <span>Corporate Write-Off Guide</span>
           </button>
 
@@ -478,11 +472,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             <>
               <button
                 onClick={() => onNavigateTab('damage')}
-                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/60'
-                    : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                }`}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 dark:hover:bg-amber-900/60`}
               >
                 <AlertOctagon className="h-4 w-4 text-amber-500" />
                 <span>Tag Damaged Stock</span>
@@ -502,19 +492,17 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* Corporate Write-Off Accounting Guide Banner */}
       {showWriteOffGuide && (
-        <div className={`p-4 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f141f] border-indigo-900/60 text-slate-200' : 'bg-indigo-50/70 border-indigo-200 text-slate-800'
-        }`}>
+        <div className={`p-4 rounded-2xl border bg-indigo-50/70 border-indigo-200 text-slate-800 dark:bg-[#0f141f] dark:border-indigo-900/60 dark:text-slate-200`}>
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-500' : 'bg-indigo-600'} text-white`}>
+              <div className={`p-2 rounded-xl bg-indigo-600 dark:bg-indigo-500 text-white`}>
                 <Scale className="h-5 w-5" />
               </div>
               <div>
-                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-indigo-200' : 'text-indigo-950'}`}>
+                <h3 className={`font-bold text-sm text-indigo-950 dark:text-indigo-200`}>
                   How Enterprise Companies Handle Damaged Stock Disposal & Accounting Write-offs (GAAP / IFRS)
                 </h3>
-                <p className={`text-xs ${isDarkMode ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                <p className={`text-xs text-indigo-700 dark:text-indigo-300`}>
                   Standard Operating Procedures (SOP) for inventory impairment, write-offs, scrap recovery, and balance sheet adjustments.
                 </p>
               </div>
@@ -528,42 +516,42 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4 text-xs">
-            <div className={`p-3.5 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-indigo-100'}`}>
-              <div className={`font-bold mb-1 flex items-center gap-1.5 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+            <div className={`p-3.5 rounded-xl border bg-white border-indigo-100 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <div className={`font-bold mb-1 flex items-center gap-1.5 text-rose-600 dark:text-rose-400`}>
                 <Trash2 className="h-3.5 w-3.5" />
                 <span>1. Scrap & Physical Destruction</span>
               </div>
-              <p className={`text-[11px] leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-[11px] leading-relaxed text-slate-500 dark:text-slate-400`}>
                 When goods are beyond repair or obsolete (e.g., shattered fiber optics, burnt ONUs), they are physically destroyed. 100% of book value is debited as an <strong>Inventory Write-off Loss Expense</strong> (GL-5120).
               </p>
             </div>
 
-            <div className={`p-3.5 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-indigo-100'}`}>
-              <div className={`font-bold mb-1 flex items-center gap-1.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+            <div className={`p-3.5 rounded-xl border bg-white border-indigo-100 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <div className={`font-bold mb-1 flex items-center gap-1.5 text-amber-600 dark:text-amber-400`}>
                 <DollarSign className="h-3.5 w-3.5" />
                 <span>2. Salvage / E-Waste Recovery</span>
               </div>
-              <p className={`text-[11px] leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-[11px] leading-relaxed text-slate-500 dark:text-slate-400`}>
                 Damaged copper cable or electronic housings sold to certified recyclers. Cash/Bank is debited for salvage income, offsetting the gross inventory write-off loss on the P&L statement.
               </p>
             </div>
 
-            <div className={`p-3.5 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-indigo-100'}`}>
-              <div className={`font-bold mb-1 flex items-center gap-1.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+            <div className={`p-3.5 rounded-xl border bg-white border-indigo-100 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <div className={`font-bold mb-1 flex items-center gap-1.5 text-blue-600 dark:text-blue-400`}>
                 <Receipt className="h-3.5 w-3.5" />
                 <span>3. Vendor RMA / Credit Note</span>
               </div>
-              <p className={`text-[11px] leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-[11px] leading-relaxed text-slate-500 dark:text-slate-400`}>
                 Factory defects returned to OEM/vendor under warranty. A <strong>Vendor Credit Note</strong> or replacement stock is issued, transferring liability from inventory asset to vendor accounts payable.
               </p>
             </div>
 
-            <div className={`p-3.5 rounded-xl border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-indigo-100'}`}>
-              <div className={`font-bold mb-1 flex items-center gap-1.5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+            <div className={`p-3.5 rounded-xl border bg-white border-indigo-100 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <div className={`font-bold mb-1 flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400`}>
                 <ShieldCheck className="h-3.5 w-3.5" />
                 <span>4. Insurance Loss Claim</span>
               </div>
-              <p className={`text-[11px] leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-[11px] leading-relaxed text-slate-500 dark:text-slate-400`}>
                 Transit or disaster damage filed with commercial insurers. Loss is booked into <strong>Insurance Claims Receivable</strong> (GL-1350) pending insurer claim approval and settlement payout.
               </p>
             </div>
@@ -573,46 +561,40 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* KPI Summary Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Damaged Units</span>
             <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
               <AlertTriangle className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 text-amber-600 dark:text-amber-400`}>
             {(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">Across all filtered branch stores</p>
         </div>
 
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Damaged Valuation</span>
             <div className="p-2 rounded-lg bg-rose-500/10 text-rose-500">
               <DollarSign className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
             रु {(grandTotalLossValuation ?? 0).toLocaleString('en-IN')}
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">Estimated gross cost inventory impairment</p>
         </div>
 
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Affected Products</span>
             <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
               <Layers className="h-4 w-4" />
             </div>
           </div>
-          <div className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+          <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
             {affectedSKUsCount} SKUs
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">Items requiring quality action or disposal</p>
@@ -620,9 +602,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       </div>
 
       {/* Filter & Search Bar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex flex-1 items-center gap-2">
  <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -631,22 +611,14 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="Search product name, SKU..."
-              className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border ${
-                isDarkMode
-                  ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500'
-                  : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'
-              }`}
+              className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
             />
           </div>
 
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className={`px-3 py-1.5 text-xs rounded-xl border ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-200'
-                : 'bg-slate-50 border-slate-200 text-slate-700'
-            }`}
+            className={`px-3 py-1.5 text-xs rounded-xl border bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL">All Categories ({categories.length})</option>
             {categories.map((c) => (
@@ -671,13 +643,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       </div>
 
       {/* MATRIX TABLE */}
-      <div className={`rounded-2xl border shadow-xs overflow-hidden ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className={isDarkMode ? 'bg-slate-900/60 text-slate-400 border-b border-slate-800' : 'bg-slate-50 text-slate-500 border-b border-slate-200'}>
+              <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 dark:bg-slate-900/60 dark:text-slate-400 dark:border-b dark:border-slate-800">
                 <th className="px-2.5 py-1.5 font-semibold">Product Name & Category</th>
                 <th className="px-2.5 py-1.5 font-semibold">SKU / Barcode</th>
                 <th className="px-2.5 py-1.5 font-semibold text-right">Unit Cost (NPR)</th>
@@ -697,7 +667,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               {visibleProducts.length === 0 ? (
                 <tr>
                   <td colSpan={5 + activeBranches.length} className="p-8 text-center text-slate-400">
-                    <CheckCircle2 className={`h-8 w-8 mx-auto mb-2 opacity-80 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                    <CheckCircle2 className={`h-8 w-8 mx-auto mb-2 opacity-80 text-emerald-500 dark:text-emerald-400`} />
                     <div className="font-semibold text-sm">No Damaged Stock Found</div>
                     <div className="text-xs text-slate-500">All products in filtered selection are currently healthy with zero recorded damage.</div>
                   </td>
@@ -706,12 +676,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 damagedPagination.pagedItems.map(({ prod, totalDamagedQty, totalLossValuation }) => (
                   <tr
                     key={prod.id}
-                    className={`hover:bg-slate-500/5 transition-colors ${
-                      totalDamagedQty > 0 ? (isDarkMode ? 'bg-amber-950/10' : 'bg-amber-50/30') : ''
-                    }`}
+                    className={`hover:bg-slate-500/5 transition-colors totalDamagedQty > 0 ? bg-amber-50/30 dark:bg-amber-950/10 : `}
                   >
                     <td className="p-2.5 font-medium">
-                      <div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`font-bold text-slate-900 dark:text-white`}>
                         {prod.name}
                       </div>
                       <div className="text-[11px] text-slate-400">{prod.category} • {prod.unit}</div>
@@ -720,12 +688,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       <div>{prod.sku}</div>
                       <div className="text-[10px] text-slate-400">{prod.barcode}</div>
                     </td>
-                    <td className={`p-2.5 text-right font-mono ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-300`}>
                       रु {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-2.5 text-center">
                       {totalDamagedQty > 0 ? (
-                        <span className={`inline-flex items-center gap-1 font-bold font-mono bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                        <span className={`inline-flex items-center gap-1 font-bold font-mono bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 text-amber-600 dark:text-amber-400`}>
                           <AlertTriangle className="h-3 w-3" />
                           <span>{totalDamagedQty} {prod.unit}</span>
                         </span>
@@ -733,7 +701,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                         <span className="text-slate-400 font-mono">0</span>
                       )}
                     </td>
-                    <td className={`p-2.5 text-right font-mono font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                    <td className={`p-2.5 text-right font-mono font-bold text-rose-600 dark:text-rose-400`}>
                       {totalLossValuation > 0 ? `रु ${(totalLossValuation ?? 0).toLocaleString('en-IN')}` : '-'}
                     </td>
 
@@ -757,16 +725,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       return (
                         <td
                           key={b.id}
-                          className={`p-3 text-center border-l font-medium ${
-                            isDarkMode ? 'border-slate-800' : 'border-slate-200'
-                          } ${
-                            localDamaged > 0 ? (isDarkMode ? 'bg-amber-950/20' : 'bg-amber-50/60') : ''
-                          }`}
+                          className={`p-3 text-center border-l font-medium border-slate-200 dark:border-slate-800 localDamaged > 0 ? bg-amber-50/60 dark:bg-amber-950/20 : `}
                         >
                           <div className="flex items-center justify-between gap-1">
                             <div className="flex flex-col items-start">
                               {localDamaged > 0 ? (
-                                <span className={`inline-flex items-center gap-1 text-xs font-bold font-mono ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                                <span className={`inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-600 dark:text-amber-400`}>
                                   <AlertTriangle className="h-3 w-3" />
                                   <span>{localDamaged} {prod.unit} damaged</span>
                                 </span>
@@ -822,7 +786,6 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           pageSize={damagedPagination.pageSize}
           onPageChange={damagedPagination.setPage}
           onPageSizeChange={damagedPagination.setPageSize}
-          isDarkMode={isDarkMode}
           className="mt-1"
         />
       </div>
@@ -830,13 +793,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       {/* MODAL 1: EDIT LOCAL DAMAGED STOCK COUNT */}
       {editingStock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
-                <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                   Adjust Damaged Stock Count
                 </h3>
               </div>
@@ -851,27 +812,27 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             <form onSubmit={handleDamagedSave} className="mt-4 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-500">Product Item</label>
-                <div className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <div className={`font-bold text-sm text-slate-900 dark:text-white`}>
                   {editingStock.product.name}
                 </div>
-                <div className={`text-xs font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                <div className={`text-xs font-mono text-indigo-500 dark:text-indigo-400`}>
                   SKU: {editingStock.product.sku} • Location: {editingStock.branch.name}
                 </div>
               </div>
 
               {/* Stock Conservation Preview Box */}
-              <div className={`p-3 rounded-xl border space-y-1.5 text-xs font-mono ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-xl border space-y-1.5 text-xs font-mono bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                 <div className="flex justify-between text-slate-500">
                   <span>Current Usable Stock:</span>
-                  <span className={`font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{editingStock.stockItem.quantityOnHand} {editingStock.product.unit}</span>
+                  <span className={`font-bold text-slate-800 dark:text-slate-200`}>{editingStock.stockItem.quantityOnHand} {editingStock.product.unit}</span>
                 </div>
                 <div className="flex justify-between text-slate-500">
                   <span>Current Damaged Stock:</span>
-                  <span className={`font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{editingStock.stockItem.damagedQty || 0} {editingStock.product.unit}</span>
+                  <span className={`font-bold text-amber-600 dark:text-amber-400`}>{editingStock.stockItem.damagedQty || 0} {editingStock.product.unit}</span>
                 </div>
                 <div className="border-t border-slate-200 dark:border-slate-800 my-1 pt-1 flex justify-between font-bold">
-                  <span className={isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}>Calculated New Usable Stock:</span>
-                  <span className={isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}>
+                  <span className="text-indigo-600 dark:text-indigo-400">Calculated New Usable Stock:</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">
                     {Math.max(0, editingStock.stockItem.quantityOnHand - (newDamagedQty - (editingStock.stockItem.damagedQty || 0)))} {editingStock.product.unit}
                   </span>
                 </div>
@@ -886,7 +847,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   min="0"
                   value={newDamagedQty}
                   onChange={(e) => setNewDamagedQty(Math.max(0, Number(e.target.value)))}
-                  className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                   required
                 />
               </div>
@@ -900,7 +861,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="e.g., Physical damage verification count"
-                  className={`w-full rounded-xl border px-3 py-2 text-xs ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                   required
                 />
               </div>
@@ -909,11 +870,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingStock(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border ${
-                    isDarkMode
-                      ? 'border-slate-800 text-slate-400 hover:bg-slate-800'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -932,16 +889,14 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       {/* MODAL 2: DAMAGED STOCK DISPOSAL & ACCOUNTING WRITE-OFF */}
       {disposalStock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-6 max-h-[90vh] overflow-y-auto ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-6 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className={`p-2 rounded-xl text-white shadow-xs ${isDarkMode ? 'bg-rose-500' : 'bg-rose-600'}`}>
+                <div className={`p-2 rounded-xl text-white shadow-xs bg-rose-600 dark:bg-rose-500`}>
                   <Flame className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                     Damaged Stock Disposal & Accounting Write-Off
                   </h3>
                   <p className="text-xs text-slate-400">
@@ -959,17 +914,17 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
             <form onSubmit={handleDisposalSubmit} className="mt-4 space-y-4">
               {/* Target Item Overview Card */}
-              <div className={`p-3.5 rounded-xl border flex justify-between items-center text-xs ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3.5 rounded-xl border flex justify-between items-center text-xs bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                 <div>
-                  <div className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  <div className={`font-bold text-sm text-slate-900 dark:text-white`}>
                     {disposalStock.product.name}
                   </div>
                   <div className="text-slate-500 font-mono mt-0.5">
-                    SKU: {disposalStock.product.sku} • Location: <strong className={isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}>{disposalStock.branch.name}</strong>
+                    SKU: {disposalStock.product.sku} • Location: <strong className="text-indigo-600 dark:text-indigo-400">{disposalStock.branch.name}</strong>
                   </div>
                 </div>
                 <div className="text-right font-mono">
-                  <div className={`text-right font-mono ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-bold`}>
+                  <div className={`text-right font-mono text-amber-600 dark:text-amber-400 font-bold`}>
                     {disposalStock.stockItem.damagedQty || 0} {disposalStock.product.unit} Available Damaged
                   </div>
                   <div className="text-slate-400 text-[11px]">
@@ -990,7 +945,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     max={disposalStock.stockItem.damagedQty || 1}
                     value={disposalQty}
                     onChange={(e) => setDisposalQty(Math.min(disposalStock.stockItem.damagedQty || 1, Math.max(1, Number(e.target.value))))}
-                    className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                    className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                     required
                   />
                 </div>
@@ -1002,7 +957,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   <select
                     value={glAccountCode}
                     onChange={(e) => setGlAccountCode(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-mono ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'}`}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-mono bg-slate-50 border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                   >
                     <option value="GL-5120 (Loss on Inventory Scrap & Write-off)">
                       GL-5120 - Loss on Inventory Scrap & Write-off
@@ -1031,11 +986,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     onClick={() => { setDisposalMethod('SCRAP_DESTRUCTION'); setSalvageRecoveryAmount(0); }}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       disposalMethod === 'SCRAP_DESTRUCTION'
-                        ? `border-rose-500 bg-rose-500/10 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'} ring-1 ring-rose-500`
+                        ? `border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-1 ring-rose-500`
                         : (isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600')
                     }`}
                   >
-                    <Trash2 className={`h-4 w-4 mb-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
+                    <Trash2 className={`h-4 w-4 mb-1 text-rose-500 dark:text-rose-400`} />
                     <div className="font-bold text-xs">Scrap & Destroy</div>
                     <div className="text-[10px] opacity-80 mt-0.5">100% Expense Loss</div>
                   </button>
@@ -1045,11 +1000,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     onClick={() => setDisposalMethod('SALVAGE_EWASTE')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       disposalMethod === 'SALVAGE_EWASTE'
-                        ? `border-amber-500 bg-amber-500/10 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} ring-1 ring-amber-500`
+                        ? `border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500`
                         : (isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600')
                     }`}
                   >
-                    <DollarSign className={`h-4 w-4 mb-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+                    <DollarSign className={`h-4 w-4 mb-1 text-amber-500 dark:text-amber-400`} />
                     <div className="font-bold text-xs">Salvage / Scrap</div>
                     <div className="text-[10px] opacity-80 mt-0.5">Partial Income</div>
                   </button>
@@ -1059,11 +1014,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     onClick={() => { setDisposalMethod('VENDOR_RMA'); setSalvageRecoveryAmount(0); }}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       disposalMethod === 'VENDOR_RMA'
-                        ? `border-blue-500 bg-blue-500/10 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} ring-1 ring-blue-500`
+                        ? `border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500`
                         : (isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600')
                     }`}
                   >
-                    <Receipt className={`h-4 w-4 mb-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+                    <Receipt className={`h-4 w-4 mb-1 text-blue-500 dark:text-blue-400`} />
                     <div className="font-bold text-xs">Vendor RMA</div>
                     <div className="text-[10px] opacity-80 mt-0.5">Supplier Credit</div>
                   </button>
@@ -1073,11 +1028,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     onClick={() => setDisposalMethod('INSURANCE_CLAIM')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       disposalMethod === 'INSURANCE_CLAIM'
-                        ? `border-emerald-500 bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} ring-1 ring-emerald-500`
+                        ? `border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500`
                         : (isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600')
                     }`}
                   >
-                    <ShieldCheck className={`h-4 w-4 mb-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                    <ShieldCheck className={`h-4 w-4 mb-1 text-emerald-500 dark:text-emerald-400`} />
                     <div className="font-bold text-xs">Insurance Claim</div>
                     <div className="text-[10px] opacity-80 mt-0.5">Loss Claim</div>
                   </button>
@@ -1097,11 +1052,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     value={salvageRecoveryAmount}
                     onChange={(e) => setSalvageRecoveryAmount(Math.max(0, Number(e.target.value)))}
                     placeholder="Enter salvage sale revenue or expected insurance claim amount"
-                    className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold ${
-                      isDarkMode
-                        ? 'bg-slate-900 border-slate-700 text-emerald-400'
-                        : 'bg-white border-slate-300 text-emerald-600'
-                    }`}
+                    className={`w-full rounded-xl border px-3 py-2 text-sm font-mono font-bold bg-white border-slate-300 text-emerald-600 dark:bg-slate-900 dark:border-slate-700 dark:text-emerald-400`}
                   />
                 </div>
               )}
@@ -1138,7 +1089,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   value={disposalNotes}
                   onChange={(e) => setDisposalNotes(e.target.value)}
                   placeholder="Record physical disposal details, destruction certificate number, or recycler invoice..."
-                  className={`w-full rounded-xl border px-3 py-2 text-xs ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                   required
                 />
               </div>
@@ -1147,11 +1098,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                 <button
                   type="button"
                   onClick={() => setDisposalStock(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border ${
-                    isDarkMode
-                      ? 'border-slate-800 text-slate-400 hover:bg-slate-800'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

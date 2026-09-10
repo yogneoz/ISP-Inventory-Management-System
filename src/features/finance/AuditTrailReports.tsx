@@ -30,9 +30,7 @@ interface AuditTrailReportsProps {
   branches: Branch[];
   assets: Asset[];
   invoices: PurchaseInvoice[];
-  dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
-}
+  dateMode: 'BS' | 'AD';}
 
 export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   auditLogs,
@@ -42,9 +40,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   branches,
   assets,
   invoices,
-  dateMode,
-  isDarkMode = false,
-}) => {
+  dateMode,}) => {
   const [subTab, setSubTab] = useState<
     'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
   >('AUDIT_TRAIL');
@@ -79,7 +75,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
-            <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>
+            <span className="text-slate-900 dark:text-white">
               Activities Log (System Audit Trail)
             </span>
           </h2>
@@ -91,11 +87,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handlePrintReport}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-              isDarkMode
-                ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
-                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
             <span>Print Log</span>
@@ -104,16 +96,10 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className={`flex items-center gap-2 border-b pb-2 ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+      <div className={`flex items-center gap-2 border-b pb-2 border-slate-200 dark:border-slate-800`}>
         <button
           onClick={() => setSubTab('AUDIT_TRAIL')}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            subTab === 'AUDIT_TRAIL'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : isDarkMode
-              ? 'text-slate-400 hover:bg-slate-800/60'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer 'subTab === 'AUDIT_TRAIL ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800/60`}
         >
           <ShieldCheck className="h-4 w-4" />
           <span>User & Security Activities</span>
@@ -121,13 +107,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
 
         <button
           onClick={() => setSubTab('STOCK_TRANSACTIONS')}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            subTab === 'STOCK_TRANSACTIONS'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : isDarkMode
-              ? 'text-slate-400 hover:bg-slate-800/60'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer 'subTab === 'STOCK_TRANSACTIONS ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800/60`}
         >
           <History className="h-4 w-4" />
           <span>Stock Audit Events</span>
@@ -137,12 +117,10 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       {/* Sub-Tab 3: Stock Transactions Ledger */}
       {subTab === 'STOCK_TRANSACTIONS' && (
         <div
-          className={`rounded-2xl border p-4 transition-colors ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 shadow-xl' : 'bg-white border-slate-200 shadow-sm'
-          }`}
+          className={`rounded-2xl border p-4 transition-colors bg-white border-slate-200 shadow-sm dark:bg-[#0f1218] dark:border-slate-800 dark:shadow-xl`}
         >
           <div className="flex items-center justify-between mb-3">
-            <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
               Realtime Stock Movement Transaction Logs
             </h3>
             <button
@@ -159,11 +137,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                   { key: 'timestampBS', label: 'Timestamp (BS)' },
                 ])
               }
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
-                  : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
             >
               <Download className="h-3.5 w-3.5 text-indigo-500" />
               <span>Export Stock Ledger CSV</span>
@@ -172,11 +146,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead
-                className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode
-                    ? 'bg-slate-900/80 text-slate-400 border-slate-800'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}
+                className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}
               >
                 <tr>
                   <th className="px-2.5 py-1.5">Txn #</th>
@@ -188,13 +158,11 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                   <th className="px-2.5 py-1.5">Timestamp</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {txnPagination.pagedItems.map((log) => (
                   <tr
                     key={log.id}
-                    className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80'
-                    }`}
+                    className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40`}
                   >
                     <td className="p-2.5 font-mono font-bold text-slate-500 dark:text-slate-400">
                       {log.transactionNumber}
@@ -207,11 +175,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                     </td>
                     <td className="p-2.5 text-right font-mono text-slate-500 dark:text-slate-400">{log.quantityBefore}</td>
                     <td
-                      className={`p-3 text-right font-mono font-extrabold ${
-                        log.quantityChanged > 0
-                          ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
-                          : isDarkMode ? 'text-rose-400' : 'text-rose-600'
-                      }`}
+                      className={`p-3 text-right font-mono font-extrabold log.quantityChanged > 0 ? text-emerald-600 dark:text-emerald-400 : text-rose-600 dark:text-rose-400`}
                     >
                       {log.quantityChanged > 0 ? `+${log.quantityChanged}` : log.quantityChanged}
                     </td>
@@ -235,7 +199,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             pageSize={txnPagination.pageSize}
             onPageChange={txnPagination.setPage}
             onPageSizeChange={txnPagination.setPageSize}
-            isDarkMode={isDarkMode}
             className="mt-2"
           />
         </div>
@@ -244,12 +207,10 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       {/* Sub-Tab 4: System User Audit Log */}
       {subTab === 'AUDIT_TRAIL' && (
         <div
-          className={`rounded-2xl border p-4 transition-colors ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 shadow-xl' : 'bg-white border-slate-200 shadow-sm'
-          }`}
+          className={`rounded-2xl border p-4 transition-colors bg-white border-slate-200 shadow-sm dark:bg-[#0f1218] dark:border-slate-800 dark:shadow-xl`}
         >
           <div className="flex items-center justify-between mb-3">
-            <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
               System Action Audit Log (User & Security Actions)
             </h3>
             <button
@@ -264,11 +225,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                   { key: 'timestampBS', label: 'Timestamp (BS)' },
                 ])
               }
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'
-                  : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
             >
               <Download className="h-3.5 w-3.5 text-indigo-500" />
               <span>Export Audit Logs CSV</span>
@@ -277,11 +234,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead
-                className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode
-                    ? 'bg-slate-900/80 text-slate-400 border-slate-800'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}
+                className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}
               >
                 <tr>
                   <th className="px-2.5 py-1.5">User</th>
@@ -291,13 +244,11 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                   <th className="px-2.5 py-1.5">Timestamp</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {auditPagination.pagedItems.map((log) => (
                   <tr
                     key={log.id}
-                    className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80'
-                    }`}
+                    className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40`}
                   >
                     <td className="p-2.5 font-bold text-slate-900 dark:text-white">{log.userName}</td>
                     <td className="p-2.5">
@@ -324,7 +275,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             pageSize={auditPagination.pageSize}
             onPageChange={auditPagination.setPage}
             onPageSizeChange={auditPagination.setPageSize}
-            isDarkMode={isDarkMode}
             className="mt-2"
           />
         </div>

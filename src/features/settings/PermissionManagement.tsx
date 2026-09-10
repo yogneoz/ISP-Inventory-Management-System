@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, User } from '../../types';
 import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   ShieldCheck,
   Check,
@@ -352,10 +353,10 @@ const ROLES: { key: UserRole; title: string; badgeColor: string }[] = [
 
 interface PermissionManagementProps {
   currentUser?: User | null;
-  isDarkMode?: boolean;
 }
 
-export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, isDarkMode }) => {
+export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser }) => {
+  const { isDarkMode } = useDarkMode();
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
     const savedMatrix = getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({
@@ -482,7 +483,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleReset}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors ${isDarkMode ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300' : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'}`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Defaults</span>
@@ -505,7 +506,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       )}
 
       {/* Filter and Search Bar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row items-center justify-start gap-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
  <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
@@ -560,7 +561,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           return (
             <div
               key={role.key}
-              className={`p-3.5 rounded-xl border shadow-xs flex items-center justify-between ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}
+              className={`p-3.5 rounded-xl border shadow-xs flex items-center justify-between bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}
             >
               <div>
                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${role.badgeColor}`}>
@@ -581,7 +582,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       {/* Group-Wise Permission Cards */}
       <div className="space-y-3">
         {filteredGroups.length === 0 ? (
-          <div className={`p-8 text-center rounded-2xl border text-xs ${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
+          <div className={`p-8 text-center rounded-2xl border text-xs bg-white border-slate-200 text-slate-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400`}>
             No operations found matching your search filter "{searchQuery}".
           </div>
         ) : (
@@ -592,14 +593,14 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
             return (
               <div
                 key={group.id}
-                className={`rounded-2xl border shadow-xs overflow-hidden transition-all ${group.borderColor} ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`}
+                className={`rounded-2xl border shadow-xs overflow-hidden transition-all ${group.borderColor} bg-white dark:bg-slate-900`}
               >
                 {/* Group Header */}
                 <div
                   className={`p-4 ${group.bgColor} border-b ${group.borderColor} flex flex-col md:flex-row md:items-center justify-between gap-3`}
                 >
                   <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleGroupCollapse(group.id)}>
-                    <div className={`p-2.5 rounded-xl shadow-xs ${group.color} ${isDarkMode ? 'bg-slate-800' : 'bg-white'}`}>
+                    <div className={`p-2.5 rounded-xl shadow-xs ${group.color} bg-white dark:bg-slate-800`}>
                       <GroupIcon className="h-5 w-5" />
                     </div>
                     <div>

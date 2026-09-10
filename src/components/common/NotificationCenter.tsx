@@ -24,9 +24,7 @@ interface NotificationCenterProps {
   purchaseOrders: PurchaseOrder[];
   shipments: Shipment[];
   branches: Branch[];
-  selectedBranchId: string;
-  isDarkMode: boolean;
-  onSelectTab: (tabId: string) => void;
+  selectedBranchId: string;  onSelectTab: (tabId: string) => void;
   /** Dismissed notification ids (lifted to App so badges stay in sync). */
   dismissedIds?: string[];
   onDismiss?: (id: string) => void;
@@ -42,9 +40,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   purchaseOrders = [],
   shipments = [],
   branches = [],
-  selectedBranchId,
-  isDarkMode,
-  onSelectTab,
+  selectedBranchId,  onSelectTab,
   dismissedIds = [],
   onDismiss,
   onClearAll,
@@ -211,9 +207,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   return (
     <div className="fixed inset-0 z-[9999] flex justify-end bg-slate-900/60 backdrop-blur-xs animate-fade-in">
       <div
-        className={`w-full max-w-md h-full flex flex-col border-l shadow-2xl transition-all duration-200 z-[10000] ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className={`w-full max-w-md h-full flex flex-col border-l shadow-2xl transition-all duration-200 z-[10000] bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-100`}
       >
         {/* Header Bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">

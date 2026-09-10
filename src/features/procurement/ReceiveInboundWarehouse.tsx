@@ -36,9 +36,7 @@ interface ReceiveInboundWarehouseProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
-  approvalRequests?: ApprovalRequest[];
-  isDarkMode?: boolean;
-  dateMode?: 'AD' | 'BS';
+  approvalRequests?: ApprovalRequest[];  dateMode?: 'AD' | 'BS';
   onReceiveOperation: (id: string) => Promise<void>;
   onReceiveShipment: (
     id: string,
@@ -62,9 +60,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   products = [],
   branches = [],
   stock = [],
-  approvalRequests = [],
-  isDarkMode = false,
-  dateMode = 'AD',
+  approvalRequests = [],  dateMode = 'AD',
   onReceiveOperation,
   onReceiveShipment,
   onCancelReceiveShipment,
@@ -78,9 +74,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
   if (!isWarehouseStaffOrAdmin) {
     return (
-      <div className={`p-10 rounded-3xl border text-center space-y-4 max-w-2xl mx-auto my-8 ${
-        isDarkMode ? 'bg-rose-950/20 border-rose-900/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-900'
-      }`}>
+      <div className={`p-10 rounded-3xl border text-center space-y-4 max-w-2xl mx-auto my-8 bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-300`}>
         <ShieldAlert className="h-14 w-14 text-rose-500 mx-auto animate-bounce" />
         <h2 className="text-xl font-bold font-serif">Access Denied — Headquarters Warehouse Role Required</h2>
         <p className="text-xs leading-relaxed max-w-md mx-auto opacity-90">
@@ -195,11 +189,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   return (
     <div className="space-y-3">
       {/* Header Banner */}
-      <div className={`p-6 rounded-3xl border shadow-sm relative overflow-hidden ${
-        isDarkMode
-          ? 'bg-gradient-to-r from-slate-900 via-indigo-950/80 to-slate-900 border-indigo-900/40 text-white'
-          : 'bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 border-indigo-800 text-white'
-      }`}>
+      <div className={`p-6 rounded-3xl border shadow-sm relative overflow-hidden bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 border-indigo-800 text-white dark:bg-gradient-to-r dark:from-slate-900 dark:via-indigo-950/80 dark:to-slate-900 dark:border-indigo-900/40 dark:text-white`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -238,13 +228,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setActiveTab('PULLOUTS')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer ${
-            activeTab === 'PULLOUTS'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : isDarkMode
-              ? 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer 'activeTab === 'PULLOUTS ? bg-indigo-600 text-white shadow-md : bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800`}
         >
           <Truck className="h-4 w-4" />
           <span>1. Inbound Branch Pullout Bins</span>
@@ -257,13 +241,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
         <button
           onClick={() => setActiveTab('SHIPMENTS')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer ${
-            activeTab === 'SHIPMENTS'
-              ? 'bg-sky-600 text-white shadow-md'
-              : isDarkMode
-              ? 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer 'activeTab === 'SHIPMENTS ? bg-sky-600 text-white shadow-md : bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800`}
         >
           <Package className="h-4 w-4" />
           <span>2. Inbound Warehouse Shipments</span>
@@ -279,19 +257,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       {activeTab === 'PULLOUTS' && (
         <div className="space-y-3">
           {/* Controls Bar */}
-          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
               <button
                 onClick={() => setPulloutStatusFilter('PENDING')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-                  pulloutStatusFilter === 'PENDING'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-amber-400 hover:bg-slate-700'
-                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'PENDING ? bg-amber-600 text-white shadow-xs : bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800 dark:text-amber-400 dark:hover:bg-slate-700`}
               >
                 <Clock className="h-3.5 w-3.5" />
                 <span>Pending Receipt ({pendingPulloutCount})</span>
@@ -299,13 +269,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setPulloutStatusFilter('RECEIVED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-                  pulloutStatusFilter === 'RECEIVED'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-emerald-400 hover:bg-slate-700'
-                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Received at WH001 ({receivedPulloutCount})</span>
@@ -313,13 +277,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setPulloutStatusFilter('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                  pulloutStatusFilter === 'ALL'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
               >
                 <span>All Bins ({allPullouts.length})</span>
               </button>
@@ -332,9 +290,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 <select
                   value={pulloutBranchFilter}
                   onChange={(e) => setPulloutBranchFilter(e.target.value)}
-                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold focus:outline-none ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   <option value="ALL">All Source Branches</option>
                   {branches.filter((b) => !b.isHeadquarters && b.id !== 'WH001').map((b) => (
@@ -351,9 +307,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                   placeholder="Search Ref #, Inspector, Product..."
                   value={pulloutSearchQuery}
                   onChange={(e) => setPulloutSearchQuery(e.target.value)}
-                  className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none w-48 md:w-60 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-300 placeholder-slate-400'
-                  }`}
+                  className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none w-48 md:w-60 bg-slate-50 border-slate-300 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
                 />
               </div>
             </div>
@@ -361,9 +315,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
           {/* List of Pullout Bins */}
           {filteredPullouts.length === 0 ? (
-            <div className={`p-12 rounded-3xl border border-dashed text-center ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-400' : 'bg-white border-slate-300 text-slate-500'
-            }`}>
+            <div className={`p-12 rounded-3xl border border-dashed text-center bg-white border-slate-300 text-slate-500 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-400`}>
               <Truck className="h-12 w-12 mx-auto mb-3 text-slate-300 dark:text-slate-700" />
               <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">No Branch Pullouts Found</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
@@ -380,30 +332,22 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 return (
                   <div
                     key={op.id}
-                    className={`p-5 rounded-3xl border transition-all ${
-                      isReceived
-                        ? isDarkMode
-                          ? 'bg-slate-900/60 border-slate-800'
-                          : 'bg-white border-slate-200'
-                        : isDarkMode
-                        ? 'bg-gradient-to-br from-indigo-950/30 via-slate-900 to-slate-900 border-indigo-900/50 shadow-md'
-                        : 'bg-gradient-to-br from-indigo-50/50 via-white to-white border-indigo-200 shadow-sm'
-                    }`}
+                    className={`p-5 rounded-3xl border transition-all isReceived ? bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 : bg-gradient-to-br from-indigo-50/50 via-white to-white border-indigo-200 shadow-sm dark:bg-gradient-to-br dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-900/50 dark:shadow-md`}
                   >
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`font-mono text-xs font-extrabold ${isDarkMode ? 'text-indigo-400 bg-indigo-950' : 'text-indigo-600 bg-indigo-100'} px-2.5 py-0.5 rounded-md border ${isDarkMode ? 'border-indigo-800' : 'border-indigo-200'}`}>
+                          <span className={`font-mono text-xs font-extrabold text-indigo-600 bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-950 px-2.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800`}>
                             {op.referenceNumber}
                           </span>
                           {isReceived ? (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                              <CheckCircle2 className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                              <CheckCircle2 className={`h-3 w-3 text-emerald-600 dark:text-emerald-400`} />
                               <span>RECEIVED AT WH001</span>
                             </span>
                           ) : (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 animate-pulse">
-                              <Clock className={`h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                              <Clock className={`h-3 w-3 text-amber-600 dark:text-amber-400`} />
                               <span>DISPATCHED / PENDING WH INTAKE</span>
                             </span>
                           )}
@@ -411,7 +355,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
                         <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2 mt-1">
                           <span className="text-slate-500 font-normal">Source:</span>
-                          <span className={`${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-extrabold`}>{op.branchName || op.branchId}</span>
+                          <span className={`text-indigo-600 dark:text-indigo-400 font-extrabold`}>{op.branchName || op.branchId}</span>
                           <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
                           <span className="text-slate-500 font-normal">Destination:</span>
                           <span className="text-slate-900 dark:text-white font-extrabold">{op.destinationWarehouseName || 'HQ Central Warehouse (WH001)'}</span>
@@ -457,9 +401,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                     {op.items && op.items.length > 0 && (
                       <div className="mt-2 overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                         <table className="w-full text-left text-xs">
-                          <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                            isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                          }`}>
+                          <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800`}>
                             <tr>
                               <th className="px-2.5 py-1.5">Product SKU & Name</th>
                               <th className="px-2.5 py-1.5 text-center">Condition</th>
@@ -469,11 +411,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                               <th className="px-2.5 py-1.5 min-w-[200px]">Serials & PON Tracking</th>
                             </tr>
                           </thead>
-                          <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                          <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                             {op.items.map((item) => (
-                              <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                              <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                                 <td className="p-2.5">
-                                  <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[10px] block`}>
+                                  <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[10px] block`}>
                                     [{item.sku}]
                                   </span>
                                   <span className="font-bold text-slate-900 dark:text-white">{item.productName}</span>
@@ -534,19 +476,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       {/* TAB 2: INBOUND WAREHOUSE SHIPMENTS */}
       {activeTab === 'SHIPMENTS' && (
         <div className="space-y-3">
-          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShipmentStatusFilter('PENDING')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  shipmentStatusFilter === 'PENDING'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-sky-400 hover:bg-slate-700'
-                    : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer 'shipmentStatusFilter === 'PENDING ? bg-sky-600 text-white shadow-xs : bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800 dark:text-sky-400 dark:hover:bg-slate-700`}
               >
                 <Clock className="h-3.5 w-3.5" />
                 <span>In-Transit ({pendingShipmentCount})</span>
@@ -554,13 +488,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setShipmentStatusFilter('RECEIVED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  shipmentStatusFilter === 'RECEIVED'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-emerald-400 hover:bg-slate-700'
-                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                }`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer 'shipmentStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Received ({inboundShipments.length - pendingShipmentCount})</span>
@@ -574,17 +502,13 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 placeholder="Search tracking code or source..."
                 value={shipmentSearchQuery}
                 onChange={(e) => setShipmentSearchQuery(e.target.value)}
-                className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none w-48 md:w-60 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
+                className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none w-48 md:w-60 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
               />
             </div>
           </div>
 
           {filteredShipments.length === 0 ? (
-            <div className={`p-12 rounded-3xl border border-dashed text-center ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-400' : 'bg-white border-slate-300 text-slate-500'
-            }`}>
+            <div className={`p-12 rounded-3xl border border-dashed text-center bg-white border-slate-300 text-slate-500 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-400`}>
               <Package className="h-12 w-12 mx-auto mb-3 text-slate-300 dark:text-slate-700" />
               <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">No Inbound Warehouse Shipments Found</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
@@ -599,9 +523,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 return (
                   <div
                     key={sh.id}
-                    className={`p-5 rounded-3xl border flex flex-col justify-between space-y-3 ${
-                      isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-                    }`}
+                    className={`p-5 rounded-3xl border flex flex-col justify-between space-y-3 bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-1">
@@ -652,9 +574,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       {/* VERIFY & RECEIVE PULLOUT MODAL */}
       {selectedPulloutToReceive && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl p-6 overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl p-6 overflow-hidden bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
@@ -708,7 +628,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                           Condition: <strong className={item.condition === 'DAMAGED_STOCK' ? 'text-rose-500' : 'text-emerald-500'}>{item.condition}</strong>
                         </div>
                       </div>
-                      <div className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                      <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                         {item.quantity} {item.unit || 'pcs'}
                       </div>
                     </div>
@@ -724,9 +644,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                   value={pulloutReceiveNotes}
                   onChange={(e) => setPulloutReceiveNotes(e.target.value)}
                   placeholder="e.g. Verified physical quantities and device serials match bin dispatch manifest..."
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 

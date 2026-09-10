@@ -37,6 +37,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
 
@@ -54,18 +55,14 @@ interface FiscalYearManagementProps {
   onUpdateFiscalYear: (fiscalYear: FiscalYear) => Promise<void>;
   onDeleteFiscalYear: (id: string) => Promise<void>;
   currentUser: User | null;
-  dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
-}
+  dateMode: 'BS' | 'AD';}
 
 export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
   onUpdateFiscalYear,
   onDeleteFiscalYear,
-  currentUser,
-  isDarkMode = false,
-}) => {
+  currentUser,}) => {
   // Document Numbering State
   const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>(() =>
     getDocumentNumberConfigs()
@@ -220,20 +217,18 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       {/* Page Title Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <CalendarDays className="h-5 w-5 text-indigo-500" />
             <span>Fiscal Year Management & Document Numbering Setup</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Manage accounting fiscal years, active period locks, opening balance transfers, and dynamic document sequence numbering.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Page-header fiscal-year switcher */}
-          <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs ${isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white text-slate-700'}`}>
+          <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300`}>
             <CalendarDays className="h-3.5 w-3.5 text-indigo-500" />
             <label htmlFor="fy-page-switcher" className="sr-only">Select fiscal year to view</label>
             <select
@@ -243,7 +238,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               className="bg-transparent font-semibold outline-none cursor-pointer"
             >
               {filterFiscalYears(sortedFiscalYears).map((fy) => (
-                <option key={fy.id} value={fy.id} className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                <option key={fy.id} value={fy.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
                   FY {fy.code}
                   {fy.isCurrent ? ' (Active)' : ''}
                 </option>
@@ -263,9 +258,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
 
       {/* Success Notification Banner */}
       {saveSuccessMsg && (
-        <div className={`p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2 shadow-sm ${
-          isDarkMode ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-        }`}>
+        <div className={`p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2 shadow-sm bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/80 dark:border-emerald-500/40 dark:text-emerald-300`}>
           <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
           <span>{saveSuccessMsg}</span>
         </div>
@@ -273,13 +266,13 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
 
       {/* Section 1: Active Fiscal Year Switcher & Status Cards */}
       <div>
-        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
           <Lock className="h-4 w-4 text-amber-500" />
-          <span>Nepali Fiscal Year Accounting Periods (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>YYYY/YY</code>)</span>
+          <span>Nepali Fiscal Year Accounting Periods (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">YYYY/YY</code>)</span>
         </h3>
         <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
           <table className="w-full min-w-[900px] text-left text-xs">
-            <thead className={`${isDarkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-100 text-slate-700'} border-b border-slate-200 dark:border-slate-800`}>
+            <thead className={`bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800`}>
               <tr>
                 <th className="p-3">Fiscal Year</th>
                 <th className="p-3">BS Period</th>
@@ -294,20 +287,16 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   key={fy.id}
                   className={
                     fy.id === activeViewFyId
-                      ? isDarkMode
-                        ? 'bg-indigo-950/40'
-                        : 'bg-indigo-50/80'
+                      ? 'bg-indigo-50/80 dark:bg-indigo-950/40'
                       : fy.isCurrent
-                      ? isDarkMode
-                        ? 'bg-indigo-950/30'
-                        : 'bg-indigo-50/70'
+                      ? 'bg-indigo-50/70 dark:bg-indigo-950/30'
                       : undefined
                   }
                 >
                   <td className="p-3 font-bold font-mono">
                     FY {fy.code}
                     {fy.id === activeViewFyId && (
-                      <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${isDarkMode ? 'bg-indigo-500/20 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>
+                      <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300`}>
                         Viewing
                       </span>
                     )}
@@ -315,13 +304,13 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateBS} to {fy.endDateBS}</td>
                   <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateAD} to {fy.endDateAD}</td>
                   <td className="p-3 font-bold">
-                    {fy.isCurrent ? <span className={`inline-flex items-center gap-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}><CheckCircle2 className="h-3.5 w-3.5" /> Active</span> : fy.isClosed ? <span className={`inline-flex items-center gap-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><Lock className="h-3 w-3" /> Closed</span> : <span className={`${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Open</span>}
+                    {fy.isCurrent ? <span className={`inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400`}><CheckCircle2 className="h-3.5 w-3.5" /> Active</span> : fy.isClosed ? <span className={`inline-flex items-center gap-1 text-amber-600 dark:text-amber-400`}><Lock className="h-3 w-3" /> Closed</span> : <span className={`text-emerald-600 dark:text-emerald-400`}>Open</span>}
                   </td>
                   <td className="p-3 text-right">
                     <div className="flex justify-end items-center gap-2">
-                      {!fy.isCurrent && <button onClick={() => onSetCurrentFiscalYear(fy.id)} className={`text-xs font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} hover:underline cursor-pointer`}>Set Active</button>}
+                      {!fy.isCurrent && <button onClick={() => onSetCurrentFiscalYear(fy.id)} className={`text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer`}>Set Active</button>}
                       {canManageFiscalYears && <button type="button" onClick={() => { setEditFiscalYearError(''); setEditingFiscalYear({ ...fy }); }} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"><Edit3 className="h-3.5 w-3.5" /> Edit</button>}
-                      {canManageFiscalYears && !fy.isCurrent && <button type="button" onClick={() => handleDeleteFiscalYear(fy)} className={`inline-flex items-center gap-1 text-xs font-semibold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'} hover:underline cursor-pointer`}><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
+                      {canManageFiscalYears && !fy.isCurrent && <button type="button" onClick={() => handleDeleteFiscalYear(fy)} className={`inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer`}><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -338,36 +327,27 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           pageSize={fiscalYearsPagination.pageSize}
           onPageChange={fiscalYearsPagination.setPage}
           onPageSizeChange={fiscalYearsPagination.setPageSize}
-          isDarkMode={isDarkMode}
         />
       </div>
 
       {/* Section 2: DOCUMENT NUMBERING INITIAL SETUP (Dynamic Setup) */}
-      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-indigo-900/50' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
-        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-indigo-900/50`}>
+        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 border-slate-200 dark:border-slate-800`}>
           <div className="flex items-center gap-2.5">
-            <div className={`p-2.5 rounded-xl border ${
-              isDarkMode ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border-indigo-200'
-            }`}>
+            <div className={`p-2.5 rounded-xl border bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20`}>
               <Hash className="h-5 w-5" />
             </div>
             <div>
-              <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                 Document Numbering Initial Setup (Dynamic Prefix & Sequence Generator)
               </h3>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-xs text-slate-500 dark:text-slate-400`}>
                 Configure custom document prefixes, suffixes, digit padding, and sequence counters for all business vouchers instead of hardcoding.
               </p>
             </div>
           </div>
 
-          <span className={`text-[11px] font-mono px-3 py-1 rounded-lg border font-bold ${
-            isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-          }`}>
+          <span className={`text-[11px] font-mono px-3 py-1 rounded-lg border font-bold bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}>
             {docConfigs.length} Document Types Configured
           </span>
         </div>
@@ -378,65 +358,35 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
             <button
               type="button"
               onClick={() => setSelectedCategory('ALL')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                selectedCategory === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                    ? 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
             >
               All ({docConfigs.length})
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('PROCUREMENT_SALES')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                selectedCategory === 'PROCUREMENT_SALES'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                    ? 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'PROCUREMENT_SALES ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
             >
               Procurement & Sales (7)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('INVENTORY_OPS')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                selectedCategory === 'INVENTORY_OPS'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                    ? 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'INVENTORY_OPS ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
             >
               Branch Ops & Stock (6)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('FIXED_ASSETS')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                selectedCategory === 'FIXED_ASSETS'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                    ? 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'FIXED_ASSETS ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
             >
               Fixed Assets (2)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('FINANCE_TAX')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                selectedCategory === 'FINANCE_TAX'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : isDarkMode
-                    ? 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'FINANCE_TAX ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
             >
               Finance & Vouchers (3)
             </button>
@@ -449,21 +399,15 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               value={docSearchQuery}
               onChange={(e) => setDocSearchQuery(e.target.value)}
               placeholder="Search sequence (e.g. FAA, CPI, EXC)..."
-              className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border outline-none ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500' : 'bg-white border-slate-200 text-slate-900'
-              }`}
+              className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border outline-none bg-white border-slate-200 text-slate-900 dark:bg-slate-950 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
             />
           </div>
         </div>
 
         {/* Dynamic Document Configs Grid / Table */}
-        <div className={`overflow-x-auto rounded-xl border ${
-          isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'
-        }`}>
+        <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/40`}>
           <table className="w-full text-left text-xs">
-            <thead className={`font-bold border-b ${
-              isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
+            <thead className={`font-bold border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
               <tr>
                 <th className="px-2.5 py-1.5">Doc Type</th>
                 <th className="px-2.5 py-1.5">Prefix</th>
@@ -475,9 +419,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                 <th className="px-2.5 py-1.5 text-right">Configure</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${
-              isDarkMode ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'
-            }`}>
+            <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800 dark:text-slate-300`}>
               {filteredDocConfigs.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-6 text-center text-slate-400 text-xs">
@@ -489,15 +431,11 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                   const sampleOutput = formatDocumentNumber(config);
 
                   return (
-                    <tr key={config.id} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
-                    }`}>
+                    <tr key={config.id} className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}>
                       <td className="p-2.5 font-semibold">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                              isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}>
                               {config.id}
                             </span>
                             <span>{config.documentType}</span>
@@ -528,9 +466,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
 
                       <td className="p-2.5">
                         <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
-                            isDarkMode ? 'bg-slate-950 text-emerald-400 border-slate-800' : 'bg-white text-emerald-700 border-slate-200'
-                          }`}>
+                          <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border bg-white text-emerald-700 border-slate-200 dark:bg-slate-950 dark:text-emerald-400 dark:border-slate-800`}>
                             {sampleOutput}
                           </span>
                           <button
@@ -545,11 +481,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                       </td>
 
                       <td className="p-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          config.resetEveryFiscalYear
-                            ? isDarkMode ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-slate-200 text-slate-600 border-slate-300'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border config.resetEveryFiscalYear ? bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-500/30 : bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700`}>
                           {config.resetEveryFiscalYear ? 'Yes' : 'No'}
                         </span>
                       </td>
@@ -590,26 +522,21 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           pageSize={docConfigsPagination.pageSize}
           onPageChange={docConfigsPagination.setPage}
           onPageSizeChange={docConfigsPagination.setPageSize}
-          isDarkMode={isDarkMode}
           className="mt-1"
         />
       </div>
 
       {/* Section 3: Accounting Period Lock & Tax Control */}
-      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
+      <div className={`rounded-2xl border p-5 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex items-center gap-2.5">
-          <div className={`p-2 rounded-xl border ${
-            isDarkMode ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-200'
-          }`}>
+          <div className={`p-2 rounded-xl border bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20`}>
             <Lock className="h-5 w-5" />
           </div>
           <div>
-            <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
               Accounting Period Locks & Retroactive Edit Control
             </h3>
-            <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <p className={`text-xs text-slate-500 dark:text-slate-400`}>
               Freeze prior quarterly accounting periods to prevent retroactive modification of closed VAT registers or audit entries.
             </p>
           </div>
@@ -619,15 +546,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           {Object.entries(periodLocks).map(([periodName, isLocked]) => (
             <div
               key={periodName}
-              className={`p-3.5 rounded-xl border flex items-center justify-between ${
-                isLocked
-                  ? isDarkMode
-                    ? 'bg-amber-950/30 border-amber-800/60 text-amber-300'
-                    : 'bg-amber-50 border-amber-200 text-amber-900'
-                  : isDarkMode
-                    ? 'bg-slate-900 border-slate-800 text-slate-300'
-                    : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}
+              className={`p-3.5 rounded-xl border flex items-center justify-between isLocked ? bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800/60 dark:text-amber-300 : bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
             >
               <div>
                 <span className="text-xs font-bold block">{periodName}</span>
@@ -652,48 +571,38 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       </div>
 
       {/* Section 4: Opening Balance Setup Overview */}
-      <div className={`rounded-2xl border p-5 shadow-xl space-y-3 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
+      <div className={`rounded-2xl border p-5 shadow-xl space-y-3 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex items-center gap-2.5">
-          <div className={`p-2 rounded-xl border ${
-            isDarkMode ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-          }`}>
+          <div className={`p-2 rounded-xl border bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20`}>
             <Scale className="h-5 w-5" />
           </div>
           <div>
-            <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
               Fiscal Year Opening Balances Status
             </h3>
-            <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <p className={`text-xs text-slate-500 dark:text-slate-400`}>
               Verified trial balance opening values transferred from prior fiscal year.
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-          <div className={`p-3 rounded-xl border ${
-            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <div className={`p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Inventory Asset Opening</span>
             <span className="text-sm font-mono font-bold text-emerald-500">NPR 14,850,000</span>
-            <span className={`text-[10px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} block mt-0.5`}>✓ Reconciled with Stock Audit</span>
+            <span className={`text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5`}>✓ Reconciled with Stock Audit</span>
           </div>
 
-          <div className={`p-3 rounded-xl border ${
-            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <div className={`p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Fixed Asset Opening</span>
             <span className="text-sm font-mono font-bold text-indigo-500">NPR 8,240,000</span>
-            <span className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block mt-0.5`}>✓ WDV Carried Forward</span>
+            <span className={`text-[10px] text-indigo-600 dark:text-indigo-400 block mt-0.5`}>✓ WDV Carried Forward</span>
           </div>
 
-          <div className={`p-3 rounded-xl border ${
-            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <div className={`p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <span className="text-[11px] text-slate-400 font-bold block uppercase">Accounts Payable Opening</span>
             <span className="text-sm font-mono font-bold text-amber-500">NPR 3,120,000</span>
-            <span className={`text-[10px] ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} block mt-0.5`}>✓ Vendor Ledgers Synced</span>
+            <span className={`text-[10px] text-amber-600 dark:text-amber-400 block mt-0.5`}>✓ Vendor Ledgers Synced</span>
           </div>
         </div>
       </div>
@@ -701,9 +610,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       {/* EDIT DOCUMENT NUMBERING SETUP MODAL */}
       {editingDocConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <Hash className="h-5 w-5 text-indigo-500" />
@@ -810,7 +717,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                       resetEveryFiscalYear: e.target.checked,
                     })
                   }
-                  className={`rounded ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} h-4 w-4`}
+                  className={`rounded text-indigo-600 dark:text-indigo-400 h-4 w-4`}
                 />
                 <span>Reset sequence counter to 1 when a new Fiscal Year begins</span>
               </label>
@@ -831,7 +738,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
               {/* Sample Output Live Preview Box */}
               <div className="p-3.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800">
                 <span className="text-[10px] text-slate-400 uppercase font-bold block">Live Formatted Preview</span>
-                <span className={`text-base font-mono font-bold ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
+                <span className={`text-base font-mono font-bold text-indigo-600 dark:text-indigo-300`}>
                   {formatDocumentNumber(editingDocConfig)}
                 </span>
               </div>
@@ -859,9 +766,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
       {/* CREATE NEW FISCAL YEAR MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-5 w-5 text-indigo-500" />
@@ -959,9 +864,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
 
       {editingFiscalYear && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl space-y-4 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <Edit3 className="h-5 w-5 text-indigo-500" />

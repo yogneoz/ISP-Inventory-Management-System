@@ -62,6 +62,7 @@ import {
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
 import { BarcodeScannerModal } from '../../components/common/BarcodeScannerModal';
 import { ProductSearchBar } from './ProductSearchBar';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface StockOperationsProps {
   operations: StockOperation[];
@@ -71,9 +72,7 @@ interface StockOperationsProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   initialType?: string;
-  autoOpenModal?: boolean;
-  isDarkMode?: boolean;
-  currentUser?: User | null;
+  autoOpenModal?: boolean;  currentUser?: User | null;
   shipments?: Shipment[];
   assets?: Asset[];
   locations?: LocationRecord[];
@@ -125,9 +124,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   selectedBranchId,
   dateMode,
   initialType = 'PULLOUT',
-  autoOpenModal = false,
-  isDarkMode = false,
-  currentUser = null,
+  autoOpenModal = false,  currentUser = null,
   shipments = [],
   assets = [],
   locations = [],
@@ -143,6 +140,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onCancelApproval,
   onUpdateAssetStatus,
 }) => {
+  const { isDarkMode } = useDarkMode();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -1784,7 +1782,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {bsDateStatus === 'missing' && (
         <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-900 dark:text-red-200 flex flex-col sm:flex-row sm:items-center justify-start gap-3">
           <div className="flex items-start gap-3">
-            <ShieldAlert className={`h-6 w-6 ${isDarkMode ? 'text-red-400' : 'text-red-500'} flex-shrink-0 mt-0.5`} />
+            <ShieldAlert className={`h-6 w-6 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5`} />
             <div>
               <p className="text-sm font-bold">
                 BS date is not available. Please contact your system administrator for BS month seeding.
@@ -1810,10 +1808,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <AlertOctagon className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
+            <AlertOctagon className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
             <span>Stock Operations & Logistics Center</span>
           </h2>
           <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
@@ -1827,9 +1823,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       </div>
 
       {/* Navigation Sub-Tabs */}
-      {!isStandalonePage && <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto ${
-        isDarkMode ? 'border-slate-800' : 'border-slate-200'
-      }`}>
+      {!isStandalonePage && <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto border-slate-200 dark:border-slate-800`}>
         {initialType !== 'PULLOUT' && initialType !== 'DAMAGE' && initialType !== 'PULLOUT_REPORT' && initialType !== 'DAMAGE_REPORT' && (() => {
           const canPullout = isOperationAllowed('branch-pullout-dispatch', currentUser?.role);
           return (
@@ -1848,9 +1842,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'PULLOUT_BINS'
                   ? 'bg-indigo-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canPullout ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Truck className="h-4 w-4" />}
@@ -1877,9 +1869,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'DAMAGE_TRACKING'
                   ? 'bg-rose-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canDamage ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <AlertTriangle className="h-4 w-4" />}
@@ -1906,9 +1896,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'RECEIVE_TRANSFER'
                   ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canReceive ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Inbox className="h-4 w-4" />}
@@ -1935,9 +1923,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'CREATE_TRANSFER'
                   ? 'bg-sky-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canCreateXfer ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Send className="h-4 w-4" />}
@@ -1964,9 +1950,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'ASSIGN_ASSET'
                   ? 'bg-emerald-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canAssignAsset ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Wrench className="h-4 w-4" />}
@@ -1980,13 +1964,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <button
               title="Issue Consumables (Splitters, Protection Sleeves, Couplers, Fast Connectors) to Field Technicians"
               onClick={() => setActiveTab('CONSUMABLE_ISSUE')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
-                activeTab === 'CONSUMABLE_ISSUE'
-                  ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
-              }`}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap 'activeTab === 'CONSUMABLE_ISSUE ? bg-amber-600 text-white shadow-sm cursor-pointer : text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer`}
             >
               <Wrench className="h-4 w-4 text-amber-300" />
               <span>Issue Consumables ({consumableOperations.length})</span>
@@ -2012,9 +1990,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'PRODUCT_SALE'
                   ? 'bg-purple-600 text-white shadow-sm cursor-pointer'
-                  : isDarkMode
-                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
@@ -2026,13 +2002,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         <button
           onClick={() => setActiveTab('DEVICE_EXCHANGE')}
           title="Exchange customer ONU/STB device, enter replacement serials, and return old unit to stock"
-          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'DEVICE_EXCHANGE'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'activeTab === 'DEVICE_EXCHANGE ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
         >
           <RefreshCw className="h-4 w-4 text-indigo-300" />
           <span>Device Exchange ({exchangeCustomerDevices.length})</span>
@@ -2040,13 +2010,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
         <button
           onClick={() => setActiveTab('LOGS')}
-          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'LOGS'
-              ? 'bg-slate-700 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'activeTab === 'LOGS ? bg-slate-700 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
         >
           <Package className="h-4 w-4" />
           <span>Logs ({operations.length})</span>
@@ -2058,12 +2022,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PULLOUT_BINS' && (
         <div className="space-y-3">
-          <div className={`p-4 rounded-2xl border ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Truck className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Truck className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                 <span>Overstock & Damaged Stock Warehouse Pullout Dispatches</span>
               </h3>
               <span className="text-xs text-slate-400 font-mono">
@@ -2075,16 +2037,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               {filteredOperations.map((op) => (
                 <div
                   key={op.id}
-                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
-                    isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                  }`}
+                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                 >
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className={`font-mono text-xs font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                      <span className={`font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400`}>
                         {op.referenceNumber}
                       </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} border border-amber-500/30`}>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
                         {op.status || 'DISPATCHED'}
                       </span>
                     </div>
@@ -2106,7 +2066,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
                     <div className="flex items-center gap-2">
-                      <span className={`font-bold font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                      <span className={`font-bold font-mono text-indigo-600 dark:text-indigo-400`}>
                         रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
                       </span>
                       {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
@@ -2137,7 +2097,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         <div className="space-y-3">
           {!isSuperOrInventory && (
             <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-center gap-2.5 text-xs font-medium">
-              <ShieldAlert className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+              <ShieldAlert className={`h-5 w-5 flex-shrink-0 text-amber-500 dark:text-amber-400`} />
               <span>
                 <strong>Branch Role Restriction Active:</strong> As a branch user, you can label damaged stock exclusively for your assigned branch stock. Super Admins and Inventory Controllers can manage damage across all branches.
               </span>
@@ -2146,41 +2106,37 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
               <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Log Records</div>
-              <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+              <div className={`text-xl font-bold font-mono text-rose-600 dark:text-rose-400`}>
                 {filteredOperations.length} Records
               </div>
             </div>
-            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
               <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Stock Units</div>
-              <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              <div className={`text-xl font-bold font-mono text-amber-600 dark:text-amber-400`}>
                 {filteredOperations.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
               </div>
             </div>
-            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
               <div className="text-xs font-semibold text-slate-500 mb-1">Total Estimated Loss Valuation</div>
-              <div className={`text-xl font-bold font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+              <div className={`text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400`}>
                 रु {filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0).toLocaleString('en-IN')}
               </div>
             </div>
           </div>
 
-          <div className={`p-4 rounded-2xl border ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <AlertTriangle className={`h-4 w-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <AlertTriangle className={`h-4 w-4 text-rose-500 dark:text-rose-400`} />
                 <span>Locally Tagged Damaged Stock Logs</span>
               </h3>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                  isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                }`}>
+                <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
                   <tr>
                     <th className="px-2.5 py-1.5">Reference #</th>
                     <th className="px-2.5 py-1.5">Op Type</th>
@@ -2192,28 +2148,28 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <th className="px-2.5 py-1.5">Inspector / Officer</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                   {filteredOperations.map((op) => (
-                    <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                      <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>{op.referenceNumber}</td>
+                    <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{op.referenceNumber}</td>
                       <td className="p-2.5">
                         {op.type === 'DISPOSAL' ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-rose-600 text-white shadow-xs">
                             🔥 DISPOSAL
                           </span>
                         ) : (
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/10 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} border border-amber-500/30`}>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
                             ⚠️ DAMAGED
                           </span>
                         )}
                       </td>
                       <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{op.branchId}</td>
                       <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
-                      <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>{Math.abs(op.quantityChanged || 1)} Pcs</td>
+                      <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{Math.abs(op.quantityChanged || 1)} Pcs</td>
                       <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
                         <div>रु {(op.totalValue ?? 0).toLocaleString('en-IN')}</div>
                         {op.netWriteOffLoss !== undefined && (
-                          <div className={`text-[10px] font-normal ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+                          <div className={`text-[10px] font-normal text-rose-500 dark:text-rose-400`}>
                             Net Loss: रु {(op.netWriteOffLoss ?? 0).toLocaleString('en-IN')}
                           </div>
                         )}
@@ -2234,12 +2190,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'RECEIVE_TRANSFER' && (
         <div className="space-y-3">
-          <div className={`p-4 rounded-2xl border ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Inbox className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Inbox className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                 <span>Inter-Branch Transfer Dispatches & Incoming Stock</span>
               </h3>
             </div>
@@ -2283,26 +2237,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('ALL')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                          transferStatusFilter === 'ALL'
-                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                            : isDarkMode
-                            ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 'transferStatusFilter === 'ALL ? bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700`}
                       >
                         All Transfers ({totalCount})
                       </button>
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('IN_TRANSIT')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                          transferStatusFilter === 'IN_TRANSIT'
-                            ? 'bg-sky-600 text-white shadow-xs'
-                            : isDarkMode
-                            ? 'bg-slate-800/80 text-sky-400 hover:bg-slate-700'
-                            : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
-                        }`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'IN_TRANSIT ? bg-sky-600 text-white shadow-xs : bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800/80 dark:text-sky-400 dark:hover:bg-slate-700`}
                       >
                         <Clock className="h-3 w-3" />
                         <span>In Transit ({inTransitCount})</span>
@@ -2310,13 +2252,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('CANCEL_PENDING')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                          transferStatusFilter === 'CANCEL_PENDING'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : isDarkMode
-                            ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-                        }`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'CANCEL_PENDING ? bg-amber-600 text-white shadow-xs : bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800/80 dark:text-amber-400 dark:hover:bg-slate-700`}
                       >
                         <RotateCcw className="h-3 w-3" />
                         <span>Cancel Pending ({cancelPendingCount})</span>
@@ -2324,13 +2260,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('RECEIVED')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                          transferStatusFilter === 'RECEIVED'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : isDarkMode
-                            ? 'bg-slate-800/80 text-emerald-400 hover:bg-slate-700'
-                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                        }`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800/80 dark:text-emerald-400 dark:hover:bg-slate-700`}
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         <span>Stock Received ({receivedCount})</span>
@@ -2338,13 +2268,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('CANCELLED')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                          transferStatusFilter === 'CANCELLED'
-                            ? 'bg-rose-600 text-white shadow-xs'
-                            : isDarkMode
-                            ? 'bg-slate-800/80 text-rose-400 hover:bg-slate-700'
-                            : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
-                        }`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'CANCELLED ? bg-rose-600 text-white shadow-xs : bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 dark:bg-slate-800/80 dark:text-rose-400 dark:hover:bg-slate-700`}
                       >
                         <XCircle className="h-3 w-3" />
                         <span>Cancelled ({cancelledCount})</span>
@@ -2359,9 +2283,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={branchFilter}
                   onChange={(e) => setBranchFilter(e.target.value)}
-                  className={`rounded-xl border px-3 py-1 text-xs font-medium focus:outline-none ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`rounded-xl border px-3 py-1 text-xs font-medium focus:outline-none bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {canSeeAll ? (
                     <option value="ALL">All Branches</option>
@@ -2376,11 +2298,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
 
             {/* HIGH DENSITY EXPANDABLE TABLE LAYOUT */}
-            <div className={`overflow-x-auto rounded-2xl border shadow-xs ${isDarkMode ? 'border-slate-800 bg-[#0f1218] text-slate-200' : 'border-slate-200 bg-white text-slate-900'}`}>
+            <div className={`overflow-x-auto rounded-2xl border shadow-xs border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-200`}>
               <table className="w-full text-left border-collapse text-xs">
-                <thead className={`text-[11px] font-bold tracking-wider border-b ${
-                  isDarkMode ? 'bg-slate-900/90 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}>
+                <thead className={`text-[11px] font-bold tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900/90 dark:text-slate-400 dark:border-slate-800`}>
                   <tr>
                     <th className="px-2.5 py-1.5 w-10 text-center">#</th>
                     <th className="px-2.5 py-1.5">Transfer Code</th>
@@ -2392,7 +2312,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <th className="px-2.5 py-1.5 text-right">Action Controls</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200/80'}`}>
+                <tbody className={`divide-y divide-slate-200/80 dark:divide-slate-800/80`}>
                   {(() => {
                     const userBranchId = currentUser?.branchId;
                     const userBranchIds = allowedBranches.map((b) => b.id);
@@ -2488,23 +2408,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                       return (
                         <React.Fragment key={sh.id}>
-                          <tr className={`transition-colors ${
-                            isExpanded
-                              ? isDarkMode ? 'bg-indigo-950/20' : 'bg-indigo-50/60'
-                              : isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                          }`}>
+                          <tr className={`transition-colors isExpanded ? bg-indigo-50/60 dark:bg-indigo-950/20 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
                             {/* 1. Toggle button */}
                             <td className="p-2.5 text-center">
                               <button
                                 type="button"
                                 onClick={() => setExpandedShipmentId(isExpanded ? null : sh.id)}
-                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                  isExpanded
-                                    ? 'bg-indigo-600 text-white border-indigo-600'
-                                    : isDarkMode
-                                    ? 'bg-slate-800 text-slate-400 hover:text-white border-slate-700'
-                                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300'
-                                }`}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer isExpanded ? bg-indigo-600 text-white border-indigo-600 : bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-slate-700`}
                                 title={isExpanded ? "Collapse item details" : "Expand itemized stock breakdown"}
                               >
                                 {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -2513,15 +2423,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                             {/* 2. Transfer Code */}
                             <td className="p-2.5">
-                              <div className={`font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} flex items-center gap-1.5`}>
+                              <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5`}>
                                 <span>{sh.trackingCode}</span>
                                 {isSenderBranch && (
-                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} border border-amber-500/30`}>
+                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
                                     OUTBOUND
                                   </span>
                                 )}
                                 {isRecipientBranch && (
-                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/10 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'} border border-sky-500/30`}>
+                                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30`}>
                                     INBOUND
                                   </span>
                                 )}
@@ -2547,7 +2457,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                             {/* 5. Items & Qty */}
                             <td className="p-2.5 text-center whitespace-nowrap">
-                              <span className={`font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-600'} font-mono`}>
+                              <span className={`font-bold text-sky-600 dark:text-sky-400 font-mono`}>
                                 {sh.items?.length || 0} SKUs ({totalQty} Pcs)
                               </span>
                             </td>
@@ -2598,7 +2508,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               ) : isCancelled ? (
                                 <span className="text-[11px] text-slate-400 italic">Restocked to Source</span>
                               ) : isReceived ? (
-                                <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Completed</span>
+                                <span className={`text-[11px] font-semibold text-emerald-600 dark:text-emerald-400`}>Completed</span>
                               ) : (
                                 <div className="flex items-center justify-end gap-2">
                                   {canShowReceiveBtn && onReceiveShipment && (
@@ -2652,11 +2562,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                           {isExpanded && (
                             <tr>
                               <td colSpan={8} className="p-0 border-b border-indigo-500/20">
-                                <div className={`p-4 space-y-3 ${
-                                  isDarkMode ? 'bg-slate-900/90 border-t border-slate-800' : 'bg-slate-50/90 border-t border-slate-200'
-                                }`}>
+                                <div className={`p-4 space-y-3 bg-slate-50/90 border-t border-slate-200 dark:bg-slate-900/90 dark:border-t dark:border-slate-800`}>
                                   {/* Metadata Header Bar */}
-                                  <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl border text-xs ${isDarkMode ? 'bg-slate-800/80 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'}`}>
+                                  <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl border text-xs bg-white border-slate-200 text-slate-800 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-200`}>
                                     <div>
                                       <span className="text-slate-400 font-medium block text-[10px] uppercase">Dispatcher Officer</span>
                                       <span className="font-bold text-slate-800 dark:text-slate-200">Branch Stock Officer</span>
@@ -2672,11 +2580,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                   </div>
 
                                   {/* Itemized Table */}
-                                  <div className={`overflow-hidden rounded-xl border text-xs ${isDarkMode ? 'border-slate-800 bg-slate-800 text-slate-200' : 'border-slate-200 bg-white text-slate-800'}`}>
+                                  <div className={`overflow-hidden rounded-xl border text-xs border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200`}>
                                     <table className="w-full text-left border-collapse">
-                                      <thead className={`text-[10px] font-bold tracking-wider border-b ${
-                                        isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
-                                      }`}>
+                                      <thead className={`text-[10px] font-bold tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-800`}>
                                         <tr>
                                           <th className="px-2.5 py-1.5">Product & SKU</th>
                                           <th className="px-2.5 py-1.5 text-center">Qty Sent</th>
@@ -2685,7 +2591,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                           <th className="px-2.5 py-1.5">Device Serials & MAC Tracking</th>
                                         </tr>
                                       </thead>
-                                      <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                                      <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                                         {sh.items?.map((item, idx) => {
                                           const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
                                           const qty = item.quantitySent || 1;
@@ -2702,7 +2608,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                                 <div className="font-bold text-slate-900 dark:text-white">{item.productName}</div>
                                                 <div className="text-[10px] font-mono text-slate-400">SKU: {item.sku || prod?.sku || 'N/A'}</div>
                                               </td>
-                                              <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>
+                                              <td className={`p-2.5 text-center font-mono font-bold text-sky-600 dark:text-sky-400`}>
                                                 {qty} {prod?.unit || 'pcs'}
                                               </td>
                                               <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
@@ -2714,14 +2620,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                               <td className="p-2.5">
                                                 {isSerialized ? (
                                                   <div className="space-y-1">
-                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400`}>
                                                       <Tag className="h-3 w-3" />
                                                       <span>Serial Tracked ({item.deviceSerials?.length || qty} Units)</span>
                                                     </div>
                                                     {item.deviceSerials && item.deviceSerials.length > 0 ? (
                                                       <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
                                                         {item.deviceSerials.map((ser, sIdx) => (
-                                                          <div key={sIdx} className={`p-1.5 rounded-lg border font-mono text-[10px] space-y-0.5 ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                                          <div key={sIdx} className={`p-1.5 rounded-lg border font-mono text-[10px] space-y-0.5 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700`}>
                                                             <div className="text-slate-800 dark:text-slate-200 font-bold flex items-center justify-between">
                                                               <span>SN: {ser.deviceSerial}</span>
                                                               <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
@@ -2766,9 +2672,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 4: CREATE TRANSFER (Multi-Item Inter-Branch Dispatch) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-        }`}>
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
               <Send className="h-5 w-5 text-sky-500" />
@@ -2786,9 +2690,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={xferSourceBranchId}
                   onChange={(e) => setXferSourceBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -2801,9 +2703,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={xferDestBranchId}
                   onChange={(e) => setXferDestBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {branches
                     .filter((b) =>
@@ -2834,7 +2734,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   inputId="transfer-product-search-input"
                   stock={stock}
                   selectedBranchId={xferSourceBranchId}
-                  isDarkMode={isDarkMode}
                 />
               </div>
 
@@ -2857,7 +2756,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddTransferItem()}
-                    className={`mt-2 ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-500 hover:text-sky-600'} font-bold text-xs cursor-pointer`}
+                    className={`mt-2 text-sky-500 hover:text-sky-600 dark:text-sky-400 dark:hover:text-sky-300 font-bold text-xs cursor-pointer`}
                   >
                     + Click here to add products to transfer
                   </button>
@@ -2865,9 +2764,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}>
+                    <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                       <tr>
                         <th className="px-2.5 py-1.5">Product SKU & Name</th>
                         <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
@@ -2876,14 +2773,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                       {transferItems.map((item, idx) => {
                         const prod = products.find((p) => p.id === item.productId);
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === xferSourceBranchId);
                         const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
-                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                             <td className="p-2.5">
                               <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                                 <Package className="h-4 w-4 text-sky-500 shrink-0" />
@@ -2907,16 +2804,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 required
                                 value={item.quantitySent}
                                 onChange={(e) => handleUpdateTransferItem(item.id, { quantitySent: Number(e.target.value) })}
-                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
                             <td className="p-2.5">
                               {isSerialized ? (
                                 <div className="space-y-1.5">
-                                  <span className={`text-[10px] ${isDarkMode ? 'text-sky-400' : 'text-sky-600'} font-bold block`}>
+                                  <span className={`text-[10px] text-sky-600 dark:text-sky-400 font-bold block`}>
                                     ✓ Scan Serials for {item.productName} ({item.quantitySent} Unit{item.quantitySent > 1 ? 's' : ''})
                                   </span>
                                   {Array.from({ length: item.quantitySent }).map((_, sIdx) => (
@@ -2938,7 +2833,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                             }
                                           }
                                         }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 ${isDarkMode ? 'text-sky-200 bg-slate-800 border-sky-700' : 'text-sky-900 bg-white border-sky-300'} `}
+                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 text-sky-900 bg-white border-sky-300 dark:text-sky-200 dark:bg-slate-800 dark:border-sky-700 `}
                                       />
                                       <input
                                         id={`transfer-serial-pon-${idx}-${sIdx}`}
@@ -2964,7 +2859,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                             }
                                           }
                                         }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'text-indigo-200 bg-slate-800 border-indigo-700' : 'text-indigo-900 bg-white border-indigo-300'}`}
+                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-white border-indigo-300 dark:text-indigo-200 dark:bg-slate-800 dark:border-indigo-700`}
                                       />
                                     </div>
                                   ))}
@@ -2978,7 +2873,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveTransferItem(item.id)}
-                                className={`${isDarkMode ? 'text-rose-400 hover:text-rose-300' : 'text-rose-500 hover:text-rose-700'} cursor-pointer p-1`}
+                                className={`text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -2998,9 +2893,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 rows={2}
                 value={xferNotes}
                 onChange={(e) => setXferNotes(e.target.value)}
-                className={`w-full rounded-xl border p-2.5 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
+                className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
               />
             </div>
 
@@ -3041,14 +2934,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           </div>
 
           {/* Section A: Catalog Routers, ONUs & Fixed Asset Products (Deploy from Available Inventory) */}
-          <div className={`p-4 rounded-2xl border ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
+          <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${
-                isDarkMode ? 'text-white' : 'text-slate-900'
-              }`}>
-                <Wifi className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Wifi className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                 <span>Product Catalog: Routers, ONUs & Fixed Assets for Rental CPE Deployment ({catalogFixedAssetProducts.length})</span>
               </h3>
               <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
@@ -3071,9 +2960,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   return (
                     <div
                       key={prod.id}
-                      className={`p-3.5 rounded-2xl border flex flex-col justify-between transition-all hover:border-indigo-500/50 ${
-                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className={`p-3.5 rounded-2xl border flex flex-col justify-between transition-all hover:border-indigo-500/50 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                     >
                       <div>
                         <div className="flex items-center justify-between">
@@ -3093,7 +2980,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       </div>
 
                       <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <span className={`text-[10px] font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-mono`}>
+                        <span className={`text-[10px] font-bold text-emerald-600 dark:text-emerald-400 font-mono`}>
                           Stock: {totalOnHand} Pcs
                         </span>
                         <button
@@ -3113,17 +3000,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Available Fixed Assets in Stock */}
-            <div className={`p-4 rounded-2xl border ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-            }`}>
-              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between ${
-                isDarkMode ? 'text-white' : 'text-slate-900'
-              }`}>
+            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between text-slate-900 dark:text-white`}>
                 <span className="flex items-center gap-2">
-                  <Package className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                  <Package className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
                   <span>Available Fixed Assets in Stock ({availableStockAssets.length})</span>
                 </span>
-                <span className={`text-[10px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-mono font-bold`}>Unassigned</span>
+                <span className={`text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-bold`}>Unassigned</span>
               </h3>
 
               <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
@@ -3133,12 +3016,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   availableStockAssets.map((asset) => (
                     <div
                       key={asset.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
-                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                     >
                       <div>
-                        <span className={`text-[10px] font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block`}>
+                        <span className={`text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block`}>
                           Tag: {asset.tagNumber}
                         </span>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
@@ -3161,17 +3042,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
 
             {/* Assigned Fixed Assets Register */}
-            <div className={`p-4 rounded-2xl border ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-            }`}>
-              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between ${
-                isDarkMode ? 'text-white' : 'text-slate-900'
-              }`}>
+            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between text-slate-900 dark:text-white`}>
                 <span className="flex items-center gap-2">
-                  <MapPin className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                  <MapPin className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                   <span>Assigned & Deployed Fixed Assets ({assignedAssets.length})</span>
                 </span>
-                <span className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-mono font-bold`}>In-Use / Installed</span>
+                <span className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold`}>In-Use / Installed</span>
               </h3>
 
               <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
@@ -3181,25 +3058,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   assignedAssets.map((asset) => (
                     <div
                       key={asset.id}
-                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-2 ${
-                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-2 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <span className={`text-[10px] font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} block`}>
+                          <span className={`text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block`}>
                             Tag: {asset.tagNumber}
                           </span>
                           <h4 className="font-bold text-xs text-slate-900 dark:text-white">{asset.name}</h4>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/10 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} border border-purple-500/30`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30`}>
                           {asset.assignedType === 'LOCATION' ? 'POP / Node Site' : 'Customer Site'}
                         </span>
                       </div>
 
                       <div className="p-2 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-slate-200/60 text-xs space-y-0.5">
                         <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                          <MapPin className={`h-3 w-3 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                          <MapPin className={`h-3 w-3 text-indigo-500 dark:text-indigo-400`} />
                           <span>
                             {asset.assignedType === 'LOCATION'
                               ? asset.assignedLocationName || asset.assignedLocationId
@@ -3215,7 +3090,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <span className="text-slate-400 font-mono">Assigned: {asset.assignmentDateAD || '2026-08-01'}</span>
                         <button
                           onClick={() => handleUnassignAsset(asset)}
-                          className={`${isDarkMode ? 'text-rose-400' : 'text-rose-600'} dark:text-rose-400 hover:underline font-bold cursor-pointer`}
+                          className={`text-rose-600 dark:text-rose-400 dark:text-rose-400 hover:underline font-bold cursor-pointer`}
                         >
                           Unassign / Return to Stock
                         </button>
@@ -3233,12 +3108,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-        }`}>
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
-              <Wrench className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+              <Wrench className={`h-5 w-5 text-amber-500 dark:text-amber-400`} />
               <span>Issue Consumable Items (Splitter, Sleeve, Coupler, Fast Connector)</span>
             </h3>
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
@@ -3257,9 +3130,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={consumableBranchId}
                   onChange={(e) => setConsumableBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -3275,9 +3146,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   value={consumableTechnician}
                   onChange={(e) => setConsumableTechnician(e.target.value)}
                   placeholder="e.g. Ram Bahadur (Splicing Tech)"
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -3289,9 +3158,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   value={consumableWorkOrder}
                   onChange={(e) => setConsumableWorkOrder(e.target.value)}
                   placeholder="e.g. WO-2081-SPLIT-04"
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
             </div>
@@ -3304,7 +3171,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   products={products}
                   onAddOrIncrementProduct={(prod) => handleAddConsumableItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Consumable Product / SKU to Issue..."
-                  isDarkMode={isDarkMode}
                 />
               </div>
 
@@ -3327,7 +3193,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddConsumableItem()}
-                    className={`mt-2 ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-500 hover:text-amber-600'} font-bold text-xs cursor-pointer`}
+                    className={`mt-2 text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 font-bold text-xs cursor-pointer`}
                   >
                     + Click here to add consumable products to issue
                   </button>
@@ -3335,9 +3201,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}>
+                    <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                       <tr>
                         <th className="px-2.5 py-1.5">Consumable Material</th>
                         <th className="px-2.5 py-1.5 text-center">Store Stock</th>
@@ -3347,19 +3211,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                       {consumableItems.map((item) => {
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === consumableBranchId);
 
                         return (
-                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                             <td className="p-2.5">
                               <select
                                 value={item.productId}
                                 onChange={(e) => handleUpdateConsumableItem(item.id, { productId: e.target.value })}
-                                className={`w-full rounded-lg border p-1.5 font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-full rounded-lg border p-1.5 font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               >
                                 {products.map((p) => (
                                   <option key={p.id} value={p.id}>
@@ -3380,9 +3242,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 required
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateConsumableItem(item.id, { quantity: Number(e.target.value) })}
-                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
@@ -3398,7 +3258,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveConsumableItem(item.id)}
-                                className={`${isDarkMode ? 'text-rose-400 hover:text-rose-300' : 'text-rose-500 hover:text-rose-700'} cursor-pointer p-1`}
+                                className={`text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -3419,9 +3279,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 value={consumableReason}
                 onChange={(e) => setConsumableReason(e.target.value)}
                 placeholder="Reason or site location for material issue..."
-                className={`w-full rounded-xl border p-2.5 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
+                className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
               />
             </div>
 
@@ -3448,7 +3306,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           {/* Table of Issued Consumables */}
           <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800">
             <h4 className="text-sm font-bold flex items-center gap-2 mb-3">
-              <ClipboardList className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+              <ClipboardList className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
               <span>Logged Consumable Field Issues ({consumableOperations.length})</span>
             </h4>
 
@@ -3457,9 +3315,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full text-left text-xs">
-                  <thead className={`font-bold text-[10px] tracking-wider border-b ${
-                    isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                  }`}>
+                  <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                     <tr>
                       <th className="px-2.5 py-1.5">Date</th>
                       <th className="px-2.5 py-1.5">Ref / WO</th>
@@ -3470,14 +3326,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <th className="px-2.5 py-1.5 text-right">Value (NPR)</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                  <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                     {consumableOperations.map((op) => (
-                      <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                         <td className="p-2.5 font-mono text-slate-400 text-[11px]">{op.dateAD}</td>
-                        <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{op.workOrderRef || op.referenceNumber}</td>
+                        <td className={`p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400`}>{op.workOrderRef || op.referenceNumber}</td>
                         <td className="p-2.5 font-medium">{op.branchName || op.branchId}</td>
                         <td className="p-2.5 font-bold text-slate-900 dark:text-white">{op.productName || (op.items && op.items[0]?.productName) || 'Multiple Line Items'}</td>
-                        <td className={`p-2.5 text-center font-mono font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                        <td className={`p-2.5 text-center font-mono font-bold text-rose-600 dark:text-rose-400`}>
                           {Math.abs(op.quantityChanged || (op.items ? op.items.reduce((s,i)=>s+i.quantity,0) : 1))} Pcs
                         </td>
                         <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
@@ -3498,9 +3354,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 7: PRODUCT SALE TO CUSTOMER (Multi-Item Sales Invoice) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-        }`}>
+        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
               <PackageMinus className="h-5 w-5 text-purple-500" />
@@ -3522,9 +3376,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={saleCustomerId}
                   onChange={(e) => setSaleCustomerId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -3539,9 +3391,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={saleBranchId}
                   onChange={(e) => setSaleBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -3554,9 +3404,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={salePaymentMethod}
                   onChange={(e) => setSalePaymentMethod(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   <option value="Cash / Direct Payment">Cash / Direct Payment</option>
                   <option value="eSewa / Khalti Digital Mobile Wallet">eSewa / Khalti Digital Mobile Wallet</option>
@@ -3575,7 +3423,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   onAddOrIncrementProduct={(prod) => handleAddSaleItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Sales Invoice..."
                   inputId="sale-product-search-input"
-                  isDarkMode={isDarkMode}
                 />
               </div>
 
@@ -3598,7 +3445,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddSaleItem()}
-                    className={`mt-2 ${isDarkMode ? 'text-purple-400 hover:text-purple-300' : 'text-purple-500 hover:text-purple-600'} font-bold text-xs cursor-pointer`}
+                    className={`mt-2 text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 font-bold text-xs cursor-pointer`}
                   >
                     + Click here to add products to sale invoice
                   </button>
@@ -3606,9 +3453,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-left text-xs">
-                    <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}>
+                    <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
                       <tr>
                         <th className="px-2.5 py-1.5">Product Name</th>
                         <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
@@ -3619,21 +3464,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                       {saleItems.map((item, idx) => {
                         const prod = products.find((p) => p.id === item.productId);
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === saleBranchId);
                         const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
-                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                             <td className="p-2.5 min-w-[240px]">
                               <select
                                 value={item.productId}
                                 onChange={(e) => handleUpdateSaleItem(item.id, { productId: e.target.value })}
-                                className={`w-full rounded-lg border p-1.5 font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-full rounded-lg border p-1.5 font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               >
                                 {products.map((p) => (
                                   <option key={p.id} value={p.id}>
@@ -3666,7 +3509,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                             }
                                           }
                                         }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-purple-500 ${isDarkMode ? 'text-purple-200 bg-slate-800 border-purple-700' : 'text-purple-900 bg-white border-purple-300'}`}
+                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-purple-500 text-purple-900 bg-white border-purple-300 dark:text-purple-200 dark:bg-slate-800 dark:border-purple-700`}
                                       />
                                       <input
                                         id={`sale-serial-pon-${idx}-${sIdx}`}
@@ -3692,7 +3535,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                             }
                                           }
                                         }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'text-indigo-200 bg-slate-800 border-indigo-700' : 'text-indigo-900 bg-white border-indigo-300'}`}
+                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-white border-indigo-300 dark:text-indigo-200 dark:bg-slate-800 dark:border-indigo-700`}
                                       />
                                     </div>
                                   ))}
@@ -3711,9 +3554,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 required
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateSaleItem(item.id, { quantity: Number(e.target.value) })}
-                                className={`w-16 rounded-lg border p-1 text-center font-mono font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-16 rounded-lg border p-1 text-center font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
@@ -3724,9 +3565,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 required
                                 value={item.sellingPrice}
                                 onChange={(e) => handleUpdateSaleItem(item.id, { sellingPrice: Number(e.target.value) })}
-                                className={`w-24 rounded-lg border p-1 text-right font-mono font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-24 rounded-lg border p-1 text-right font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
@@ -3736,9 +3575,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={0}
                                 value={item.discount}
                                 onChange={(e) => handleUpdateSaleItem(item.id, { discount: Number(e.target.value) })}
-                                className={`w-20 rounded-lg border p-1 text-right font-mono ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
+                                className={`w-20 rounded-lg border p-1 text-right font-mono text-amber-600 dark:text-amber-400 bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
@@ -3750,7 +3587,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveSaleItem(item.id)}
-                                className={`${isDarkMode ? 'text-rose-400 hover:text-rose-300' : 'text-rose-500 hover:text-rose-700'} cursor-pointer p-1`}
+                                className={`text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -3775,7 +3612,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Total Discounts Applied</span>
-                  <span className={`font-mono font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                  <span className={`font-mono font-bold text-amber-600 dark:text-amber-400`}>
                     रु {(saleItems.reduce((s, i) => s + (i.discount || 0), 0) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -3794,9 +3631,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 rows={2}
                 value={saleNotes}
                 onChange={(e) => setSaleNotes(e.target.value)}
-                className={`w-full rounded-xl border p-2.5 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
+                className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
               />
             </div>
 
@@ -3826,9 +3661,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 8: DEVICE EXCHANGE / REPLACEMENT SWAP */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'DEVICE_EXCHANGE' && (
-        <div className={`p-4 rounded-2xl border max-w-5xl mx-auto shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-        }`}>
+        <div className={`p-4 rounded-2xl border max-w-5xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-2xl bg-indigo-600 text-white">
@@ -3850,17 +3683,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
           <form onSubmit={handlePerformExchange} className="space-y-5 text-xs">
             {/* Step 1: Select Installed Customer Device */}
-            <div className={`p-4 rounded-2xl border space-y-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`p-4 rounded-2xl border space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
               <div className="flex items-center justify-between">
-                <h4 className={`font-bold text-xs flex items-center gap-2 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                  <Search className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <h4 className={`font-bold text-xs flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
+                  <Search className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                   <span>Step 1: Select Installed Customer Device (Search Master Directory / Installed Stock) *</span>
                 </h4>
                 {selectedDeviceForExchange && (
                   <button
                     type="button"
                     onClick={() => setSelectedDeviceForExchange(null)}
-                    className={`text-[11px] ${isDarkMode ? 'text-rose-400' : 'text-rose-500'} hover:underline font-bold cursor-pointer`}
+                    className={`text-[11px] text-rose-500 dark:text-rose-400 hover:underline font-bold cursor-pointer`}
                   >
                     Clear Selection
                   </button>
@@ -3880,7 +3713,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       placeholder="Search customer name, customer ID code, rental serial number (SN), or PON serial..."
                       value={exchangeSearchQuery}
                       onChange={(e) => setExchangeSearchQuery(e.target.value)}
-                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold ${isDarkMode ? 'border-slate-700 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-900'}`}
+                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white`}
                     />
                   </div>
 
@@ -3905,7 +3738,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                           <div>
                             <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-2">
                               <span>{dev.customerName}</span>
-                              <span className={`font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[11px]`}>({dev.customerCode})</span>
+                              <span className={`font-mono text-indigo-600 dark:text-indigo-400 text-[11px]`}>({dev.customerCode})</span>
                             </div>
                             <div className="text-[11px] text-slate-500 mt-0.5">
                               Model: <strong>{dev.productName}</strong> | SN: <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{dev.deviceSerial}</span> | PON: <span className="font-mono text-slate-600 dark:text-slate-400">{dev.ponSerial}</span>
@@ -3941,10 +3774,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <strong>Address:</strong> {selectedDeviceForExchange.installationAddress || 'N/A'}
                     </div>
                     <div>
-                      <strong>Old Device Serial (SN):</strong> <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>{selectedDeviceForExchange.deviceSerial}</span>
+                      <strong>Old Device Serial (SN):</strong> <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-300`}>{selectedDeviceForExchange.deviceSerial}</span>
                     </div>
                     <div>
-                      <strong>Old PON Serial:</strong> <span className={`font-mono font-bold ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>{selectedDeviceForExchange.ponSerial}</span>
+                      <strong>Old PON Serial:</strong> <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-300`}>{selectedDeviceForExchange.ponSerial}</span>
                     </div>
                   </div>
                 </div>
@@ -3963,11 +3796,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                     oldDeviceAction === 'RESTOCK'
                       ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
-                      : `${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'}`
+                      : `bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400`
                   }`}
                 >
                   <div className="font-bold flex items-center gap-1.5 text-xs">
-                    <CheckCircle2 className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                    <CheckCircle2 className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
                     <span>Put Back to Available Inventory (+1 Stock)</span>
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
@@ -3981,11 +3814,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                     oldDeviceAction === 'DAMAGE'
                       ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-500 text-rose-900 dark:text-rose-200 font-bold shadow-xs'
-                      : `${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'}`
+                      : `bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400`
                   }`}
                 >
                   <div className="font-bold flex items-center gap-1.5 text-xs">
-                    <AlertTriangle className={`h-4 w-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
+                    <AlertTriangle className={`h-4 w-4 text-rose-500 dark:text-rose-400`} />
                     <span>Move to Defective Stock Bin</span>
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
@@ -3999,11 +3832,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                     oldDeviceAction === 'DISPOSED'
                       ? 'bg-amber-50 dark:bg-amber-950/80 border-amber-500 text-amber-900 dark:text-amber-200 font-bold shadow-xs'
-                      : `${isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'}`
+                      : `bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400`
                   }`}
                 >
                   <div className="font-bold flex items-center gap-1.5 text-xs">
-                    <XCircle className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+                    <XCircle className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                     <span>Scrap & Dispose Unit</span>
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
@@ -4014,9 +3847,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
 
             {/* Step 3: Replacement Device Details */}
-            <div className={`p-4 rounded-2xl border space-y-3 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <h4 className={`font-bold text-xs flex items-center gap-2 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                <Plus className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+            <div className={`p-4 rounded-2xl border space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+              <h4 className={`font-bold text-xs flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
+                <Plus className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                 <span>Step 3: New Replacement Device Details *</span>
               </h4>
 
@@ -4028,7 +3861,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <select
                     value={exchangeProductName}
                     onChange={(e) => setExchangeProductName(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 text-xs font-semibold ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-semibold border-slate-300 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   >
                     {products.map((p) => (
                       <option key={p.id} value={p.name}>
@@ -4049,7 +3882,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       value={exchangeNewSerial}
                       onChange={(e) => setExchangeNewSerial(e.target.value)}
                       placeholder="e.g. SN-ONU24G-991203"
-                      className={`w-full rounded-xl border p-2.5 pr-20 text-xs font-mono font-bold ${isDarkMode ? 'border-slate-700 bg-slate-800 text-indigo-400' : 'border-slate-300 bg-white text-indigo-600'}`}
+                      className={`w-full rounded-xl border p-2.5 pr-20 text-xs font-mono font-bold border-slate-300 bg-white text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-indigo-400`}
                     />
                     <button
                       type="button"
@@ -4071,7 +3904,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     value={exchangeNewPon}
                     onChange={(e) => setExchangeNewPon(e.target.value)}
                     placeholder="e.g. HWTC-99182A3"
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   />
                 </div>
 
@@ -4084,7 +3917,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     value={exchangeNewMac}
                     onChange={(e) => setExchangeNewMac(e.target.value)}
                     placeholder="e.g. 00:1A:2B:3C:4D:5E"
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono border-slate-300 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   />
                 </div>
               </div>
@@ -4099,7 +3932,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={exchangeReason}
                   onChange={(e) => setExchangeReason(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 text-xs ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                  className={`w-full rounded-xl border p-2.5 text-xs border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                 >
                   <option value="Defective / Hardware Fault (No Power / Optical Loss)">🛠️ Defective / Hardware Fault (No Power / Optical Loss)</option>
                   <option value="Model Upgrade (Single-Band to Dual-Band 5G ONU)">🚀 Model Upgrade (Single-Band to Dual-Band 5G ONU)</option>
@@ -4118,7 +3951,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   value={exchangeNotes}
                   onChange={(e) => setExchangeNotes(e.target.value)}
                   placeholder="e.g. Replaced by Technician Suresh. Optical power -18.5dBm, signal online..."
-                  className={`w-full rounded-xl border p-2.5 text-xs ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                  className={`w-full rounded-xl border p-2.5 text-xs border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                 />
               </div>
             </div>
@@ -4141,17 +3974,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 7: LOGS */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'LOGS' && (
-        <div className={`p-4 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <h3 className={`font-bold text-sm mb-3 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+        <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+          <h3 className={`font-bold text-sm mb-3 text-slate-900 dark:text-white`}>
             Audit Log of All Stock Operations ({operations.length})
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className={`font-bold text-[9px] tracking-wider border-b ${
-                isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+              <thead className={`font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
                   <th className="px-2.5 py-1.5">Ref #</th>
                   <th className="px-2.5 py-1.5">Type</th>
@@ -4162,10 +3991,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <th className="px-2.5 py-1.5">Date</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {operations.map((op) => (
-                  <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className={`p-2.5 font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{op.referenceNumber}</td>
+                  <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>{op.referenceNumber}</td>
                     <td className="p-2.5 font-bold">{op.type}</td>
                     <td className="p-2.5">{op.branchId}</td>
                     <td className="p-2.5">{op.productName || op.reason}</td>
@@ -4184,11 +4013,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* MODAL 1: Create Pullout Bin */}
       {/* ============================================================ */}
       {(isPulloutModalOpen || activeTab === 'CREATE_PULLOUT') && (
-        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
-          <div className={`w-full max-w-4xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+          <div className={`w-full max-w-4xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
-                <Truck className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <Truck className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                 <span>Create Overstock / Damaged Stock Pullout Bin</span>
               </h3>
               <button onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -4203,9 +4032,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <select
                     value={sourceBranchId}
                     onChange={(e) => setSourceBranchId(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     {effectivePulloutSourceBranches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -4218,9 +4045,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <select
                     value={destWarehouseId}
                     onChange={(e) => setDestWarehouseId(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     {destWarehouseOptions.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -4240,7 +4065,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   inputId="pullout-product-search-input"
                   stock={stock}
                   selectedBranchId={sourceBranchId}
-                  isDarkMode={isDarkMode}
                 />
               </div>
 
@@ -4263,7 +4087,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <div key={item.id} className={`p-2.5 rounded-xl border space-y-2 ${
                         isExceeded
                           ? 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800'
-                          : `${isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`
+                          : `bg-slate-50 border-slate-200 dark:bg-slate-800/60 dark:border-slate-700`
                       }`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex-1">
@@ -4273,7 +4097,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               <select
                                 value={item.condition}
                                 onChange={(e) => handleUpdatePulloutItem(item.id, { condition: e.target.value as any })}
-                                className={`text-[10px] font-bold rounded border px-1.5 py-0.5 ${isDarkMode ? 'bg-slate-800 text-indigo-400 border-slate-700' : 'bg-white text-indigo-600 border-indigo-300'}`}
+                                className={`text-[10px] font-bold rounded border px-1.5 py-0.5 bg-white text-indigo-600 border-indigo-300 dark:bg-slate-800 dark:text-indigo-400 dark:border-slate-700`}
                               >
                                 <option value="OVERSTOCK">OVERSTOCK</option>
                                 <option value="DAMAGED_STOCK">DAMAGED_STOCK</option>
@@ -4289,17 +4113,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
-                                className={`w-16 rounded border p-1 text-center font-mono font-bold text-xs ${
-                                  isExceeded
-                                    ? 'bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-100 border-rose-400'
-                                    : isDarkMode ? 'bg-slate-800 text-white border-slate-600' : 'bg-white text-slate-900 border-slate-300'
-                                }`}
+                                className={`w-16 rounded border p-1 text-center font-mono font-bold text-xs isExceeded ? bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-100 border-rose-400 : bg-white text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-600`}
                               />
                             </div>
 
                             <div className="text-right">
                               <span className="text-[9px] text-slate-400 block">Total Val</span>
-                              <span className={`font-mono font-bold text-xs ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                              <span className={`font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400`}>
                                 रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
                               </span>
                             </div>
@@ -4307,7 +4127,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <button
                               type="button"
                               onClick={() => handleRemovePulloutItem(item.id)}
-                              className={`${isDarkMode ? 'text-rose-400 hover:text-rose-300' : 'text-rose-500 hover:text-rose-700'} cursor-pointer p-1`}
+                              className={`text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -4315,7 +4135,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </div>
 
                         {/* Branch Stock Availability Information & Live Validation Banner */}
-                        <div className={`flex items-center justify-between text-[11px] p-2 rounded-lg border gap-2 flex-wrap ${isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white/70 border-slate-200/80'}`}>
+                        <div className={`flex items-center justify-between text-[11px] p-2 rounded-lg border gap-2 flex-wrap bg-white/70 border-slate-200/80 dark:bg-slate-900/60 dark:border-slate-800`}>
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-slate-600 dark:text-slate-300">
                               Stock at {srcBranchName}:
@@ -4346,7 +4166,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                               onClick={() => handleUpdatePulloutItem(item.id, { quantity: Math.max(1, availForCondition) })}
                               className="text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/80 hover:bg-rose-200 px-2 py-1 rounded-md border border-rose-300 dark:border-rose-800 transition-all cursor-pointer flex items-center gap-1 shrink-0"
                             >
-                              <RefreshCw className={`h-3 w-3 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`} />
+                              <RefreshCw className={`h-3 w-3 text-rose-600 dark:text-rose-400`} />
                               <span>Set to Available Max ({availForCondition})</span>
                             </button>
                           )}
@@ -4354,7 +4174,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                         {isExceeded && (
                           <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-100/90 dark:bg-rose-950/80 p-2 rounded-lg border border-rose-300 dark:border-rose-800 flex items-center gap-2">
-                            <AlertTriangle className={`h-4 w-4 shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`} />
+                            <AlertTriangle className={`h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400`} />
                             <span>
                               Requested pullout quantity ({item.quantity} {item.unit || 'pcs'}) exceeds available {item.condition === 'DAMAGED_STOCK' ? 'damaged' : 'usable'} stock ({availForCondition} {item.unit || 'pcs'} available at {srcBranchName}).
                             </span>
@@ -4364,11 +4184,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         {/* Serial Tracking Inputs */}
                         {isSerialized && (
                           <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 space-y-1.5">
-                            <div className={`flex items-center justify-between text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} font-bold`}>
+                            <div className={`flex items-center justify-between text-[10px] text-indigo-600 dark:text-indigo-400 font-bold`}>
                               <span>✓ Scan Serials for {item.productName} ({item.quantity} Unit{item.quantity > 1 ? 's' : ''})</span>
                             </div>
                             {Array.from({ length: item.quantity }).map((_, sIdx) => (
-                              <div key={sIdx} className={`p-1.5 rounded-lg border flex items-center gap-1.5 text-xs ${isDarkMode ? 'bg-slate-900/80' : 'bg-white'}`}>
+                              <div key={sIdx} className={`p-1.5 rounded-lg border flex items-center gap-1.5 text-xs bg-white dark:bg-slate-900/80`}>
                                 <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
                                 <input
                                   id={`pullout-serial-device-${idx}-${sIdx}`}
@@ -4386,7 +4206,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                       }
                                     }
                                   }}
-                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'text-indigo-200 bg-slate-950 border-indigo-800' : 'text-indigo-900 bg-slate-50 border-indigo-200'}`}
+                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-slate-50 border-indigo-200 dark:text-indigo-200 dark:bg-slate-950 dark:border-indigo-800`}
                                 />
                                 <input
                                   id={`pullout-serial-pon-${idx}-${sIdx}`}
@@ -4412,7 +4232,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                       }
                                     }
                                   }}
-                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 ${isDarkMode ? 'text-sky-200 bg-slate-950 border-sky-800' : 'text-sky-900 bg-slate-50 border-sky-200'}`}
+                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 text-sky-900 bg-slate-50 border-sky-200 dark:text-sky-200 dark:bg-slate-950 dark:border-sky-800`}
                                 />
                               </div>
                             ))}
@@ -4430,9 +4250,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   rows={2}
                   value={binNotes}
                   onChange={(e) => setBinNotes(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -4474,11 +4292,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* MODAL 2: Label Local Damaged Stock */}
       {/* ============================================================ */}
       {(isDamageModalOpen || activeTab === 'LABEL_DAMAGE') && (
-        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
-          <div className={`w-full max-w-3xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+          <div className={`w-full max-w-3xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
-                <AlertTriangle className={`h-5 w-5 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
+                <AlertTriangle className={`h-5 w-5 text-rose-500 dark:text-rose-400`} />
                 <span>Label Local Damaged Stock</span>
               </h3>
               <button onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -4489,7 +4307,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <form onSubmit={handleSubmitDamageTag} className="space-y-4 mt-4 text-xs">
               {!isSuperOrInventory && (
                 <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1.5">
-                  <ShieldAlert className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+                  <ShieldAlert className={`h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400`} />
                   <span>Branch User Rule: Locked to your assigned branch ({currentUser?.branchId})</span>
                 </div>
               )}
@@ -4499,9 +4317,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <select
                   value={damageBranchId}
                   onChange={(e) => setDamageBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -4517,7 +4333,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   placeholder="Scan Barcode or Search & Select Damaged Product..."
                   stock={stock}
                   selectedBranchId={damageBranchId}
-                  isDarkMode={isDarkMode}
                 />
               </div>
 
@@ -4536,7 +4351,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <div className="flex items-center gap-3">
                         <div className="flex-1"><strong>{item.productName}</strong><div className="text-[10px] font-mono text-slate-500">SKU: {item.sku}</div></div>
                         <input type="number" min={1} value={item.quantity} onChange={(e) => updateDamageItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-20 rounded-lg border p-2 text-center font-mono" />
-                        <button type="button" onClick={() => setDamageItems((previous) => previous.filter((entry) => entry.id !== item.id))} className={isDarkMode ? 'text-rose-400' : 'text-rose-500'}><Trash2 className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => setDamageItems((previous) => previous.filter((entry) => entry.id !== item.id))} className="text-rose-500 dark:text-rose-400"><Trash2 className="h-4 w-4" /></button>
                       </div>
                       {isSerialized && <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">
                         {item.deviceSerials?.map((entry, index) => <div key={index} className="grid grid-cols-[2rem_1fr_1fr] gap-2 items-center">
@@ -4557,9 +4372,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   required
                   value={damageReason}
                   onChange={(e) => setDamageReason(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -4570,9 +4383,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   required
                   value={damageInspector}
                   onChange={(e) => setDamageInspector(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -4616,12 +4427,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ============================================================ */}
       {isAssignModalOpen && (selectedAssetForAssign || selectedProductForAssign) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden p-6 max-h-[90vh] overflow-y-auto ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden p-6 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
-                <Wrench className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <Wrench className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                 <span>
                   {selectedProductForAssign
                     ? `Deploy Catalog Product as CPE Rental: ${selectedProductForAssign.name}`
@@ -4653,7 +4462,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         required
                         value={productAssignTag}
                         onChange={(e) => setProductAssignTag(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold ${isDarkMode ? 'border-slate-600 bg-slate-800 text-indigo-400' : 'border-slate-300 bg-white text-indigo-600'}`}
+                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-indigo-600 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-400`}
                       />
                     </div>
 
@@ -4664,7 +4473,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         required
                         value={productAssignSerial}
                         onChange={(e) => setProductAssignSerial(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                       />
                     </div>
 
@@ -4675,7 +4484,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         required
                         value={productAssignPon}
                         onChange={(e) => setProductAssignPon(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                       />
                     </div>
 
@@ -4685,7 +4494,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         type="text"
                         value={productAssignMac}
                         onChange={(e) => setProductAssignMac(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                        className={`w-full rounded-xl border p-2 font-mono border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                       />
                     </div>
                   </div>
@@ -4698,13 +4507,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => setAssignTargetType('LOCATION')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      assignTargetType === 'LOCATION'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                        : isDarkMode
-                        ? 'bg-slate-900 border-slate-800 text-slate-300'
-                        : 'bg-slate-50 border-slate-300 text-slate-700'
-                    }`}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 'assignTargetType === 'LOCATION ? bg-indigo-600 text-white border-indigo-600 shadow-sm : bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
                   >
                     <MapPin className="h-4 w-4" />
                     <span>POP / Network Site</span>
@@ -4713,13 +4516,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => setAssignTargetType('CUSTOMER')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      assignTargetType === 'CUSTOMER'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                        : isDarkMode
-                        ? 'bg-slate-900 border-slate-800 text-slate-300'
-                        : 'bg-slate-50 border-slate-300 text-slate-700'
-                    }`}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 'assignTargetType === 'CUSTOMER ? bg-indigo-600 text-white border-indigo-600 shadow-sm : bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
                   >
                     <UserCheck className="h-4 w-4" />
                     <span>Customer Home / Rental CPE</span>
@@ -4733,9 +4530,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <select
                     value={assignLocationId}
                     onChange={(e) => setAssignLocationId(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     {locations.map((loc) => (
                       <option key={loc.id} value={loc.id}>
@@ -4760,9 +4555,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       placeholder="Type customer name, account ID, phone, or location to filter..."
                       value={customerSearchInAssignModal}
                       onChange={(e) => setCustomerSearchInAssignModal(e.target.value)}
-                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold ${
-                        isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
-                      }`}
+                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold bg-slate-50 border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                     />
                   </div>
 
@@ -4786,14 +4579,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                           >
                             <div>
                               <div className="text-xs font-bold text-slate-900 dark:text-white">
-                                {c.customerName} <span className={`font-mono ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} text-[11px]`}>({c.customerId})</span>
+                                {c.customerName} <span className={`font-mono text-indigo-600 dark:text-indigo-400 text-[11px]`}>({c.customerId})</span>
                               </div>
                               <div className="text-[10px] text-slate-500">
                                 📍 {c.address} | 📞 {c.contactNumber}
                               </div>
                             </div>
                             {isSelected && (
-                              <CheckCircle2 className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} shrink-0`} />
+                              <CheckCircle2 className={`h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0`} />
                             )}
                           </div>
                         );
@@ -4809,9 +4602,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   rows={2}
                   value={assignNotes}
                   onChange={(e) => setAssignNotes(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -4838,14 +4629,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* Inbound Physical Stock Verification & Security Audit Modal */}
       {receivingShipmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
-            <div className={`p-4 border-b flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-            }`}>
+          <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+            <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60`}>
               <div className="flex items-center gap-2">
-                <PackageCheck className={`h-5 w-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                <PackageCheck className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
                 <div>
                   <h3 className="font-bold text-sm">
                     Inbound Stock Physical Verification — {receivingShipmentModal.trackingCode}
@@ -4866,7 +4653,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
             <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
               {/* Route Summary Card */}
-              <div className={`flex justify-between items-center p-3.5 rounded-xl border text-xs ${isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`flex justify-between items-center p-3.5 rounded-xl border text-xs bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Dispatched From</span>
                   <span className="font-bold text-slate-900 dark:text-white text-sm">{receivingShipmentModal.sourceBranchName || 'Central Warehouse'}</span>
@@ -4874,7 +4661,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div className="flex flex-col items-center">
                   <span className="font-mono text-[10px] text-indigo-500 font-bold">{receivingShipmentModal.dispatchDateAD}</span>
                   <ArrowRight className="h-4 w-4 text-indigo-500 my-0.5" />
-                  <span className={`text-[10px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-bold uppercase`}>Receiving Inspection</span>
+                  <span className={`text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase`}>Receiving Inspection</span>
                 </div>
                 <div className="text-right">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination Branch</span>
@@ -4884,7 +4671,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
               {/* Security Advisory */}
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
-                <AlertCircle className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} shrink-0 mt-0.5`} />
+                <AlertCircle className={`h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5`} />
                 <div>
                   <span className="font-bold block">Security Audit Requirement:</span>
                   <span>
@@ -4932,19 +4719,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             max={sentQty * 2}
                             value={st.quantityReceived}
                             onChange={(e) => updateReceiveQty(item.id, Number(e.target.value))}
-                            className={`w-20 text-center font-mono font-bold text-sm rounded-lg border p-1.5 focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'border-indigo-700 bg-slate-800 text-slate-100' : 'border-indigo-300 bg-white text-slate-800'}`}
+                            className={`w-20 text-center font-mono font-bold text-sm rounded-lg border p-1.5 focus:ring-2 focus:ring-indigo-500 border-indigo-300 bg-white text-slate-800 dark:border-indigo-700 dark:bg-slate-800 dark:text-slate-100`}
                           />
 
                           {diff === 0 ? (
-                            <span className={`px-2.5 py-1 rounded-full bg-emerald-500/10 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'} font-bold text-[10px] border border-emerald-500/20`}>
+                            <span className={`px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] border border-emerald-500/20`}>
                               ✓ Full Match
                             </span>
                           ) : diff < 0 ? (
-                            <span className={`px-2.5 py-1 rounded-full bg-amber-500/10 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-bold text-[10px] border border-amber-500/20`}>
+                            <span className={`px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[10px] border border-amber-500/20`}>
                               ⚠ Shortage ({diff} Units)
                             </span>
                           ) : (
-                            <span className={`px-2.5 py-1 rounded-full bg-blue-500/10 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} font-bold text-[10px] border border-blue-500/20`}>
+                            <span className={`px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold text-[10px] border border-blue-500/20`}>
                               ℹ Surplus (+{diff} Units)
                             </span>
                           )}
@@ -4956,7 +4743,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <div className="p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-[11px]">
-                              <Barcode className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                              <Barcode className={`h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400`} />
                               <span>Device Serial & MAC/PON Check-Off Checklist ({st.verifiedSerials.filter(s => s.isChecked).length} / {item.deviceSerials?.length} Checked):</span>
                             </span>
                           </div>
@@ -4965,29 +4752,25 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             {st.verifiedSerials.map((s, sIdx) => (
                               <label
                                 key={sIdx}
-                                className={`p-2 rounded-lg border flex items-center gap-2 cursor-pointer transition-colors ${
-                                  s.isChecked
-                                    ? isDarkMode ? 'bg-slate-800 border-emerald-800' : 'bg-white border-emerald-300'
-                                    : isDarkMode ? 'bg-rose-950/30 border-rose-900 text-rose-300' : 'bg-rose-50/60 border-rose-200 text-rose-700'
-                                }`}
+                                className={`p-2 rounded-lg border flex items-center gap-2 cursor-pointer transition-colors s.isChecked ? bg-white border-emerald-300 dark:bg-slate-800 dark:border-emerald-800 : bg-rose-50/60 border-rose-200 text-rose-700 dark:bg-rose-950/30 dark:border-rose-900 dark:text-rose-300`}
                               >
                                 <input
                                   type="checkbox"
                                   checked={s.isChecked}
                                   onChange={() => toggleSerialCheck(item.id, sIdx)}
-                                  className={`rounded ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'} focus:ring-indigo-500 h-4 w-4`}
+                                  className={`rounded text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500 h-4 w-4`}
                                 />
                                 <div className="flex-1 font-mono text-[11px] min-w-0">
                                   <div className="font-bold text-slate-900 dark:text-slate-100 truncate">
                                     {s.deviceSerial}
                                   </div>
                                   {s.ponSerial && (
-                                    <div className={`text-[10px] ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} truncate`}>
+                                    <div className={`text-[10px] text-blue-600 dark:text-blue-400 truncate`}>
                                       PON: {s.ponSerial}
                                     </div>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : (isDarkMode ? 'text-rose-400' : 'text-rose-500')}`}>
+                                <span className={`text-[10px] font-bold uppercase s.isChecked ? text-emerald-600 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
                                   {s.isChecked ? 'Verified' : 'Missing'}
                                 </span>
                               </label>
@@ -5003,7 +4786,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                           placeholder="Discrepancy / Damage notes for this item (if any)..."
                           value={st.notes}
                           onChange={(e) => updateItemDiscrepancyNotes(item.id, e.target.value)}
-                          className={`w-full text-xs rounded-lg border px-3 py-1.5 focus:outline-none ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                          className={`w-full text-xs rounded-lg border px-3 py-1.5 focus:outline-none border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                         />
                       </div>
                     </div>
@@ -5021,15 +4804,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   placeholder="e.g. Received by [name] at [branch]. Seal was intact, counted & checked."
                   value={receivingByNotes}
                   onChange={(e) => setReceivingByNotes(e.target.value)}
-                  className={`w-full text-xs rounded-xl border px-3 py-1.5 focus:outline-none ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                  className={`w-full text-xs rounded-xl border px-3 py-1.5 focus:outline-none border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                 />
               </div>
             </div>
 
             {/* Modal Actions Footer */}
-            <div className={`p-4 border-t flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-            }`}>
+            <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60`}>
               <button
                 type="button"
                 onClick={() => setReceivingShipmentModal(null)}
@@ -5054,7 +4835,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* 8. Direct Cancel In-Transit Transfer Modal (Super Admin / Inventory Manager Only) */}
       {directCancelModalShipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden p-4 ${isDarkMode ? 'bg-slate-900 border-rose-900/60 text-slate-200' : 'bg-white border-rose-200 text-slate-800'}`}>
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden p-4 bg-white border-rose-200 text-slate-800 dark:bg-slate-900 dark:border-rose-900/60 dark:text-slate-200`}>
             <div className="flex items-center justify-between border-b border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 p-4">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-rose-100 dark:bg-rose-900/80 text-rose-700 dark:text-rose-300">
@@ -5100,7 +4881,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-[11px] text-amber-900 dark:text-amber-300 space-y-1">
                 <div className="flex items-center gap-1.5 font-bold">
-                  <AlertTriangle className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} shrink-0`} />
+                  <AlertTriangle className={`h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0`} />
                   <span>Action Effects & Inventory Restocking:</span>
                 </div>
                 <ul className="list-disc pl-5 space-y-0.5">
@@ -5121,7 +4902,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   value={directCancelReason}
                   onChange={(e) => setDirectCancelReason(e.target.value)}
                   placeholder="e.g. Transfer cancelled by dispatch officer, wrong destination selected, duplicate dispatch bin..."
-                  className={`w-full rounded-xl border p-2.5 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                  className={`w-full rounded-xl border p-2.5 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                 />
               </div>
 
@@ -5160,7 +4941,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* 9. Request Cancel Transfer Modal (Workflow for Branch Managers & other staff) */}
       {requestCancelModalShipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden p-4 ${isDarkMode ? 'bg-slate-900 border-amber-900/60 text-slate-200' : 'bg-white border-amber-200 text-slate-800'}`}>
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden p-4 bg-white border-amber-200 text-slate-800 dark:bg-slate-900 dark:border-amber-900/60 dark:text-slate-200`}>
             <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 p-4">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/80 text-amber-700 dark:text-amber-300">
@@ -5185,7 +4966,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
 
             <form onSubmit={handleRequestCancelSubmit} className="p-5 space-y-4 text-xs">
-              <div className={`p-3 rounded-xl border space-y-1.5 ${isDarkMode ? 'bg-slate-800/60 border-slate-700/60' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-3 rounded-xl border space-y-1.5 bg-slate-50 border-slate-200 dark:bg-slate-800/60 dark:border-slate-700/60`}>
                 <div className="flex justify-between font-bold text-slate-900 dark:text-slate-100">
                   <span>Transfer Route:</span>
                   <span>
@@ -5217,7 +4998,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   value={requestCancelReason}
                   onChange={(e) => setRequestCancelReason(e.target.value)}
                   placeholder="Explain why this in-transit transfer needs to be cancelled (e.g. Customer cancelled order, wrong items scanned, dispatched by mistake)..."
-                  className={`w-full rounded-xl border p-2.5 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none ${isDarkMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
+                  className={`w-full rounded-xl border p-2.5 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
                 />
               </div>
 
@@ -5256,8 +5037,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* 10. Withdraw / Cancel Pending Approval Request Modal */}
       {cancelPendingRequestModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 space-y-4 ${isDarkMode ? 'bg-slate-900 border-amber-900/60 text-slate-200' : 'bg-white border-amber-200 text-slate-800'}`}>
-            <div className={`flex items-center gap-2.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-extrabold text-base`}>
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 space-y-4 bg-white border-amber-200 text-slate-800 dark:bg-slate-900 dark:border-amber-900/60 dark:text-slate-200`}>
+            <div className={`flex items-center gap-2.5 text-amber-600 dark:text-amber-400 font-extrabold text-base`}>
               <XCircle className="h-6 w-6" />
               <span>Cancel Pending Approval Request</span>
             </div>

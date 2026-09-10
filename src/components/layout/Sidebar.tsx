@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 export type NavTab =
   | 'dashboard'
@@ -181,7 +182,6 @@ interface SidebarProps {
   pendingBillCount: number;
   inTransitShipmentCount: number;
   pendingApprovalCount?: number;
-  isDarkMode?: boolean;
   onCloseMobile?: () => void;
 }
 
@@ -213,9 +213,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingBillCount,
   inTransitShipmentCount,
   pendingApprovalCount,
-  isDarkMode = false,
   onCloseMobile,
 }) => {
+  const { isDarkMode } = useDarkMode();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isFrontDesk = currentUser?.role === 'FRONT_DESK';
   const isAccountant = currentUser?.role === 'ACCOUNTANT';
@@ -538,15 +538,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       ref={sidebarRef}
-      className={`h-full flex flex-row flex-shrink-0 select-none relative ${
-        isDarkMode ? 'bg-[#0f1218] text-slate-300' : 'bg-white text-slate-800'
-      }`}
+      className={`h-full flex flex-row flex-shrink-0 select-none relative bg-white text-slate-800 dark:bg-[#0f1218] dark:text-slate-300`}
     >
       {/* PRIMARY NARROW RAIL (responsive: 76px standard, 64px compact desktop) */}
       <div
-        className={`responsive-sidebar-rail w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 ${
-          isDarkMode ? 'border-slate-800/80 bg-[#0f1218]' : 'border-slate-200 bg-slate-50/90'
-        }`}
+        className={`responsive-sidebar-rail w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 border-slate-200 bg-slate-50/90 dark:border-slate-800/80 dark:bg-[#0f1218]`}
       >
         {/* Primary Main Menu Header Stack */}
         <div className="flex-1 w-full space-y-1 overflow-y-auto custom-scrollbar px-1.5 py-2">
@@ -559,15 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={group.id}
                 onClick={() => handlePrimaryGroupClick(group.id)}
                 title={group.title}
-                className={`w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all cursor-pointer relative group ${
-                  isActive
-                    ? isDarkMode
-                      ? 'bg-indigo-600/25 text-indigo-300 font-bold border border-indigo-500/50 shadow-xs'
-                      : 'bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs'
-                    : isDarkMode
-                    ? 'text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'
-                    : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60'
-                }`}
+                className={`w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all cursor-pointer relative group isActive ? bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs dark:bg-indigo-600/25 dark:text-indigo-300 dark:font-bold dark:border dark:border-indigo-500/50 dark:shadow-xs : text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60`}
               >
                 <div className="relative">
                   <GroupIcon className={`h-5 w-5 ${isActive ? 'scale-110 text-indigo-500' : ''}`} />
@@ -595,11 +583,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => setIsSubPanelExpanded((prev) => !prev)}
             title={isSubPanelExpanded ? 'Collapse Submenu Panel' : 'Expand Submenu Panel'}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${
-              isDarkMode
-                ? 'text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
-                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
-            }`}
+            className={`p-2 rounded-xl transition-all cursor-pointer text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800`}
           >
             {isSubPanelExpanded ? (
               <PanelLeftClose className="h-4 w-4" />
@@ -613,9 +597,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* SECONDARY SUBMENU FLYOUT PANEL (responsive overlay) */}
       {isSubPanelExpanded && (
         <div
-          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 ${
-            isDarkMode ? 'border-slate-800/90 bg-[#0c0e13]/98' : 'border-slate-200/90 bg-white/98 backdrop-blur-md'
-          }`}
+          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 border-slate-200/90 bg-white/98 backdrop-blur-md dark:border-slate-800/90 dark:bg-[#0c0e13]/98`}
         >
           {/* Mobile Header bar with close button */}
           {onCloseMobile && (
@@ -633,15 +615,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Submenu Title & Collapse Header */}
           <div
-            className={`px-4 py-3.5 border-b flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800/80 bg-slate-900/50' : 'border-slate-100 bg-slate-50/80'
-            }`}
+            className={`px-4 py-3.5 border-b flex items-center justify-between border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
           >
             <div className="flex items-center gap-2.5 overflow-hidden">
               {currentGroupDef && (
                 <>
                   <currentGroupDef.icon className="h-4.5 w-4.5 text-indigo-500 flex-shrink-0" />
-                  <span className={`text-xs font-bold uppercase tracking-wider truncate ${isDarkMode ? 'text-indigo-400' : 'text-slate-800'}`}>
+                  <span className={`text-xs font-bold uppercase tracking-wider truncate text-slate-800 dark:text-indigo-400`}>
                     {currentGroupDef.title}
                   </span>
                 </>
@@ -660,11 +640,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {currentGroupDef && currentGroupDef.children.length > 4 && (
             <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/60">
               <div
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
-                  isDarkMode
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-300'
-                    : 'bg-slate-100/80 border-slate-200 text-slate-700'
-                }`}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs bg-slate-100/80 border-slate-200 text-slate-700 dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-300`}
               >
                 <Search className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
                 <input
@@ -700,12 +676,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => handleSubItemClick(child.id)}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer font-medium ${
                       isActive
-                        ? isDarkMode
-                          ? 'bg-indigo-600/20 dark:text-indigo-300 font-semibold border-l-3 border-indigo-500 shadow-xs'
-                          : 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs'
-                        : isDarkMode
-                        ? 'border-l-3 border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
-                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100'
+                        ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
+                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -717,9 +689,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span
                         className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
                           child.badgeColor ||
-                          (isDarkMode
-                            ? 'bg-slate-800 text-slate-300 border border-slate-700'
-                            : 'bg-slate-200 text-slate-700')
+                          'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
                         }`}
                       >
                         {child.badge}
@@ -736,18 +706,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={() => onSelectTab('company-setup')}
             title={`Company Setup Database: ${companyProfile?.name || 'IZone Inventory'} - Click to manage setup`}
-            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm ${
-              isDarkMode
-                ? 'bg-slate-900/90 border-slate-800/80 text-slate-300 hover:border-indigo-500/50'
-                : 'bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300'
-            }`}
+            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300 dark:bg-slate-900/90 dark:border-slate-800/80 dark:text-slate-300 dark:hover:border-indigo-500/50`}
           >
             {companyProfile?.logoUrl ? (
               <img
                 src={companyProfile.logoUrl}
                 alt={companyProfile.name || 'Company Logo'}
                 referrerPolicy="no-referrer"
-                className={`flex-shrink-0 w-8 h-8 rounded-xl object-contain p-0.5 shadow-xs group-hover:scale-105 transition-transform ${isDarkMode ? 'bg-slate-800/50 border border-slate-700/50' : 'bg-white/10 border border-slate-300/30'}`}
+                className={`flex-shrink-0 w-8 h-8 rounded-xl object-contain p-0.5 shadow-xs group-hover:scale-105 transition-transform bg-white/10 border border-slate-300/30 dark:bg-slate-800/50 dark:border dark:border-slate-700/50`}
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}

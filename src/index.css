@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode: toggle by adding/removing "dark" on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* =====================================================================
    RESPONSIVE DENSITY — compact / low-resolution display support
    ---------------------------------------------------------------------

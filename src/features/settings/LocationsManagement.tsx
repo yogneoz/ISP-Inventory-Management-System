@@ -4,14 +4,10 @@ import { MapPin, Plus, Search, Building2, Server, Globe, ExternalLink, Check, Co
 import { api } from '../../services/api';
 
 interface LocationsManagementProps {
-  branches: Branch[];
-  isDarkMode?: boolean;
-}
+  branches: Branch[];}
 
 export const LocationsManagement: React.FC<LocationsManagementProps> = ({
-  branches,
-  isDarkMode = false,
-}) => {
+  branches,}) => {
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,13 +118,11 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       {/* Top Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <MapPin className="h-5 w-5 text-indigo-500" />
             <span>Location & POP Management</span>
           </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Track POP server rooms, fiber route junction nodes, customer installation sites, and GPS map coordinates.
           </p>
         </div>
@@ -144,34 +138,26 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-none">
-        <div className={`p-3.5 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}>
+        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Network Sites</span>
           <div className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">{locations.length} Sites</div>
         </div>
 
-        <div className={`p-3.5 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}>
+        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">POP Server Rooms</span>
           <div className="text-xl font-bold font-mono text-purple-600 dark:text-purple-400">
             {locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms
           </div>
         </div>
 
-        <div className={`p-3.5 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}>
+        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Fiber Route Nodes</span>
           <div className="text-xl font-bold font-mono text-sky-600 dark:text-sky-400">
             {locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes
           </div>
         </div>
 
-        <div className={`p-3.5 rounded-2xl border ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}>
+        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Assigned Equipment</span>
           <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
             {locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units
@@ -180,9 +166,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       </div>
 
       {/* Filter Toolbar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-3 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex items-center gap-2 flex-1 min-w-[220px]">
           <Search className="h-4 w-4 text-slate-400 ml-1" />
           <input
@@ -198,9 +182,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
           <select
             value={selectedBranchFilter}
             onChange={(e) => setSelectedBranchFilter(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL">All Branches</option>
             {branches.map((b) => (
@@ -211,9 +193,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
           <select
             value={selectedTypeFilter}
             onChange={(e) => setSelectedTypeFilter(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL">All Location Types</option>
             <option value="POP_SERVER_ROOM">POP Server Room</option>
@@ -232,9 +212,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
             return (
               <div
                 key={loc.id}
-                className={`p-4 rounded-2xl border shadow-sm flex flex-col justify-between space-y-3 transition-all ${
-                  isDarkMode ? 'bg-[#0f1218] border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200 hover:border-indigo-200'
-                }`}
+                className={`p-4 rounded-2xl border shadow-sm flex flex-col justify-between space-y-3 transition-all bg-white border-slate-200 hover:border-indigo-200 dark:bg-[#0f1218] dark:border-slate-800 dark:hover:border-slate-700`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -249,19 +227,17 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                     <span className="text-[10px] font-mono font-bold text-slate-400">{loc.id}</span>
                   </div>
 
-                  <h3 className={`font-bold text-sm leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  <h3 className={`font-bold text-sm leading-snug text-slate-900 dark:text-white`}>
                     {loc.name}
                   </h3>
 
-                  <p className={`text-xs mt-1 flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <p className={`text-xs mt-1 flex items-center gap-1 text-slate-500 dark:text-slate-400`}>
                     <MapPin className="h-3.5 w-3.5 text-indigo-500 flex-shrink-0" />
                     <span className="line-clamp-1">{loc.address}</span>
                   </p>
 
                   {loc.notes && (
-                    <p className={`text-[11px] mt-2 p-2 rounded-xl border ${
-                      isDarkMode ? 'bg-slate-900/60 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-100 text-slate-600'
-                    }`}>
+                    <p className={`text-[11px] mt-2 p-2 rounded-xl border bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-400`}>
                       {loc.notes}
                     </p>
                   )}
@@ -324,9 +300,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       {/* Add Location Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-indigo-500" />
@@ -349,9 +323,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   placeholder="e.g. Example Location 1 Server Room"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -361,9 +333,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     <option value="POP_SERVER_ROOM">POP Server Room</option>
                     <option value="FIBER_NETWORK_NODE">Fiber Network Node</option>
@@ -378,9 +348,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   <select
                     value={formData.branchId}
                     onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -397,9 +365,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   placeholder="e.g. Example Street, Example City"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 
@@ -418,9 +384,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                         longitude: formData.coordinates?.longitude || 0,
                       },
                     })}
-                    className={`w-full rounded-xl border p-2.5 font-mono ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 font-mono bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   />
                 </div>
 
@@ -438,9 +402,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                         longitude: parseFloat(e.target.value) || 0,
                       },
                     })}
-                    className={`w-full rounded-xl border p-2.5 font-mono ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 font-mono bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   />
                 </div>
               </div>
@@ -453,9 +415,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                     placeholder="e.g. Site Incharge Name"
                     value={formData.contactPerson}
                     onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   />
                 </div>
 
@@ -466,9 +426,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                     placeholder="98XXXXX"
                     value={formData.contactPhone}
                     onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   />
                 </div>
               </div>
@@ -480,9 +438,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   placeholder="e.g. Fiber drum cable length, OLT rack details, power backup setup"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 />
               </div>
 

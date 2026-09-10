@@ -26,9 +26,7 @@ interface ClearDemoDataViewProps {
   poCount: number;
   invoiceCount: number;
   onClearDemoData: () => Promise<void>;
-  onNavigateDashboard: () => void;
-  isDarkMode?: boolean;
-}
+  onNavigateDashboard: () => void;}
 
 export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   currentUser,
@@ -40,9 +38,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   poCount,
   invoiceCount,
   onClearDemoData,
-  onNavigateDashboard,
-  isDarkMode = false,
-}) => {
+  onNavigateDashboard,}) => {
   const [confirmText, setConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
   const [clearedSuccess, setClearedSuccess] = useState(false);
@@ -110,10 +106,10 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
       ) : (
         <>
           {/* Record Breakdown Card */}
-          <div className={`rounded-2xl p-6 border shadow-sm space-y-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className={`rounded-2xl p-6 border shadow-sm space-y-4 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h2 className={`text-base font-bold flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Boxes className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+              <h2 className={`text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Boxes className={`h-5 w-5 text-amber-500 dark:text-amber-400`} />
                 <span>Operational Records on File</span>
               </h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -124,7 +120,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Package className={`h-4 w-4 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                  <Package className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                   <span>Products Catalog</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{productCount}</div>
@@ -132,7 +128,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Boxes className={`h-4 w-4 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                  <Boxes className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
                   <span>Inventory Stock</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{stockCount}</div>
@@ -140,7 +136,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Building className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+                  <Building className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                   <span>Fixed Assets</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{assetCount}</div>
@@ -148,7 +144,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Smartphone className={`h-4 w-4 ${isDarkMode ? 'text-purple-400' : 'text-purple-500'}`} />
+                  <Smartphone className={`h-4 w-4 text-purple-500 dark:text-purple-400`} />
                   <span>Customer Devices</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{deviceCount}</div>
@@ -156,7 +152,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Users className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
+                  <Users className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                   <span>Customer Records</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{customerCount}</div>
@@ -172,7 +168,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 col-span-2">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Receipt className={`h-4 w-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-500'}`} />
+                  <Receipt className={`h-4 w-4 text-rose-500 dark:text-rose-400`} />
                   <span>Purchase Invoices & Audit Logs</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{invoiceCount}</div>
@@ -192,7 +188,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
           </div>
 
           {/* Confirmation Form */}
-          <div className={`rounded-2xl p-6 border shadow-sm space-y-5 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className={`rounded-2xl p-6 border shadow-sm space-y-5 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Confirm Purge Action
             </h3>

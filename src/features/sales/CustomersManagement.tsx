@@ -46,7 +46,6 @@ interface CustomersManagementProps {
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
   currentUser?: User | null;
-  isDarkMode?: boolean;
   approvalRequests?: ApprovalRequest[];
   onCreateCustomerDevice: (record: Omit<CustomerDeviceRecord, 'id'>) => Promise<void>;
   onUpdateStatus: (id: string, status: CustomerDeviceRecord['status']) => Promise<void>;
@@ -65,7 +64,6 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   dateMode,
   autoOpenModal = false,
   currentUser,
-  isDarkMode = false,
   approvalRequests = [],
   onCreateCustomerDevice,
   onUpdateStatus,
@@ -423,15 +421,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 break-words leading-tight ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 break-words leading-tight text-slate-900 dark:text-white`}>
             <Wifi className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>Customer Hardware Directory & Serial Number Lookup</span>
           </h2>
-          <p className={`truncate text-xs mt-1 break-words leading-normal max-w-3xl ${
-            isDarkMode ? 'text-slate-400' : 'text-slate-500'
-          }`}>
+          <p className={`truncate text-xs mt-1 break-words leading-normal max-w-3xl text-slate-500 dark:text-slate-400`}>
             Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name.
           </p>
         </div>
@@ -439,13 +433,9 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs ${
-              isDarkMode
-                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white'
-                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-            }`}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white`}
           >
-            <Download className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+            <Download className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
             <span>Export CSV ({filteredRecords.length})</span>
           </button>
 
@@ -469,99 +459,77 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
       {/* Overview Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-        }`}>
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
           <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Tracked Serials</div>
           <div className="text-xl font-mono font-bold mt-1 text-slate-900 dark:text-white">
             {customerDevices.length} Devices
           </div>
         </div>
 
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-blue-50/20 border-blue-200'
-        }`}>
-          <div className={`text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-800'}`}>
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-blue-50/20 border-blue-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
+          <div className={`text-xs font-semibold text-blue-800 dark:text-blue-400`}>
             Rental Products (CPE)
           </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>
+          <div className={`text-xl font-mono font-extrabold mt-1 text-blue-700 dark:text-blue-400`}>
             {rentalCount} Rental
           </div>
         </div>
 
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-purple-50/20 border-purple-200'
-        }`}>
-          <div className={`text-xs font-semibold ${isDarkMode ? 'text-purple-400' : 'text-purple-800'}`}>
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-purple-50/20 border-purple-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
+          <div className={`text-xs font-semibold text-purple-800 dark:text-purple-400`}>
             Sold Products (Customer)
           </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-purple-400' : 'text-purple-700'}`}>
+          <div className={`text-xl font-mono font-extrabold mt-1 text-purple-700 dark:text-purple-400`}>
             {soldCount} Sold
           </div>
         </div>
 
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-rose-50/20 border-rose-200'
-        }`}>
-          <div className={`text-xs font-semibold ${isDarkMode ? 'text-rose-400' : 'text-rose-800'}`}>
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-rose-50/20 border-rose-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
+          <div className={`text-xs font-semibold text-rose-800 dark:text-rose-400`}>
             Router Collected (Restocked)
           </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-700'}`}>
+          <div className={`text-xl font-mono font-extrabold mt-1 text-rose-700 dark:text-rose-400`}>
             {routerCollectedCount} Collected
           </div>
         </div>
       </div>
 
       {/* Search & Filter Bar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 ${
-        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
  <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-          <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+          <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500 dark:text-blue-400`} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="🔍 Instant Lookup by Device Serial (e.g. SN-ONU24G-881923), PON Serial, MAC, Customer, Phone..."
-            className={`w-full pl-10 pr-4 py-2.5 text-xs font-medium border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
-              isDarkMode
-                ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500'
-                : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
-            }`}
+            className={`w-full pl-10 pr-4 py-2.5 text-xs font-medium border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
 
         <div className="flex items-center gap-3">
-          <span className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <span className={`text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400`}>
             Status:
           </span>
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className={`rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              isDarkMode
-                ? 'bg-slate-800 border-slate-700 text-white'
-                : 'bg-white border-slate-200 text-slate-700'
-            }`}
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
           >
-            <option value="ALL" className={isDarkMode ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}>All Statuses</option>
-            <option value="RENTAL" className={isDarkMode ? 'bg-slate-800 text-blue-400' : 'bg-white text-slate-900'}>RENTAL (Rental Product)</option>
-            <option value="SOLD" className={isDarkMode ? 'bg-slate-800 text-purple-400' : 'bg-white text-slate-900'}>SOLD (Sold Product)</option>
-            <option value="ROUTER_COLLECTED" className={isDarkMode ? 'bg-slate-800 text-rose-400' : 'bg-white text-slate-900'}>ROUTER COLLECTED (Disconnected)</option>
-            <option value="EXCHANGED" className={isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-900'}>EXCHANGED</option>
+            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Statuses</option>
+            <option value="RENTAL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-blue-400">RENTAL (Rental Product)</option>
+            <option value="SOLD" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400">SOLD (Sold Product)</option>
+            <option value="ROUTER_COLLECTED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400">ROUTER COLLECTED (Disconnected)</option>
+            <option value="EXCHANGED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-400">EXCHANGED</option>
           </select>
         </div>
       </div>
 
       {/* Customer & Serial Number Table */}
-      <div className={`rounded-2xl border shadow-xs overflow-hidden ${
-        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className={`font-bold text-[10px] tracking-wider border-b ${
-              isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
-            }`}>
+            <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-800`}>
               <tr>
                 <th className="px-2.5 py-1.5 break-words">Customer & Account</th>
                 <th className="px-2.5 py-1.5 break-words">Branch & Address</th>
@@ -574,7 +542,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 <th className="px-2.5 py-1.5 text-center break-words">Action</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
               {filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs break-words">
@@ -587,11 +555,9 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
                   const pendingDisconnect = getPendingDisconnectRequest(rec);
                   return (
-                    <tr key={rec.id} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/50 text-slate-200' : 'hover:bg-blue-50/40 text-slate-800'
-                    }`}>
+                    <tr key={rec.id} className={`transition-colors hover:bg-blue-50/40 text-slate-800 dark:hover:bg-slate-800/50 dark:text-slate-200`}>
                       <td className="p-2.5">
-                        <div className={`font-bold text-sm break-words leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                        <div className={`font-bold text-sm break-words leading-snug text-slate-900 dark:text-white`}>
                           {rec.customerName}
                         </div>
                         <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5 break-words">
@@ -603,7 +569,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       </td>
 
                       <td className="p-2.5">
-                        <div className={`font-bold text-xs break-words ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                        <div className={`font-bold text-xs break-words text-slate-800 dark:text-slate-200`}>
                           {branch?.name || rec.branchId}
                         </div>
                         <div className="text-slate-500 dark:text-slate-400 text-[11px] flex items-center gap-1 mt-0.5 break-words">
@@ -613,39 +579,31 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       </td>
 
                       <td className="p-2.5">
-                        <span className={`font-bold px-2 py-1 rounded-lg text-xs inline-block break-words border ${
-                          isDarkMode
-                            ? 'bg-slate-800 text-slate-200 border-slate-700'
-                            : 'bg-slate-100 text-slate-900 border-slate-200'
-                        }`}>
+                        <span className={`font-bold px-2 py-1 rounded-lg text-xs inline-block break-words border bg-slate-100 text-slate-900 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700`}>
                           {rec.productName}
                         </span>
                         {rec.purchaseBillRef && (
                           <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1 break-words">
-                            Bill Ref: <strong className={isDarkMode ? 'text-slate-300' : 'text-slate-700'}>{rec.purchaseBillRef}</strong>
+                            Bill Ref: <strong className="text-slate-700 dark:text-slate-300">{rec.purchaseBillRef}</strong>
                           </div>
                         )}
                       </td>
 
                       {/* Device Serial Number */}
                       <td className="p-2.5">
-                        <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
-                          isDarkMode ? 'bg-blue-950/60 border-blue-800' : 'bg-blue-50 border-blue-200'
-                        }`}>
-                          <Barcode className={`h-3.5 w-3.5 shrink-0 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
-                          <span className={`font-mono font-extrabold text-xs select-all break-all ${
-                            isDarkMode ? 'text-blue-300' : 'text-blue-900'
-                          }`}>
+                        <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit bg-blue-50 border-blue-200 dark:bg-blue-950/60 dark:border-blue-800`}>
+                          <Barcode className={`h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400`} />
+                          <span className={`font-mono font-extrabold text-xs select-all break-all text-blue-900 dark:text-blue-300`}>
                             {rec.deviceSerial}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleCopy(rec.deviceSerial)}
                             title="Copy Device Serial"
-                            className={`p-0.5 ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-700'} dark:hover:text-blue-300 cursor-pointer ml-1 shrink-0`}
+                            className={`p-0.5 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:text-blue-300 cursor-pointer ml-1 shrink-0`}
                           >
                             {copiedText === rec.deviceSerial ? (
-                              <Check className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                              <Check className={`h-3 w-3 text-emerald-500 dark:text-emerald-400`} />
                             ) : (
                               <Copy className="h-3 w-3" />
                             )}
@@ -660,23 +618,19 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
                       {/* PON Serial Number */}
                       <td className="p-2.5">
-                        <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit ${
-                          isDarkMode ? 'bg-indigo-950/60 border-indigo-800' : 'bg-indigo-50 border-indigo-200'
-                        }`}>
-                          <Wifi className={`h-3.5 w-3.5 shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
-                          <span className={`font-mono font-extrabold text-xs select-all break-all ${
-                            isDarkMode ? 'text-indigo-300' : 'text-indigo-900'
-                          }`}>
+                        <div className={`flex items-center gap-1.5 border rounded-lg px-2.5 py-1 w-fit bg-indigo-50 border-indigo-200 dark:bg-indigo-950/60 dark:border-indigo-800`}>
+                          <Wifi className={`h-3.5 w-3.5 shrink-0 text-indigo-500 dark:text-indigo-400`} />
+                          <span className={`font-mono font-extrabold text-xs select-all break-all text-indigo-900 dark:text-indigo-300`}>
                             {rec.ponSerial}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleCopy(rec.ponSerial)}
                             title="Copy PON Serial"
-                            className={`p-0.5 ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-500 hover:text-indigo-700'} cursor-pointer ml-1 shrink-0`}
+                            className={`p-0.5 text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 cursor-pointer ml-1 shrink-0`}
                           >
                             {copiedText === rec.ponSerial ? (
-                              <Check className={`h-3 w-3 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-500'}`} />
+                              <Check className={`h-3 w-3 text-emerald-500 dark:text-emerald-400`} />
                             ) : (
                               <Copy className="h-3 w-3" />
                             )}
@@ -753,11 +707,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         <div className="flex items-center justify-center gap-1.5 flex-wrap min-w-[140px]">
                           <button
                             onClick={() => setViewingRecord(rec)}
-                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border cursor-pointer ${
-                              isDarkMode
-                                ? 'text-blue-400 border-blue-800 hover:bg-blue-950/50'
-                                : 'text-blue-600 border-blue-200 hover:bg-blue-100'
-                            }`}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border cursor-pointer text-blue-600 border-blue-200 hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:hover:bg-blue-950/50`}
                           >
                             Details
                           </button>
@@ -819,7 +769,6 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           pageSize={recordsPagination.pageSize}
           onPageChange={recordsPagination.setPage}
           onPageSizeChange={recordsPagination.setPageSize}
-          isDarkMode={isDarkMode}
           className="mt-1"
         />
       </div>
@@ -827,14 +776,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       {/* Customer Record Detail Modal */}
       {viewingRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Wifi className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80`}>
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Wifi className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                 <span>Customer Hardware Deployment Details</span>
               </h3>
               <button
@@ -846,14 +791,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             </div>
 
             <div className="p-5 space-y-4 text-xs">
-              <div className={`p-4 rounded-xl border flex justify-between items-center ${
-                isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-50 border-slate-200'
-              }`}>
+              <div className={`p-4 rounded-xl border flex justify-between items-center bg-slate-50 border-slate-200 dark:bg-slate-800/80 dark:border-slate-700`}>
                 <div>
-                  <div className={`text-base font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  <div className={`text-base font-extrabold text-slate-900 dark:text-white`}>
                     {viewingRecord.customerName}
                   </div>
-                  <div className={`text-xs ${isDarkMode ? 'text-blue-400' : 'text-blue-500'} dark:text-blue-400 font-mono font-bold mt-0.5`}>
+                  <div className={`text-xs text-blue-500 dark:text-blue-400 dark:text-blue-400 font-mono font-bold mt-0.5`}>
                     Account: {viewingRecord.customerCode} | Phone: {viewingRecord.contactPhone}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
@@ -914,55 +857,41 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
               {/* Serials Card */}
               <div className="grid grid-cols-2 gap-3">
-                <div className={`p-3.5 rounded-xl border ${
-                  isDarkMode ? 'bg-blue-950/40 border-blue-800/80' : 'bg-blue-50/80 border-blue-200'
-                }`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider block ${
-                    isDarkMode ? 'text-blue-300' : 'text-blue-700'
-                  }`}>
+                <div className={`p-3.5 rounded-xl border bg-blue-50/80 border-blue-200 dark:bg-blue-950/40 dark:border-blue-800/80`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block text-blue-700 dark:text-blue-300`}>
                     Device Serial Number
                   </span>
-                  <div className={`text-sm font-mono font-extrabold mt-1 select-all ${
-                    isDarkMode ? 'text-blue-200' : 'text-blue-900'
-                  }`}>
+                  <div className={`text-sm font-mono font-extrabold mt-1 select-all text-blue-900 dark:text-blue-200`}>
                     {viewingRecord.deviceSerial}
                   </div>
-                  <div className={`text-[10px] ${isDarkMode ? 'text-blue-400' : 'text-blue-500'} mt-0.5`}>Physical Barcode Label</div>
+                  <div className={`text-[10px] text-blue-500 dark:text-blue-400 mt-0.5`}>Physical Barcode Label</div>
                 </div>
 
-                <div className={`p-3.5 rounded-xl border ${
-                  isDarkMode ? 'bg-indigo-950/40 border-indigo-800/80' : 'bg-indigo-50/80 border-indigo-200'
-                }`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider block ${
-                    isDarkMode ? 'text-indigo-300' : 'text-indigo-700'
-                  }`}>
+                <div className={`p-3.5 rounded-xl border bg-indigo-50/80 border-indigo-200 dark:bg-indigo-950/40 dark:border-indigo-800/80`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block text-indigo-700 dark:text-indigo-300`}>
                     PON Serial Number
                   </span>
-                  <div className={`text-sm font-mono font-extrabold mt-1 select-all ${
-                    isDarkMode ? 'text-indigo-200' : 'text-indigo-900'
-                  }`}>
+                  <div className={`text-sm font-mono font-extrabold mt-1 select-all text-indigo-900 dark:text-indigo-200`}>
                     {viewingRecord.ponSerial}
                   </div>
-                  <div className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'} mt-0.5`}>Optical Line Terminal ID</div>
+                  <div className={`text-[10px] text-indigo-500 dark:text-indigo-400 mt-0.5`}>Optical Line Terminal ID</div>
                 </div>
               </div>
 
-              <div className={`p-3.5 rounded-xl border space-y-2 ${
-                isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-200'
-              }`}>
+              <div className={`p-3.5 rounded-xl border space-y-2 bg-slate-50 border-slate-200 dark:bg-slate-800/60 dark:border-slate-700`}>
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
                   <span>Device Hardware Model:</span>
-                  <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{viewingRecord.productName}</span>
+                  <span className={`font-bold text-slate-900 dark:text-white`}>{viewingRecord.productName}</span>
                 </div>
                 {viewingRecord.macAddress && (
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>MAC Address:</span>
-                    <span className={`font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{viewingRecord.macAddress}</span>
+                    <span className={`font-mono font-bold text-slate-900 dark:text-white`}>{viewingRecord.macAddress}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
                   <span>Assigned Branch:</span>
-                  <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{branches.find(b => b.id === viewingRecord.branchId)?.name || viewingRecord.branchId}</span>
+                  <span className={`font-bold text-slate-900 dark:text-white`}>{branches.find(b => b.id === viewingRecord.branchId)?.name || viewingRecord.branchId}</span>
                 </div>
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
                   <span>Issued Date:</span>
@@ -979,15 +908,13 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 {viewingRecord.purchaseBillRef && (
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>Origin Purchase Bill #:</span>
-                    <span className={`font-mono font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`}>{viewingRecord.purchaseBillRef}</span>
+                    <span className={`font-mono font-bold text-blue-500 dark:text-blue-400`}>{viewingRecord.purchaseBillRef}</span>
                   </div>
                 )}
               </div>
 
               {viewingRecord.notes && (
-                <div className={`p-3 rounded-xl border text-xs ${
-                  isDarkMode ? 'bg-amber-950/40 border-amber-800 text-amber-200' : 'bg-amber-50/60 border-amber-200 text-amber-900'
-                }`}>
+                <div className={`p-3 rounded-xl border text-xs bg-amber-50/60 border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200`}>
                   <strong className="block font-bold mb-0.5">Technical Notes:</strong>
                   {viewingRecord.notes}
                 </div>
@@ -1024,14 +951,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       {/* Assign Customer Device Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/90' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                <Wifi className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/90`}>
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Wifi className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                 <span>Assign Customer Device (Device & PON Serial Entry)</span>
               </h3>
               <button
@@ -1045,9 +968,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
               {/* Product Classification / Ownership Selection */}
               <div>
-                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1.5 ${
-                  isDarkMode ? 'text-slate-300' : 'text-slate-700'
-                }`}>
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-slate-700 dark:text-slate-300`}>
                   Device Assignment Type & Ownership *
                 </label>
                 <div className="grid grid-cols-2 gap-2.5">
@@ -1055,12 +976,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     type="button"
                     onClick={() => setAssignType('RENTAL')}
                     className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
-                      assignType === 'RENTAL'
-                        ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 ring-2 ring-blue-500/20'
-                        : isDarkMode
-                        ? 'border-slate-700 bg-slate-800/60 text-slate-400'
-                        : 'border-slate-200 bg-slate-50 text-slate-600'
-                    }`}
+                    assignType === 'RENTAL'
+                      ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 ring-2 ring-blue-500/20'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400'
+                  }`}
                   >
                     <div className={`mt-0.5 h-3.5 w-3.5 rounded-full border flex items-center justify-center ${
                       assignType === 'RENTAL' ? 'border-blue-600 bg-blue-600' : 'border-slate-400'
@@ -1081,12 +1000,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     type="button"
                     onClick={() => setAssignType('SOLD')}
                     className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
-                      assignType === 'SOLD'
-                        ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-950/60 ring-2 ring-purple-500/20'
-                        : isDarkMode
-                        ? 'border-slate-700 bg-slate-800/60 text-slate-400'
-                        : 'border-slate-200 bg-slate-50 text-slate-600'
-                    }`}
+                    assignType === 'SOLD'
+                      ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-950/60 ring-2 ring-purple-500/20'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400'
+                  }`}
                   >
                     <div className={`mt-0.5 h-3.5 w-3.5 rounded-full border flex items-center justify-center ${
                       assignType === 'SOLD' ? 'border-purple-600 bg-purple-600' : 'border-slate-400'
@@ -1107,21 +1024,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
               {/* Optional Auto-fill from Customer Master Directory */}
               {customers.length > 0 && (
-                <div className={`p-3 rounded-xl border ${
-                  isDarkMode ? 'bg-indigo-950/50 border-indigo-800' : 'bg-indigo-50/80 border-indigo-200'
-                }`}>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 flex items-center justify-between ${
-                    isDarkMode ? 'text-indigo-300' : 'text-indigo-900'
-                  }`}>
+                <div className={`p-3 rounded-xl border bg-indigo-50/80 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800`}>
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 flex items-center justify-between text-indigo-900 dark:text-indigo-300`}>
                     <span className="flex items-center gap-1">
-                      <UserCheck className={`h-3.5 w-3.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                      <UserCheck className={`h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400`} />
                       Auto-fill from Customer Master Directory
                     </span>
                     {onNavigateToMaster && (
                       <button
                         type="button"
                         onClick={onNavigateToMaster}
-                        className={`text-[10px] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'} hover:underline flex items-center gap-0.5 cursor-pointer font-semibold`}
+                        className={`text-[10px] text-indigo-500 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer font-semibold`}
                       >
                         Master Directory <ExternalLink className="h-2.5 w-2.5" />
                       </button>
@@ -1140,11 +1053,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         if (cust.address) setInstallationAddress(cust.address);
                       }
                     }}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 ${
-                      isDarkMode
-                        ? 'bg-slate-800 border-slate-700 text-indigo-200'
-                        : 'bg-white border-indigo-300 text-indigo-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 bg-white border-indigo-300 text-indigo-900 dark:bg-slate-800 dark:border-slate-700 dark:text-indigo-200`}
                   >
                     <option value="">-- Choose Existing Customer Profile --</option>
                     {customers.map((c) => (
@@ -1158,9 +1067,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                    isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                  }`}>
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                     Customer Name *
                   </label>
                   <input
@@ -1169,16 +1076,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder="e.g. Aashish Subedi"
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
                 <div>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                    isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                  }`}>
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                     Account / Code
                   </label>
                   <input
@@ -1186,18 +1089,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     required
                     value={customerCode}
                     onChange={(e) => setCustomerCode(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-mono font-bold focus:ring-2 focus:ring-blue-500 ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-blue-400' : 'bg-white border-slate-300 text-blue-700'
-                    }`}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-mono font-bold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-blue-700 dark:bg-slate-800 dark:border-slate-700 dark:text-blue-400`}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                    isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                  }`}>
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                     Contact Phone *
                   </label>
                   <input
@@ -1205,24 +1104,18 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     required
                     value={contactPhone}
                     onChange={(e) => setContactPhone(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-blue-500 ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
                 <div>
-                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                    isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                  }`}>
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                     Serving Branch
                   </label>
                   <select
                     value={branchId}
                     onChange={(e) => setBranchId(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -1234,9 +1127,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </div>
 
               <div>
-                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                  isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                }`}>
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                   Installation Address *
                 </label>
                 <input
@@ -1245,24 +1136,18 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   value={installationAddress}
                   onChange={(e) => setInstallationAddress(e.target.value)}
                   placeholder="e.g. Example Street, Example City"
-                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 ${
-                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                 />
               </div>
 
               <div>
-                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 ${
-                  isDarkMode ? 'text-slate-300' : 'text-slate-600'
-                }`}>
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
                   Device Hardware Model
                 </label>
                 <select
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 ${
-                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                 >
                   <option value="ONU ROUTER 2.4G">ONU ROUTER 2.4G</option>
                   <option value="ONU ROUTER 5G">ONU ROUTER 5G</option>
@@ -1273,21 +1158,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </div>
 
               {/* Highlighted Serial Inputs */}
-              <div className={`p-4 rounded-xl border space-y-3 ${
-                isDarkMode ? 'bg-blue-950/40 border-blue-800/80' : 'bg-blue-50/70 border-blue-200'
-              }`}>
-                <span className={`text-xs font-bold block flex items-center gap-1 ${
-                  isDarkMode ? 'text-blue-300' : 'text-blue-900'
-                }`}>
-                  <Barcode className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+              <div className={`p-4 rounded-xl border space-y-3 bg-blue-50/70 border-blue-200 dark:bg-blue-950/40 dark:border-blue-800/80`}>
+                <span className={`text-xs font-bold block flex items-center gap-1 text-blue-900 dark:text-blue-300`}>
+                  <Barcode className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                   Hardware Device Identification Numbers
                 </span>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                      isDarkMode ? 'text-blue-300' : 'text-blue-800'
-                    }`}>
+                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-blue-800 dark:text-blue-300`}>
                       Device Serial Number *
                     </label>
                     <input
@@ -1296,18 +1175,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       value={deviceSerial}
                       onChange={(e) => setDeviceSerial(e.target.value)}
                       placeholder="e.g. SN-ONU24G-881923"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-blue-500 ${
-                        isDarkMode
-                          ? 'bg-slate-800 border-blue-700 text-blue-200'
-                          : 'bg-white border-blue-300 text-blue-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-blue-500 bg-white border-blue-300 text-blue-900 dark:bg-slate-800 dark:border-blue-700 dark:text-blue-200`}
                     />
                   </div>
 
                   <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                      isDarkMode ? 'text-indigo-300' : 'text-indigo-800'
-                    }`}>
+                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-indigo-800 dark:text-indigo-300`}>
                       PON Serial Number *
                     </label>
                     <input
@@ -1316,20 +1189,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       value={ponSerial}
                       onChange={(e) => setPonSerial(e.target.value)}
                       placeholder="e.g. HWTC-90A812C4"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-indigo-500 ${
-                        isDarkMode
-                          ? 'bg-slate-800 border-indigo-700 text-indigo-200'
-                          : 'bg-white border-indigo-300 text-indigo-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-indigo-500 bg-white border-indigo-300 text-indigo-900 dark:bg-slate-800 dark:border-indigo-700 dark:text-indigo-200`}
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                      isDarkMode ? 'text-slate-400' : 'text-slate-600'
-                    }`}>
+                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-400`}>
                       MAC Address (Optional)
                     </label>
                     <input
@@ -1337,16 +1204,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       value={macAddress}
                       onChange={(e) => setMacAddress(e.target.value)}
                       placeholder="e.g. 70:A8:E3:4B:91:10"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs ${
-                        isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs bg-white border-slate-300 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                     />
                   </div>
 
                   <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                      isDarkMode ? 'text-slate-400' : 'text-slate-600'
-                    }`}>
+                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-400`}>
                       Vendor Purchase Bill Ref
                     </label>
                     <input
@@ -1354,25 +1217,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       value={purchaseBillRef}
                       onChange={(e) => setPurchaseBillRef(e.target.value)}
                       placeholder="e.g. BILL-9021"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs ${
-                        isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs bg-white border-slate-300 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                     />
                   </div>
                 </div>
               </div>
 
-              <div className={`pt-2 flex items-center justify-end gap-3 border-t ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}>
+              <div className={`pt-2 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800`}>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer ${
-                    isDarkMode
-                      ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -1790,9 +1645,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       {/* Confirmation Modal for Cancelling Disconnect Request */}
       {confirmCancelTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
-          <div className={`w-full max-w-md rounded-3xl shadow-2xl border overflow-hidden p-6 space-y-4 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-md rounded-3xl shadow-2xl border overflow-hidden p-6 space-y-4 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center gap-3">
               <div className="h-11 w-11 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
                 <AlertTriangle className="h-6 w-6" />
