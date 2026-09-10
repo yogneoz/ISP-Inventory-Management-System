@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     product_sku VARCHAR(100),
     product_name VARCHAR(255),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')),
+    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')),
     quantity_before INT NOT NULL,
     quantity_changed INT NOT NULL,
     quantity_after INT NOT NULL,
@@ -655,6 +655,16 @@ ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFER
 ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+-- Allow the extended stock-movement event types used by the operational
+-- modules (Stock Operations, Damage Disposal, Product Stock-Out). Fresh
+-- installs already get the new list from the CREATE TABLE above; this is a
+-- no-op rewrite on databases created before the extended set shipped.
+ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
+ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
+  change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
+    'DAMAGE', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
+    'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')
+);
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);

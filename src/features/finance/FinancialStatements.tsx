@@ -37,13 +37,21 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 }) => {
   const [statementType, setStatementType] = useState<'BALANCE_SHEET' | 'PROFIT_LOSS'>('BALANCE_SHEET');
 
+  // PostgreSQL NUMERIC columns arrive as strings over the API. Coerce every
+  // value to a real number before arithmetic so we never fall into JS string
+  // concatenation (e.g. 0 + "3000.00" -> "03000.00").
+  const toNumber = (value: unknown): number => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   // Balance Sheet Calculations
-  const inventoryAssetVal = financialSummary?.totalInventoryAssetValue ?? 0;
-  const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
+  const inventoryAssetVal = toNumber(financialSummary?.totalInventoryAssetValue);
+  const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + toNumber(a.netBookValue), 0);
   const totalAssets = inventoryAssetVal + fixedAssetNBV;
 
   const accountsPayable = (invoices || []).reduce(
-    (sum, inv) => sum + Math.max(0, (inv.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
+    (sum, inv) => sum + Math.max(0, toNumber(inv.grandTotal) - toNumber(inv.amountPaid)),
     0
   );
   const totalLiabilities = accountsPayable;
@@ -54,7 +62,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   // has no posted sales, COGS, or expense journal, so do not invent values in
   // a statutory-looking profit and loss statement.
   const salesRevenue = 0;
-  const trackedCOGS = financialSummary?.totalCostOfGoodsSold ?? 0;
+  const trackedCOGS = toNumber(financialSummary?.totalCostOfGoodsSold);
   const trackedExpenses = 0;
   const netRevenue = salesRevenue;
   const grossProfit = netRevenue - trackedCOGS;
@@ -251,12 +259,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
                   <span>Gross Property, Plant & Equipment</span>
-                  <span className="font-mono">NPR {((assets || []).reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0) ?? 0).toLocaleString('en-IN')}</span>
+                  <span className="font-mono">NPR {((assets || []).reduce((sum, a) => sum + toNumber(a.acquisitionCost), 0) ?? 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
                   <span>Less: Accumulated Depreciation</span>
                   <span className="font-mono text-rose-500">
-                    - NPR {((assets || []).reduce((sum, a) => sum + (a.accumulatedDepreciation ?? 0), 0) ?? 0).toLocaleString('en-IN')}
+                    - NPR {((assets || []).reduce((sum, a) => sum + toNumber(a.accumulatedDepreciation), 0) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>

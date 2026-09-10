@@ -66,7 +66,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   // them as ledger movements unless a persisted transaction already exists
   // for the operation, so historical cards and current live events reconcile.
   const operationLedgerLogs: TransactionLog[] = stockOperations.flatMap((operation) => {
-    if (!['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE'].includes(operation.type)) return [];
+    if (!['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE', 'DISPOSAL', 'MANUAL_ADJUSTMENT'].includes(operation.type)) return [];
     const items = operation.items?.length
       ? operation.items
       : operation.productId
@@ -84,6 +84,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       .map((item, index) => {
         const product = products.find((candidate) => candidate.id === item.productId);
         const quantity = Number(item.quantity) || 0;
+        const isOutbound = operation.type === 'DAMAGE' || operation.type === 'DISPOSAL'
+          || (operation.type === 'MANUAL_ADJUSTMENT' && (Number(item.quantity) || 0) < 0);
+        const changeType = operation.type === 'MANUAL_ADJUSTMENT'
+          ? 'MANUAL_ADJUSTMENT' as TransactionLog['changeType']
+          : (operation.type as TransactionLog['changeType']);
         return {
           id: `operation-ledger-${operation.id}-${item.productId}-${index}`,
           transactionNumber: `${operation.referenceNumber}-${index + 1}`,
@@ -91,9 +96,9 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           productSku: product?.sku || item.sku || '',
           productName: product?.name || item.productName || 'Product',
           branchId: operation.branchId,
-          changeType: operation.type as TransactionLog['changeType'],
+          changeType,
           quantityBefore: 0,
-          quantityChanged: -quantity,
+          quantityChanged: isOutbound ? -quantity : quantity,
           quantityAfter: 0,
           unitCost: Number(item.unitCost) || Number(operation.costPerUnit) || product?.costPrice || 0,
           referenceDocId: operation.referenceNumber,
@@ -103,7 +108,55 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       });
   }).filter((operationLog) => !transactionLogs.some((log) => log.referenceDocId === operationLog.referenceDocId));
 
-  const effectiveTransactionLogs = [...transactionLogs, ...operationLedgerLogs];
+  // Damage lifecycle ledger: damage_records that were NOT created through a
+  // stock operation (e.g. physical audit tagging, demo data, or manual stock
+  // PATCH with changeType=DAMAGE) are reconciled as DAMAGE movements, so the
+  // ledger always reflects damaged stock even when a matching transaction log
+  // was never persisted.
+  const damageRecordLedgerLogs: TransactionLog[] = damageRecords.flatMap((damageRec) => {
+    const product = products.find((candidate) => candidate.id === damageRec.productId);
+    const quantity = Number(damageRec.quantityDamaged) || 0;
+    if (quantity <= 0) return [];
+    // Skip when a stock operation or transaction log already covers this
+    // damage record (avoids double counting).
+    const alreadyCovered =
+      stockOperations.some((op) =>
+        op.type === 'DAMAGE' &&
+        op.branchId === damageRec.branchId &&
+        op.items?.some((item) =>
+          item.productId === damageRec.productId &&
+          Math.abs(Number(item.quantity) || 0) >= quantity &&
+          (op.dateAD ? String(op.dateAD).slice(0, 10) === damageRec.damageDateAD : true)
+        )
+      ) ||
+      transactionLogs.some((log) =>
+        log.changeType === 'DAMAGE' &&
+        log.productId === damageRec.productId &&
+        log.branchId === damageRec.branchId &&
+        String(log.timestampAD || '').slice(0, 10) === damageRec.damageDateAD &&
+        Math.abs(Number(log.quantityChanged) || 0) >= quantity
+      );
+    if (alreadyCovered) return [];
+
+    return [{
+      id: `damage-record-ledger-${damageRec.id}`,
+      transactionNumber: `DAMAGE-${damageRec.damageReference}`,
+      productId: damageRec.productId,
+      productSku: product?.sku || '',
+      productName: product?.name || damageRec.productName || 'Product',
+      branchId: damageRec.branchId,
+      changeType: 'DAMAGE' as TransactionLog['changeType'],
+      quantityBefore: 0,
+      quantityChanged: -quantity,
+      quantityAfter: 0,
+      unitCost: Number(damageRec.unitCost) || product?.costPrice || 0,
+      referenceDocId: damageRec.damageReference || damageRec.id,
+      timestampAD: damageRec.damageDateAD,
+      timestampBS: damageRec.damageDateBS || '',
+    }];
+  });
+
+  const effectiveTransactionLogs = [...transactionLogs, ...operationLedgerLogs, ...damageRecordLedgerLogs];
 
   // Date Presets
   const applyPreset = (preset: 'THIS_MONTH' | 'LAST_30_DAYS' | 'THIS_YEAR' | 'ALL_TIME') => {

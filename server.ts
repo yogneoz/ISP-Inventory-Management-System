@@ -248,6 +248,7 @@ let stockOperations: StockOperation[] = [];
 let auditTrail: AuditLog[] = [];
 let transactionLogs: TransactionLog[] = [];
 let approvalRequests: ApprovalRequest[] = [];
+let damageRecords: DamageRecord[] = [];
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -2414,7 +2415,86 @@ app.patch('/api/stock/:id', async (req, res) => {
           [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
         );
       }
-    } else if (quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
+    }
+
+    // Manual damage adjustments (PATCH /api/stock/:id with a damagedQty
+    // delta) also create/update a damage_records lifecycle entry so the
+    // damage register stays in sync with the stock level.
+    if (damagedQty !== undefined && Number(damagedQty) !== oldDamaged) {
+      const affectedQty = isDamageChange && Number(damagedQty) > oldDamaged
+        ? Number(damagedQty) - oldDamaged
+        : oldDamaged - Number(damagedQty);
+      const absAffected = Math.abs(affectedQty || 0);
+      if (absAffected > 0) {
+        const todayAD = new Date().toISOString().split('T')[0];
+        const damageRef = `DMR-ADJ-${stk.id}-${Date.now()}`;
+        const damageRecordId = `dmr-adj-${stk.id}-${Date.now()}`;
+        const knownReason = (reason || 'Damaged stock balance verification').toUpperCase();
+        const damageReason = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER'].find((r) => knownReason.includes(r)) || 'OTHER';
+        try {
+          if (isPgConnected) {
+            await pgPool.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $11, $12, FALSE, $13)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                damageRecordId,
+                damageRef,
+                stk.productId,
+                stk.branchId,
+                absAffected,
+                prod?.costPrice || 0,
+                (prod?.costPrice || 0) * absAffected,
+                todayAD,
+                '2083-04-16 BS',
+                damageReason,
+                req.user?.name || getUserFromReq(req).name || 'Stock Manager',
+                reason || 'Damaged stock balance verification',
+                getUserFromReq(req).email || 'system',
+              ]
+            );
+          }
+          const existingIdx = damageRecords.findIndex((dr) => dr.id === damageRecordId || dr.damageReference === damageRef);
+          if (existingIdx >= 0) {
+            damageRecords[existingIdx] = {
+              ...damageRecords[existingIdx],
+              quantityDamaged: absAffected,
+              status: 'IDENTIFIED',
+              damageReason: damageReason as DamageRecord['damageReason'],
+            };
+          } else {
+            damageRecords.unshift({
+              id: damageRecordId,
+              damageReference: damageRef,
+              productId: stk.productId,
+              branchId: stk.branchId,
+              quantityDamaged: absAffected,
+              unitCost: prod?.costPrice || 0,
+              totalCost: (prod?.costPrice || 0) * absAffected,
+              damageDateAD: todayAD,
+              damageDateBS: '2083-04-16 BS',
+              damageReason: damageReason as DamageRecord['damageReason'],
+              status: 'IDENTIFIED',
+              salvageValue: 0,
+              glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
+              writeOffLoss: 0,
+              approvedBy: req.user?.name || 'Stock Manager',
+              notes: reason || 'Damaged stock balance verification',
+              isDemo: false,
+              createdBy: getUserFromReq(req).email || 'system',
+            } as DamageRecord);
+          }
+        } catch (drErr) {
+          console.warn('Damage record sync notice:', drErr?.message || drErr);
+        }
+      }
+    }
+
+    if (!isDamageChange && quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
       const newTxn: TransactionLog = {
         id: `txn-${Date.now()}`,
         transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -2441,7 +2521,6 @@ app.patch('/api/stock/:id', async (req, res) => {
         );
       }
     }
-    res.json(stk);
   } catch (err: any) {
     console.error('Error updating stock level:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
@@ -2450,7 +2529,6 @@ app.patch('/api/stock/:id', async (req, res) => {
 
 app.patch('/api/stock/:id/reorder-level', async (req, res) => {
   try {
-    const { id } = req.params;
     const { minReorderLevel, productId, branchId } = req.body;
     if (!Number.isInteger(Number(minReorderLevel)) || Number(minReorderLevel) < 0) {
       return res.status(400).json({ message: 'Reorder level must be a non-negative integer.' });
@@ -2674,6 +2752,36 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
             [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
           );
+
+          // Physical audit reconciliation also records the damage lifecycle:
+          // a negative shortage for a product that already has damaged stock is
+          // reflected in the damage register so it shows up in the ledger.
+          if (delta < 0 && Number(item.damagedQty ?? stk.damagedQty ?? 0) > 0) {
+            const damageQtyRec = Number(item.damagedQty ?? stk.damagedQty ?? 0);
+            await client.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OTHER', 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $10, $11, FALSE, $12)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                `dmr-audit-${auditRefNumber || 'AUD'}-${item.productId}`,
+                `AUDIT-${auditRefNumber || Date.now()}-${item.productId}`,
+                item.productId,
+                branchId,
+                Math.min(damageQtyRec, Math.abs(delta)),
+                unitCost || prod?.costPrice || 0,
+                (unitCost || prod?.costPrice || 0) * Math.min(damageQtyRec, Math.abs(delta)),
+                new Date().toISOString().split('T')[0],
+                '2083-04-22 BS',
+                auditorName || userEmail || 'AUDITOR',
+                notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
+                userEmail || 'system',
+              ]
+            );
+          }
         }
       });
     } else {
@@ -3735,6 +3843,9 @@ app.post('/api/stock-operations', async (req, res) => {
         const product = products.find((entry) => entry.id === item.productId);
         const quantity = Number(item.quantity) || 1;
         const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+        // DAMAGE ops move units from usable to damaged, still consuming
+        // quantity_on_hand; DISPOSAL / PULLOUT / STOCK_OUT consume stock too.
+        const quantityChanged = -(opType === 'DAMAGE' ? quantity : Math.abs(quantity));
         return {
           id: `txn-${newOp.id}-${item.productId}-${index}`,
           transactionNumber: `${newOp.referenceNumber}-${index + 1}`,
@@ -3742,9 +3853,9 @@ app.post('/api/stock-operations', async (req, res) => {
           productSku: product?.sku || item.sku || '',
           productName: product?.name || item.productName || 'Product',
           branchId: newOp.branchId,
-          changeType: opType as TransactionLog['changeType'],
+          changeType: (opType === 'DAMAGE' ? 'DAMAGE' : opType) as TransactionLog['changeType'],
           quantityBefore,
-          quantityChanged: -quantity,
+          quantityChanged,
           quantityAfter: Math.max(0, quantityBefore - quantity),
           unitCost: Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || product?.costPrice || 0,
           referenceDocId: newOp.referenceNumber,
@@ -3820,6 +3931,46 @@ app.post('/api/stock-operations', async (req, res) => {
             [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
           );
         }
+
+        // Persist a damage_records lifecycle entry for every DAMAGE stock
+        // operation, so the damage register (table 7b) always faithfully
+        // reflects what was actually written to inventory_stock.
+        if (opType === 'DAMAGE') {
+          for (const item of operationItems) {
+            const qty = Number(item.quantity) || 0;
+            if (qty <= 0) continue;
+            const product = products.find((entry) => entry.id === item.productId);
+            const unitCost = Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || product?.costPrice || 0;
+            const topReason = String(newOp.reason || 'Physical branch inventory inspection & transit damage tag').toUpperCase();
+            const knownReason = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER'].find((r) => topReason.includes(r));
+            const damageReason = (knownReason || 'OTHER') as string;
+            await client.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, fiscal_year_id, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $11, $12, $13, FALSE, $14)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                `dmr-${newOp.id}-${item.productId}`,
+                `${newOp.referenceNumber}-${item.productId}`,
+                item.productId,
+                newOp.branchId,
+                qty,
+                unitCost,
+                qty * unitCost,
+                newOp.dateAD,
+                newOp.dateBS,
+                damageReason,
+                newOp.inspectorName || null,
+                newOp.reason || '',
+                newOp.fiscalYear ? getFiscalYearCodeForDate(newOp.dateAD) : null,
+                newOp.inspectorName || null,
+              ]
+            );
+          }
+        }
       });
     }
     const idx = stockOperations.findIndex((o) => o.id === newOp.id);
@@ -3835,7 +3986,38 @@ app.post('/api/stock-operations', async (req, res) => {
           } else {
             stockRecord.quantityOnHand -= quantity;
           }
-          if (opType === 'DAMAGE') stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
+          if (opType === 'DAMAGE') {
+            stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
+            // Keep the in-memory damage register in lock-step with the DB so
+            // the Damaged Stock screen and ledger reflect it immediately.
+            const damageRef = `${newOp.referenceNumber}-${item.productId}`;
+            const existingDamage = damageRecords.find(
+              (dr) => dr.damageReference === damageRef || dr.id === `dmr-${newOp.id}-${item.productId}`
+            );
+            if (!existingDamage) {
+              damageRecords.unshift({
+                id: `dmr-${newOp.id}-${item.productId}`,
+                damageReference: damageRef,
+                productId: item.productId,
+                branchId: newOp.branchId,
+                quantityDamaged: quantity,
+                unitCost: Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || 0,
+                totalCost: quantity * (Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || 0),
+                damageDateAD: newOp.dateAD,
+                damageDateBS: newOp.dateBS,
+                damageReason: 'OTHER',
+                status: 'IDENTIFIED',
+                salvageValue: 0,
+                glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
+                writeOffLoss: 0,
+                approvedBy: newOp.inspectorName,
+                notes: newOp.reason,
+                fiscalYearId: newOp.fiscalYear ? getFiscalYearCodeForDate(newOp.dateAD) : undefined,
+                isDemo: false,
+                createdBy: newOp.inspectorName,
+              } as DamageRecord);
+            }
+          }
           stockRecord.lastUpdated = new Date().toISOString();
         }
       }
@@ -6833,6 +7015,16 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- Allow the extended stock-movement event types used by the operational
+      -- modules (Stock Operations, Damage Disposal, Product Stock-Out). Fresh
+      -- installs already get the new list from the CREATE TABLE above; this is
+      -- a no-op rewrite on databases created before the extended set shipped.
+      ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
+      ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
+        change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
+          'DAMAGE', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
+          'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')
+      );
       ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);

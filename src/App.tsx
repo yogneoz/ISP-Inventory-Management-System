@@ -138,6 +138,7 @@ export default function App() {
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -736,7 +737,7 @@ export default function App() {
   };
 
   // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
-  const lowStockCount = products.filter((prod) => {
+  const lowStockProducts = products.filter((prod) => {
     const activeBr =
       selectedBranchId === 'ALL'
         ? branches
@@ -765,10 +766,16 @@ export default function App() {
     });
 
     return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
-  }).length;
+  });
+  const lowStockCount = lowStockProducts.length;
+
+  // Dismissed notification ids shared across the header badge, sidebar badges
+  // and the Notification Center panel, so clearing notifications in the panel
+  // also clears the matching badges/menus elsewhere in the app.
+  const dismissedSet = new Set(dismissedNotificationIds);
 
   const pendingPoCount = purchaseOrders.filter(
-    (po) => po.status === 'SENT' || po.status === 'APPROVED'
+    (po) => (po.status === 'SENT' || po.status === 'APPROVED') && !dismissedSet.has(`po-${po.id}`)
   ).length;
 
   const pendingBillCount = purchaseInvoices.filter(
@@ -795,8 +802,31 @@ export default function App() {
         (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
         (activeBranchContext === 'ALL' ||
           sh.destinationBranchId === activeBranchContext ||
-          sh.sourceBranchId === activeBranchContext)
+          sh.sourceBranchId === activeBranchContext) &&
+        !dismissedSet.has(`ship-${sh.id}`)
     ).length + pendingPulloutsCount;
+
+  const handleDismissNotification = (id: string) => {
+    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  };
+
+  const handleClearAllNotifications = () => {
+    // Collect every currently active notification id (same ids the
+    // Notification Center generates) and mark them all dismissed.
+    const activeIds: string[] = [
+      ...lowStockProducts.map((prod) => `lowstock-${prod.id}`),
+      ...approvalRequests
+        .filter((r) => r.status === 'PENDING')
+        .map((r) => `appr-${r.id}`),
+      ...shipments
+        .filter((sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED')
+        .map((sh) => `ship-${sh.id}`),
+      ...purchaseOrders
+        .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
+        .map((po) => `po-${po.id}`),
+    ];
+    setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...activeIds])));
+  };
 
   const activeFy =
     resolveDefaultFiscalYear(fiscalYears)?.code || financialSummary.currentFiscalYear;
@@ -909,7 +939,7 @@ export default function App() {
         onRefreshData={refreshAllData}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        lowStockCount={lowStockCount}
+        lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
@@ -963,11 +993,13 @@ export default function App() {
               setActiveTab(tab);
               setIsSidebarOpen(false); // Auto close sidebar on mobile selection
             }}
-            lowStockCount={lowStockCount}
+            lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
             pendingPoCount={pendingPoCount}
             pendingBillCount={pendingBillCount}
             inTransitShipmentCount={inTransitShipmentCount}
-            pendingApprovalCount={approvalRequests.filter((r) => r.status === 'PENDING').length}
+            pendingApprovalCount={approvalRequests.filter(
+              (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
+            ).length}
             isDarkMode={isDarkMode}
             onCloseMobile={() => setIsSidebarOpen(false)}
           />
@@ -2024,6 +2056,9 @@ export default function App() {
           setActiveTab(tab as NavTab);
           setIsNotificationOpen(false);
         }}
+        dismissedIds={dismissedNotificationIds}
+        onDismiss={handleDismissNotification}
+        onClearAll={handleClearAllNotifications}
       />
 
       {/* User Profile Info & Profile Switching Modal */}

@@ -27,6 +27,10 @@ interface NotificationCenterProps {
   selectedBranchId: string;
   isDarkMode: boolean;
   onSelectTab: (tabId: string) => void;
+  /** Dismissed notification ids (lifted to App so badges stay in sync). */
+  dismissedIds?: string[];
+  onDismiss?: (id: string) => void;
+  onClearAll?: () => void;
 }
 
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({
@@ -41,9 +45,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   selectedBranchId,
   isDarkMode,
   onSelectTab,
+  dismissedIds = [],
+  onDismiss,
+  onClearAll,
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'REORDER' | 'APPROVAL' | 'SHIPMENT' | 'PO'>('ALL');
-  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
   if (!isOpen) return null;
 
@@ -195,11 +201,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   });
 
   const handleDismiss = (id: string) => {
-    setDismissedIds((prev) => [...prev, id]);
+    if (onDismiss) onDismiss(id);
   };
 
   const handleClearAll = () => {
-    setDismissedIds(allNotifications.map((n) => n.id));
+    if (onClearAll) onClearAll();
   };
 
   return (
