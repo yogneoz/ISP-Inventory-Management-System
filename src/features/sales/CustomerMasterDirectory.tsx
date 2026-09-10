@@ -278,7 +278,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canExportImport && (
               <button
                 onClick={handleExportCSV}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                 <span>Export CSV</span>
@@ -288,7 +288,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canExportImport && (
               <button
                 onClick={onNavigateToImport}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 <Upload className="h-4 w-4 text-indigo-600" />
                 <span>Import CSV</span>
@@ -427,7 +427,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   return (
                     <React.Fragment key={customer.id}>
                       <tr
-                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors isExpanded ? bg-indigo-50/30 dark:bg-slate-800/60 :  text-slate-800 dark:text-slate-200`}
+                        className={`hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors ${isExpanded ? 'bg-indigo-50/30 dark:bg-slate-800/60' : 'text-slate-800 dark:text-slate-200'}`}
                       >
                         {/* Cus. Code */}
                         <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
@@ -478,7 +478,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         <td className="p-2.5 text-center whitespace-nowrap">
                           <button
                             onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer matchingDevices.length > 0 ? bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900 : bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400`}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${matchingDevices.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}
                           >
                             <Smartphone className="h-3.5 w-3.5 text-indigo-500" />
                             <span>{matchingDevices.length} Serials</span>
@@ -589,7 +589,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                       {matchingDevices.map((dev) => (
-                                        <tr key={dev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                        <tr key={dev.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                                           <td className="p-2.5 font-semibold text-slate-900 dark:text-white">
                                             {dev.productName}
                                           </td>
@@ -696,7 +696,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   setIsAddModalOpen(false);
                   setEditingCustomer(null);
                 }}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -843,7 +843,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     setIsAddModalOpen(false);
                     setEditingCustomer(null);
                   }}
-                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -878,7 +878,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => setDeletingCustomer(null)}
-                className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>

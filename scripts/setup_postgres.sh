@@ -229,6 +229,15 @@ run_schema_migration() {
         fail "Schema verification failed: products.is_demo missing. The applied schema may be outdated."
     fi
     log "Enterprise schema verified (is_demo tracking present)."
+
+    local special_col
+    special_col=$(query_result \
+        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'categories' AND column_name = 'is_special_tracked';" \
+        "${DB_NAME}") || true
+    if [ "${special_col}" != "1" ]; then
+        fail "Schema verification failed: categories.is_special_tracked missing. The applied schema may be outdated."
+    fi
+    log "Special hardware tracking schema verified (categories.is_special_tracked present)."
 }
 
 # ---------------------------------------------------------------------------

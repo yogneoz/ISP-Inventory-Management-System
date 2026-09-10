@@ -155,12 +155,12 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
 
                     {showStockBadges && hasStockData && (
                       <div className="flex items-center gap-2 mt-1.5 text-[10px] flex-wrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold qtyOnHand > 0 ? bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border dark:border-emerald-700 : bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${qtyOnHand > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border dark:border-emerald-700' : 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600'}`}>
                           <Package className="h-3 w-3 text-emerald-600" />
                           <span>Usable: {qtyOnHand} {prod.unit || 'pcs'}</span>
                         </span>
 
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold damagedQty > 0 ? bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/50 dark:text-amber-300 dark:border dark:border-amber-700 : bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${damagedQty > 0 ? 'bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/50 dark:text-amber-300 dark:border dark:border-amber-700' : 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600'}`}>
                           <AlertTriangle className="h-3 w-3 text-amber-600" />
                           <span>Damaged: {damagedQty} {prod.unit || 'pcs'}</span>
                         </span>

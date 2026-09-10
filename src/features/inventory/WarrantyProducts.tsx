@@ -239,7 +239,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
                 warrantyPagination.pagedItems.map((item) => {
                   const w = item.warrantyInfo;
                   return (
-                    <tr key={`${item.type}-${item.id}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+                    <tr key={`${item.type}-${item.id}`} className="hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="p-2.5">
                         <div className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words leading-snug">{item.name}</div>
                         <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md mt-1 ${

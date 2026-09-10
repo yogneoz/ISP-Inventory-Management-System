@@ -566,18 +566,18 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         <div className={`p-1.5 rounded-2xl border flex items-center gap-1.5 overflow-x-auto shadow-xs bg-slate-100/90 border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <button
             onClick={() => setViewMode('SERIALIZED_DEVICES')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap 'viewMode === 'SERIALIZED_DEVICES ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${viewMode === 'SERIALIZED_DEVICES' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'}`}
           >
             <Cpu className="h-4 w-4" />
             <span>Serialized Devices (SN / PON / MAC)</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold 'viewMode === 'SERIALIZED_DEVICES ? bg-white/20 text-white : bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400`}>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${viewMode === 'SERIALIZED_DEVICES' ? 'bg-white/20 text-white' : 'bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'}`}>
               {filteredSerializedDevices.length}
             </span>
           </button>
 
           <button
             onClick={() => setViewMode('REORDER_LIST')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap 'viewMode === 'REORDER_LIST ? bg-rose-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${viewMode === 'REORDER_LIST' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'}`}
           >
             <AlertTriangle className="h-4 w-4" />
             <span>Reorder Level & Low Stock</span>
@@ -596,7 +596,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
           <button
             onClick={() => setViewMode('MASTER_STOCK')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap 'viewMode === 'MASTER_STOCK ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${viewMode === 'MASTER_STOCK' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'}`}
           >
             <Package className="h-4 w-4" />
             <span>All Stock Matrix</span>
@@ -607,7 +607,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
           <button
             onClick={() => setViewMode('BRANCH_MATRIX')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap 'viewMode === 'BRANCH_MATRIX ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap ${viewMode === 'BRANCH_MATRIX' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-white/70 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'}`}
           >
             <Building2 className="h-4 w-4" />
             <span>Branch Breakdown Matrix</span>
@@ -846,7 +846,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                     return (
                       <tr
                         key={dev.id}
-                        className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}
+                        className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}
                       >
                         <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5">
@@ -964,7 +964,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         key={p.id}
                         className={`transition-colors 'isOutOfStock
                             ? 'bg-rose-50/50 hover:bg-rose-50 dark:bg-rose-950/20 dark:hover:bg-rose-950/30'
-                            : isBelowReorder ? bg-amber-50/40 hover:bg-amber-50 dark:bg-amber-950/15 dark:hover:bg-amber-950/25 : hover:bg-slate-50 dark:hover:bg-slate-800/40'`}
+                            : isBelowReorder ? bg-amber-50/40 hover:bg-amber-50 dark:bg-amber-950/15 dark:hover:bg-amber-950/25 : hover:bg-slate-200 dark:hover:bg-slate-800/40'`}
                       >
                         <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap`}>
                           {p.sku}
@@ -1096,7 +1096,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                   return (
                     <tr
                       key={p.id}
-                      className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}
+                      className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}
                     >
                       <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                         {p.sku}
@@ -1171,7 +1171,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                   return (
                     <tr
                       key={p.id}
-                      className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}
+                      className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}
                     >
                       <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap`}>
                         {p.sku}

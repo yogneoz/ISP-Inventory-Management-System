@@ -1842,7 +1842,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'PULLOUT_BINS'
                   ? 'bg-indigo-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canPullout ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Truck className="h-4 w-4" />}
@@ -1869,7 +1869,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'DAMAGE_TRACKING'
                   ? 'bg-rose-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canDamage ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <AlertTriangle className="h-4 w-4" />}
@@ -1896,7 +1896,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'RECEIVE_TRANSFER'
                   ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canReceive ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Inbox className="h-4 w-4" />}
@@ -1923,7 +1923,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'CREATE_TRANSFER'
                   ? 'bg-sky-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canCreateXfer ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Send className="h-4 w-4" />}
@@ -1950,7 +1950,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'ASSIGN_ASSET'
                   ? 'bg-emerald-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canAssignAsset ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Wrench className="h-4 w-4" />}
@@ -1964,7 +1964,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <button
               title="Issue Consumables (Splitters, Protection Sleeves, Couplers, Fast Connectors) to Field Technicians"
               onClick={() => setActiveTab('CONSUMABLE_ISSUE')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap 'activeTab === 'CONSUMABLE_ISSUE ? bg-amber-600 text-white shadow-sm cursor-pointer : text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer`}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'CONSUMABLE_ISSUE' ? 'bg-amber-600 text-white shadow-sm cursor-pointer' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'}`}
             >
               <Wrench className="h-4 w-4 text-amber-300" />
               <span>Issue Consumables ({consumableOperations.length})</span>
@@ -1990,7 +1990,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
                   : activeTab === 'PRODUCT_SALE'
                   ? 'bg-purple-600 text-white shadow-sm cursor-pointer'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'
               }`}
             >
               {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
@@ -2002,7 +2002,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         <button
           onClick={() => setActiveTab('DEVICE_EXCHANGE')}
           title="Exchange customer ONU/STB device, enter replacement serials, and return old unit to stock"
-          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'activeTab === 'DEVICE_EXCHANGE ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${activeTab === 'DEVICE_EXCHANGE' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <RefreshCw className="h-4 w-4 text-indigo-300" />
           <span>Device Exchange ({exchangeCustomerDevices.length})</span>
@@ -2010,7 +2010,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
         <button
           onClick={() => setActiveTab('LOGS')}
-          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'activeTab === 'LOGS ? bg-slate-700 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${activeTab === 'LOGS' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <Package className="h-4 w-4" />
           <span>Logs ({operations.length})</span>
@@ -2150,7 +2150,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </thead>
                 <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                   {filteredOperations.map((op) => (
-                    <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                       <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{op.referenceNumber}</td>
                       <td className="p-2.5">
                         {op.type === 'DISPOSAL' ? (
@@ -2237,14 +2237,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('ALL')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 'transferStatusFilter === 'ALL ? bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${transferStatusFilter === 'ALL' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700'}`}
                       >
                         All Transfers ({totalCount})
                       </button>
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('IN_TRANSIT')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'IN_TRANSIT ? bg-sky-600 text-white shadow-xs : bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800/80 dark:text-sky-400 dark:hover:bg-slate-700`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${transferStatusFilter === 'IN_TRANSIT' ? 'bg-sky-600 text-white shadow-xs' : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800/80 dark:text-sky-400 dark:hover:bg-slate-700'}`}
                       >
                         <Clock className="h-3 w-3" />
                         <span>In Transit ({inTransitCount})</span>
@@ -2252,7 +2252,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('CANCEL_PENDING')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'CANCEL_PENDING ? bg-amber-600 text-white shadow-xs : bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800/80 dark:text-amber-400 dark:hover:bg-slate-700`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${transferStatusFilter === 'CANCEL_PENDING' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800/80 dark:text-amber-400 dark:hover:bg-slate-700'}`}
                       >
                         <RotateCcw className="h-3 w-3" />
                         <span>Cancel Pending ({cancelPendingCount})</span>
@@ -2260,7 +2260,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('RECEIVED')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800/80 dark:text-emerald-400 dark:hover:bg-slate-700`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${transferStatusFilter === 'RECEIVED' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800/80 dark:text-emerald-400 dark:hover:bg-slate-700'}`}
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         <span>Stock Received ({receivedCount})</span>
@@ -2268,7 +2268,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <button
                         type="button"
                         onClick={() => setTransferStatusFilter('CANCELLED')}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 'transferStatusFilter === 'CANCELLED ? bg-rose-600 text-white shadow-xs : bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 dark:bg-slate-800/80 dark:text-rose-400 dark:hover:bg-slate-700`}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${transferStatusFilter === 'CANCELLED' ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 dark:bg-slate-800/80 dark:text-rose-400 dark:hover:bg-slate-700'}`}
                       >
                         <XCircle className="h-3 w-3" />
                         <span>Cancelled ({cancelledCount})</span>
@@ -2408,13 +2408,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                       return (
                         <React.Fragment key={sh.id}>
-                          <tr className={`transition-colors isExpanded ? bg-indigo-50/60 dark:bg-indigo-950/20 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                          <tr className={`transition-colors ${isExpanded ? 'bg-indigo-50/60 dark:bg-indigo-950/20' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}>
                             {/* 1. Toggle button */}
                             <td className="p-2.5 text-center">
                               <button
                                 type="button"
                                 onClick={() => setExpandedShipmentId(isExpanded ? null : sh.id)}
-                                className={`p-1.5 rounded-lg border transition-all cursor-pointer isExpanded ? bg-indigo-600 text-white border-indigo-600 : bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-slate-700`}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${isExpanded ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white dark:border-slate-700'}`}
                                 title={isExpanded ? "Collapse item details" : "Expand itemized stock breakdown"}
                               >
                                 {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -2780,7 +2780,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <tr key={item.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                             <td className="p-2.5">
                               <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                                 <Package className="h-4 w-4 text-sky-500 shrink-0" />
@@ -2901,7 +2901,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <button
                 type="button"
                 onClick={handleResetTransferForm}
-                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
               >
                 <RotateCcw className="h-4 w-4" />
                 <span>Reset / Cancel Form</span>
@@ -3216,7 +3216,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === consumableBranchId);
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <tr key={item.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                             <td className="p-2.5">
                               <select
                                 value={item.productId}
@@ -3287,7 +3287,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <button
                 type="button"
                 onClick={handleResetConsumableForm}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
               >
                 <RotateCcw className="h-4 w-4" />
                 <span>Reset / Cancel Form</span>
@@ -3328,7 +3328,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   </thead>
                   <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                     {consumableOperations.map((op) => (
-                      <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                         <td className="p-2.5 font-mono text-slate-400 text-[11px]">{op.dateAD}</td>
                         <td className={`p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400`}>{op.workOrderRef || op.referenceNumber}</td>
                         <td className="p-2.5 font-medium">{op.branchName || op.branchId}</td>
@@ -3471,7 +3471,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <tr key={item.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                             <td className="p-2.5 min-w-[240px]">
                               <select
                                 value={item.productId}
@@ -3639,7 +3639,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <button
                 type="button"
                 onClick={handleResetSaleForm}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
               >
                 <RotateCcw className="h-4 w-4" />
                 <span>Reset / Cancel Form</span>
@@ -3993,7 +3993,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {operations.map((op) => (
-                  <tr key={op.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                     <td className={`p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>{op.referenceNumber}</td>
                     <td className="p-2.5 font-bold">{op.type}</td>
                     <td className="p-2.5">{op.branchId}</td>
@@ -4113,7 +4113,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
-                                className={`w-16 rounded border p-1 text-center font-mono font-bold text-xs isExceeded ? bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-100 border-rose-400 : bg-white text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-600`}
+                                className={`w-16 rounded border p-1 text-center font-mono font-bold text-xs ${isExceeded ? 'bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-100 border-rose-400' : 'bg-white text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-600'}`}
                               />
                             </div>
 
@@ -4261,7 +4261,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     setPulloutItems([]);
                     setBinNotes('Warehouse overstock & damaged inventory pullout return dispatch');
                   }}
-                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>Reset Form</span>
@@ -4271,7 +4271,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => { setIsPulloutModalOpen(false); setActiveTab('PULLOUT_BINS'); }}
-                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -4395,7 +4395,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     setDamageReason('');
                     setDamageInspector('Stores Quality Inspector');
                   }}
-                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>Reset Form</span>
@@ -4405,7 +4405,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => { setIsDamageModalOpen(false); setActiveTab('DAMAGE_TRACKING'); }}
-                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -4507,7 +4507,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => setAssignTargetType('LOCATION')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 'assignTargetType === 'LOCATION ? bg-indigo-600 text-white border-indigo-600 shadow-sm : bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${assignTargetType === 'LOCATION' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}
                   >
                     <MapPin className="h-4 w-4" />
                     <span>POP / Network Site</span>
@@ -4516,7 +4516,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <button
                     type="button"
                     onClick={() => setAssignTargetType('CUSTOMER')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 'assignTargetType === 'CUSTOMER ? bg-indigo-600 text-white border-indigo-600 shadow-sm : bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${assignTargetType === 'CUSTOMER' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}
                   >
                     <UserCheck className="h-4 w-4" />
                     <span>Customer Home / Rental CPE</span>
@@ -4610,7 +4610,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAssignModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -4752,7 +4752,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             {st.verifiedSerials.map((s, sIdx) => (
                               <label
                                 key={sIdx}
-                                className={`p-2 rounded-lg border flex items-center gap-2 cursor-pointer transition-colors s.isChecked ? bg-white border-emerald-300 dark:bg-slate-800 dark:border-emerald-800 : bg-rose-50/60 border-rose-200 text-rose-700 dark:bg-rose-950/30 dark:border-rose-900 dark:text-rose-300`}
+                                className={`p-2 rounded-lg border flex items-center gap-2 cursor-pointer transition-colors ${s.isChecked ? 'bg-white border-emerald-300 dark:bg-slate-800 dark:border-emerald-800' : 'bg-rose-50/60 border-rose-200 text-rose-700 dark:bg-rose-950/30 dark:border-rose-900 dark:text-rose-300'}`}
                               >
                                 <input
                                   type="checkbox"
@@ -4770,7 +4770,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                     </div>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase s.isChecked ? text-emerald-600 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
+                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                                   {s.isChecked ? 'Verified' : 'Missing'}
                                 </span>
                               </label>
@@ -4814,7 +4814,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <button
                 type="button"
                 onClick={() => setReceivingShipmentModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>
@@ -4911,7 +4911,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   type="button"
                   disabled={isProcessingCancel}
                   onClick={() => setDirectCancelModalShipment(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
                 >
                   Close
                 </button>
@@ -5007,7 +5007,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   type="button"
                   disabled={isProcessingCancel}
                   onClick={() => setRequestCancelModalShipment(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -5065,7 +5065,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 type="button"
                 disabled={isProcessingCancel}
                 onClick={() => setCancelPendingRequestModal(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
               >
                 Keep Request
               </button>

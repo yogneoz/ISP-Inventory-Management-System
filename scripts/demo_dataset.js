@@ -263,6 +263,10 @@ export function buildDemoDataset(branches) {
   ];
 
   // Demo categories derived from the demo products (demo-cat-* namespace).
+  // ISP hardware categories (Onu Router, Drop Cable, Fiber) are pre-enabled
+  // for Special Hardware tracking so the Dashboard table has tabs out of the box.
+  const SPECIAL_TRACKED_DEFAULT = new Set(['Onu Router', 'Drop Cable', 'Fiber']);
+
   const demoCategories = Array.from(new Set(demoProducts.map((p) => p.category)))
     .sort()
     .map((name, idx) => ({
@@ -270,6 +274,7 @@ export function buildDemoDataset(branches) {
       name,
       code: `DEMO_${name.toUpperCase().replace(/\s+/g, '_').slice(0, 12)}`,
       description: `${name} Inventory Category (demo)`,
+      isSpecialTracked: SPECIAL_TRACKED_DEFAULT.has(name),
       isDemo: true,
     }));
 

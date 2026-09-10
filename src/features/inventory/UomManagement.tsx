@@ -171,7 +171,7 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
                 </tr>
               ) : (
                 filteredUoms.map((u) => (
-                  <tr key={u.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                  <tr key={u.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                     <td className="px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                       {u.symbol}
                     </td>
@@ -199,7 +199,7 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
                           <button
                             onClick={() => openEditModal(u)}
                             title="Edit UoM"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </button>
@@ -298,7 +298,7 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

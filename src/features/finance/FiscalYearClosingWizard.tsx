@@ -316,7 +316,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 setAuthError('');
               }}
               disabled={isProcessingStep}
-              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
             >
               Unlock Period…
             </button>
@@ -396,10 +396,10 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <button
                 key={step.number}
                 onClick={() => setCurrentStep(step.number)}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left isActive ? bg-indigo-600 text-white font-bold shadow-md : bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200`}
+                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${isActive ? 'bg-indigo-600 text-white font-bold shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
               >
                 <div
-                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold isActive ? bg-white text-indigo-700 : bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300`}
+                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${isActive ? 'bg-white text-indigo-700' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}
                 >
                   {step.number}
                 </div>
@@ -688,7 +688,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
               currentStep === 1
                 ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                : 'border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
             }`}
           >
             <ArrowLeft className="h-4 w-4" />

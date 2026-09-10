@@ -253,7 +253,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
 
       {/* Required Field Status Banner */}
       <div
-        className={`p-4 rounded-xl border flex items-center justify-between gap-4 transition-all isFormValid ? bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-800/80 dark:text-emerald-200 : bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800/80 dark:text-amber-200`}
+        className={`p-4 rounded-xl border flex items-center justify-between gap-4 transition-all ${isFormValid ? 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-800/80 dark:text-emerald-200' : 'bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800/80 dark:text-amber-200'}`}
       >
         <div className="flex items-center gap-3">
           {isFormValid ? (
@@ -333,7 +333,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => handleBlur('name')}
                     placeholder="e.g. IZONE DIGITAL NETWORK PVT. LTD."
-                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all touched.name && !isNameValid ? border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30 : bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500`}
+                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all ${touched.name && !isNameValid ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30' : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500'}`}
                   />
                   {touched.name && !isNameValid && (
                     <p className="text-[11px] font-bold text-rose-500 mt-1">
@@ -354,7 +354,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     onChange={(e) => setAddress(e.target.value)}
                     onBlur={() => handleBlur('address')}
                     placeholder="e.g. Example Street, Example City, Nepal"
-                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all touched.address && !isAddressValid ? border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30 : bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500`}
+                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all ${touched.address && !isAddressValid ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30' : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500'}`}
                   />
                   {touched.address && !isAddressValid && (
                     <p className="text-[11px] font-bold text-rose-500 mt-1">
@@ -375,7 +375,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     onChange={(e) => setPanVatNumber(e.target.value)}
                     onBlur={() => handleBlur('panVatNumber')}
                     placeholder="e.g. 000000000"
-                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-mono font-bold transition-all touched.panVatNumber && !isPanVatValid ? border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30 : bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500`}
+                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-mono font-bold transition-all ${touched.panVatNumber && !isPanVatValid ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30' : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500'}`}
                   />
                   {touched.panVatNumber && !isPanVatValid && (
                     <p className="text-[11px] font-bold text-rose-500 mt-1">
@@ -622,7 +622,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                         className={`p-2.5 rounded-xl border flex items-center gap-2 text-xs font-bold transition-all cursor-pointer ${
                           isSelected
                             ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200 ring-2 ring-indigo-500/30'
-                            : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                            : 'border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         <div className={`p-1 rounded-md text-white ${preset.color}`}>

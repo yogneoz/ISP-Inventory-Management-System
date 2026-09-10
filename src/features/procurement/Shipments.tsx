@@ -701,12 +701,12 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           type="button"
           id="tab-shipment-register"
           onClick={() => setInternalTab('REGISTER')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'REGISTER ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${internalTab === 'REGISTER' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <History className="h-4 w-4" />
           <span>Shipment & Transfer Register</span>
           <span
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold 'internalTab === 'REGISTER ? bg-indigo-800 text-white : bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${internalTab === 'REGISTER' ? 'bg-indigo-800 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
           >
             {filteredShipments.length}
           </span>
@@ -716,7 +716,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
           type="button"
           id="tab-shipment-form"
           onClick={() => setInternalTab('CREATE_SHIPMENT')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'CREATE_SHIPMENT ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${internalTab === 'CREATE_SHIPMENT' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
         >
           <Send className="h-4 w-4" />
           <span>New Warehouse Dispatch & Sale Form (Inline POS & Scan)</span>
@@ -738,7 +738,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             type="button"
             id="tab-shipment-view"
             onClick={() => setInternalTab('VIEW')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer 'internalTab === 'VIEW ? bg-indigo-600 text-white shadow-sm : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800`}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${internalTab === 'VIEW' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'}`}
           >
             <Eye className="h-4 w-4" />
             <span>Manifest Details #{viewingShipment.trackingCode}</span>
@@ -762,7 +762,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             <button
               type="button"
               onClick={() => setInternalTab('REGISTER')}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
             >
               Switch to Register List
             </button>
@@ -1003,7 +1003,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 <button
                   type="button"
                   onClick={() => setInternalTab('REGISTER')}
-                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1109,7 +1109,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             <button
               type="button"
               onClick={handleResetShipmentFilters}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span>Clear Filters</span>
@@ -1157,7 +1157,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                       );
 
                       return (
-                      <tr key={sh.id} className={`transition-colors pendingCancelReq ? bg-amber-50/40 hover:bg-amber-50/70 dark:bg-amber-950/20 dark:hover:bg-amber-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                      <tr key={sh.id} className={`transition-colors ${pendingCancelReq ? 'bg-amber-50/40 hover:bg-amber-50/70 dark:bg-amber-950/20 dark:hover:bg-amber-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}>
                         <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                           {sh.trackingCode}
                         </td>
@@ -1206,7 +1206,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                 setInternalTab('VIEW');
                               }}
                               title="View Shipment Details"
-                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </button>
@@ -1525,7 +1525,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 <button
                   type="button"
                   onClick={() => setInternalTab('REGISTER')}
-                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1769,7 +1769,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                     </div>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase s.isChecked ? text-emerald-600 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
+                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                                   {s.isChecked ? 'Verified' : 'Missing'}
                                 </span>
                               </label>
@@ -1813,7 +1813,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <button
                 type="button"
                 onClick={() => setReceivingShipmentModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>
@@ -1911,7 +1911,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   type="button"
                   disabled={isProcessingCancel}
                   onClick={() => setDirectCancelModalShipment(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Close
                 </button>
@@ -2008,7 +2008,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   type="button"
                   disabled={isProcessingCancel}
                   onClick={() => setRequestCancelModalShipment(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Close
                 </button>
@@ -2063,7 +2063,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   type="button"
                   disabled={isProcessingCancel}
                   onClick={() => setCancelPendingRequestModal(null)}
-                  className="px-4 py-2 rounded-xl font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Keep Request
                 </button>

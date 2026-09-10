@@ -970,7 +970,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
             <div className={`p-2 rounded-xl border bg-white/70 border-purple-200 dark:bg-slate-900/80 dark:border-purple-800`}>
               <span className={`text-[10px] font-bold block text-purple-600 dark:text-purple-400`}>Net Valuation Impact</span>
-              <span className={`font-extrabold font-mono stats.netValueVariance >= 0 ? text-emerald-600 dark:text-emerald-400 : text-rose-600 dark:text-rose-400`}>
+              <span className={`font-extrabold font-mono ${stats.netValueVariance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                 {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
@@ -1056,7 +1056,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           <button
             type="button"
             onClick={() => setActiveAuditTab('SINGLE_BRANCH')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer 'activeAuditTab === 'SINGLE_BRANCH ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeAuditTab === 'SINGLE_BRANCH' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
           >
             <Building className="h-4 w-4" />
             <span>Branch Floor Audit Session ({activeBranch?.name})</span>
@@ -1070,7 +1070,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           <button
             type="button"
             onClick={() => setActiveAuditTab('CONSOLIDATED_MATRIX')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer 'activeAuditTab === 'CONSOLIDATED_MATRIX ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeAuditTab === 'CONSOLIDATED_MATRIX' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
           >
             <TableProperties className="h-4 w-4" />
             <span>Multi-Branch Audit Matrix & Approver View</span>
@@ -1170,7 +1170,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     );
                     setTimeout(() => setToastMessage(null), 4000);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border isCompanyWideBlindCount ? bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40 : bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700`}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${isCompanyWideBlindCount ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'}`}
                   title="Enable Blind Count Mode across all company branches simultaneously"
                 >
                   <Lock className={`h-4 w-4 ${isCompanyWideBlindCount ? 'text-purple-200' : 'text-purple-500'}`} />
@@ -1214,7 +1214,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     : 'Blind Stock Audit: Hide book quantities from floor count staff to prevent bias'
                 }
               >
-                <Lock className={`h-4 w-4 isEffectiveBlindAudit ? text-slate-950 dark:text-amber-400 : text-amber-500`} />
+                <Lock className={`h-4 w-4 ${isEffectiveBlindAudit ? 'text-slate-950 dark:text-amber-400' : 'text-amber-500'}`} />
                 <span>
                   Branch Blind Count: {isCompanyWideBlindCount ? 'ON (Enforced)' : isBlindAuditMode ? 'ON (Hidden)' : 'OFF'}
                 </span>
@@ -1240,7 +1240,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
                 title="Download Branch Audit CSV Report"
               >
                 <FileSpreadsheet className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
@@ -1254,7 +1254,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   id="btn-submit-stock-audit-approval"
                   onClick={() => setShowApprovalModal(true)}
                   disabled={stats.discrepancyCount === 0 || isTableLocked}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer stats.discrepancyCount > 0 && !isTableLocked ? bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95 : bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer stats.discrepancyCount > ${0 && !isTableLocked ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
                   title={
                     stats.discrepancyCount === 0
                       ? 'No stock count discrepancies to submit'
@@ -1278,7 +1278,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     }
                   }}
                   disabled={stats.discrepancyCount === 0 && !pendingAuditRequest}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all stats.discrepancyCount > 0 || pendingAuditRequest ? bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95 : bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60`}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all stats.discrepancyCount > ${0 || pendingAuditRequest ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95' : 'bg-slate-400 text-slate-200 cursor-not-allowed opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:cursor-not-allowed dark:opacity-60'}`}
                   title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
                 >
                   <CheckCircle2 className="h-4 w-4" />
@@ -1322,7 +1322,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
         {/* Card 3: Shortage (-) */}
         <div
-          className={`p-4 rounded-2xl border stats.shortageQty > 0 ? bg-rose-50/70 border-rose-200 text-rose-950 dark:bg-rose-950/40 dark:border-rose-900/50 dark:text-rose-100 : bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
+          className={`p-4 rounded-2xl border ${stats.shortageQty > 0 ? 'bg-rose-50/70 border-rose-200 text-rose-950 dark:bg-rose-950/40 dark:border-rose-900/50 dark:text-rose-100' : 'bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800'}`}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1">
             <TrendingDown className="h-3 w-3" />
@@ -1338,7 +1338,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
         {/* Card 4: Excess (+) */}
         <div
-          className={`p-4 rounded-2xl border stats.excessQty > 0 ? bg-emerald-50/70 border-emerald-200 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-900/50 dark:text-emerald-100 : bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
+          className={`p-4 rounded-2xl border ${stats.excessQty > 0 ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-900/50 dark:text-emerald-100' : 'bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800'}`}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
             <TrendingUp className="h-3 w-3" />
@@ -1496,7 +1496,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               type="button"
               onClick={handleSetZeroAll}
               disabled={isTableLocked}
-              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-200 hover:bg-slate-100 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
+              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-200 hover:bg-slate-200 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
               title="Zero out all physical counts for fresh manual stock count"
             >
               Zero All Counts
@@ -1542,7 +1542,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   return (
                     <tr
                       key={row.productId}
-                      className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors ${
+                      className={`hover:bg-slate-100/60 dark:hover:bg-slate-800/40 transition-colors ${
                         variance !== 0
                           ? variance < 0
                             ? isDarkMode ? 'bg-rose-950/20' : 'bg-rose-500/5'
@@ -1819,7 +1819,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-slate-300`}
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Export Full Company Matrix CSV</span>
@@ -1874,7 +1874,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       return matchSearch && matchCat;
                     })
                     .map((row) => (
-                      <tr key={row.productId} className={`transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/40`}>
+                      <tr key={row.productId} className={`transition-colors hover:bg-slate-100/60 dark:hover:bg-slate-800/40`}>
                         <td className={`p-2.5 font-sans sticky left-0 z-10 border-r bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-700`}>
                           <div className={`font-bold text-xs text-slate-900 dark:text-slate-100`}>{row.productName}</div>
                           <div className={`text-[10px] font-mono text-slate-400 dark:text-slate-400`}>{row.sku}</div>
@@ -1888,7 +1888,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             <div className={`font-bold text-slate-800 dark:text-slate-200`}>{b.countedQty}</div>
                             <div className={`text-[10px] font-normal text-slate-400 dark:text-slate-500`}>Bk: {b.bookQty}</div>
                             {b.variance !== 0 && (
-                              <div className={`text-[10px] font-black b.variance < 0 ? text-rose-600 dark:text-rose-400 : text-emerald-600 dark:text-emerald-400`}>
+                              <div className={`text-[10px] font-black ${b.variance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                 {b.variance > 0 ? `+${b.variance}` : b.variance}
                               </div>
                             )}
@@ -2051,7 +2051,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowApprovalModal(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>
@@ -2176,7 +2176,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 type="button"
                 onClick={() => setShowApproveReconcileModal(false)}
                 disabled={isSubmitting}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>
@@ -2235,7 +2235,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowRejectModal(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>
@@ -2286,7 +2286,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDirectReconcileModal(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>
@@ -2347,7 +2347,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowConsolidatedModal(false)}
-                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -2426,7 +2426,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     return (
                       <tr
                         key={item.productId}
-                        className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 ${
+                        className={`hover:bg-slate-100/60 dark:hover:bg-slate-800/40 ${
                           item.companyTotalVarianceQty !== 0
                             ? item.companyTotalVarianceQty < 0
                               ? 'bg-rose-500/5'

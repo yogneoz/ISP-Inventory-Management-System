@@ -96,7 +96,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Download className="h-3.5 w-3.5 text-slate-400" />
             <span>Export IRD CSV</span>
@@ -104,7 +104,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
           <button
             onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
             <span>Print Register</span>
@@ -181,19 +181,19 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
           <span className="text-xs font-semibold text-slate-400">VAT Rate:</span>
           <button
             onClick={() => setVatTypeFilter('ALL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer 'vatTypeFilter === 'ALL ? bg-indigo-600 text-white : bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
           >
             All Rates
           </button>
           <button
             onClick={() => setVatTypeFilter('13%')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer 'vatTypeFilter === '13% ? bg-indigo-600 text-white : bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '13%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
           >
             13% Taxable
           </button>
           <button
             onClick={() => setVatTypeFilter('0%')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer 'vatTypeFilter === '0% ? bg-indigo-600 text-white : bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '0%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
           >
             0% Exempt
           </button>
@@ -235,7 +235,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                   return (
                     <tr
                       key={inv.id}
-                      className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors text-slate-800 dark:text-slate-300`}
+                      className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 transition-colors text-slate-800 dark:text-slate-300`}
                     >
                       <td className={`px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                         {inv.invoiceNumber}

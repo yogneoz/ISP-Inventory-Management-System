@@ -358,35 +358,35 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
             <button
               type="button"
               onClick={() => setSelectedCategory('ALL')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${selectedCategory === 'ALL' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'}`}
             >
               All ({docConfigs.length})
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('PROCUREMENT_SALES')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'PROCUREMENT_SALES ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${selectedCategory === 'PROCUREMENT_SALES' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'}`}
             >
               Procurement & Sales (7)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('INVENTORY_OPS')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'INVENTORY_OPS ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${selectedCategory === 'INVENTORY_OPS' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'}`}
             >
               Branch Ops & Stock (6)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('FIXED_ASSETS')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'FIXED_ASSETS ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${selectedCategory === 'FIXED_ASSETS' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'}`}
             >
               Fixed Assets (2)
             </button>
             <button
               type="button"
               onClick={() => setSelectedCategory('FINANCE_TAX')}
-              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap 'selectedCategory === 'FINANCE_TAX ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800`}
+              className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors whitespace-nowrap ${selectedCategory === 'FINANCE_TAX' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'}`}
             >
               Finance & Vouchers (3)
             </button>
@@ -481,7 +481,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
                       </td>
 
                       <td className="p-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border config.resetEveryFiscalYear ? bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-500/30 : bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${config.resetEveryFiscalYear ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-500/30' : 'bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'}`}>
                           {config.resetEveryFiscalYear ? 'Yes' : 'No'}
                         </span>
                       </td>
@@ -546,7 +546,7 @@ export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
           {Object.entries(periodLocks).map(([periodName, isLocked]) => (
             <div
               key={periodName}
-              className={`p-3.5 rounded-xl border flex items-center justify-between isLocked ? bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800/60 dark:text-amber-300 : bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}
+              className={`p-3.5 rounded-xl border flex items-center justify-between ${isLocked ? 'bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800/60 dark:text-amber-300' : 'bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}
             >
               <div>
                 <span className="text-xs font-bold block">{periodName}</span>

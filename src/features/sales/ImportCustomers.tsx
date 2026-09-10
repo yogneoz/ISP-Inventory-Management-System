@@ -272,7 +272,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
           >
             <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
             <span>Download CSV Template (.csv)</span>
@@ -317,7 +317,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
               <span className={`text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400`}>.csv, .txt</span>
             </div>
 
-            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all selectedFileName ? border-emerald-500 bg-emerald-50/50 dark:border-emerald-500 dark:bg-emerald-950/20 : border-slate-300 bg-slate-50 hover:border-emerald-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700`}>
+            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${selectedFileName ? 'border-emerald-500 bg-emerald-50/50 dark:border-emerald-500 dark:bg-emerald-950/20' : 'border-slate-300 bg-slate-50 hover:border-emerald-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700'}`}>
               <input
                 type="file"
                 accept=".csv, text/csv, .txt"
@@ -412,7 +412,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                   </tr>
                 ) : (
                   rowsPagination.pagedItems.map((row, idx) => (
-                    <tr key={idx} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                    <tr key={idx} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="p-2.5">
                         <div className={`font-mono font-bold text-[11px] text-indigo-600 dark:text-indigo-400`}>{row.customerId}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.customerName}</div>

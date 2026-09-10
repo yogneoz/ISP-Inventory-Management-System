@@ -259,7 +259,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                   <button
                     type="button"
                     onClick={onLogout}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 px-4 py-2 text-xs font-bold transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 px-4 py-2 text-xs font-bold transition-colors cursor-pointer"
                   >
                     <LogOut className="h-3.5 w-3.5" />
                     <span>Log Out &amp; Re-authenticate</span>

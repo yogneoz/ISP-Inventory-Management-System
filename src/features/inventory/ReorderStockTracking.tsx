@@ -432,7 +432,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
           {/* Toggle Reorder Filter */}
           <button
             onClick={() => setShowOnlyReorder(!showOnlyReorder)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer showOnlyReorder ? bg-rose-600 text-white border-rose-600 : bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${showOnlyReorder ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
           >
             {showOnlyReorder ? 'Reorder Alerts Only' : 'Show All Items'}
           </button>
@@ -490,7 +490,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 </tr>
               ) : (
                 reorderPagination.pagedItems.map(({ prod, totalOnHand, totalConsolidatedReorderLevel, totalDeficit, isBelowMinOverall }) => (
-                  <tr key={prod.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                  <tr key={prod.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                     <td className={`px-2.5 py-1.5 sticky left-0 z-10 border-r font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
                       <div className={`font-bold text-xs text-slate-900 dark:text-white`}>{prod.name}</div>
                       <div className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono`}>
@@ -512,7 +512,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       {totalConsolidatedReorderLevel} {prod.unit}
                     </td>
 
-                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold totalOnHand <= totalConsolidatedReorderLevel ? text-rose-600 dark:text-rose-400 : text-emerald-600 dark:text-emerald-400`}>
+                    <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${totalOnHand <= totalConsolidatedReorderLevel ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       {totalOnHand} {prod.unit}
                     </td>
 
@@ -556,12 +556,12 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       return (
                         <td
                           key={b.id}
-                          className={`px-2.5 py-1.5 text-center border-l font-medium border-slate-200 dark:border-slate-800 isLow ? bg-rose-50/60 dark:bg-rose-950/20 : `}
+                          className={`px-2.5 py-1.5 text-center border-l font-medium border-slate-200 dark:border-slate-800 ${isLow ? 'bg-rose-50/60 dark:bg-rose-950/20' : ''}`}
                         >
                           <div className="flex items-center justify-between gap-1">
                             <div className="flex flex-col items-start text-left">
                               <div className="flex items-center gap-1 font-mono text-xs">
-                                <span className={`font-bold isLow ? text-rose-600 dark:text-rose-400 : text-slate-800 dark:text-slate-200`}>
+                                <span className={`font-bold ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}`}>
                                   {onHand}
                                 </span>
                                 <span className="text-[10px] text-slate-400">{prod.unit}</span>
@@ -716,7 +716,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingStock(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -764,7 +764,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                   Select Synchronization Pattern:
                 </label>
 
-                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all 'bulkStrategy === 'EQUAL_PRODUCT ? border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 : border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900`}>
+                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${bulkStrategy === 'EQUAL_PRODUCT' ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30' : 'border-slate-200 hover:bg-slate-200 dark:border-slate-800 dark:hover:bg-slate-900'}`}>
                   <input
                     type="radio"
                     name="strategy"
@@ -782,7 +782,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                   </div>
                 </label>
 
-                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all 'bulkStrategy === 'HQ_WEIGHTED ? border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 : border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900`}>
+                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${bulkStrategy === 'HQ_WEIGHTED' ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30' : 'border-slate-200 hover:bg-slate-200 dark:border-slate-800 dark:hover:bg-slate-900'}`}>
                   <input
                     type="radio"
                     name="strategy"
@@ -805,7 +805,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowBulkModal(false)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

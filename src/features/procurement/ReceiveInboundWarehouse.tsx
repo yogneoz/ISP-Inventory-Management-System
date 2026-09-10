@@ -228,7 +228,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setActiveTab('PULLOUTS')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer 'activeTab === 'PULLOUTS ? bg-indigo-600 text-white shadow-md : bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800`}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer ${activeTab === 'PULLOUTS' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800'}`}
         >
           <Truck className="h-4 w-4" />
           <span>1. Inbound Branch Pullout Bins</span>
@@ -241,7 +241,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
         <button
           onClick={() => setActiveTab('SHIPMENTS')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer 'activeTab === 'SHIPMENTS ? bg-sky-600 text-white shadow-md : bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800`}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all cursor-pointer ${activeTab === 'SHIPMENTS' ? 'bg-sky-600 text-white shadow-md' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-white dark:border dark:border-slate-800'}`}
         >
           <Package className="h-4 w-4" />
           <span>2. Inbound Warehouse Shipments</span>
@@ -261,7 +261,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
             <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
               <button
                 onClick={() => setPulloutStatusFilter('PENDING')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'PENDING ? bg-amber-600 text-white shadow-xs : bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800 dark:text-amber-400 dark:hover:bg-slate-700`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${pulloutStatusFilter === 'PENDING' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800 dark:text-amber-400 dark:hover:bg-slate-700'}`}
               >
                 <Clock className="h-3.5 w-3.5" />
                 <span>Pending Receipt ({pendingPulloutCount})</span>
@@ -269,7 +269,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setPulloutStatusFilter('RECEIVED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${pulloutStatusFilter === 'RECEIVED' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700'}`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Received at WH001 ({receivedPulloutCount})</span>
@@ -277,7 +277,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setPulloutStatusFilter('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 'pulloutStatusFilter === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${pulloutStatusFilter === 'ALL' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
               >
                 <span>All Bins ({allPullouts.length})</span>
               </button>
@@ -332,7 +332,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 return (
                   <div
                     key={op.id}
-                    className={`p-5 rounded-3xl border transition-all isReceived ? bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 : bg-gradient-to-br from-indigo-50/50 via-white to-white border-indigo-200 shadow-sm dark:bg-gradient-to-br dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-900/50 dark:shadow-md`}
+                    className={`p-5 rounded-3xl border transition-all ${isReceived ? 'bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800' : 'bg-gradient-to-br from-indigo-50/50 via-white to-white border-indigo-200 shadow-sm dark:bg-gradient-to-br dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-900/50 dark:shadow-md'}`}
                   >
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                       <div>
@@ -413,7 +413,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                           </thead>
                           <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                             {op.items.map((item) => (
-                              <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              <tr key={item.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                                 <td className="p-2.5">
                                   <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[10px] block`}>
                                     [{item.sku}]
@@ -480,7 +480,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShipmentStatusFilter('PENDING')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer 'shipmentStatusFilter === 'PENDING ? bg-sky-600 text-white shadow-xs : bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800 dark:text-sky-400 dark:hover:bg-slate-700`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${shipmentStatusFilter === 'PENDING' ? 'bg-sky-600 text-white shadow-xs' : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 dark:bg-slate-800 dark:text-sky-400 dark:hover:bg-slate-700'}`}
               >
                 <Clock className="h-3.5 w-3.5" />
                 <span>In-Transit ({pendingShipmentCount})</span>
@@ -488,7 +488,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
               <button
                 onClick={() => setShipmentStatusFilter('RECEIVED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer 'shipmentStatusFilter === 'RECEIVED ? bg-emerald-600 text-white shadow-xs : bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${shipmentStatusFilter === 'RECEIVED' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700'}`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Received ({inboundShipments.length - pendingShipmentCount})</span>
@@ -587,7 +587,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
               </div>
               <button
                 onClick={() => setSelectedPulloutToReceive(null)}
-                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all cursor-pointer"
+                className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -652,7 +652,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                 <button
                   type="button"
                   onClick={() => setSelectedPulloutToReceive(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>

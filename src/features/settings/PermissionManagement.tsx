@@ -483,7 +483,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleReset}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Defaults</span>
@@ -667,7 +667,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                         {group.operations.map((op) => (
                           <tr
                             key={op.id}
-                            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                            className="hover:bg-slate-100/80 dark:hover:bg-slate-800/40 transition-colors"
                           >
                             <td className="p-2.5">
                               <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">
@@ -681,7 +681,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                               const isChecked = op.permissions[role.key];
                               return (
                                 <td key={role.key} className="p-2.5 text-center align-middle">
-                                  <label className="inline-flex items-center justify-center cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                  <label className="inline-flex items-center justify-center cursor-pointer p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
                                     <input
                                       type="checkbox"
                                       checked={isChecked}

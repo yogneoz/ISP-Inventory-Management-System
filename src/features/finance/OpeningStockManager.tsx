@@ -475,7 +475,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           type="button"
           onClick={handleExport}
           disabled={loading || filteredRows.length === 0}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
         >
           <Download className="h-3.5 w-3.5" /> Export CSV
         </button>
@@ -483,7 +483,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           <button
             type="button"
             onClick={() => setShowAddRow(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-50 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800`}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-200 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800`}
           >
             <Plus className="h-3.5 w-3.5" /> Add Row
           </button>
@@ -503,7 +503,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       {/* ===== Save / generate feedback ===== */}
       {(saveMessage || genMessage) && (
         <div
-          className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold shrink-0 'saveMessage?.type === 'error || (genMessage && !data?.rows.length) ? bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300 : bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300`}
+          className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold shrink-0 'saveMessage?.type === 'error || ${(genMessage && !data?.rows.length) ? 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300'}`}
         >
           {saveMessage?.type === 'error' ? (
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -607,7 +607,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                   return (
                     <tr
                       key={row.id}
-                      className={`border-b transition-colors border-slate-100 dark:border-slate-800/70 changed ? bg-amber-50 dark:bg-amber-500/10 : `}
+                      className={`border-b transition-colors border-slate-100 dark:border-slate-800/70 ${changed ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}
                     >
                       <td className="px-3 py-2">
                         <div className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
@@ -669,7 +669,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
                       </td>
                       <td className="px-3 py-2">
                         <span
-                          className={`text-xs font-semibold valueMismatchesLive ? text-amber-500 : text-slate-400 dark:text-slate-500`}
+                          className={`text-xs font-semibold ${valueMismatchesLive ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
                         >
                           {row.liveQty}
                           {valueMismatchesLive ? ' ⚠' : ''}
@@ -790,7 +790,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAddRow(false)}
-                className={`px-4 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
+                className={`px-4 py-2 rounded-lg border text-xs font-bold border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
                 Cancel
               </button>

@@ -555,7 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={group.id}
                 onClick={() => handlePrimaryGroupClick(group.id)}
                 title={group.title}
-                className={`w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all cursor-pointer relative group isActive ? bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs dark:bg-indigo-600/25 dark:text-indigo-300 dark:font-bold dark:border dark:border-indigo-500/50 dark:shadow-xs : text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60`}
+                className={`w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all cursor-pointer relative group ${isActive ? 'bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs dark:bg-indigo-600/25 dark:text-indigo-300 dark:font-bold dark:border dark:border-indigo-500/50 dark:shadow-xs' : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'}`}
               >
                 <div className="relative">
                   <GroupIcon className={`h-5 w-5 ${isActive ? 'scale-110 text-indigo-500' : ''}`} />
@@ -677,7 +677,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer font-medium ${
                       isActive
                         ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
-                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
+                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-200 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">

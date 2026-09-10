@@ -265,7 +265,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
 
                         <button
                           onClick={() => handleCopyCoords(loc)}
-                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                           title="Copy GPS Coordinates"
                         >
                           {copiedId === loc.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
@@ -275,7 +275,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                           href={`https://maps.google.com/?q=${loc.coordinates.latitude},${loc.coordinates.longitude}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                           title="View on Google Maps"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
@@ -446,7 +446,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>

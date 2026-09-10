@@ -217,7 +217,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCsv}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
           >
             <Download className="h-4 w-4" />
             <span>Download CSV Template</span>
@@ -262,7 +262,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
               <span className="text-[10px] text-slate-400 font-mono">.csv, .txt</span>
             </div>
 
-            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all selectedFileName ? border-indigo-500 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/20 : border-slate-300 bg-slate-50 hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700`}>
+            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${selectedFileName ? 'border-indigo-500 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/20' : 'border-slate-300 bg-slate-50 hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700'}`}>
               <input
                 type="file"
                 accept=".csv,.txt"
@@ -357,7 +357,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                   </tr>
                 ) : (
                   parsedRows.map((row, idx) => (
-                    <tr key={idx} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                    <tr key={idx} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="p-2.5">
                         <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]`}>{row.sku}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.name}</div>

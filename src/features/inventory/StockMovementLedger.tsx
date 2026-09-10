@@ -623,13 +623,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
           <div className={`p-0.5 rounded-lg border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <button
               onClick={() => setViewTab('SUMMARY_MATRIX')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer 'viewTab === 'SUMMARY_MATRIX ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'SUMMARY_MATRIX' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
             >
               Summary Matrix
             </button>
             <button
               onClick={() => setViewTab('TRANSACTION_LOGS')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer 'viewTab === 'TRANSACTION_LOGS ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'TRANSACTION_LOGS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
             >
               Event Logs ({filteredLogs.length})
             </button>
@@ -666,7 +666,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   </tr>
                 ) : (
                   productLedgerPagination.pagedItems.map(({ prod, unitCost, openingQty, openingValue, receivedQty, receivedValue, deliveredQty, deliveredValue, damagedQty, damagedValue, closingQty, closingValue }) => (
-                    <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={prod.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                       <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white dark:bg-[#0f1218]`}>
                         <div className={`font-bold text-slate-900 dark:text-white`}>{prod.name}</div>
                         <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>SKU: {prod.sku} • {prod.category}</div>
@@ -802,7 +802,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     const movementVal = Math.abs(log.quantityChanged) * log.unitCost;
 
                     return (
-                      <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <tr key={log.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                         <td className={`p-2.5 font-bold font-mono text-indigo-500 dark:text-indigo-400`}>{log.transactionNumber}</td>
                         <td className="p-2.5 text-slate-500">{formattedDate}</td>
                         <td className="p-2.5">
@@ -826,12 +826,12 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                           </span>
                         </td>
                         <td className="p-2.5 text-center font-mono text-slate-400">{log.quantityBefore}</td>
-                        <td className={`p-2.5 text-center font-mono font-bold isPositive ? text-emerald-500 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
+                        <td className={`p-2.5 text-center font-mono font-bold ${isPositive ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           {isPositive ? `+${log.quantityChanged}` : log.quantityChanged}
                         </td>
                         <td className="p-2.5 text-center font-mono font-bold">{log.quantityAfter}</td>
                         <td className="p-2.5 text-right font-mono text-slate-500">रु {(log.unitCost ?? 0).toLocaleString('en-IN')}</td>
-                        <td className={`p-2.5 text-right font-mono font-bold isPositive ? text-emerald-500 dark:text-emerald-400 : text-sky-500 dark:text-sky-400`}>
+                        <td className={`p-2.5 text-right font-mono font-bold ${isPositive ? 'text-emerald-500 dark:text-emerald-400' : 'text-sky-500 dark:text-sky-400'}`}>
                           रु {(movementVal ?? 0).toLocaleString('en-IN')}
                         </td>
                       </tr>
@@ -846,7 +846,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     Total Movement Logs ({filteredLogs.length} Events):
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
-                        <td className={`p-2.5 text-center font-mono font-bold totalLogQtyChanged >= 0 ? text-emerald-500 dark:text-emerald-400 : text-rose-500 dark:text-rose-400`}>
+                        <td className={`p-2.5 text-center font-mono font-bold ${totalLogQtyChanged >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                     {totalLogQtyChanged > 0 ? `+${totalLogQtyChanged}` : totalLogQtyChanged}
                   </td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>

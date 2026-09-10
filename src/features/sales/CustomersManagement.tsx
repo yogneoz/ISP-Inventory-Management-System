@@ -433,7 +433,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white`}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white`}
           >
             <Download className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
             <span>Export CSV ({filteredRecords.length})</span>
@@ -1227,7 +1227,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
+                  className={`rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -1374,7 +1374,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setApprovalTarget(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1624,7 +1624,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     setIsExchangeModalOpen(false);
                     setSelectedDeviceForExchange(null);
                   }}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1686,7 +1686,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmCancelTarget(null)}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Keep Request
               </button>

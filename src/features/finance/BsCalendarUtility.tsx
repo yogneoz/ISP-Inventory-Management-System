@@ -382,7 +382,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
 
         <button
           onClick={handleResetDefaults}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-200 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
         >
           <RotateCcw className="h-3.5 w-3.5 text-slate-400" />
           <span>Reset Calendar Defaults</span>
@@ -538,7 +538,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
 
         {seedStatus.message && (
           <div
-            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 'seedStatus.type === 'success ? bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:border-emerald-500/40 dark:text-emerald-300 : bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300`}
+            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${seedStatus.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:border-emerald-500/40 dark:text-emerald-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300'}`}
           >
             {seedStatus.type === 'success' ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
@@ -592,7 +592,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
                       {y.startAD}
                     </td>
                     <td className="p-2.5 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border totalDays === 365 ? bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800 : bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${totalDays === 365 ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800' : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'}`}>
                         {totalDays} Days
                       </span>
                     </td>

@@ -97,7 +97,7 @@ export function TablePagination({
   if (totalItems === 0) return null;
   const singlePage = totalItems <= pageSize;
 
-  const btnBase = 'border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60';
+  const btnBase = 'border-slate-200 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60';
   const btnDisabled = 'border-slate-100 text-slate-300 cursor-not-allowed dark:border-slate-800 dark:text-slate-600 dark:cursor-not-allowed';
   const activeBtn = 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-600';
 

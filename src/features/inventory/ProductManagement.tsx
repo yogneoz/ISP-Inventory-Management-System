@@ -610,7 +610,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   const qtyOnHand = getProductStockQty(p.id);
                   const grp = p.productGroup || 'Product Item';
                   return (
-                    <tr key={p.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                    <tr key={p.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="px-2.5 py-1.5">
                         <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
                           <span>{p.sku}</span>
@@ -716,7 +716,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                               <button
                                 onClick={() => openEditModal(p)}
                                 title="Edit Product Specification"
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </button>
@@ -837,7 +837,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setPrintingProduct(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -900,7 +900,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     }}
                     placeholder="e.g. ADP001"
                     title={editingProduct ? 'Product SKU code is immutable once created' : 'Enter unique product SKU'}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 editingProduct ? border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80 : border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
                     <p className="text-[9px] text-slate-400 mt-0.5">
@@ -932,7 +932,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     }}
                     placeholder="e.g. ADP001"
                     title={editingProduct ? 'Barcode is linked to SKU and cannot be altered' : 'Enter barcode'}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 editingProduct ? border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80 : border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
                     <p className="text-[9px] text-slate-400 mt-0.5">
@@ -1204,7 +1204,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <label
                     onClick={() => setRequiresSerialTracking(true)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all requiresSerialTracking ? border-indigo-500 bg-indigo-600 text-white shadow-xs : border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700`}
+                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${requiresSerialTracking ? 'border-indigo-500 bg-indigo-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
                   >
                     <input
                       type="radio"
@@ -1224,7 +1224,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                   <label
                     onClick={() => setRequiresSerialTracking(false)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all !requiresSerialTracking ? border-emerald-500 bg-emerald-600 text-white shadow-xs : border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700`}
+                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${!requiresSerialTracking ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
                   >
                     <input
                       type="radio"
@@ -1261,7 +1261,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -1443,7 +1443,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsBulkBarcodeModalOpen(false)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

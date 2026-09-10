@@ -200,7 +200,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Download className="h-3.5 w-3.5 text-slate-400" />
             <span>Export Schedule ({activeTab === 'SUMMARY' ? 'Summary' : 'Datewise'})</span>
@@ -208,7 +208,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
           <button
             onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
             <span>Print Register</span>
@@ -220,7 +220,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
       <div className={`p-1.5 rounded-2xl border flex items-center gap-2 w-fit bg-slate-100 border-slate-200 dark:bg-slate-900/80 dark:border-slate-800`}>
         <button
           onClick={() => setActiveTab('SUMMARY')}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer 'activeTab === 'SUMMARY ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
         >
           <Layers className="h-4 w-4" />
           <span>Summary Register (Grouped by Asset)</span>
@@ -233,7 +233,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
         <button
           onClick={() => setActiveTab('DATE_WISE')}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer 'activeTab === 'DATE_WISE ? bg-indigo-600 text-white shadow-md : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'DATE_WISE' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
         >
           <Calendar className="h-4 w-4" />
           <span>Datewise Purchase Register (Lot Audit Log)</span>
@@ -364,7 +364,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         {/* Parent Summary Row */}
                         <tr
                           onClick={() => toggleGroupExpand(grp.key)}
-                          className={`cursor-pointer transition-colors isExpanded ? bg-indigo-50/50 dark:bg-indigo-950/30 : hover:bg-slate-50 text-slate-800 dark:hover:bg-slate-800/40 dark:text-slate-200`}
+                          className={`cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 text-slate-800 dark:hover:bg-slate-800/40 dark:text-slate-200'}`}
                         >
                           <td className="px-2.5 py-1.5 text-center">
                             <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400">
@@ -518,7 +518,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                   sortedDatewiseAssets.map((asset) => (
                     <tr
                       key={asset.id}
-                      className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors text-slate-800 dark:text-slate-300`}
+                      className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 transition-colors text-slate-800 dark:text-slate-300`}
                     >
                       <td className={`px-2.5 py-1.5 font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
                         <div className="flex items-center gap-1.5">

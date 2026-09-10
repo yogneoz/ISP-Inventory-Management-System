@@ -10,6 +10,7 @@ import {
   FinancialSummary,
   User,
   ApprovalRequest,
+  Category,
 } from '../../types';
 import { ApprovalWorkflowCenter } from '../settings/ApprovalWorkflowCenter';
 import { formatDualDate } from '../../utils/nepaliCalendar';
@@ -33,12 +34,9 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
-  Radio,
-  Tv,
-  Cable,
-  Network,
   ArrowRight,
   SlidersHorizontal,
+  Tag,
   Lock,
   ShieldCheck,
 } from 'lucide-react';
@@ -53,6 +51,7 @@ interface DashboardProps {
   shipments: Shipment[];
   transactionLogs: TransactionLog[];
   financialSummary: FinancialSummary;
+  categories: Category[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   asOfDateAD?: string;
@@ -68,55 +67,6 @@ interface DashboardProps {
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
 }
 
-export type SpecialCategoryKey = 'ALL' | 'ROUTER' | 'DROP_CABLE' | 'TV_DEVICES' | 'FIBER';
-
-export function getSpecialCategory(prod: Product): SpecialCategoryKey | null {
-  const cat = (prod.category || '').toLowerCase();
-  const name = (prod.name || '').toLowerCase();
-
-  // Routers / ONUs / ONTs
-  if (
-    cat.includes('router') ||
-    cat.includes('onu') ||
-    cat.includes('ont') ||
-    name.includes('router') ||
-    name.includes('onu') ||
-    name.includes('ont')
-  ) {
-    return 'ROUTER';
-  }
-
-  // Drop Cables
-  if (cat.includes('drop cable') || name.includes('drop cable') || name.includes('drop')) {
-    return 'DROP_CABLE';
-  }
-
-  // TV Devices & IPTV
-  if (
-    cat.includes('tv') ||
-    cat.includes('iptv') ||
-    cat.includes('setup box') ||
-    name.includes('tv') ||
-    name.includes('iptv') ||
-    name.includes('android box') ||
-    name.includes('setup box')
-  ) {
-    return 'TV_DEVICES';
-  }
-
-  // Fiber Optics / Cables
-  if (
-    cat.includes('fiber') ||
-    name.includes('fiber') ||
-    name.includes('optical cable') ||
-    name.includes('optical fiber')
-  ) {
-    return 'FIBER';
-  }
-
-  return null;
-}
-
 export const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
   products,
@@ -127,6 +77,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   shipments,
   transactionLogs,
   financialSummary,
+  categories,
   selectedBranchId,
   dateMode,
   asOfDateAD,
@@ -144,8 +95,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [adjustAction, setAdjustAction] = useState<'ADD' | 'REMOVE'>('ADD');
   const [adjustReason, setAdjustReason] = useState('Physical Stock Audit');
 
-  // Special Hardware Table State
-  const [specialCategoryTab, setSpecialCategoryTab] = useState<SpecialCategoryKey>('ALL');
+  // Special Hardware Table State — dynamic tabs derived from categories with isSpecialTracked
+  const specialTrackedCategories = categories.filter((c) => c.isSpecialTracked);
+  const [specialCategoryTab, setSpecialCategoryTab] = useState<string>('ALL');
   const [specialSearchQuery, setSpecialSearchQuery] = useState('');
   const [expandedSpecialProductIds, setExpandedSpecialProductIds] = useState<Set<string>>(
     new Set()
@@ -293,17 +245,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const formatNPR = (val?: number | null) =>
     (val ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-  // Filter products for Special Hardware table (Router, Drop Cable, Tv Devices, Fiber)
+  // Filter products for Special Hardware table — dynamic, driven by categories where isSpecialTracked=true
+  const specialTrackedCatNames = new Set(
+    specialTrackedCategories.map((c) => c.name.toLowerCase().trim())
+  );
+
   const specialProducts = products.filter((p) => {
-    const cat = getSpecialCategory(p);
-    if (!cat) return false;
-    if (specialCategoryTab !== 'ALL' && cat !== specialCategoryTab) return false;
+    const prodCat = (p.category || '').toLowerCase().trim();
+    const isSpecial = specialTrackedCatNames.has(prodCat);
+    if (!isSpecial) return false;
+    if (specialCategoryTab !== 'ALL') {
+      // Match the selected tab's category id to the product's category name
+      const tabCat = specialTrackedCategories.find((c) => c.id === specialCategoryTab);
+      if (!tabCat) return false;
+      if (prodCat !== tabCat.name.toLowerCase().trim()) return false;
+    }
     if (specialSearchQuery.trim()) {
       const q = specialSearchQuery.toLowerCase();
       return (
         (p?.name || '').toLowerCase().includes(q) ||
         (p?.sku || '').toLowerCase().includes(q) ||
-        (p?.category || '').toLowerCase().includes(q)
+        prodCat.includes(q)
       );
     }
     return true;
@@ -454,7 +416,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <button
               onClick={() => onNavigateTab('po-list')}
-              className={`p-1 rounded-lg transition-colors cursor-pointer text-blue-600 hover:bg-slate-100 dark:text-blue-400 dark:hover:bg-slate-800`}
+              className={`p-1 rounded-lg transition-colors cursor-pointer text-blue-600 hover:bg-slate-200 dark:text-blue-400 dark:hover:bg-slate-800`}
             >
               <ArrowUpRight className="h-3.5 w-3.5" />
             </button>
@@ -562,8 +524,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {consolidatedLowStockProducts.map((prod) => {
                   const isExpanded = expandedLowStockIds.has(prod.id);
 
-                  // Branch breakdown for this low stock item
-                  const branchBreakdown = activeBranches.map((b) => {
+                  // Branch breakdown for this low stock item, scoped to the
+                  // current dashboard branch view (selected branch, or all allowed)
+                  const scopeBranches =
+                    selectedBranchId === 'ALL'
+                      ? activeBranches
+                      : activeBranches.filter((b) => b.id === selectedBranchId);
+
+                  const branchBreakdown = scopeBranches.map((b) => {
                     const st = stock.find(
                       (s) => s.productId === prod.id && s.branchId === b.id
                     );
@@ -575,7 +543,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       branchId: b.id,
                       branchName: b.name,
                       branchCode: b.code,
-                      quantityOnHand: st ? st.quantityOnHand : 0,
+                      quantityOnHand: st ? Number(st.quantityOnHand) : 0,
                       minReorderLevel: threshold,
                     };
                   });
@@ -596,7 +564,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <React.Fragment key={prod.id}>
                       <tr
                         onClick={() => toggleLowStockExpand(prod.id)}
-                        className={`transition-colors cursor-pointer isExpanded ? bg-rose-50/50 dark:bg-rose-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}
+                        className={`transition-colors cursor-pointer ${isExpanded ? 'bg-rose-50/50 dark:bg-rose-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
                       >
                         <td className="p-2.5 text-center">
                           <button
@@ -694,7 +662,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         if (onSelectBranch) onSelectBranch(bb.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer isBranchLow ? bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500 : bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500`}
+                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${isBranchLow ? 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs dark:bg-rose-950/40 dark:border-rose-800 dark:hover:border-rose-500' : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-emerald-500'}`}
                                       title={`Click to view matrix for ${bb.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -746,7 +714,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <Radio className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
+                <Package className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
                 <h3 className={`font-bold text-base ${cardTitleText}`}>
                   Special Hardware Stock (Consolidated Total)
                 </h3>
@@ -772,52 +740,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Filter Pills */}
+          {/* Filter Pills — dynamic from categories with isSpecialTracked=true */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <button
               type="button"
               onClick={() => setSpecialCategoryTab('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'ALL ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${specialCategoryTab === 'ALL' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               <span>All Special Types</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setSpecialCategoryTab('ROUTER')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'ROUTER ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
-            >
-              <Radio className="h-3.5 w-3.5 text-amber-500" />
-              <span>Routers & ONUs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSpecialCategoryTab('DROP_CABLE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'DROP_CABLE ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
-            >
-              <Cable className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Drop Cables</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSpecialCategoryTab('TV_DEVICES')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'TV_DEVICES ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
-            >
-              <Tv className="h-3.5 w-3.5 text-purple-500" />
-              <span>Tv Devices & STBs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSpecialCategoryTab('FIBER')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 'specialCategoryTab === 'FIBER ? bg-indigo-600 text-white shadow-xs : bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
-            >
-              <Network className="h-3.5 w-3.5 text-blue-500" />
-              <span>Fiber Cables</span>
-            </button>
+            {specialTrackedCategories.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSpecialCategoryTab(cat.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${specialCategoryTab === cat.id ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+              >
+                <Tag className="h-3.5 w-3.5 text-indigo-500" />
+                <span>{cat.name}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -850,10 +794,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <tbody className={`divide-y divide-slate-100 dark:divide-slate-800`}>
                 {specialProducts.map((prod) => {
                   const isExpanded = expandedSpecialProductIds.has(prod.id);
-                  const catGroup = getSpecialCategory(prod);
 
-                  // Calculate total stock across active branches for this product
-                  const branchStockBreakdown = activeBranches.map((b) => {
+                  // Calculate total stock across the branches visible in the current
+                  // dashboard scope (selected branch, or all allowed branches for ALL)
+                  const scopeBranches =
+                    selectedBranchId === 'ALL'
+                      ? activeBranches
+                      : activeBranches.filter((b) => b.id === selectedBranchId);
+
+                  const branchStockBreakdown = scopeBranches.map((b) => {
                     const stItem = stock.find(
                       (s) => s.productId === prod.id && s.branchId === b.id
                     );
@@ -861,7 +810,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       branchId: b.id,
                       branchName: b.name,
                       branchCode: b.code,
-                      quantityOnHand: stItem ? stItem.quantityOnHand : 0,
+                      quantityOnHand: stItem ? Number(stItem.quantityOnHand) : 0,
                     };
                   });
 
@@ -869,7 +818,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     (sum, b) => sum + b.quantityOnHand,
                     0
                   );
-                  const totalValuation = totalAvailableStock * prod.costPrice;
+                  // PostgreSQL returns NUMERIC columns as strings over JSON — coerce so
+                  // qty * cost cannot produce NaN in the total valuation column.
+                  const totalValuation = totalAvailableStock * Number(prod.costPrice || 0);
 
                   const isOut = totalAvailableStock <= 0;
                   const isLow =
@@ -879,7 +830,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <React.Fragment key={prod.id}>
                       <tr
                         onClick={() => toggleSpecialExpand(prod.id)}
-                        className={`transition-colors cursor-pointer isExpanded ? bg-indigo-50/50 dark:bg-indigo-950/30 : hover:bg-slate-50 dark:hover:bg-slate-800/40`}
+                        className={`transition-colors cursor-pointer ${isExpanded ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/40'}`}
                       >
                         <td className="p-2.5 text-center">
                           <button
@@ -904,11 +855,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                         <td className="p-2.5">
                           <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border 'catGroup === 'ROUTER'
-                                ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
-                                : catGroup === 'DROP_CABLE'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800'
-                                : catGroup === 'TV_DEVICES ? bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 : bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800`}
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}
                           >
                             {prod.category}
                           </span>
@@ -985,7 +932,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         if (onSelectBranch) onSelectBranch(b.branchId);
                                         onNavigateTab('branch-stock');
                                       }}
-                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer hasStock ? bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500 : bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60`}
+                                      className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${hasStock ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-xs dark:bg-slate-800/80 dark:border-slate-700 dark:hover:border-indigo-500' : 'bg-slate-100/60 border-slate-200 opacity-60 dark:bg-slate-900/40 dark:border-slate-800/80 dark:opacity-60'}`}
                                       title={`Click to view matrix for ${b.branchName}`}
                                     >
                                       <div className="flex items-center justify-between text-[11px]">
@@ -1051,7 +998,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <Layers className="h-4 w-4 text-indigo-600" />
                   <span>Branch Stock Summary Cards</span>
                   <span
-                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border !isGlobalUser ? bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800/60 : bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/60`}
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${!isGlobalUser ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800/60' : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/60'}`}
                   >
                     {!isGlobalUser
                       ? `Assigned: ${branchesToDisplay[0]?.name || currentUser?.branchId}`
@@ -1091,7 +1038,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       if (onSelectBranch) onSelectBranch(b.id);
                       onNavigateTab('branch-stock');
                     }}
-                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between isSelected ? border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50 dark:border-indigo-500 dark:bg-indigo-950/50 dark:shadow-md dark:ring-1 dark:ring-indigo-500/50 : border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50 dark:hover:shadow-md`}
+                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${isSelected ? 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50 dark:border-indigo-500 dark:bg-indigo-950/50 dark:shadow-md dark:ring-1 dark:ring-indigo-500/50' : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50 dark:hover:shadow-md'}`}
                     title={`Click to view ${b.name} inventory matrix`}
                   >
                     <div>
@@ -1195,7 +1142,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       {log.productName}
                     </span>
                     <span
-                      className={`font-mono font-bold flex items-center text-xs isPositive ? text-emerald-600 dark:text-emerald-400 : text-rose-600 dark:text-rose-400`}
+                      className={`font-mono font-bold flex items-center text-xs ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
                     >
                       {isPositive ? (
                         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1314,7 +1261,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAdjustModalOpen(false)}
-                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>

@@ -456,10 +456,10 @@ async function seedDemoData(client) {
   if (!(await skipTable('categories'))) {
     for (const c of dataset.categories) {
       await client.query(
-        `INSERT INTO categories (id, name, code, description, is_demo, created_by)
-         VALUES ($1, $2, $3, $4, TRUE, 'setup:pg demo seeder')
+        `INSERT INTO categories (id, name, code, description, is_special_tracked, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, TRUE, 'setup:pg demo seeder')
          ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.name, c.code, c.description]
+        [c.id, c.name, c.code, c.description, c.isSpecialTracked || false]
       );
     }
     summary.categories = dataset.categories.length;

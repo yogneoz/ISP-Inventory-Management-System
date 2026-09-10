@@ -564,7 +564,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                     <button
                       key={ch.id}
                       onClick={() => setActiveChapter(ch.id)}
-                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left isActive ? bg-indigo-50 text-indigo-900 border border-indigo-200 dark:bg-indigo-600/30 dark:text-indigo-300 dark:border dark:border-indigo-500/40 : text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60`}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${isActive ? 'bg-indigo-50 text-indigo-900 border border-indigo-200 dark:bg-indigo-600/30 dark:text-indigo-300 dark:border dark:border-indigo-500/40' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'}`}
                     >
                       <div className="flex items-center gap-2.5 truncate">
                         <IconComp className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
@@ -780,7 +780,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                 <button
                   key={wf.id}
                   onClick={() => setSelectedWorkflowId(wf.id)}
-                  className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative isSelected ? bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-500 shadow-md ring-2 ring-indigo-500/50 : bg-white border-slate-200 text-slate-800 hover:border-slate-300 shadow-xs dark:bg-[#151921] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700`}
+                  className={`p-4 rounded-2xl border text-left transition-all cursor-pointer relative ${isSelected ? 'bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-500 shadow-md ring-2 ring-indigo-500/50' : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 shadow-xs dark:bg-[#151921] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700'}`}
                 >
                   <span
                     className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider mb-2 ${
@@ -974,7 +974,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                   <button
                     key={cat}
                     onClick={() => setFaqCategory(cat)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer whitespace-nowrap faqCategory === cat ? bg-indigo-600 text-white shadow-xs : bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer whitespace-nowrap ${faqCategory === cat ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
                   >
                     {cat}
                   </button>

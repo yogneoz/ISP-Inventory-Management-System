@@ -91,6 +91,7 @@ export interface Category {
   name: string;
   code: string;
   description?: string;
+  isSpecialTracked?: boolean;
   productCount?: number;
 }
 

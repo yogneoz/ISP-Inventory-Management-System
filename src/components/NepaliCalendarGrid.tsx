@@ -46,7 +46,7 @@ export function NepaliCalendarGrid({
   const canPrev = yearBS > minYearBS || monthBS > 1;
   const canNext = yearBS < maxYearBS || monthBS < 12;
 
-  const navCls = `flex h-6 w-6 items-center justify-center rounded-md border text-xs disabled:cursor-not-allowed disabled:opacity-40 border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`;
+  const navCls = `flex h-6 w-6 items-center justify-center rounded-md border text-xs disabled:cursor-not-allowed disabled:opacity-40 border-slate-200 text-slate-500 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`;
 
   if (!cells) {
     return (

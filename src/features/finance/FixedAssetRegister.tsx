@@ -148,7 +148,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
           <button
             onClick={handleExportCSV}
             title="Export Assets to CSV"
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
           >
             <Download className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -236,7 +236,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     <tr
                       key={asset.id}
                       onClick={() => setSelectedAssetDetail(asset)}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                      className="hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                     >
                       <td className={`p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline`}>
                         {asset.tagNumber}
@@ -549,7 +549,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>

@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS categories (
     name VARCHAR(150) UNIQUE NOT NULL,
     code VARCHAR(30) UNIQUE NOT NULL,
     description TEXT,
+    is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -679,6 +680,9 @@ ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+
+-- v3.1 MIGRATION: Special Hardware Tracking flag on categories
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
 
 
 -- ============================================================================

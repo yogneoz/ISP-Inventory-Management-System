@@ -294,19 +294,19 @@ export const StockValuation: React.FC<StockValuationProps> = ({
         <div className={`p-1 rounded-xl border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
           <button
             onClick={() => setSubView('ITEMIZED')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer 'subView === 'ITEMIZED ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subView === 'ITEMIZED' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
           >
             Itemized Stock
           </button>
           <button
             onClick={() => setSubView('CATEGORY')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer 'subView === 'CATEGORY ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subView === 'CATEGORY' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
           >
             Category Share
           </button>
           <button
             onClick={() => setSubView('BRANCH')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer 'subView === 'BRANCH ? bg-indigo-600 text-white shadow-xs : text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subView === 'BRANCH' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
           >
             Branch Matrix
           </button>
@@ -383,7 +383,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   </tr>
                 ) : (
                   itemizedPagination.pagedItems.map(({ prod, totalOnHand, costValuation, retailValuation, potentialMargin, marginPercent, damagedLoss, totalDamaged }) => (
-                    <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={prod.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                       <td className="p-2.5">
                         <div className={`font-bold text-slate-900 dark:text-white dark:text-white`}>{prod.name}</div>
                         <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>SKU: {prod.sku}</div>
@@ -471,7 +471,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {categoryBreakdown.map((catRow) => (
-                  <tr key={catRow.category} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <tr key={catRow.category} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                     <td className={`p-2.5 font-bold text-slate-900 dark:text-white dark:text-white`}>
                       {catRow.category}
                     </td>
@@ -522,7 +522,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {branchBreakdown.map((bRow) => (
-                  <tr key={bRow.branch.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <tr key={bRow.branch.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                     <td className="p-2.5">
                       <div className={`font-bold text-slate-900 dark:text-white dark:text-white`}>
                         {bRow.branch.name}

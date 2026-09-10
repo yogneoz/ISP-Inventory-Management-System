@@ -258,7 +258,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                   }, 0);
 
                   return (
-                    <tr key={prod.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
+                    <tr key={prod.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
                         <div className={`font-bold text-xs text-slate-900 dark:text-white`}>{prod.name}</div>
                         <div className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5`}>
@@ -307,7 +307,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                       return (
                         <td
                           key={b.id}
-                          className={`p-3 text-center border-l font-medium border-slate-200 dark:border-slate-800 isLow ? bg-rose-50/60 dark:bg-rose-950/20 : `}
+                          className={`p-3 text-center border-l font-medium border-slate-200 dark:border-slate-800 ${isLow ? 'bg-rose-50/60 dark:bg-rose-950/20' : ''}`}
                         >
                           <div className="flex flex-col items-center justify-center">
                             <span

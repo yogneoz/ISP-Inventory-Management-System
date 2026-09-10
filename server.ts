@@ -808,7 +808,7 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
         pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
         pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests${approvalScope.where}`, approvalScope.params),
-        pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC'),
+        pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
         pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
@@ -2137,7 +2137,7 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   if (isPgConnected) {
     try {
-      const { rows } = await pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC');
+      const { rows } = await pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC');
       return res.json(rows);
     } catch (err: any) {
       console.warn('Database note on GET /api/categories:', err?.message || err);
@@ -2163,13 +2163,14 @@ app.post('/api/categories', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO categories (id, name, code, description)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO categories (id, name, code, description, is_special_tracked)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            code = EXCLUDED.code,
-           description = EXCLUDED.description;`,
-        [newCat.id, newCat.name, newCat.code, newCat.description]
+           description = EXCLUDED.description,
+           is_special_tracked = EXCLUDED.is_special_tracked;`,
+        [newCat.id, newCat.name, newCat.code, newCat.description, newCat.isSpecialTracked || false]
       );
     }
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
@@ -2191,8 +2192,8 @@ app.put('/api/categories/:id', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `UPDATE categories SET name = $1, code = $2, description = $3 WHERE id = $4;`,
-        [updated.name, updated.code, updated.description, id]
+        `UPDATE categories SET name = $1, code = $2, description = $3, is_special_tracked = $4 WHERE id = $5;`,
+        [updated.name, updated.code, updated.description, updated.isSpecialTracked || false, id]
       );
     }
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
@@ -6498,7 +6499,8 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(150) UNIQUE NOT NULL,
         code VARCHAR(30) UNIQUE NOT NULL,
-        description TEXT
+        description TEXT,
+        is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE
       );
 
       -- 5. Products
@@ -6967,6 +6969,7 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);

@@ -31,6 +31,7 @@ import {
   saveRecentBootstrapCache,
   loadRecentBootstrapCache,
   clearRecentBootstrapCache,
+  BOOTSTRAP_CACHE_MAX_AGE_MS,
 } from './utils/sessionCache';
 import { Header } from './components/layout/Header';
 import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
@@ -254,9 +255,23 @@ export default function App() {
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
   };
 
-  // Instant pre-hydration from recent cache
+  // Instant pre-hydration from recent cache (scoped per user+branch+FY, TTL-guarded)
+  const cacheScopeRef = useRef<{ userId?: string; branchId?: string; fiscalYearId?: string }>({
+    userId: currentUser?.id || rootUser?.id,
+    branchId: selectedBranchId,
+    fiscalYearId: selectedFiscalYearId || undefined,
+  });
+  const serverDataVersionRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
-    const cached = loadRecentBootstrapCache();
+    const cached = loadRecentBootstrapCache(cacheScopeRef.current, {
+      // Only trust snapshots saved within the last 2 minutes. Older snapshots
+      // are ignored so the UI never flashes stale operational data.
+      maxAgeMs: BOOTSTRAP_CACHE_MAX_AGE_MS,
+      // If the SSE stream already reported a server dataVersion newer than the
+      // cache's, do not hydrate from it.
+      mustHaveDataVersion: serverDataVersionRef.current,
+    });
     if (cached) {
       applyBootstrapData(cached);
       setLoading(false);
@@ -278,11 +293,19 @@ export default function App() {
       if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
         applyBootstrapData(data);
+        if (data.dataVersion) serverDataVersionRef.current = data.dataVersion;
         if (!requestFiscalYearId && data.fiscalYears?.length) {
           const defaultFy = resolveDefaultFiscalYear(data.fiscalYears);
           if (defaultFy) setSelectedFiscalYearId(defaultFy.id);
         }
-        saveRecentBootstrapCache(data);
+        // Scope the cache snapshot to the exact user + branch + FY view so a
+        // switch of any of those never leaks another view's data.
+        cacheScopeRef.current = {
+          userId: currentUser?.id || rootUser?.id,
+          branchId: requestBranchId,
+          fiscalYearId: requestFiscalYearId || undefined,
+        };
+        saveRecentBootstrapCache(data, cacheScopeRef.current);
       }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
@@ -353,6 +376,11 @@ export default function App() {
   useEffect(() => {
     let debounceTimer: any = null;
     const unsubscribe = subscribeToSyncStream((event) => {
+      // Track the latest server dataVersion so the instant pre-hydration on
+      // the next page load can refuse an outdated cached snapshot.
+      if (event && typeof event.dataVersion === 'number') {
+        serverDataVersionRef.current = event.dataVersion;
+      }
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
@@ -1012,6 +1040,7 @@ export default function App() {
                   shipments={shipments}
                   transactionLogs={transactionLogs}
                   financialSummary={financialSummary}
+                  categories={categories}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   asOfDateAD={assetReportAsOfDateAD}
