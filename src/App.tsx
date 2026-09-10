@@ -1018,7 +1018,7 @@ export default function App() {
 
         {/* Main Content Viewport */}
         <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#f8fafc] dark:bg-[#0a0c10]`}
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
         >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-3">

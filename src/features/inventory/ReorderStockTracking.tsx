@@ -490,8 +490,8 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 </tr>
               ) : (
                 reorderPagination.pagedItems.map(({ prod, totalOnHand, totalConsolidatedReorderLevel, totalDeficit, isBelowMinOverall }) => (
-                  <tr key={prod.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
-                    <td className={`px-2.5 py-1.5 sticky left-0 z-10 border-r font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+                  <tr key={prod.id} className={`group transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
+                    <td className={`px-2.5 py-1.5 sticky left-0 z-10 border-r font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800 transition-colors group-hover:bg-slate-200 dark:group-hover:bg-slate-800/40`}>
                       <div className={`font-bold text-xs text-slate-900 dark:text-white`}>{prod.name}</div>
                       <div className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono`}>
                         SKU: {prod.sku}

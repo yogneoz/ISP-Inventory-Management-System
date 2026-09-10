@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900 dark:border-b dark:border-slate-800 dark:bg-[#0a0c10]/95 dark:text-slate-300`}
+      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900 dark:border-b dark:border-slate-800 dark:bg-none dark:bg-[#0a0c10]/95 dark:text-slate-300`}
     >
       {/* Main header row */}
       <div className="flex h-13 w-full items-center justify-between px-3">

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X, ExternalLink } from 'lucide-react';
 
-interface DatabaseSetupBannerProps {  onRefresh?: () => void;
+interface DatabaseSetupBannerProps {
+  onRefresh?: () => void;
   /** True while the app is still loading its initial bootstrap data. */
   loading?: boolean;
   postgresConfig?: {
@@ -14,7 +15,8 @@ interface DatabaseSetupBannerProps {  onRefresh?: () => void;
   };
 }
 
-export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({  onRefresh,
+export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
+  onRefresh,
   loading = false,
   postgresConfig = {
     host: 'localhost',
@@ -63,7 +65,7 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({  onRe
     return (
       <div
         id="db-connected-notification-banner"
-        className={`border-b shadow-xs bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200`}
+        className={`border-b shadow-xs bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900 dark:bg-none dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200`}
       >
         <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6">
           <div className="flex items-center justify-between gap-3">
@@ -113,7 +115,7 @@ POSTGRES_PASSWORD="securepassword"`;
   return (
     <div
       id="db-setup-notification-banner"
-      className={`border-b transition-colors shadow-xs bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800/60 dark:text-amber-200`}
+      className={`border-b transition-colors shadow-xs bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-amber-300 text-amber-900 dark:bg-none dark:bg-amber-950/40 dark:border-amber-800/60 dark:text-amber-200`}
     >
       <div className="max-w-7xl mx-auto px-4 py-2.5 sm:px-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">

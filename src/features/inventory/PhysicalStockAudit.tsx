@@ -1874,8 +1874,8 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       return matchSearch && matchCat;
                     })
                     .map((row) => (
-                      <tr key={row.productId} className={`transition-colors hover:bg-slate-100/60 dark:hover:bg-slate-800/40`}>
-                        <td className={`p-2.5 font-sans sticky left-0 z-10 border-r bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-700`}>
+                      <tr key={row.productId} className={`group transition-colors hover:bg-slate-100/60 dark:hover:bg-slate-800/40`}>
+                        <td className={`p-2.5 font-sans sticky left-0 z-10 border-r bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-700 transition-colors group-hover:bg-slate-100/60 dark:group-hover:bg-slate-800/40`}>
                           <div className={`font-bold text-xs text-slate-900 dark:text-slate-100`}>{row.productName}</div>
                           <div className={`text-[10px] font-mono text-slate-400 dark:text-slate-400`}>{row.sku}</div>
                         </td>

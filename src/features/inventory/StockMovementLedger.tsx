@@ -31,7 +31,8 @@ interface StockMovementLedgerProps {
   shipments?: Shipment[];
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+}
 
 export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   transactionLogs,
@@ -43,7 +44,8 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   shipments = [],
   purchaseOrders = [],
   selectedBranchId,
-  dateMode,}) => {
+  dateMode,
+}) => {
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
   const [startDateAD, setStartDateAD] = useState<string>('');
   const [endDateAD, setEndDateAD] = useState<string>('');
@@ -666,8 +668,8 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   </tr>
                 ) : (
                   productLedgerPagination.pagedItems.map(({ prod, unitCost, openingQty, openingValue, receivedQty, receivedValue, deliveredQty, deliveredValue, damagedQty, damagedValue, closingQty, closingValue }) => (
-                    <tr key={prod.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
-                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white dark:bg-[#0f1218]`}>
+                    <tr key={prod.id} className="group transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40">
+                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white dark:bg-[#0f1218] transition-colors group-hover:bg-slate-200 dark:group-hover:bg-slate-800/40`}>
                         <div className={`font-bold text-slate-900 dark:text-white`}>{prod.name}</div>
                         <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>SKU: {prod.sku} • {prod.category}</div>
                       </td>
