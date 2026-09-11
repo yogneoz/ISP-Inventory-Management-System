@@ -105,13 +105,13 @@ Review or adjust `.env` parameters as needed:
 PORT=3000
 NODE_ENV=development
 
-# PostgreSQL Connection Settings
-DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
+# PostgreSQL Connection Settings (replace with your own credentials)
+DATABASE_URL="postgres://inventory_user:<YOUR_DB_PASSWORD>@localhost:5432/inventory_db"
 POSTGRES_HOST="localhost"
 POSTGRES_PORT="5432"
 POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
-POSTGRES_PASSWORD="securepassword"
+POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
 # Optional: Set to "true" only if you want sample demo data seeded on first launch
 SEED_DUMMY_DATA=false
@@ -152,20 +152,20 @@ http://localhost:3000
 
 ## 🔑 Initial Super Admin Login Credentials
 
-On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-seeded example administrator:
+On first launch, the setup screen lets you create your own Super Admin account. Example pre-seeded administrator:
 
 | Field | Default Value |
 | :--- | :--- |
 | **Email** | `superadmin@example.com` |
-| **Password** | `Demo@123` |
+| **Password** | *(set during first-launch setup)* |
 | **Role** | `SUPER_ADMIN` |
 | **Branch** | Branch 1 (WH001) — Example Location 1 |
 
-> **Security Note**: You can change your password anytime under **User Management** or through the profile menu in the header.
+> **Security Note**: Change the default password immediately after first login via **User Management** or the profile menu in the header.
 
 ### 🧪 Seeded Example (Dummy) Accounts
 
-All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing. Shared demo password: `Demo@123`.
+All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing. Passwords are assigned during first-launch setup.
 
 | Email | Role | Branch |
 | :--- | :--- | :--- |
@@ -222,7 +222,7 @@ To wipe **all** records (including users, branches, and locations) while **prese
 node scripts/reset_fresh_demo.mjs
 ```
 
-After running it, restart the server (`npm run dev`) and log in with `superadmin@example.com` / `Demo@123`.
+After running it, restart the server (`npm run dev`) and log in with the credentials you set during first-launch setup.
 
 ---
 
@@ -262,10 +262,10 @@ sudo apt install -y certbot python3-certbot-nginx
 sudo -u postgres psql
 ```
 
-Execute SQL commands:
+Execute SQL commands (replace the password with a strong value of your choice):
 ```sql
 CREATE DATABASE inventory_db;
-CREATE USER inventory_user WITH PASSWORD 'YourVeryStrongProductionPassword123!';
+CREATE USER inventory_user WITH PASSWORD '<YOUR_STRONG_PASSWORD>';
 GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory_user;
 \c inventory_db
 GRANT ALL ON SCHEMA public TO inventory_user;
@@ -275,7 +275,7 @@ GRANT ALL ON SCHEMA public TO inventory_user;
 Import the database schema:
 ```bash
 cd /var/www/izone-enterprise-erp
-PGPASSWORD='YourVeryStrongProductionPassword123!' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
+PGPASSWORD='<YOUR_STRONG_PASSWORD>' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
 ```
 
 ---

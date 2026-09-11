@@ -281,7 +281,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock & assets
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (24 tables)
+│   ├── schema.sql                     # Full PostgreSQL schema (25 tables)
 │   ├── setup_db.js                    # Node.js database migration runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE)
@@ -293,8 +293,6 @@ ISP-Inventory-Management-System/
 ├── vite.config.ts                     # Vite build config with manual chunks
 ├── ecosystem.config.js                # PM2 production process manager config
 ├── Dockerfile                         # Multi-stage Docker build
-├── locales.json                       # Language/locale data
-├── metadata.json                      # App metadata
 ├── UPDATEPROCESS.md                   # Update/change log
 └── USER_MANUAL.md                     # End-user documentation
 ```
@@ -303,7 +301,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (24 tables)
+### 5.1 Tables Overview (25 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|

@@ -6448,7 +6448,7 @@ async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (24 tables) & creating high-throughput performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (25 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

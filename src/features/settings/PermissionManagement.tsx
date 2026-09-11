@@ -7,7 +7,6 @@ import {
   Check,
   Save,
   RotateCcw,
-  Users,
   ShoppingBag,
   Warehouse,
   ArrowRightLeft,
