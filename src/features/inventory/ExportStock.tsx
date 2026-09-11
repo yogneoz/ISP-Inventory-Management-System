@@ -32,7 +32,8 @@ interface ExportStockProps {
   stock: InventoryStock[];
   customerDevices?: CustomerDeviceRecord[];
   selectedBranchId?: string;
-  dateMode?: 'BS' | 'AD';}
+  dateMode?: 'BS' | 'AD';
+}
 
 export type ExportViewMode = 'SERIALIZED_DEVICES' | 'REORDER_LIST' | 'MASTER_STOCK' | 'BRANCH_MATRIX';
 
@@ -43,7 +44,8 @@ export const ExportStock: React.FC<ExportStockProps> = ({
   stock,
   customerDevices = [],
   selectedBranchId = 'ALL',
-  dateMode = 'BS',}) => {
+  dateMode = 'BS',
+}) => {
   const [viewMode, setViewMode] = useState<ExportViewMode>('SERIALIZED_DEVICES');
   const [filterBranch, setFilterBranch] = useState<string>(selectedBranchId);
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -64,9 +66,29 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       .reduce((sum, item) => sum + (item.quantityOnHand || 0), 0);
   };
 
+  // Serialized products with stock on hand (for display when no customer devices exist)
+  const serializedProductsWithStock = useMemo(() => {
+    return serializedProducts
+      .map((p) => {
+        const onHand = getProductStock(p.id);
+        const branchStock = filterBranch === 'ALL'
+          ? stock.filter((s) => s.productId === p.id && s.quantityOnHand > 0)
+          : stock.filter((s) => s.productId === p.id && s.branchId === filterBranch && s.quantityOnHand > 0);
+        return {
+          product: p,
+          onHand,
+          branches: branchStock.map((s) => {
+            const br = branches.find((b) => b.id === s.branchId);
+            return { branchId: s.branchId, branchCode: br?.code, branchName: br?.name, qty: s.quantityOnHand };
+          }),
+        };
+      })
+      .filter((item) => item.onHand > 0);
+  }, [serializedProducts, stock, filterBranch, branches]);
+
   // Branch display label
   const currentBranchName = useMemo(() => {
-    if (filterBranch === 'ALL') return 'All 19 Branches (Consolidated)';
+    if (filterBranch === 'ALL') return 'All Branches (Consolidated)';
     const br = branches.find((b) => b.id === filterBranch);
     return br ? `${br.name} (${br.code})` : `Branch ID: ${filterBranch}`;
   }, [filterBranch, branches]);
@@ -136,7 +158,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       let lowBranchesCount = 0;
 
       if (isConsolidated) {
-        // Consolidated View across all 19 branches
+        // Consolidated View across all branches
         branches.forEach((b) => {
           const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
           const bOnHand = item ? item.quantityOnHand || 0 : 0;
@@ -532,7 +554,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
     exportToCSV({
       filename: 'Branch_Stock_Distribution_Matrix',
       reportTitle: 'Multi-Branch Inventory Stock Distribution Matrix',
-      branchName: 'All 19 Branches (Consolidated Matrix)',
+      branchName: 'All Branches (Consolidated Matrix)',
       generatedBy: currentUserName,
       data: filteredProducts,
       columns,
@@ -571,7 +593,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <Cpu className="h-4 w-4" />
             <span>Serialized Devices (SN / PON / MAC)</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${viewMode === 'SERIALIZED_DEVICES' ? 'bg-white/20 text-white' : 'bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'}`}>
-              {filteredSerializedDevices.length}
+              {filteredSerializedDevices.length + serializedProductsWithStock.length}
             </span>
           </button>
 
@@ -612,7 +634,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <Building2 className="h-4 w-4" />
             <span>Branch Breakdown Matrix</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-              19 Branches
+              {branches.length} Branches
             </span>
           </button>
         </div>
@@ -632,7 +654,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             onChange={(e) => setFilterBranch(e.target.value)}
             className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
-            <option value="ALL">All 19 Branches (Consolidated Matrix)</option>
+            <option value="ALL">All Branches (Consolidated Matrix)</option>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name} ({b.code})
@@ -796,14 +818,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
             <span className={`h-2 w-2 rounded-full ${viewMode === 'REORDER_LIST' ? 'bg-rose-500' : 'bg-emerald-500'} animate-pulse`}></span>
             <span>
               {viewMode === 'SERIALIZED_DEVICES'
-                ? `Serialized Devices Registry: Showing ${filteredSerializedDevices.length} Hardware Units in ${currentBranchName}`
+                ? `Serialized Devices Registry: Showing ${filteredSerializedDevices.length > 0 ? filteredSerializedDevices.length + ' Hardware Units' : serializedProductsWithStock.length + ' Serialized Products with Stock'} in ${currentBranchName}`
                 : viewMode === 'REORDER_LIST'
                 ? `Reorder Level Priority: Showing ${filteredReorderItems.length} Products in ${currentBranchName} (${
-                    filterBranch === 'ALL' ? 'Calculated across 19 Regional Hubs' : 'Single Branch Threshold'
+                    filterBranch === 'ALL' ? 'Calculated across All Branches' : 'Single Branch Threshold'
                   })`
                 : viewMode === 'MASTER_STOCK'
                 ? `Master Stock Catalog: Showing ${filteredProducts.length} Product Items in ${currentBranchName}`
-                : `Multi-Branch Distribution Matrix across all 19 Regional Hubs`}
+                : `Multi-Branch Distribution Matrix across All Branches`}
             </span>
           </div>
 
@@ -831,12 +853,52 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                {filteredSerializedDevices.length === 0 ? (
+                {filteredSerializedDevices.length === 0 && serializedProductsWithStock.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="p-12 text-center text-slate-400">
-                      No serialized devices found matching the selected branch, status, or search filters.
+                      No serialized devices or serialized products with stock found.
                     </td>
                   </tr>
+                ) : filteredSerializedDevices.length === 0 ? (
+                  // Show serialized products with stock when no device records exist
+                  serializedProductsWithStock.map((item) => {
+                    const product = item.product;
+                    return (
+                      <tr
+                        key={product.id}
+                        className="transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40"
+                      >
+                        <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Building2 className="h-3.5 w-3.5 text-indigo-500" />
+                            <span>{currentBranchName}</span>
+                          </span>
+                        </td>
+                        <td className="p-2.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                          {product.name}
+                        </td>
+                        <td className="p-2.5 font-mono text-slate-500 dark:text-slate-400 italic">Awaiting Serial Registration</td>
+                        <td className="p-2.5 font-mono text-slate-500 dark:text-slate-400">-</td>
+                        <td className="p-2.5 font-mono text-slate-500 dark:text-slate-400">-</td>
+                        <td className="p-2.5 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>STOCK AVAILABLE - NEEDS SERIALS</span>
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-slate-600 dark:text-slate-400">
+                          {item.branches.length > 0
+                            ? item.branches.map((b) => `${b.branchCode}: ${b.qty}`).join(', ')
+                            : 'Consolidated'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-slate-500 whitespace-nowrap">
+                          {item.branches.length > 0
+                            ? item.branches.map((b) => formatBSDate(b.qty.toString())).join(', ')
+                            : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   devicesPagination.pagedItems.map((dev) => {
                     const br = branches.find((b) => b.id === dev.branchId);
@@ -938,7 +1000,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">
-                    {filterBranch === 'ALL' ? 'Consolidated Min Level (19 Br)' : 'Min Reorder Level'}
+                    {filterBranch === 'ALL' ? 'Consolidated Min Level (All Branches)' : 'Min Reorder Level'}
                   </th>
                   {filterBranch === 'ALL' && (
                     <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Low Branches</th>
@@ -993,7 +1055,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           {reorderThreshold} {p.unit}
                           {isConsolidated && (
                             <span className="block text-[10px] text-slate-400 font-normal">
-                              (Consolidated 19 Hubs)
+                              (Consolidated All Branches)
                             </span>
                           )}
                         </td>
@@ -1005,7 +1067,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                               </span>
                             ) : (
                               <span className="text-emerald-600 font-medium text-[11px] dark:text-emerald-400 dark:font-medium dark:text-[11px]">
-                                All 19 OK
+                                All Branches OK
                               </span>
                             )}
                           </td>

@@ -203,7 +203,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   const [isLocallySubmitted, setIsLocallySubmitted] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // All pending stock audit approval requests across all 19 branches
+  // All pending stock audit approval requests across all branches
   const allPendingAuditRequests = useMemo(() => {
     return approvalRequests.filter(
       (r) => r.type === 'STOCK_AUDIT_RECONCILIATION' && r.status === 'PENDING'
@@ -1165,7 +1165,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     if (next) setIsBlindRevealed(false);
                     setToastMessage(
                       next
-                        ? 'Company-Wide Blind Count ACTIVATED for all 19 branches!'
+                        ? 'Company-Wide Blind Count ACTIVATED for all branches!'
                         : 'Company-Wide Blind Count Mode Deactivated.'
                     );
                     setTimeout(() => setToastMessage(null), 4000);

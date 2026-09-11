@@ -414,7 +414,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
 
             <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-300">
-              ✨ <strong>Super Admin Credentials</strong> grant full system privileges across all 19 branches, financial statement approval, user management, and stock audit overrides.
+              ✨ <strong>Super Admin Credentials</strong> grant full system privileges across all branches, financial statement approval, user management, and stock audit overrides.
             </div>
 
             <button
