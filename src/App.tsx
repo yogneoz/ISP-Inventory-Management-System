@@ -157,7 +157,6 @@ export default function App() {
       const customEvent = e as CustomEvent<{ message: string }>;
       console.warn('Session expired:', customEvent.detail?.message);
       handleLogout();
-      alert('Your session has expired. Please log in again to continue.');
     };
     window.addEventListener('izone_auth_expired', handleAuthExpired);
     return () => window.removeEventListener('izone_auth_expired', handleAuthExpired);
@@ -495,12 +494,9 @@ export default function App() {
       const isAuthError = /not authenticated|log in again|unauthorized|authentication required/i.test(message);
       if (isAuthError) {
         handleLogout();
+      } else {
+        console.error('Could not switch profile:', message);
       }
-      alert(
-        isAuthError
-          ? 'Your session expired on the server. Please log in again, then switch profiles.'
-          : `Could not switch profile: ${message}`
-      );
       throw err;
     }
   };
