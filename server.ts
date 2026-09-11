@@ -589,8 +589,8 @@ function logAuditEvent(
   const u = getUserFromReq(req);
   const auditItem: AuditLog = {
     id: `aud-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-    userEmail: u.email,
-    userName: u.name,
+    userEmail: u.email || '',
+    userName: u.name || '',
     action,
     module: module as AuditLog['module'],
     details,
@@ -954,14 +954,22 @@ app.get('/api/db/status', async (req, res) => {
 // ==========================================
 
 // Clear Demo/Dummy Data Endpoint
-// Removes ONLY rows marked is_demo = TRUE (the dataset created by
-// `npm run setup:pg`). Real business data (is_demo = FALSE), users,
-// branches and fiscal years are never touched.
+// Removes ALL rows marked is_demo = TRUE (the dataset created by
+// `npm run setup:pg` or seeded by the server on first launch). This
+// includes demo branches, demo users, and all operational demo data.
+// Real business data (is_demo = FALSE), Nepali BS calendar data
+// (bs_calendar_years, bs_day_records), company profile, UOM, document
+// number configs, and fiscal years with real transactions are never
+// touched. Demo branches and users are NOT re-seeded after clearing.
+// Run 'npm run setup:pg' to re-seed demo data from scratch.
 app.post('/api/admin/clear-demo-data', async (req, res) => {
   try {
     // Child/detail tables first so their is_demo rows are counted before
     // parent rows are removed (FK cascades would otherwise hide them).
+    // Order respects FK constraints: users before branches (users.branch_id
+    // references branches), child operational tables before master tables.
     const demoTables = [
+      'users',
       'transaction_logs',
       'audit_logs',
       'stock_operations',
@@ -970,13 +978,17 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
       'purchase_invoices',
       'shipments',
       'inventory_stock',
+      'damage_records',
+      'fiscal_year_opening_stock',
       'fixed_assets',
       'purchase_orders',
       'customer_records',
+      'locations',
       'products',
       'categories',
       'suppliers',
       'fiscal_years',
+      'branches',
     ];
     const removed: Record<string, number> = {};
     for (const table of demoTables) {
@@ -987,6 +999,11 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
     // Re-hydrate the runtime caches so memory matches the database again.
     const client = await pgPool.connect();
     try {
+      // Re-seed ONLY master/config data that the app needs to function
+      // (fiscal years, company profile, UOM, document configs). Do NOT
+      // re-seed demo branches or demo users – they were just deleted and
+      // should stay gone so the operator can add real ones.
+      await seedMasterOnlyData(client);
       await hydrateOperationalData(client);
     } finally {
       client.release();
@@ -1001,7 +1018,7 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
 
     const totalRemoved = Object.values(removed).reduce((a, b) => a + b, 0);
     return res.json({
-      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, and branches are intact.`,
+      message: `Demo data cleared (${totalRemoved} rows where is_demo = TRUE). Demo branches and users have been removed. Run 'npm run setup:pg' to re-seed demo data, or add real branches and users. Nepali BS calendar data is preserved.`,
       removedRows: removed,
       totalRemoved,
       userCount: users.length,
@@ -2453,7 +2470,7 @@ app.patch('/api/stock/:id', async (req, res) => {
                 todayAD,
                 '2083-04-16 BS',
                 damageReason,
-                req.user?.name || getUserFromReq(req).name || 'Stock Manager',
+                getUserFromReq(req).name || 'Stock Manager',
                 reason || 'Damaged stock balance verification',
                 getUserFromReq(req).email || 'system',
               ]
@@ -2483,13 +2500,13 @@ app.patch('/api/stock/:id', async (req, res) => {
               salvageValue: 0,
               glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
               writeOffLoss: 0,
-              approvedBy: req.user?.name || 'Stock Manager',
+              approvedBy: getUserFromReq(req).name || 'Stock Manager',
               notes: reason || 'Damaged stock balance verification',
               isDemo: false,
               createdBy: getUserFromReq(req).email || 'system',
             } as DamageRecord);
           }
-        } catch (drErr) {
+        } catch (drErr: any) {
           console.warn('Damage record sync notice:', drErr?.message || drErr);
         }
       }
@@ -2530,6 +2547,7 @@ app.patch('/api/stock/:id', async (req, res) => {
 
 app.patch('/api/stock/:id/reorder-level', async (req, res) => {
   try {
+    const { id } = req.params;
     const { minReorderLevel, productId, branchId } = req.body;
     if (!Number.isInteger(Number(minReorderLevel)) || Number(minReorderLevel) < 0) {
       return res.status(400).json({ message: 'Reorder level must be a non-negative integer.' });
@@ -2832,7 +2850,7 @@ app.get('/api/assets', async (req, res) => {
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
       const r = await pgPool.query(q, params);
-      return res.json(r.rows.map((asset) => ({
+      return res.json(r.rows.map((asset: any) => ({
         ...asset,
         ...calculateFixedAssetValues({
           ...asset,
@@ -6214,7 +6232,7 @@ app.get('/api/reports/financial-summary', async (req, res) => {
                   FROM fiscal_year_opening_stock os
                   JOIN products p ON os.product_id = p.id
                   WHERE os.fiscal_year_id = $1`;
-        invParams.push(requestedFy.id);
+        invParams.push(requestedFy!.id);
         if (hasBranch) {
           invParams.push(branchId);
           invSql += ` AND os.branch_id = $${invParams.length}`;
@@ -6661,6 +6679,34 @@ async function syncDatabaseAndIndexes() {
         is_demo BOOLEAN NOT NULL DEFAULT FALSE
       );
 
+      -- 12b. Damage Records (damage lifecycle: identified -> disposed/written-off)
+      CREATE TABLE IF NOT EXISTS damage_records (
+        id VARCHAR(50) PRIMARY KEY,
+        damage_reference VARCHAR(100) UNIQUE NOT NULL,
+        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        quantity_damaged INT NOT NULL CHECK (quantity_damaged > 0),
+        unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        total_cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        damage_date_ad DATE NOT NULL,
+        damage_date_bs VARCHAR(20) NOT NULL,
+        damage_reason VARCHAR(100) NOT NULL CHECK (damage_reason IN ('PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER')),
+        status VARCHAR(30) NOT NULL DEFAULT 'IDENTIFIED' CHECK (status IN ('IDENTIFIED', 'UNDER_REVIEW', 'DISPOSED', 'WRITTEN_OFF', 'RETURNED_TO_SUPPLIER', 'CANCELLED')),
+        disposal_date_ad DATE,
+        disposal_date_bs VARCHAR(20),
+        disposal_method VARCHAR(50) CHECK (disposal_method IN ('SCRAP_DESTRUCTION', 'SALVAGE_E_WASTE', 'VENDOR_RMA', 'INSURANCE_CLAIM', 'WRITE_OFF', 'RETURN_TO_SUPPLIER', 'AUCTION')),
+        salvage_value NUMERIC(15, 2) DEFAULT 0,
+        gl_account_code VARCHAR(100),
+        write_off_loss NUMERIC(15, 2) DEFAULT 0,
+        approved_by VARCHAR(150),
+        notes TEXT,
+        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
       -- 13. Audit Trail
       CREATE TABLE IF NOT EXISTS audit_logs (
         id VARCHAR(50) PRIMARY KEY,
@@ -6903,6 +6949,11 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
       CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
 
+      CREATE INDEX IF NOT EXISTS idx_damage_records_product ON damage_records(product_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_branch ON damage_records(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_status ON damage_records(status);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_fiscal_year ON damage_records(fiscal_year_id);
+
       CREATE INDEX IF NOT EXISTS idx_assets_tag ON fixed_assets(tag_number);
       CREATE INDEX IF NOT EXISTS idx_assets_branch ON fixed_assets(branch_id);
       CREATE INDEX IF NOT EXISTS idx_assets_status ON fixed_assets(status);
@@ -7011,6 +7062,10 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
@@ -7057,6 +7112,7 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_purchase_invoices_demo ON purchase_invoices(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_shipments_demo ON shipments(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_damage_records_demo ON damage_records(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_audit_logs_demo ON audit_logs(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_customer_records_demo ON customer_records(id) WHERE is_demo = TRUE;
@@ -7241,6 +7297,94 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     console.log('✅ Master data seeded and hydrated. Operational data is always served from PostgreSQL (single source of truth).');
   } catch (seedErr: any) {
     console.log('PostgreSQL initial seed note:', seedErr?.message || seedErr);
+  }
+}
+
+// Re-seeds ONLY structural master data that the app requires to function
+// (fiscal years, company profile, UOMs, document-number configs). It does
+// NOT re-seed branches, users, suppliers, or locations – those are left
+// empty after a demo-data clear so the operator can add real ones. The
+// in-memory caches for branches/users/suppliers/locations are re-hydrated
+// (and cleared) to mirror the database.
+async function seedMasterOnlyData(client: pg.PoolClient) {
+  try {
+    for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
+      await client.query(
+        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
+        [fy.id, fy.code, fy.startDateAD || '2025-07-16', fy.endDateAD || '2026-07-15', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
+      );
+    }
+    // Seed Company Profile if empty
+    await client.query(
+      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
+      [
+        INITIAL_COMPANY_PROFILE.id,
+        INITIAL_COMPANY_PROFILE.name,
+        INITIAL_COMPANY_PROFILE.legalName,
+        INITIAL_COMPANY_PROFILE.tagline,
+        INITIAL_COMPANY_PROFILE.address,
+        INITIAL_COMPANY_PROFILE.city,
+        INITIAL_COMPANY_PROFILE.country,
+        INITIAL_COMPANY_PROFILE.phone,
+        INITIAL_COMPANY_PROFILE.email,
+        INITIAL_COMPANY_PROFILE.website,
+        INITIAL_COMPANY_PROFILE.panVatNumber,
+        INITIAL_COMPANY_PROFILE.registrationNumber,
+        INITIAL_COMPANY_PROFILE.logoUrl,
+        INITIAL_COMPANY_PROFILE.logoPreset,
+        INITIAL_COMPANY_PROFILE.currencySymbol,
+        INITIAL_COMPANY_PROFILE.defaultTaxRate,
+        INITIAL_COMPANY_PROFILE.notes,
+      ]
+    );
+    for (const u of INITIAL_MASTER_UOM) {
+      await client.query(
+        `INSERT INTO uom (id, name, symbol, type, is_base_unit)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING`,
+        [u.id, u.name, u.symbol, u.type, u.isBaseUnit]
+      );
+    }
+    for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
+      await client.query(
+        `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
+        [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
+      );
+    }
+
+    // Re-hydrate caches from PostgreSQL.  Unconditional assignment so rows
+    // that were just deleted (demo users/branches) drop out of memory too.
+    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code');
+    branches = bRes.rows;
+
+    const dbUsersRes = await client.query(
+      'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC'
+    );
+    users = dbUsersRes.rows;
+
+    const locRes = await client.query('SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations ORDER BY name ASC');
+    locationRecords = locRes.rows;
+
+    const supDbRes = await client.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
+    suppliers = supDbRes.rows;
+
+    const fyRes = await client.query('SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo" FROM fiscal_years ORDER BY start_date_ad DESC');
+    if (fyRes.rows.length > 0) fiscalYears = fyRes.rows;
+
+    const uomRes = await client.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC');
+    if (uomRes.rows.length > 0) uomList = uomRes.rows;
+
+    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+    if (compRes.rows.length > 0) companyProfile = compRes.rows[0];
+
+    const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');
+    if (docCfgRes.rows.length > 0) docNumberConfigs = docCfgRes.rows;
+
+    console.log(`✅ Master-only data seeded and hydrated (${branches.length} branches, ${users.length} users remain; demo branches/users not re-seeded).`);
+  } catch (seedErr: any) {
+    console.log('PostgreSQL master-only seed note:', seedErr?.message || seedErr);
   }
 }
 

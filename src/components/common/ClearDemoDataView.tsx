@@ -26,7 +26,8 @@ interface ClearDemoDataViewProps {
   poCount: number;
   invoiceCount: number;
   onClearDemoData: () => Promise<void>;
-  onNavigateDashboard: () => void;}
+  onNavigateDashboard: () => void;
+}
 
 export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   currentUser,
@@ -38,7 +39,8 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   poCount,
   invoiceCount,
   onClearDemoData,
-  onNavigateDashboard,}) => {
+  onNavigateDashboard,
+}) => {
   const [confirmText, setConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
   const [clearedSuccess, setClearedSuccess] = useState(false);
@@ -80,7 +82,11 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Clear Operational Demo & Dummy Data</h1>
             <p className="text-sm text-red-100 max-w-2xl leading-relaxed">
               Removes the sample dataset seeded by <span className="font-mono text-xs">npm run setup:pg</span> — the rows flagged with
-              <span className="font-mono text-xs"> is_demo = TRUE</span>. Your real products, stock balances, assets, device serials, orders, and transaction logs are never touched.
+              <span className="font-mono text-xs"> is_demo = TRUE</span>, including the <strong>demo branches</strong> and <strong>demo user accounts</strong>
+              (e.g. <span className="font-mono text-xs">superadmin@example.com</span>). Your real products, stock balances, assets, device serials,
+              orders, branches, users, and transaction logs are never touched. The Nepali BS calendar reference data
+              (<span className="font-mono text-xs">bs_calendar_years</span> / <span className="font-mono text-xs">bs_day_records</span>) is always preserved.
+              Run <span className="font-mono text-xs">npm run setup:pg</span> any time to re-seed the demo dataset.
             </p>
           </div>
           <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20 text-center shrink-0">
@@ -100,7 +106,8 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             Demo Data Successfully Cleared!
           </h2>
           <p className="text-sm text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
-            Demo-flagged records (is_demo = TRUE) have been removed. Any real business data you entered is untouched. Redirecting to Executive Dashboard...
+            All demo-flagged records (is_demo = TRUE) have been removed — including the demo branches and demo user accounts.
+            Your real business data is untouched and the Nepali BS calendar is preserved. Redirecting to Executive Dashboard...
           </p>
         </div>
       ) : (
@@ -113,7 +120,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
                 <span>Operational Records on File</span>
               </h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Only Demo-Flagged Rows Will Be Removed
+                Only Demo-Flagged Rows (is_demo = TRUE) Will Be Removed
               </span>
             </div>
 
@@ -182,7 +189,11 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <div className="space-y-1 text-sm text-amber-900 dark:text-amber-200">
               <h3 className="font-bold">Important Data Safety Guarantee</h3>
               <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                Executing this action removes <strong>only rows flagged as demo data</strong> (is_demo = TRUE). Any <strong>real records you have entered</strong> — alongside your <strong>Branch Configurations</strong>, <strong>User Accounts</strong>, and <strong>Nepali Fiscal Year Definitions</strong> — remain completely intact.
+                Executing this action removes <strong>only rows flagged as demo data</strong> (is_demo = TRUE). This <strong>includes the
+                demo branches and demo user accounts</strong> seeded by <span className="font-mono text-xs">npm run setup:pg</span> — they are
+                intentionally removed so you can add your real branches and users. Any <strong>real records you have entered</strong> are never
+                touched, and the <strong>Nepali BS calendar reference data</strong> (bs_calendar_years, bs_day_records) is always preserved.
+                To restore the demo dataset, run <span className="font-mono text-xs">npm run setup:pg</span> at any time.
               </p>
             </div>
           </div>

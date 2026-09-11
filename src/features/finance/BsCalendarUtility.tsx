@@ -34,10 +34,13 @@ import {
   FileCheck2,
   Calendar as CalendarIcon,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
-interface BsCalendarUtilityProps {}
+interface BsCalendarUtilityProps {
+}
 
-export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
+export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
+}) => {
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -366,6 +369,8 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
   const lookedUpDayRecord = lookupBSDayRecord(testDateAD);
   const sortedYears = (Object.values(calendarData) as BSYearData[]).sort((a, b) => a.yearBS - b.yearBS);
 
+  const yearsPagination = useClientPagination(sortedYears, 8, [calendarData]);
+
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -581,7 +586,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800 dark:text-slate-300`}>
-              {sortedYears.map((y) => {
+              {yearsPagination.pagedItems.map((y) => {
                 const totalDays = y.daysInMonths.reduce((a, b) => a + b, 0);
                 return (
                   <tr key={y.yearBS} className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}>
@@ -625,6 +630,17 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({}) => {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={yearsPagination.page}
+          pageCount={yearsPagination.pageCount}
+          totalItems={yearsPagination.totalItems}
+          rangeStart={yearsPagination.rangeStart}
+          rangeEnd={yearsPagination.rangeEnd}
+          pageSize={yearsPagination.pageSize}
+          onPageChange={yearsPagination.setPage}
+          onPageSizeChange={yearsPagination.setPageSize}
+          hidePageSize
+        />
       </div>
 
       {/* Edit BS Year Modal */}

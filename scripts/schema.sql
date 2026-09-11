@@ -681,6 +681,17 @@ ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
 
+-- is_demo labelling for master tables seeded with example/dummy data
+-- (Nepali/BS calendar tables are real reference data and never carry it).
+-- Added here for schema.sql parity with the server's inline migration
+-- (older databases may lack the columns even though CREATE TABLE above
+-- already declares them for fresh installs).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+
 -- v3.1 MIGRATION: Special Hardware Tracking flag on categories
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
 
@@ -692,12 +703,14 @@ ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT N
 -- Branches indexes
 CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
 CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
+CREATE INDEX IF NOT EXISTS idx_branches_demo ON branches(id) WHERE is_demo = TRUE;
 
 -- Users indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+CREATE INDEX IF NOT EXISTS idx_users_demo ON users(id) WHERE is_demo = TRUE;
 
 -- Suppliers indexes
 CREATE INDEX IF NOT EXISTS idx_suppliers_code ON suppliers(supplier_code);
@@ -820,6 +833,7 @@ CREATE INDEX IF NOT EXISTS idx_uom_name ON uom(name);
 -- Locations indexes
 CREATE INDEX IF NOT EXISTS idx_locations_branch ON locations(branch_id);
 CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(type);
+CREATE INDEX IF NOT EXISTS idx_locations_demo ON locations(id) WHERE is_demo = TRUE;
 
 CREATE OR REPLACE FUNCTION assign_fiscal_year_id_from_date()
 RETURNS trigger AS $$

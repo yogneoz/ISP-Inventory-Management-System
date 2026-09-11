@@ -89,9 +89,17 @@ if (DRY_RUN) {
 
 // ---------------------------------------------------------------------------
 // 2. Wipe everything except the Nepali calendar tables
+//
+// IMPORTANT: fiscal_years must NOT be TRUNCATEd – bs_day_records has a FK to
+// it and PostgreSQL TRUNCATE ... CASCADE does not honour the ON DELETE SET
+// NULL action (it would wipe the Nepali calendar too). Instead fiscal_years
+// rows are removed with a plain DELETE, which does honour ON DELETE SET NULL
+// and just nulls bs_day_records.fiscal_year_id (re-linked by the reseed).
 // ---------------------------------------------------------------------------
-console.log(`\n🗑  Truncating ${wipedTables.length} tables (preserving: ${PRESERVED_TABLES.join(', ')}...`);
-await pool.query(`TRUNCATE TABLE ${wipedTables.join(', ')} RESTART IDENTITY CASCADE`);
+const wipeTables = wipedTables.filter((t) => t !== 'fiscal_years');
+console.log(`\n🗑  Truncating ${wipeTables.length + 1} tables (preserving: ${PRESERVED_TABLES.join(', ')}...`);
+await pool.query(`TRUNCATE TABLE ${wipeTables.join(', ')} RESTART IDENTITY CASCADE`);
+await pool.query('DELETE FROM fiscal_years');
 console.log('🗑  Done.');
 
 // ---------------------------------------------------------------------------

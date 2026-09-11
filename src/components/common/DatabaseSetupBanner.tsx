@@ -65,37 +65,18 @@ export const DatabaseSetupBanner: React.FC<DatabaseSetupBannerProps> = ({
     return (
       <div
         id="db-connected-notification-banner"
-        className={`border-b shadow-xs bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-emerald-300 text-emerald-900 dark:bg-none dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200`}
+        className="border-b bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/50 dark:border-emerald-800/60 dark:text-emerald-200"
       >
-        <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6">
+        <div className="max-w-7xl mx-auto px-4 py-1.5 sm:px-6">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex-shrink-0 p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-400/40">
-                <Database className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-xs sm:text-sm tracking-tight flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    Database Connected
-                  </span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-400/40">
-                    PostgreSQL Online
-                  </span>
-                </div>
-                <p className="text-[11px] sm:text-xs opacity-90 mt-0.5 truncate">
-                  Connected to PostgreSQL {postgresConfig.host}:{postgresConfig.port}/{postgresConfig.database}
-                  {loading ? ' — synchronizing inventory data…' : ''}
-                </p>
-              </div>
-            </div>
+            <span className="text-xs sm:text-sm tracking-tight">database is connected</span>
             <button
               type="button"
               onClick={() => setIsConnectedDismissed(true)}
               aria-label="Dismiss database status banner"
-              className="flex-shrink-0 p-1.5 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer text-emerald-700 dark:text-emerald-300"
+              className="flex-shrink-0 p-1 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer text-emerald-700 dark:text-emerald-300"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

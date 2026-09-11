@@ -5,11 +5,16 @@
 //   1. Ensure the PostgreSQL server is reachable (falls back to the shell
 //      installer script on Linux/macOS when it is not).
 //   2. Apply scripts/schema.sql (idempotent - safe to re-run).
-//   3. Seed master data (fiscal years, BS calendar, UOMs, doc number configs,
-//      company profile, branches) as real data (is_demo = FALSE).
-//   4. Seed the dummy operational dataset with is_demo = TRUE (products,
+//   3. CLEAR all existing data EXCEPT the Nepali BS calendar reference
+//      tables (bs_calendar_years, bs_day_records) so seeding always starts
+//      from a clean slate. Use --keep-data to skip this step.
+//   4. Seed master data (fiscal years, BS calendar, UOMs, doc number configs,
+//      company profile, branches, example users) – the seeded branches,
+//      users and fiscal years are flagged is_demo = TRUE so the clear-demo
+//      action can remove and re-seed them.
+//   5. Seed the dummy operational dataset with is_demo = TRUE (products,
 //      stock, fixed assets, purchase orders, suppliers, categories).
-//   5. Backfill fiscal_year_id on transactional rows from their AD dates.
+//   6. Backfill fiscal_year_id on transactional rows from their AD dates.
 //
 // Safety: if a table already contains REAL (is_demo = FALSE) rows the demo
 // seeder skips that table unless you pass --force. The server itself never
@@ -34,6 +39,7 @@ const DB_CONFIG = {
 };
 
 const FORCE = process.argv.includes('--force');
+const KEEP_DATA = process.argv.includes('--keep-data');
 
 const NEPALI_MONTHS_EN = [
   'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',
@@ -643,7 +649,39 @@ async function runSetup() {
     await applySchema(client);
     await ensureEnterpriseColumns(client);
 
-    // 3. Master data (real, is_demo = FALSE).
+    // 3. Wipe all operational data (except Nepali BS calendar tables)
+    //    so seeding always starts from a clean slate.  Tables are truncated
+    //    with CASCADE (FK ordering is handled automatically).
+    //    Pass --keep-data to skip the wipe (useful when the database holds
+    //    real data that must not be touched).
+    //
+    //    IMPORTANT: fiscal_years must NOT be TRUNCATEd – bs_day_records has
+    //    a FK to it and PostgreSQL TRUNCATE ... CASCADE does not honour the
+    //    ON DELETE SET NULL action (it would wipe the Nepali calendar too).
+    //    Instead fiscal_years rows are removed with a plain DELETE, which
+    //    does honour ON DELETE SET NULL, so bs_day_records.fiscal_year_id is
+    //    simply nulled and later re-linked by seedBsCalendar().
+    if (KEEP_DATA) {
+      console.log('🗑  --keep-data passed: skipping data wipe (preserving existing rows).');
+    } else {
+      const preservedTables = new Set(['bs_calendar_years', 'bs_day_records', 'fiscal_years']);
+      const tblRes = await client.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+      );
+      const wipeTables = tblRes.rows
+        .map((r) => r.table_name)
+        .filter((t) => !preservedTables.has(t));
+      if (wipeTables.length > 0) {
+        await client.query(`TRUNCATE TABLE ${wipeTables.join(', ')} RESTART IDENTITY CASCADE`);
+        console.log(`🗑  Truncated ${wipeTables.length} tables (preserved Nepali BS calendar + fiscal_years).`);
+      }
+      // Plain DELETE (not TRUNCATE) so bs_day_records.fiscal_year_id is
+      // SET NULL via the FK action instead of the calendar being wiped.
+      await client.query('DELETE FROM fiscal_years');
+      console.log('🗑  Removed all fiscal years (Nepali calendar rows preserved, will re-link).');
+    }
+
+    // 4. Master data (real, is_demo = FALSE).
     console.log('📅 Seeding fiscal years & Bikram Sambat calendar...');
     await seedFiscalYears(client);
     await seedBsCalendar(client);
@@ -653,11 +691,11 @@ async function runSetup() {
     await seedBranches(client);
     await seedExampleUsers(client);
 
-    // 4. Dummy operational dataset (is_demo = TRUE), guarded by real-data check.
+    // 5. Dummy operational dataset (is_demo = TRUE).
     console.log('🧪 Seeding demo dataset (is_demo = TRUE)...');
     await seedDemoData(client);
 
-    // 5. Fiscal-year linkage for historical rows.
+    // 6. Fiscal-year linkage for historical rows.
     await backfillFiscalYearIds(client);
 
     // Verify & summarize.
