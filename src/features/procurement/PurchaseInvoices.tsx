@@ -71,7 +71,8 @@ interface PurchaseInvoicesProps {
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
   ) => Promise<void>;
   onRecordPayment: (id: string, amount: number) => Promise<void>;
-  onDeleteInvoice?: (id: string) => Promise<void>;}
+  onDeleteInvoice?: (id: string) => Promise<void>;
+}
 
 interface InvoiceFormLine {
   productId: string;
@@ -99,7 +100,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   autoOpenModal = false,
   onCreateInvoice,
   onRecordPayment,
-  onDeleteInvoice,}) => {
+  onDeleteInvoice,
+}) => {
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
@@ -584,7 +586,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
               {(() => {
                 const curBranch = branches.find((b) => b.id === branchId);
-                const canCreateInvoice = isOperationAllowed('purchase-create', currentUser?.role, curBranch?.allowProcurement);
+                const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
                 if (!canCreateInvoice) return null;
 
                 return (
@@ -626,7 +628,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
         {(() => {
           const curBranch = branches.find((b) => b.id === branchId);
-          const canCreateInvoice = isOperationAllowed('purchase-create', currentUser?.role, curBranch?.allowProcurement);
+          const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
           return (
             <button
               type="button"
