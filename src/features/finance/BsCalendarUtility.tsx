@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
 import {
   convertADToBS,
   getBsCalendarData,
   parseAndSeedBSInput,
+  parseBSSeedYears,
   seedBSYearCalendar,
   BSYearData,
   BSDayRecord,
@@ -33,8 +34,14 @@ import {
   X,
   FileCheck2,
   Calendar as CalendarIcon,
+  Upload,
+  FileSpreadsheet,
+  FileDown,
+  Loader2,
+  Trash2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import * as XLSX from 'xlsx';
 
 interface BsCalendarUtilityProps {
 }
@@ -44,10 +51,24 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
-    '2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'
+    '2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]\n2083: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'
   );
   const [seedOnlyIfNew, setSeedOnlyIfNew] = useState<boolean>(true);
+  const [isSeeding, setIsSeeding] = useState<boolean>(false);
   const [seedStatus, setSeedStatus] = useState<{
+    type: 'success' | 'error' | null;
+    message: string;
+  }>({ type: null, message: '' });
+
+  // Multi-year text preview (derived live from the textarea)
+  const textPreviewYears = useMemo(() => parseBSSeedYears(seedInput).years, [seedInput]);
+
+  // Excel (.xlsx / .csv) multi-year import preview
+  const [excelPreviewYears, setExcelPreviewYears] = useState<
+    { yearBS: number; daysInMonths: number[]; startAD?: string }[]
+  >([]);
+  const [excelFileName, setExcelFileName] = useState<string>('');
+  const [excelParseStatus, setExcelParseStatus] = useState<{
     type: 'success' | 'error' | null;
     message: string;
   }>({ type: null, message: '' });
@@ -174,45 +195,204 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
   const handleSeedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!seedInput.trim()) return;
+    setIsSeeding(true);
+    setSeedStatus({ type: null, message: '' });
 
-    const match = seedInput.match(/(\d{4})\s*:\s*\[([\d\s,]+)\]/);
-    if (match) {
-      const yearBS = parseInt(match[1], 10);
-      if (seedOnlyIfNew && calendarData[yearBS]) {
-        setSeedStatus({
-          type: 'success',
-          message: `BS Year ${yearBS} already exists in calendar database. Skipped duplicate seeding.`,
-        });
-        return;
-      }
-    }
+    try {
+      // Multi-year preview: reuse whichever parser applies (colon lines, JSON, CSV/TSV)
+      const parsedYears = parseBSSeedYears(seedInput).years;
 
-    const res = parseAndSeedBSInput(seedInput);
-    if (res.success) {
-      let seedPgSynced = true;
-      if (match) {
-        const yearBS = parseInt(match[1], 10);
-        const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
-        if (days.length === 12) {
-          try {
-            const seedRes = await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
-            if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
-          } catch (err: any) {
-            console.warn('PostgreSQL Seed Warning:', err.message);
-            seedPgSynced = false;
-          }
+      if (seedOnlyIfNew) {
+        const existing = parsedYears.filter((y) => calendarData[y.yearBS]);
+        if (parsedYears.length > 0 && existing.length === parsedYears.length) {
+          setSeedStatus({
+            type: 'success',
+            message: `All ${parsedYears.length} BS year(s) (${parsedYears
+              .map((y) => y.yearBS)
+              .join(', ')}) already exist in calendar database. Skipped duplicate seeding.`,
+          });
+          return;
         }
       }
+
+      const res = parseAndSeedBSInput(seedInput);
+      if (res.success) {
+        let seedPgSynced = true;
+        const seeds = parsedYears.length > 0 ? parsedYears : [];
+
+        // Sync all parsed years to PostgreSQL in one batch request
+        if (seeds.length > 0) {
+          const bulkYears = seeds
+            .map((s) => ({
+              yearBS: s.yearBS,
+              daysInMonths: s.daysInMonths,
+              customStartAD: s.startAD || undefined,
+            }))
+            .filter((s) => Array.isArray(s.daysInMonths) && s.daysInMonths.length === 12);
+          if (bulkYears.length > 0) {
+            try {
+              const bulkRes = await api.seedBsCalendarYearsBulk(bulkYears, seedOnlyIfNew);
+              if (bulkRes && bulkRes.pgSynced === false) seedPgSynced = false;
+            } catch (err: any) {
+              console.warn('PostgreSQL Bulk Seed Warning:', err.message);
+              seedPgSynced = false;
+            }
+          }
+        }
+
+        setSeedStatus({
+          type: 'success',
+          message: seedPgSynced
+            ? `${res.message} (Synced to PostgreSQL bs_day_records table)`
+            : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
+        });
+        await refreshCalendarData();
+      } else {
+        setSeedStatus({ type: 'error', message: res.message });
+      }
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  // --- Excel / CSV multi-year import ---
+  const handleExcelFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(firstSheet, { defval: '' });
+
+        const headerRow = rows[0] || {};
+        const yearKey = Object.keys(headerRow).find((k) => /year/i.test(String(k)));
+        const startKey = Object.keys(headerRow).find((k) => /start|ad/i.test(String(k)));
+        const monthKeys = Object.keys(headerRow).filter(
+          (k) => /month/i.test(String(k)) || /^(1|2|3|4|5|6|7|8|9|10|11|12)$/.test(String(k).trim())
+        );
+
+        const parsed: { yearBS: number; daysInMonths: number[]; startAD?: string }[] = [];
+
+        for (const row of rows) {
+          let yearBS: number | null = null;
+          if (yearKey && row[yearKey] !== '' && row[yearKey] != null) {
+            yearBS = parseInt(String(row[yearKey]).split('.')[0], 10);
+          } else if (row['BS Year'] != null && row['BS Year'] !== '') {
+            yearBS = parseInt(String(row['BS Year']).split('.')[0], 10);
+          }
+          if (!yearBS || isNaN(yearBS)) continue;
+
+          let days: number[] = [];
+          if (monthKeys.length >= 12) {
+            days = monthKeys
+              .slice(0, 12)
+              .map((k) => parseInt(String(row[k]).split('.')[0], 10))
+              .map((n) => (isNaN(n) ? 0 : n));
+          } else {
+            // Fallback: rows laid out as BS Year + 12 numbers
+            days = Object.keys(row)
+              .map((k) => parseInt(String(row[k]).split('.')[0], 10))
+              .filter((n) => !isNaN(n) && n > 0 && n <= 32)
+              .slice(0, 12);
+          }
+
+          if (days.length === 12 && days.every((n) => !isNaN(n))) {
+            let startAD: string | undefined;
+            if (startKey && row[startKey]) startAD = String(row[startKey]).split('T')[0];
+            else if (row['Start AD'] != null && row['Start AD'] !== '')
+              startAD = String(row['Start AD']).split('T')[0];
+            parsed.push({ yearBS, daysInMonths: days, startAD });
+          }
+        }
+
+        setExcelPreviewYears(parsed);
+        setExcelFileName(file.name);
+        setExcelParseStatus(
+          parsed.length > 0
+            ? { type: 'success', message: `Parsed ${parsed.length} BS year(s) from "${file.name}".` }
+            : {
+                type: 'error',
+                message: `No valid BS year rows found in "${file.name}". Expected a "BS Year" column plus 12 month columns (Baisakh → Chaitra).`,
+              }
+        );
+      } catch (err: any) {
+        setExcelPreviewYears([]);
+        setExcelFileName('');
+        setExcelParseStatus({
+          type: 'error',
+          message: `Failed to parse Excel file: ${err.message || 'unknown error'}`,
+        });
+      } finally {
+        // Allow re-selecting the same file
+        e.target.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleSeedExcel = async () => {
+    if (excelPreviewYears.length === 0) return;
+    setIsSeeding(true);
+    setSeedStatus({ type: null, message: '' });
+    try {
+      const freshCalendar = getBsCalendarData();
+      if (seedOnlyIfNew) {
+        const existing = excelPreviewYears.filter((y) => freshCalendar[y.yearBS]);
+        if (existing.length === excelPreviewYears.length) {
+          setSeedStatus({
+            type: 'success',
+            message: `All ${excelPreviewYears.length} BS year(s) from Excel already exist. Skipped duplicate seeding.`,
+          });
+          return;
+        }
+      }
+
+      // 1) Seed in-memory / localStorage for every year
+      for (const y of excelPreviewYears) {
+        if (seedOnlyIfNew && freshCalendar[y.yearBS]) continue;
+        seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
+      }
+
+      // 2) Batch-sync to PostgreSQL
+      let seedPgSynced = true;
+      try {
+        const bulkRes = await api.seedBsCalendarYearsBulk(excelPreviewYears, seedOnlyIfNew);
+        if (bulkRes && bulkRes.pgSynced === false) seedPgSynced = false;
+      } catch (err: any) {
+        console.warn('PostgreSQL Excel Seed Warning:', err.message);
+        seedPgSynced = false;
+      }
+
       setSeedStatus({
         type: 'success',
         message: seedPgSynced
-          ? `${res.message} (Synced to PostgreSQL bs_day_records table)`
-          : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
+          ? `Successfully seeded ${excelPreviewYears.length} BS year(s) from Excel (${excelPreviewYears
+              .map((y) => y.yearBS)
+              .join(', ')}) and synced to PostgreSQL bs_day_records!`
+          : `Successfully seeded ${excelPreviewYears.length} BS year(s) from Excel in the in-memory calendar only — PostgreSQL was unreachable.`,
       });
       await refreshCalendarData();
-    } else {
-      setSeedStatus({ type: 'error', message: res.message });
+    } finally {
+      setIsSeeding(false);
     }
+  };
+
+  const handleDownloadExcelTemplate = () => {
+    const header = ['BS Year', ...NEPALI_MONTHS_EN, 'Start AD'];
+    const sampleRow = [2086, ...([31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30] as number[]), '2029-04-14'];
+    const ws = XLSX.utils.aoa_to_sheet([header, sampleRow]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'BS Month Arrays');
+    XLSX.writeFile(wb, 'bs-calendar-multi-year-template.xlsx');
+  };
+
+  const handleClearExcelPreview = () => {
+    setExcelPreviewYears([]);
+    setExcelFileName('');
+    setExcelParseStatus({ type: null, message: '' });
   };
 
   const handleQuickSeed = async (yearBS: number, monthDays: number[]) => {
@@ -472,7 +652,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                 Seed BS Month Array & Expand Day-by-Day Database Table
               </h3>
               <p className={`text-xs text-slate-500 dark:text-slate-400`}>
-                Input 12-month array (e.g. <code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">2082: [31, 31, 32, ...]</code>) to build daily lookup records.
+                Input one or more 12-month arrays (e.g. <code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">2082: [31, 31, 32, ...]</code> per line) or import an Excel/CSV file to build daily lookup records for multiple years at once.
               </p>
             </div>
           </div>
@@ -481,17 +661,17 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
         <form onSubmit={handleSeedSubmit} className="space-y-3">
           <div>
             <label className={`block text-xs font-semibold mb-1 text-slate-700 dark:text-slate-300`}>
-              Enter BS Year & 12 Month Days Array:
+              Enter BS Year(s) & 12 Month Days Array (one year per line):
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
+              <textarea
+                rows={4}
                 value={seedInput}
                 onChange={(e) => setSeedInput(e.target.value)}
-                placeholder="2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"
-                className={`flex-1 rounded-xl border p-3 text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-300 dark:placeholder-slate-500`}
+                placeholder={'2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]\n2083: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'}
+                className={`flex-1 rounded-xl border p-3 text-xs font-mono outline-none focus:border-indigo-500 resize-y bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-300 dark:placeholder-slate-500`}
               />
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-stretch gap-2 justify-between sm:w-56 shrink-0">
                 <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}>
                   <input
                     type="checkbox"
@@ -504,13 +684,144 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 
                 <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
+                  disabled={isSeeding}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
                 >
-                  <PlusCircle className="h-4 w-4" />
-                  <span>Seed Calendar</span>
+                  {isSeeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+                  <span>{isSeeding ? 'Seeding...' : 'Seed Calendar'}</span>
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Multi-year preview table (live from textarea) */}
+          {textPreviewYears.length > 0 && (
+            <div className={`rounded-xl border overflow-hidden bg-slate-50/70 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
+              <div className={`flex items-center justify-between px-3 py-2 border-b text-[11px] font-bold text-slate-600 bg-slate-100/70 border-slate-200 dark:text-slate-300 dark:bg-slate-900 dark:border-slate-800`}>
+                <span className="flex items-center gap-1.5">
+                  <FileCheck2 className="h-3.5 w-3.5 text-emerald-500" />
+                  Preview: {textPreviewYears.length} BS year(s) detected — will be seeded
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px] font-mono">
+                  <thead className={`text-slate-500 border-b border-slate-200 dark:text-slate-400 dark:border-slate-800`}>
+                    <tr>
+                      <th className="px-3 py-1.5">BS Year</th>
+                      <th className="px-3 py-1.5">Baisakh 1 AD Start</th>
+                      <th className="px-3 py-1.5">Total Days</th>
+                      <th className="px-3 py-1.5">12 Month Days Array</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800 dark:text-slate-300`}>
+                    {textPreviewYears.map((y) => {
+                      const total = y.daysInMonths.reduce((a, b) => a + b, 0);
+                      return (
+                        <tr key={y.yearBS}>
+                          <td className="px-3 py-1.5 font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">{y.yearBS} BS</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap">{y.startAD || `≈ ${y.yearBS - 57}-04-14`}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap">{total} days</td>
+                          <td className="px-3 py-1.5 text-[10px]">{y.daysInMonths.join(', ')}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Excel / CSV multi-year import */}
+          <div className={`rounded-xl border p-3 bg-blue-50/50 border-blue-200/70 dark:bg-blue-950/20 dark:border-blue-800/40`}>
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <FileSpreadsheet className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <div className="min-w-0">
+                  <p className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
+                    Bulk Import Multiple Years from Excel / CSV
+                  </p>
+                  <p className={`text-[11px] text-slate-500 dark:text-slate-400 truncate`}>
+                    Columns: <code className="font-mono">BS Year</code> + 12 month columns (Baisakh → Chaitra) + optional <code className="font-mono">Start AD</code>.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadExcelTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-300 dark:border-slate-700 cursor-pointer"
+                >
+                  <FileDown className="h-3.5 w-3.5 text-blue-500" />
+                  Template
+                </button>
+                <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer bg-blue-600 hover:bg-blue-500 text-white border-blue-700`}>
+                  <Upload className="h-3.5 w-3.5" />
+                  Choose File
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={handleExcelFileSelect}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {excelParseStatus.message && (
+              <p className={`mt-2 text-[11px] font-medium flex items-center gap-1.5 ${excelParseStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                {excelParseStatus.type === 'success' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                {excelParseStatus.message}
+              </p>
+            )}
+
+            {excelPreviewYears.length > 0 && (
+              <div className="mt-2">
+                <div className="overflow-x-auto rounded-lg border border-blue-200 dark:border-blue-800/60">
+                  <table className="w-full text-left text-[11px] font-mono">
+                    <thead className={`text-slate-500 border-b bg-blue-100/50 border-blue-200 dark:text-slate-400 dark:bg-blue-950/30 dark:border-blue-800/60`}>
+                      <tr>
+                        <th className="px-2.5 py-1.5">BS Year</th>
+                        <th className="px-2.5 py-1.5">Baisakh 1 AD Start</th>
+                        <th className="px-2.5 py-1.5">Total Days</th>
+                        <th className="px-2.5 py-1.5">12 Month Days Array</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y divide-blue-100 text-slate-700 dark:divide-blue-900/40 dark:text-slate-300`}>
+                      {excelPreviewYears.map((y) => {
+                        const total = y.daysInMonths.reduce((a, b) => a + b, 0);
+                        return (
+                          <tr key={y.yearBS}>
+                            <td className="px-2.5 py-1.5 font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">{y.yearBS} BS</td>
+                            <td className="px-2.5 py-1.5 whitespace-nowrap">{y.startAD || `≈ ${y.yearBS - 57}-04-14`}</td>
+                            <td className="px-2.5 py-1.5 whitespace-nowrap">{total} days</td>
+                            <td className="px-2.5 py-1.5 text-[10px]">{y.daysInMonths.join(', ')}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={handleSeedExcel}
+                    disabled={isSeeding}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white cursor-pointer"
+                  >
+                    {isSeeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlusCircle className="h-3.5 w-3.5" />}
+                    Seed {excelPreviewYears.length} Year(s) from {excelFileName || 'file'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearExcelPreview}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border bg-white hover:bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-400 dark:border-slate-700 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap pt-1">

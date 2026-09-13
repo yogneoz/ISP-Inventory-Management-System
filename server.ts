@@ -1247,21 +1247,28 @@ app.post('/api/auth/switch-profile', async (req, res) => {
   if (!(req as any).user) {
     return res.status(401).json({ message: 'Not authenticated. Log in again to switch profiles.' });
   }
-  if (!(req as any).user.canSwitchUser) {
-    return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
-  }
 
-  const { targetUserId } = req.body;
+  const { targetUserId, targetEmail } = req.body;
+  let isSwitchBack = false;
   let user: any = null;
 
+  // Resolve the requested target profile FIRST so the permission gate can
+  // distinguish a normal switch from a "switch back to root" request.
   // PostgreSQL is the source of truth for user profiles. The in-memory user
   // list can be stale (users created/edited after boot, or a data reset),
   // which previously caused "Target user profile not found" on switch.
-  if (isPgConnected && targetUserId) {
+  // The client also sends the root email so a stale id left in localStorage
+  // (e.g. after a demo data reset re-created the account with a new id) can
+  // still be resolved by its stable, unique email address.
+  if (isPgConnected && (targetUserId || targetEmail)) {
     try {
       const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($1) LIMIT 1',
-        [String(targetUserId)]
+        `SELECT id, email, password, name, role, branch_id AS "branchId",
+                allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"
+         FROM users
+         WHERE id = $1 OR LOWER(email) = LOWER($1) OR ($2 <> '' AND LOWER(email) = LOWER($2))
+         LIMIT 1`,
+        [String(targetUserId || ''), typeof targetEmail === 'string' ? targetEmail.toLowerCase() : '']
       );
       user = dbRes.rows[0] || null;
     } catch (err: any) {
@@ -1271,11 +1278,37 @@ app.post('/api/auth/switch-profile', async (req, res) => {
 
   // Fallback to the in-memory mirror when PostgreSQL is unavailable.
   if (!user) {
-    user = users.find((u) => u.id === targetUserId || u.email === targetUserId) || null;
+    user =
+      users.find(
+        (u) => u.id === targetUserId || u.email === targetUserId || (targetEmail && u.email === targetEmail)
+      ) || null;
   }
 
+  // Target must exist before any permission evaluation; return a truthful 404
+  // instead of a misleading permission error when the id is stale.
   if (!user) {
     return res.status(404).json({ message: 'Target user profile not found.' });
+  }
+
+  // The origin account (the profile the request is currently signed in as).
+  const originUser = (req as any).user;
+  // Is this a "switch back" to the account that originally started the
+  // switched session? A root-capable target (canSwitchUser flag set, or a
+  // SUPER_ADMIN whose flag may be missing/false in the DB) is allowed even
+  // when the current (impersonated) profile lacks the canSwitchUser flag —
+  // otherwise the user would be permanently locked out of the root profile.
+  if (user && originUser) {
+    isSwitchBack =
+      user.id !== originUser.id && (Boolean(user.canSwitchUser) || user.role === 'SUPER_ADMIN');
+  }
+
+  // Gate: switching to another profile requires the CURRENT profile to have
+  // switch privileges (flag or SUPER_ADMIN role, mirroring the client-side
+  // canUserSwitchProfiles helper). Switching BACK to a root-capable profile
+  // bypasses the origin check entirely.
+  const canSwitchAway = Boolean(originUser?.canSwitchUser) || originUser?.role === 'SUPER_ADMIN';
+  if (!isSwitchBack && !canSwitchAway) {
+    return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
   }
 
   // Keep the in-memory user list in sync with the database row.
@@ -1290,9 +1323,11 @@ app.post('/api/auth/switch-profile', async (req, res) => {
     id: `aud-${Date.now()}`,
     userEmail: user.email,
     userName: user.name,
-    action: 'PROFILE_SWITCHED',
+    action: isSwitchBack ? 'PROFILE_SWITCHED_BACK' : 'PROFILE_SWITCHED',
     module: 'AUTH',
-    details: `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
+    details: isSwitchBack
+      ? `Session profile switched back from ${previousUser?.email || 'System'} (${previousUser?.role}) to root profile ${user.email} (${user.role})`
+      : `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
     timestampAD: new Date().toISOString(),
     timestampBS: '2083-04-16 BS',
   });
@@ -5153,6 +5188,154 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
     message: pgSynced
       ? `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!`
       : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`,
+  });
+});
+
+// Batch (multi-year) BS calendar seed: seeds one or more BS years in a single
+// request, expanding the day-by-day bs_day_records lookup table for all of them.
+// Body: { years: [{ yearBS, daysInMonths (12 ints), customStartAD? }], onlyIfNew? }
+app.post('/api/bs-calendar/seed-bulk', async (req, res) => {
+  const { years, onlyIfNew } = req.body;
+  if (!Array.isArray(years) || years.length === 0) {
+    return res.status(400).json({ success: false, message: 'Must provide a non-empty "years" array.' });
+  }
+
+  const validYears = years.filter(
+    (y) =>
+      y &&
+      !isNaN(parseInt(y.yearBS, 10)) &&
+      Array.isArray(y.daysInMonths) &&
+      y.daysInMonths.length === 12 &&
+      y.daysInMonths.every((n: any) => typeof n === 'number' && !isNaN(n))
+  );
+
+  if (validYears.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'No valid year entries provided. Each entry needs yearBS and a 12-element daysInMonths array.',
+    });
+  }
+
+  const skippedYears: number[] = [];
+  let pgSynced = false;
+  let syncedAny = false;
+
+  try {
+    for (const y of validYears) {
+      const yearBS = parseInt(y.yearBS, 10);
+      const daysInMonths = y.daysInMonths as number[];
+      let startAD = y.customStartAD;
+      if (!startAD) {
+        const estADYear = yearBS - 57;
+        startAD = `${estADYear}-04-14`;
+      }
+
+      const existingIdx = inMemoryBsCalendarYears.findIndex((ey) => ey.yearBS === yearBS);
+      if (onlyIfNew && existingIdx >= 0) {
+        skippedYears.push(yearBS);
+        continue;
+      }
+
+      await pgPool.query(
+        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (year_bs) DO UPDATE SET
+           days_in_months = EXCLUDED.days_in_months,
+           start_ad = EXCLUDED.start_ad;`,
+        [yearBS, daysInMonths, startAD]
+      );
+
+      let runningDate = new Date(startAD);
+      for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+        const monthBS = monthIdx + 1;
+        const daysInMonth = daysInMonths[monthIdx] || 30;
+
+        for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+          const adDateStr = runningDate.toISOString().split('T')[0];
+          const dayOfWeekIndex = runningDate.getUTCDay();
+
+          const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+          const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+          const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+          let startYear = yearBS;
+          if (monthBS < 4) startYear = yearBS - 1;
+          const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+          let qtr = 'Q4';
+          if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+          else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+          else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+          await pgPool.query(
+            `INSERT INTO bs_day_records (
+               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (ad_date) DO UPDATE SET
+               bs_date = EXCLUDED.bs_date,
+               bs_year = EXCLUDED.bs_year,
+               bs_month = EXCLUDED.bs_month,
+               bs_month_name = EXCLUDED.bs_month_name,
+               bs_month_name_np = EXCLUDED.bs_month_name_np,
+               bs_day = EXCLUDED.bs_day,
+               day_of_week_name = EXCLUDED.day_of_week_name,
+               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+               fiscal_year = EXCLUDED.fiscal_year,
+               quarter = EXCLUDED.quarter,
+               is_weekend = EXCLUDED.is_weekend;`,
+            [
+              adDateStr,
+              bsDateStr,
+              yearBS,
+              monthBS,
+              NEPALI_MONTHS_EN_SERVER[monthIdx],
+              NEPALI_MONTHS_NP_SERVER[monthIdx],
+              dayBS,
+              DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+              DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+              fyCode,
+              qtr,
+              dayOfWeekIndex === 6
+            ]
+          );
+
+          runningDate.setDate(runningDate.getDate() + 1);
+        }
+      }
+
+      syncedAny = true;
+      if (existingIdx >= 0) {
+        inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+      } else {
+        inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+        inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+      }
+    }
+    pgSynced = true;
+  } catch (_err) {
+    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
+    // (entries already pushed above are kept; the loop stops on first pg error)
+  }
+
+  // Always refresh in-memory fallback cache so at least local lookups work.
+  generateInMemoryBsDayRecords();
+
+  const seededCount = validYears.length - skippedYears.length;
+  const skipMsg =
+    skippedYears.length > 0
+      ? ` Skipped ${skippedYears.length} existing year(s) (${skippedYears.join(', ')}) because 'onlyIfNew' was specified.`
+      : '';
+
+  res.json({
+    success: true,
+    pgSynced,
+    seededCount,
+    skippedYears,
+    message: pgSynced
+      ? `Successfully batch-seeded ${seededCount} BS year(s) (${validYears.map((y: any) => parseInt(y.yearBS, 10)).join(', ')}) and regenerated the day-by-day lookup table in PostgreSQL (bs_day_records)!${skipMsg}`
+      : `Batch-seeded ${seededCount} BS year(s) (${validYears.map((y: any) => parseInt(y.yearBS, 10)).join(', ')}) in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.${skipMsg}`,
   });
 });
 

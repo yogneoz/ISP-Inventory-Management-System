@@ -203,65 +203,188 @@ export function seedBSYearCalendar(
 }
 
 /**
- * Parses raw input string like "2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"
+ * Parses raw seed input text and seeds one or more BS calendar years into the
+ * in-memory/localStorage calendar lookup table.
+ *
+ * Supported input formats (multiple years can be combined on separate lines):
+ *   1. Single year line:   "2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"
+ *   2. Multi-year lines:   "2082: [31, ...]\n2083: [31, ...]\n2084: [31, ...]"
+ *   3. JSON object:        '{"2082": [31, ...], "2083": [31, ...]}'
+ *   4. CSV rows:           "2082,31,31,32,...\n2083,31,31,32,..."
+ *   5. TSV rows:           "2082\t31\t31\t32\t..."
+ *
+ * Optional comma-delimited "startAD" suffix per year (format "YYYY-MM-DD"):
+ *   "2082: [31, ...] @ 2025-04-14"  or JSON  {"2082": {"days": [...], "startAD": "..."}}
  */
 export function parseAndSeedBSInput(inputStr: string): {
   success: boolean;
   message: string;
   yearBS?: number;
+  years?: number[];
 } {
   try {
     const trimmed = inputStr.trim();
-    const colonMatch = trimmed.match(/^(\d{4})\s*[:=]\s*\[([\d\s,]+)\]$/);
+    if (!trimmed) {
+      return { success: false, message: 'No seed input provided.' };
+    }
 
-    if (colonMatch) {
-      const yearBS = parseInt(colonMatch[1], 10);
-      const arrStr = colonMatch[2];
-      const monthDays = arrStr
-        .split(',')
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => !isNaN(n));
+    const yearLines = trimmed.split(/\r?\n/).filter((l) => l.trim());
 
-      if (monthDays.length !== 12) {
+    // --- Format 1 & 2: Single or multi-year colon lines ---
+    const colonLines = yearLines.filter((l) => /^(\d{4})\s*[:=]\s*\[/.test(l.trim()));
+    if (colonLines.length > 0) {
+      const seededYears: number[] = [];
+      const errors: string[] = [];
+
+      for (const rawLine of colonLines) {
+        const line = rawLine.trim();
+        const colonMatch = line.match(/^(\d{4})\s*[:=]\s*\[([\d\s,]+)\](?:\s*@\s*(\d{4}-\d{2}-\d{2}))?$/);
+
+        if (!colonMatch) {
+          errors.push(`Invalid line: "${line}"`);
+          continue;
+        }
+
+        const yearBS = parseInt(colonMatch[1], 10);
+        const arrStr = colonMatch[2];
+        const customStartAD = colonMatch[3] || undefined;
+        const monthDays = arrStr
+          .split(',')
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => !isNaN(n));
+
+        if (monthDays.length !== 12) {
+          errors.push(`Found ${monthDays.length} months instead of 12 for BS year ${yearBS}.`);
+          continue;
+        }
+
+        seedBSYearCalendar(yearBS, monthDays, customStartAD);
+        seededYears.push(yearBS);
+      }
+
+      if (seededYears.length === 0) {
         return {
           success: false,
-          message: `Found ${monthDays.length} months instead of 12 for BS year ${yearBS}.`,
+          message: errors.length ? errors.join(' | ') : 'No valid year lines found.',
         };
       }
 
-      seedBSYearCalendar(yearBS, monthDays);
+      const totalDays = seededYears.reduce((sum, y) => {
+        const yData = getBsCalendarData()[y];
+        return sum + (yData ? yData.daysInMonths.reduce((a, b) => a + b, 0) : 0);
+      }, 0);
+
       return {
         success: true,
-        message: `Successfully seeded BS Year ${yearBS} with ${monthDays.reduce(
-          (a, b) => a + b,
-          0
-        )} total days into database lookup table!`,
-        yearBS,
+        message:
+          seededYears.length === 1
+            ? `Successfully seeded BS Year ${seededYears[0]} with ${totalDays} total days into database lookup table!`
+            : `Successfully batch seeded ${seededYears.length} BS Calendar years (${seededYears.join(', ')}) with ${totalDays} total days!`,
+        yearBS: seededYears[0],
+        years: seededYears,
       };
     }
 
+    // --- Format 3: JSON object (allows per-year startAD) ---
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
       const jsonObj = JSON.parse(trimmed);
-      let count = 0;
+      const seededYears: number[] = [];
+      const errors: string[] = [];
+
       for (const [key, val] of Object.entries(jsonObj)) {
         const yearBS = parseInt(key, 10);
-        if (!isNaN(yearBS) && Array.isArray(val) && val.length === 12) {
-          seedBSYearCalendar(yearBS, val as number[]);
-          count++;
+        if (isNaN(yearBS)) {
+          errors.push(`Invalid BS year key "${key}" in JSON object.`);
+          continue;
         }
+
+        let days: number[];
+        let customStartAD: string | undefined;
+
+        if (Array.isArray(val)) {
+          days = (val as any[]).map((n) => parseInt(n, 10)).filter((n) => !isNaN(n));
+        } else if (val && typeof val === 'object') {
+          const v = val as any;
+          days = Array.isArray(v.days)
+            ? v.days.map((n: any) => parseInt(n, 10)).filter((n: any) => !isNaN(n))
+            : [];
+          if (v.startAD) customStartAD = String(v.startAD);
+        } else {
+          days = [];
+        }
+
+        if (days.length !== 12) {
+          errors.push(`Found ${days.length} months instead of 12 for BS year ${yearBS}.`);
+          continue;
+        }
+
+        seedBSYearCalendar(yearBS, days, customStartAD);
+        seededYears.push(yearBS);
       }
-      if (count > 0) {
+
+      if (seededYears.length > 0) {
         return {
           success: true,
-          message: `Successfully batch seeded ${count} BS Calendar year(s)!`,
+          message: `Successfully batch seeded ${seededYears.length} BS Calendar year(s) from JSON (${seededYears.join(', ')})!`,
+          yearBS: seededYears[0],
+          years: seededYears,
         };
       }
+      return { success: false, message: errors.length ? errors.join(' | ') : 'No valid JSON years found.' };
+    }
+
+    // --- Format 4 & 5: CSV / TSV rows ---
+    const rowLines = yearLines.filter((l) => {
+      const cells = l.trim().split(/[,\t]/).map((s) => s.trim()).filter((s) => s.length > 0);
+      return cells.length >= 13 && !isNaN(parseInt(cells[0], 10));
+    });
+    if (rowLines.length > 0) {
+      const seededYears: number[] = [];
+      const errors: string[] = [];
+
+      for (const rawLine of rowLines) {
+        const cells = rawLine.trim().split(/[,\t]/).map((s) => s.trim());
+        const yearBS = parseInt(cells[0], 10);
+        if (isNaN(yearBS)) {
+          errors.push(`Invalid BS year in row: "${rawLine.trim()}"`);
+          continue;
+        }
+
+        const monthDays = cells.slice(1, 13).map((s) => parseInt(s, 10));
+        if (monthDays.some((n) => isNaN(n)) || monthDays.length !== 12) {
+          errors.push(`Row for BS year ${yearBS} must contain 12 numeric month-day values.`);
+          continue;
+        }
+
+        const startAD = cells[13] && /^\d{4}-\d{2}-\d{2}$/.test(cells[13]) ? cells[13] : undefined;
+        seedBSYearCalendar(yearBS, monthDays, startAD);
+        seededYears.push(yearBS);
+      }
+
+      if (seededYears.length === 0) {
+        return {
+          success: false,
+          message: errors.length ? errors.join(' | ') : 'No valid CSV/TSV rows found.',
+        };
+      }
+
+      return {
+        success: true,
+        message: `Successfully batch seeded ${seededYears.length} BS Calendar year(s) from tabular input (${seededYears.join(', ')})!`,
+        yearBS: seededYears[0],
+        years: seededYears,
+      };
     }
 
     return {
       success: false,
       message:
-        'Invalid format. Use format: "2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"',
+        'Invalid format. Use one of:\n' +
+        '  Single year:        "2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"\n' +
+        '  Multiple years:     one "2082: [...]" line per year\n' +
+        '  Optional AD start:  "2082: [31, ...] @ 2025-04-14"\n' +
+        '  JSON:               \'{"2082": [31, ...], "2083": [31, ...]}\'\n' +
+        '  CSV/TSV:            "2082,31,31,32,...,30[,2025-04-14]"',
     };
   } catch (err: any) {
     return {
@@ -269,6 +392,87 @@ export function parseAndSeedBSInput(inputStr: string): {
       message: `Failed to parse calendar input: ${err.message || 'Syntax error'}`,
     };
   }
+}
+
+/**
+ * Extracts the list of (yearBS, daysInMonths, customStartAD) tuples that a seed
+ * input string would seed, without mutating any calendar data. Used to preview
+ * multi-year batches before seeding.
+ */
+export function parseBSSeedYears(inputStr: string): {
+  years: { yearBS: number; daysInMonths: number[]; startAD?: string }[];
+  errors: string[];
+} {
+  const years: { yearBS: number; daysInMonths: number[]; startAD?: string }[] = [];
+  const errors: string[] = [];
+  const trimmed = (inputStr || '').trim();
+  if (!trimmed) return { years, errors };
+
+  const yearLines = trimmed.split(/\r?\n/).filter((l) => l.trim());
+
+  // Colon lines (single/multi year)
+  for (const rawLine of yearLines) {
+    const line = rawLine.trim();
+    const colonMatch = line.match(/^(\d{4})\s*[:=]\s*\[([\d\s,]+)\](?:\s*@\s*(\d{4}-\d{2}-\d{2}))?$/);
+    if (colonMatch) {
+      const daysInMonths = colonMatch[2]
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n));
+      if (daysInMonths.length === 12) {
+        years.push({
+          yearBS: parseInt(colonMatch[1], 10),
+          daysInMonths,
+          startAD: colonMatch[3] || undefined,
+        });
+      } else {
+        errors.push(`Line for BS year ${parseInt(colonMatch[1], 10)} has ${daysInMonths.length} months instead of 12.`);
+      }
+      continue;
+    }
+
+    // Tabular rows
+    const cells = line.split(/[,\t]/).map((s) => s.trim()).filter((s) => s !== '');
+    if (cells.length >= 13 && !isNaN(parseInt(cells[0], 10))) {
+      const yearBS = parseInt(cells[0], 10);
+      const daysInMonths = cells.slice(1, 13).map((s) => parseInt(s, 10));
+      if (daysInMonths.every((n) => !isNaN(n)) && daysInMonths.length === 12) {
+        years.push({
+          yearBS,
+          daysInMonths,
+          startAD: cells[13] && /^\d{4}-\d{2}-\d{2}$/.test(cells[13]) ? cells[13] : undefined,
+        });
+      } else {
+        errors.push(`Row for BS year ${yearBS} must contain 12 numeric month-day values.`);
+      }
+    }
+  }
+
+  // JSON object support
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const jsonObj = JSON.parse(trimmed);
+      for (const [key, val] of Object.entries(jsonObj)) {
+        const yearBS = parseInt(key, 10);
+        if (isNaN(yearBS)) continue;
+        let days: number[] = [];
+        let startAD: string | undefined;
+        if (Array.isArray(val)) {
+          days = (val as any[]).map((n) => parseInt(n, 10)).filter((n) => !isNaN(n));
+        } else if (val && typeof val === 'object') {
+          days = Array.isArray((val as any).days)
+            ? (val as any).days.map((n: any) => parseInt(n, 10)).filter((n: any) => !isNaN(n))
+            : [];
+          if ((val as any).startAD) startAD = String((val as any).startAD);
+        }
+        if (days.length === 12) years.push({ yearBS, daysInMonths: days, startAD });
+      }
+    } catch {
+      // ignore malformed JSON in preview
+    }
+  }
+
+  return { years, errors };
 }
 
 /**

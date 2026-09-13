@@ -182,10 +182,13 @@ export const api = {
     return fetchJson('/api/auth/me');
   },
 
-  async switchProfile(targetUserId: string): Promise<{ user: User; token: string }> {
+  async switchProfile(
+    targetUserId: string,
+    options?: { targetEmail?: string }
+  ): Promise<{ user: User; token: string }> {
     return fetchJson('/api/auth/switch-profile', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId }),
+      body: JSON.stringify({ targetUserId, ...(options?.targetEmail ? { targetEmail: options.targetEmail } : {}) }),
     });
   },
 
@@ -763,6 +766,23 @@ export const api = {
     return fetchJson('/api/bs-calendar/seed', {
       method: 'POST',
       body: JSON.stringify({ yearBS, daysInMonths, customStartAD, onlyIfNew }),
+    });
+  },
+
+  // Batch (multi-year) seed of the BS calendar month arrays. Seeds every
+  // provided year in one request, expanding the day-by-day bs_day_records
+  // lookup table for all of them. Accepts an array of { yearBS, daysInMonths,
+  // customStartAD? } objects.
+  async seedBsCalendarYearsBulk(years: { yearBS: number; daysInMonths: number[]; customStartAD?: string }[], onlyIfNew?: boolean): Promise<{
+    success: boolean;
+    pgSynced?: boolean;
+    seededCount?: number;
+    skippedYears?: number[];
+    message: string;
+  }> {
+    return fetchJson('/api/bs-calendar/seed-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ years, onlyIfNew }),
     });
   },
 

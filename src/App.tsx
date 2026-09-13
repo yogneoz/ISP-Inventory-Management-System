@@ -505,19 +505,28 @@ export default function App() {
     if (!rootUser) return;
     const rootName = rootUser.name;
     try {
-      const res = await api.switchProfile(rootUser.id);
+      // Send the root email alongside the id: after a demo data reset the
+      // account may have been re-created with a new id, and the stale id
+      // stored in localStorage would otherwise fail to resolve server-side.
+      const res = await api.switchProfile(rootUser.id, { targetEmail: rootUser.email });
       setAuthToken(res.token);
       setCurrentUser(res.user);
-      saveUserSession(res.user, rootUser, res.token);
+      // Re-sync the root profile from the server response (freshest data,
+      // including the current id) so future switch-backs are always valid.
+      setRootUser(res.user);
+      saveUserSession(res.user, res.user, res.token);
       await refreshAllData();
     } catch (err: any) {
-      // If the root profile can no longer be reached (server restart, data
-      // reset, or profile deleted), reset the local session so the user can
-      // log straight back in instead of being stranded on a switched account.
-      handleLogout();
-      alert(
-        `Could not switch back to ${rootName}: ${err?.message || 'Unknown error'}. Please log in again.`
-      );
+      // Only force a re-login when the server explicitly rejects the session
+      // (expired/stale token). For any other failure (e.g. the root profile
+      // was deleted or the DB is down) keep the user logged in on the current
+      // profile and surface the reason instead of stranding them.
+      const message = err?.message || 'Unknown error';
+      const isAuthError = /not authenticated|log in again|unauthorized|authentication required/i.test(message);
+      if (isAuthError) {
+        handleLogout();
+      }
+      alert(`Could not switch back to ${rootName}: ${message}`);
     }
   };
 

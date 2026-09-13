@@ -7,6 +7,7 @@ import {
   getNepaliFiscalYear,
   getBsCalendarData,
   parseAndSeedBSInput,
+  parseBSSeedYears,
   seedBSYearCalendar,
   BSYearData,
   BSDayRecord,
@@ -48,11 +49,13 @@ import {
 interface NepaliFiscalManagementProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+}
 
 export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   fiscalYears,
-  onSetCurrentFiscalYear,}) => {
+  onSetCurrentFiscalYear,
+}) => {
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -192,13 +195,14 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     e.preventDefault();
     if (!seedInput.trim()) return;
 
-    const match = seedInput.match(/(\d{4})\s*:\s*\[([\d\s,]+)\]/);
-    if (match) {
-      const yearBS = parseInt(match[1], 10);
-      if (seedOnlyIfNew && calendarData[yearBS]) {
+    const parsedYears = parseBSSeedYears(seedInput).years;
+
+    if (seedOnlyIfNew && parsedYears.length > 0) {
+      const allExist = parsedYears.every((y) => calendarData[y.yearBS]);
+      if (allExist) {
         setSeedStatus({
           type: 'success',
-          message: `BS Year ${yearBS} already exists in calendar database. Skipped seeding because 'Seed only if new' is enabled. (Use 'Edit Array' below to modify existing years).`,
+          message: `All ${parsedYears.length} BS year(s) (${parsedYears.map((y) => y.yearBS).join(', ')}) already exist in calendar database. Skipped duplicate seeding. (Use 'Edit Array' below to modify existing years).`,
         });
         return;
       }
@@ -207,23 +211,27 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     const res = parseAndSeedBSInput(seedInput);
     if (res.success) {
       let seedPgSynced = true;
-      if (match) {
-        const yearBS = parseInt(match[1], 10);
-        const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
-        if (days.length === 12) {
+
+      // Batch-sync all detected years to PostgreSQL in one request
+      if (parsedYears.length > 0) {
+        const bulkYears = parsedYears
+          .map((s) => ({ yearBS: s.yearBS, daysInMonths: s.daysInMonths, customStartAD: s.startAD }))
+          .filter((s) => Array.isArray(s.daysInMonths) && s.daysInMonths.length === 12);
+        if (bulkYears.length > 0) {
           try {
-            const seedRes = await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
-            if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
+            const bulkRes = await api.seedBsCalendarYearsBulk(bulkYears, seedOnlyIfNew);
+            if (bulkRes && bulkRes.pgSynced === false) seedPgSynced = false;
           } catch (err: any) {
-            console.warn('PostgreSQL Seed Warning:', err.message);
+            console.warn('PostgreSQL Bulk Seed Warning:', err.message);
             seedPgSynced = false;
           }
         }
       }
+
       setSeedStatus({
         type: 'success',
         message: seedPgSynced
-          ? `${res.message} (Synced 365 daily records to PostgreSQL bs_day_records table)`
+          ? `${res.message} (Synced to PostgreSQL bs_day_records table)`
           : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
       });
       await refreshCalendarData();

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ShieldCheck,
   Lock,
   Mail,
   ArrowRight,
@@ -298,11 +297,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               )}
             </button>
 
-            {/* Security Assurance Badge */}
-            <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-              <ShieldCheck className="h-4 w-4 text-emerald-500" />
-              <span>256-Bit Encrypted Multi-Branch Session</span>
-            </div>
           </form>
         )}
 
