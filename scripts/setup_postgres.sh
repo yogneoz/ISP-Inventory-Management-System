@@ -7,11 +7,8 @@
 #   2. Ensures the server is running and reachable.
 #   3. Creates the application database + user if missing.
 #   4. Applies scripts/schema.sql (idempotent) with ON_ERROR_STOP=1.
-#   5. Clears ALL existing data EXCEPT the Nepali BS calendar reference
-#      tables (bs_calendar_years, bs_day_records) so branches/users are
-#      seeded fresh every time. Set KEEP_DATA=1 to skip this.
-#   6. Verifies the schema (table count + v3.0 enterprise columns).
-#   7. Hands off to `node scripts/setup_db.js` which seeds master data and
+#   5. Verifies the schema (table count + v3.0 enterprise columns).
+#   6. Hands off to `node scripts/setup_db.js` which seeds master data and
 #      the demo dataset (is_demo = TRUE).
 #
 # Works on Linux (Debian/Ubuntu, RHEL/CentOS, Alpine), macOS (Homebrew) and
@@ -55,17 +52,22 @@ run_psql_as_app_maintain() {
 }
 
 run_psql_as_postgres() {
-    su - postgres -c "psql -v ON_ERROR_STOP=1 -d $1"
+    # SQL is passed via -c so it survives the `su` boundary (process
+    # substitution /dev/fd paths do NOT survive across sessions). Double
+    # quotes (with inner double quotes escaped) keep embedded single quotes in
+    # the SQL (e.g. CREATE USER ... PASSWORD '...') intact.
+    PGPASSWORD="" su - postgres -c "psql -v ON_ERROR_STOP=1 -d $1 -c \"$2\""
 }
 
-# Executes $1 (SQL file or -c command already assembled) against DB $2 using
-# the best available authentication path.
+# Executes a single SQL statement against DB $2 using the best available
+# authentication path. The statement is passed via -c (not a file) so both
+# the app-user and su-postgres paths work identically on a fresh host.
 exec_sql() {
     local sql="$1" db="$2"
-    if run_psql_as_app "${db}" <(printf '%s' "${sql}") >/dev/null 2>&1; then
+    if run_psql_as_app "${db}" -c "${sql}" >/dev/null 2>&1; then
         return 0
     fi
-    if have_postgres_user && run_psql_as_postgres "${db}" <(printf '%s' "${sql}") >/dev/null 2>&1; then
+    if have_postgres_user && run_psql_as_postgres "${db}" "${sql}" >/dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -77,7 +79,9 @@ exec_sql_file() {
     if run_psql_as_app "${db}" -f "${file}" 2>&1; then
         return 0
     fi
-    if have_postgres_user && run_psql_as_postgres "${db}" -f "${file}" 2>&1; then
+    # Real file path survives the `su` boundary (unlike /dev/fd paths), so we
+    # invoke su directly here.
+    if have_postgres_user && PGPASSWORD="" su - postgres -c "psql -v ON_ERROR_STOP=1 -d ${db} -f '${file}'" 2>&1; then
         return 0
     fi
     return 1
@@ -186,11 +190,21 @@ configure_database() {
             -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
             -t -A -c "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" 2>/dev/null || echo "0")
         if [ "${db_exists}" != "1" ]; then
-            PGPASSWORD="${DB_PASS}" psql -v ON_ERROR_STOP=1 \
+            # The app user rarely has CREATEDB on a fresh install. Try as the
+            # app user first, then fall back to the postgres superuser.
+            if PGPASSWORD="${DB_PASS}" psql -v ON_ERROR_STOP=1 \
                 -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
-                -c "CREATE DATABASE ${DB_NAME};" >/dev/null 2>&1 \
-                && log "Created database ${DB_NAME}." \
-                || warn "Could not create database ${DB_NAME} as ${DB_USER} (it may already exist or the user lacks privileges)."
+                -c "CREATE DATABASE ${DB_NAME};" >/dev/null 2>&1; then
+                log "Created database ${DB_NAME}."
+            elif have_postgres_user; then
+                if PGPASSWORD="" su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};'" >/dev/null 2>&1; then
+                    log "Created database ${DB_NAME} (as postgres)."
+                else
+                    warn "Could not create database ${DB_NAME} automatically - create it manually and re-run."
+                fi
+            else
+                warn "Could not create database ${DB_NAME} automatically - create it manually and re-run."
+            fi
         else
             log "Database ${DB_NAME} exists."
         fi
@@ -244,53 +258,7 @@ run_schema_migration() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Clear existing data before seeding (fresh-start behaviour)
-#
-#   * TRUNCATEs every table EXCEPT the Nepali BS calendar reference tables
-#     (bs_calendar_years, bs_day_records) so seeding always starts from a
-#     clean slate and branches/users are re-created fresh.
-#   * fiscal_years is NOT truncated (a FK from bs_day_records would wipe the
-#     Nepali calendar via CASCADE); it is cleared with DELETE, which honours
-#     ON DELETE SET NULL and only nulls bs_day_records.fiscal_year_id.
-#   * Set KEEP_DATA=1 to skip the wipe (e.g. when the database already holds
-#     real data that must not be touched).
-# ---------------------------------------------------------------------------
-clear_existing_data() {
-    if [ "${KEEP_DATA:-0}" = "1" ]; then
-        log "KEEP_DATA=1 set - skipping data wipe (preserving existing rows)."
-        return 0
-    fi
-    log "Clearing all data (preserving bs_calendar_years + bs_day_records)..."
-
-    local db_table_list
-    db_table_list=$(query_result \
-        "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN ('bs_calendar_years', 'bs_day_records', 'fiscal_years');" \
-        "${DB_NAME}") || fail "Could not enumerate tables to clear."
-    if [ -n "${db_table_list}" ]; then
-        # TRUNCATE with CASCADE handles FK ordering for us.
-        local truncate_sql
-        truncate_sql="TRUNCATE TABLE ${db_table_list} RESTART IDENTITY CASCADE;"
-        if run_psql_as_app "${DB_NAME}" -c "${truncate_sql}" 2>&1; then
-            log "Data cleared."
-        elif have_postgres_user && run_psql_as_postgres "${DB_NAME}" -c "${truncate_sql}" 2>&1; then
-            log "Data cleared (as postgres)."
-        else
-            warn "Could not clear data automatically - continuing to seed (existing rows may conflict)."
-        fi
-    fi
-
-    # fiscal_years: DELETE (not TRUNCATE) so bs_day_records.fiscal_year_id is
-    # SET NULL via the FK action instead of the calendar being wiped.
-    local fy_sql="DELETE FROM fiscal_years;"
-    if run_psql_as_app "${DB_NAME}" -c "${fy_sql}" 2>&1 || (have_postgres_user && run_psql_as_postgres "${DB_NAME}" -c "${fy_sql}" 2>&1); then
-        log "Fiscal years cleared (Nepali calendar preserved)."
-    else
-        warn "Could not clear fiscal years."
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# 6. Test the connection
+# 5. Test the connection
 # ---------------------------------------------------------------------------
 test_connection() {
     if query_result "SELECT 1;" "${DB_NAME}" >/dev/null 2>&1; then
@@ -302,7 +270,7 @@ test_connection() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Hand off to the Node seeder (master data + demo dataset + FY backfill)
+# 6. Hand off to the Node seeder (master data + demo dataset + FY backfill)
 # ---------------------------------------------------------------------------
 run_node_seeder() {
     if ! command -v node >/dev/null 2>&1; then
@@ -315,10 +283,7 @@ run_node_seeder() {
         return 0
     fi
     log "Running Node seeder (scripts/setup_db.js): schema re-check, master data, demo dataset, fiscal-year backfill..."
-    # --keep-data: setup_postgres.sh already cleared tables in step 5; let
-    # the Node seeder skip its own wipe to avoid redundant TRUNCATEs.
-    local seeder_flags="--keep-data"
-    if (cd "${SCRIPT_DIR}/.." && POSTGRES_HOST="${PSQL_HOST:-localhost}" POSTGRES_PORT="${DB_PORT}" POSTGRES_DB="${DB_NAME}" POSTGRES_USER="${DB_USER}" POSTGRES_PASSWORD="${DB_PASS}" node "${NODE_SETUP_SCRIPT}" ${seeder_flags}); then
+    if (cd "${SCRIPT_DIR}/.." && POSTGRES_HOST="${PSQL_HOST:-localhost}" POSTGRES_PORT="${DB_PORT}" POSTGRES_DB="${DB_NAME}" POSTGRES_USER="${DB_USER}" POSTGRES_PASSWORD="${DB_PASS}" node "${NODE_SETUP_SCRIPT}"); then
         log "Node seeder completed."
     else
         warn "Node seeder reported a problem; re-run 'npm run setup:pg' for details."
@@ -331,7 +296,6 @@ run_node_seeder() {
 echo "=========================================================================="
 echo " Inventory Management System: Automated PostgreSQL Installer & Configurator"
 echo " Schema v3.0 (enterprise: is_demo tracking, audit columns, fiscal-year FKs)"
-echo " Resets all data except the Nepali BS calendar on every run"
 echo "=========================================================================="
 
 log "Step 1: Detecting/installing PostgreSQL if needed..."
@@ -346,13 +310,10 @@ configure_database
 log "Step 4: Applying schema..."
 run_schema_migration
 
-log "Step 5: Clearing existing data (keeps Nepali BS calendar)..."
-clear_existing_data
-
-log "Step 6: Testing connection..."
+log "Step 5: Testing connection..."
 test_connection || true
 
-log "Step 7: Running Node seeder (master + demo data)..."
+log "Step 6: Running Node seeder (master + demo data)..."
 run_node_seeder
 
 echo ""

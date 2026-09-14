@@ -217,14 +217,14 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'opening-stock-view',
-        operationName: 'View Fiscal Year Opening Stock Register',
-        description: 'Inspect per-product, per-branch opening balances posted at fiscal year closing',
+        operationName: 'View Fiscal Year Opening Register',
+        description: 'Inspect per-product, per-branch opening stock and per-supplier opening balance posted at fiscal year closing',
         permissions: DEFAULT_PERMISSIONS_MATRIX['opening-stock-view'],
       },
       {
         id: 'opening-stock-edit',
-        operationName: 'Adjust Fiscal Year Opening Stock',
-        description: 'Manually correct opening quantity, damaged quantity, and unit cost while the fiscal year remains open',
+        operationName: 'Adjust Fiscal Year Opening Register',
+        description: 'Manually correct opening stock quantity, damaged quantity, unit cost, and vendor opening balances while the fiscal year remains open',
         permissions: DEFAULT_PERMISSIONS_MATRIX['opening-stock-edit'],
       },
     ],

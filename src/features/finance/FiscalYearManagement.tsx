@@ -45,7 +45,7 @@ const getDocCategory = (id: string): DocCategory => {
   if (['PO', 'PI', 'GRN', 'DN', 'INV', 'QUO', 'CN'].includes(id)) return 'PROCUREMENT_SALES';
   if (['ST', 'SA', 'DC', 'CPI', 'EXC', 'WC'].includes(id)) return 'INVENTORY_OPS';
   if (['FAA', 'FAR'].includes(id)) return 'FIXED_ASSETS';
-  if (['JV', 'PV', 'RV'].includes(id)) return 'FINANCE_TAX';
+  if (['JV', 'PV', 'RV', 'CP', 'CR', 'BP', 'BR'].includes(id)) return 'FINANCE_TAX';
   return 'ALL';
 };
 
@@ -55,14 +55,16 @@ interface FiscalYearManagementProps {
   onUpdateFiscalYear: (fiscalYear: FiscalYear) => Promise<void>;
   onDeleteFiscalYear: (id: string) => Promise<void>;
   currentUser: User | null;
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+}
 
 export const FiscalYearManagement: React.FC<FiscalYearManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
   onUpdateFiscalYear,
   onDeleteFiscalYear,
-  currentUser,}) => {
+  currentUser,
+}) => {
   // Document Numbering State
   const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>(() =>
     getDocumentNumberConfigs()

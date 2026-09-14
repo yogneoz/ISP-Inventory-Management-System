@@ -29,7 +29,8 @@ interface OpeningStockManagerProps {
   currentUser?: User | null;
   fiscalYears: FiscalYear[];
   branches: Branch[];
-  products: Product[];  onRefreshData?: () => void;
+  products: Product[];
+  onRefreshData?: () => void;
 }
 
 type Draft = { quantityOnHand: string; damagedQty: string; unitCost: string };
@@ -38,11 +39,12 @@ const formatNPR = (value: number) =>
   `NPR ${Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /**
- * Fiscal Year Opening Stock Register (Setup).
+ * Fiscal Year Opening Stock Register (Setup / Stock Adjustment).
  *
  * Enterprise period-lock model:
- *  - Opening balances are generated from the closing balances of the previous
- *    fiscal year (Fiscal Year Closing Wizard) for every product x branch.
+ *  - Opening stock balances are generated from the closing balances of the
+ *    previous fiscal year (Fiscal Year Closing Wizard) for every product x
+ *    branch, listed branchwise so every product has an opening entry.
  *  - While the fiscal year is OPEN, Super Admin / Inventory Manager may correct
  *    rows (quantity, damaged, unit cost). Corrections are stamped
  *    source_type = MANUAL_ADJUSTMENT with the authorizing user and are audited.
@@ -53,15 +55,20 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
   currentUser,
   fiscalYears,
   branches,
-  products,  onRefreshData,
+  products,
+  onRefreshData,
 }) => {
   const role = currentUser?.role;
   const canView = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'ACCOUNTANT';
   const canEditRole = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
 
   const defaultFyId = useMemo(() => {
+    // Prioritize current fiscal year, then first open, then first available
+    const current = fiscalYears.find((f) => f.isCurrent);
+    if (current) return current.id;
     const open = fiscalYears.find((f) => !f.isClosed);
-    return (open || fiscalYears[0])?.id || '';
+    if (open) return open.id;
+    return fiscalYears[0]?.id || '';
   }, [fiscalYears]);
 
   // Filter fiscal years using shared utility: show closed, current, and within-date-range years only
@@ -116,6 +123,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
 
   useEffect(() => {
     fetchRegister(selectedFyId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFyId, fetchRegister]);
 
   const fy = data?.fiscalYear;
@@ -327,7 +335,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
       filename: `Fiscal_Opening_Stock_${fy?.code || selectedFyId}`.replace(/\//g, '-'),
       data: filteredRows,
       columns,
-      reportTitle: `Fiscal Year Opening Stock Register — FY ${fy?.code || ''}`,
+      reportTitle: `Fiscal Year Opening Register — Opening Stock — FY ${fy?.code || ''}`,
       generatedBy: currentUser?.name,
     });
   };
@@ -339,7 +347,7 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
         <Lock className="h-10 w-10 mb-3 opacity-60" />
         <h2 className="text-lg font-bold">Permission Denied</h2>
         <p className="text-sm mt-1 max-w-md">
-          The Fiscal Year Opening Stock Register is restricted to Super Admin, Inventory Manager, and Accountant roles.
+          The Fiscal Year Opening Register is restricted to Super Admin, Inventory Manager, and Accountant roles.
         </p>
       </div>
     );
@@ -357,10 +365,11 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
           </div>
           <div className="min-w-0">
             <h2 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
-              Fiscal Year Opening Stock Register
+              Fiscal Year Opening Register
             </h2>
             <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
-              Posted opening balances (product × branch) that all historical period calculations are based on.
+              Branch-wise product opening stock levels (product × branch) that all historical period calculations are
+              based on. Every product must have an opening entry.
             </p>
           </div>
         </div>
@@ -413,294 +422,325 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
         )
       )}
 
-      {/* ===== Summary stats ===== */}
-      {data && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-          {[
-            { label: 'Registered Rows', value: String(data.stats.totalRows), icon: Layers },
-            { label: 'Manual Adjustments', value: String(data.stats.manualAdjustments), icon: Pencil },
-            { label: 'Zero-Qty Rows', value: String(data.stats.zeroQtyRows), icon: AlertTriangle },
-            { label: 'Opening Value', value: formatNPR(data.stats.totalValue), icon: Scale },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className={`rounded-xl border p-3 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
-            >
-              <div className="flex items-center gap-2">
-                <card.icon className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
-                <span className={`text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500`}>
-                  {card.label}
-                </span>
-              </div>
-              <div className={`text-lg font-extrabold mt-1 text-slate-900 dark:text-white`}>{card.value}</div>
+      {/* ===== Stock Opening Adjustment card ===== */}
+      <div
+        className={`rounded-xl border p-4 shadow-sm shrink-0 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`p-2.5 rounded-xl shrink-0 bg-indigo-50 dark:bg-indigo-500/10`}>
+              <Layers className={`h-6 w-6 text-indigo-600 dark:text-indigo-400`} />
             </div>
-          ))}
-        </div>
-      )}
-      {/* ===== Filters & actions ===== */}
-      <div
-        className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 shadow-sm shrink-0 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
-      >
-        <div className="relative">
-          <Search className={`h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500`} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search product name or SKU…"
-            className={`pl-8 pr-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-          />
-        </div>
-        <select
-          value={branchFilter}
-          onChange={(e) => setBranchFilter(e.target.value)}
-          className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-        >
-          <option value="ALL">All Branches</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
-          <input type="checkbox" checked={zeroOnly} onChange={(e) => setZeroOnly(e.target.checked)} className="rounded" />
-          Zero-qty only
-        </label>
-        <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
-          <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} className="rounded" />
-          Changed only
-        </label>
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={loading || filteredRows.length === 0}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
-        >
-          <Download className="h-3.5 w-3.5" /> Export CSV
-        </button>
-        {canEdit && data && data.rows.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowAddRow(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-200 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800`}
-          >
-            <Plus className="h-3.5 w-3.5" /> Add Row
-          </button>
-        )}
-        {canEdit && changedRows.length > 0 && (
-          <button
-            type="button"
-            onClick={handleSaveAdjustments}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Save className="h-3.5 w-3.5" /> Save {changedRows.length} Adjustment{changedRows.length > 1 ? 's' : ''}
-          </button>
-        )}
-      </div>
-
-      {/* ===== Save / generate feedback ===== */}
-      {(saveMessage || genMessage) && (
-        <div
-          className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold shrink-0 'saveMessage?.type === 'error || ${(genMessage && !data?.rows.length) ? 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300'}`}
-        >
-          {saveMessage?.type === 'error' ? (
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
-          )}
-          <span>{saveMessage ? saveMessage.text : genMessage}</span>
-        </div>
-      )}
-      {/* ===== Register table / empty state ===== */}
-      <div
-        className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
-      >
-        {loading ? (
-          <div
-            className={`flex-1 flex items-center justify-center text-sm font-semibold text-slate-500 dark:text-slate-400`}
-          >
-            Loading opening-stock register…
-          </div>
-        ) : loadError ? (
-          <div
-            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-2 text-slate-500 dark:text-slate-400`}
-          >
-            <AlertTriangle className="h-8 w-8 text-rose-500" />
-            <p className="text-sm font-semibold max-w-lg">{loadError}</p>
-            <button
-              type="button"
-              onClick={() => fetchRegister(selectedFyId)}
-              className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Retry
-            </button>
-          </div>
-        ) : !data || data.rows.length === 0 ? (
-          <div
-            className={`flex-1 flex flex-col items-center justify-center text-center p-8 gap-3 text-slate-500 dark:text-slate-400`}
-          >
-            <Layers className="h-10 w-10 opacity-50" />
-            <div>
-              <p className="text-sm font-bold">No opening stock posted for FY {fy?.code || '—'} yet.</p>
-              <p className="text-xs mt-1 max-w-lg">
-                Generate the register from the closing balances of the previous fiscal year. Every product × branch
-                combination is created, including zero-quantity rows, so nothing disappears from the new period.
+            <div className="min-w-0">
+              <h3 className={`text-base font-bold truncate text-slate-900 dark:text-white`}>
+                Stock Opening Adjustment
+              </h3>
+              <p className={`text-xs mt-0.5 truncate text-slate-500 dark:text-slate-400`}>
+                Branch-wise product opening stock levels for FY {fy?.code || '—'}. Every product must have an opening
+                entry in each branch.
               </p>
             </div>
-            {canEditRole && (
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit && changedRows.length > 0 && (
               <button
                 type="button"
-                onClick={handleGenerate}
-                disabled={generating}
+                onClick={handleSaveAdjustments}
+                disabled={saving}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${generating ? 'animate-spin' : ''}`} />
-                {generating ? 'Generating…' : 'Generate from Closing Balances'}
+                <Save className="h-3.5 w-3.5" /> Save {changedRows.length} Adjustment{changedRows.length > 1 ? 's' : ''}
               </button>
             )}
           </div>
-        ) : (
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
-                  {[
-                    'Product',
-                    'Branch',
-                    'Opening Qty',
-                    'Damaged',
-                    'Unit Cost (NPR)',
-                    'Opening Value',
-                    'Live Qty',
-                    'Source',
-                    'Posted',
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className={`px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800`}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      className={`px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500`}
-                    >
-                      No rows match the current filters.
-                    </td>
-                  </tr>
-                )}
-                {filteredRows.map((row) => {
-                  const changed = isRowChanged(row);
-                  const draft = getDraft(row);
-                  const effQty = changed ? Number(draft.quantityOnHand) || 0 : row.quantityOnHand;
-                  const effCost = changed ? Number(draft.unitCost) || 0 : row.unitCost;
-                  const valueMismatchesLive = Number(row.liveQty) !== Number(row.quantityOnHand);
-                  const inputBase = `px-2 py-1 rounded-md border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 ${changed ? 'border-amber-400' : ''}`;
-                  return (
-                    <tr
-                      key={row.id}
-                      className={`border-b transition-colors border-slate-100 dark:border-slate-800/70 ${changed ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}
-                    >
-                      <td className="px-3 py-2">
-                        <div className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
-                          {row.productName}
-                        </div>
-                        <div className={`text-[10px] text-slate-400 dark:text-slate-500`}>
-                          {row.productSku}
-                        </div>
-                      </td>
-                      <td
-                        className={`px-3 py-2 text-xs font-semibold whitespace-nowrap text-slate-600 dark:text-slate-300`}
+        </div>
+
+        {/* Summary stats */}
+        {data && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+            {[
+              { label: 'Registered Rows', value: String(data.stats.totalRows), icon: Layers },
+              { label: 'Manual Adjustments', value: String(data.stats.manualAdjustments), icon: Pencil },
+              { label: 'Zero-Qty Rows', value: String(data.stats.zeroQtyRows), icon: AlertTriangle },
+              { label: 'Opening Value', value: formatNPR(data.stats.totalValue), icon: Scale },
+            ].map((card) => (
+              <div
+                key={card.label}
+                className={`rounded-xl border p-3 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+              >
+                <div className="flex items-center gap-2">
+                  <card.icon className={`h-4 w-4 text-indigo-600 dark:text-indigo-400`} />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500`}>
+                    {card.label}
+                  </span>
+                </div>
+                <div className={`text-lg font-extrabold mt-1 text-slate-900 dark:text-white`}>{card.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Filters & actions */}
+        <div
+          className={`flex flex-wrap items-center gap-2 mt-3 rounded-xl border p-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+        >
+          <div className="relative">
+            <Search className={`h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500`} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search product name or SKU…"
+              className={`pl-8 pr-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
+            />
+          </div>
+          <select
+            value={branchFilter}
+            onChange={(e) => setBranchFilter(e.target.value)}
+            className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
+          >
+            <option value="ALL">All Branches</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
+            <input type="checkbox" checked={zeroOnly} onChange={(e) => setZeroOnly(e.target.checked)} className="rounded" />
+            Zero-qty only
+          </label>
+          <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
+            <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} className="rounded" />
+            Changed only
+          </label>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={loading || filteredRows.length === 0}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
+          >
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </button>
+          {canEdit && data && data.rows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAddRow(true)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-white hover:bg-slate-200 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800`}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Row
+            </button>
+          )}
+        </div>
+
+        {/* Save / generate feedback */}
+        {(saveMessage || genMessage) && (
+          <div
+            className={`flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold mt-3 ${
+              saveMessage?.type === 'error'
+                ? 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-500/5 dark:border-rose-500/30 dark:text-rose-300'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/5 dark:border-emerald-500/30 dark:text-emerald-300'
+            }`}
+          >
+            {saveMessage?.type === 'error' ? (
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+            )}
+            <span>{saveMessage ? saveMessage.text : genMessage}</span>
+          </div>
+        )}
+
+        {/* Register table / empty state */}
+        <div
+          className={`mt-3 min-h-0 flex flex-col rounded-xl border overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
+        >
+          {loading ? (
+            <div
+              className={`flex items-center justify-center text-sm font-semibold text-slate-500 dark:text-slate-400 py-10`}
+            >
+              Loading opening-stock register…
+            </div>
+          ) : loadError ? (
+            <div
+              className={`flex flex-col items-center justify-center text-center p-8 gap-2 text-slate-500 dark:text-slate-400`}
+            >
+              <AlertTriangle className="h-8 w-8 text-rose-500" />
+              <p className="text-sm font-semibold max-w-lg">{loadError}</p>
+              <button
+                type="button"
+                onClick={() => fetchRegister(selectedFyId)}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
+            </div>
+          ) : !data || data.rows.length === 0 ? (
+            <div
+              className={`flex flex-col items-center justify-center text-center p-8 gap-3 text-slate-500 dark:text-slate-400`}
+            >
+              <Layers className="h-10 w-10 opacity-50" />
+              <div>
+                <p className="text-sm font-bold">No opening stock posted for FY {fy?.code || '—'} yet.</p>
+                <p className="text-xs mt-1 max-w-lg">
+                  Generate the register from the closing balances of the previous fiscal year. Every product × branch
+                  combination is created, including zero-quantity rows, so nothing disappears from the new period.
+                </p>
+              </div>
+              {canEditRole && (
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${generating ? 'animate-spin' : ''}`} />
+                  {generating ? 'Generating…' : 'Generate from Closing Balances'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                    {[
+                      'Product',
+                      'Branch',
+                      'Opening Qty',
+                      'Damaged',
+                      'Unit Cost (NPR)',
+                      'Opening Value',
+                      'Live Qty',
+                      'Source',
+                      'Posted',
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className={`px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide whitespace-nowrap border-b border-slate-200 dark:border-slate-800`}
                       >
-                        {row.branchName}
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className={`px-3 py-8 text-center text-xs font-semibold text-slate-400 dark:text-slate-500`}
+                      >
+                        No rows match the current filters.
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
+                    </tr>
+                  )}
+                  {filteredRows.map((row) => {
+                    const changed = isRowChanged(row);
+                    const draft = getDraft(row);
+                    const effQty = changed ? Number(draft.quantityOnHand) || 0 : row.quantityOnHand;
+                    const effCost = changed ? Number(draft.unitCost) || 0 : row.unitCost;
+                    const valueMismatchesLive = Number(row.liveQty) !== Number(row.quantityOnHand);
+                    const inputBase = `px-2 py-1 rounded-md border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 ${changed ? 'border-amber-400' : ''}`;
+                    return (
+                      <tr
+                        key={row.id}
+                        className={`border-b transition-colors border-slate-100 dark:border-slate-800/70 ${changed ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}
+                      >
+                        <td className="px-3 py-2">
+                          <div className={`text-xs font-bold text-slate-800 dark:text-slate-200`}>
+                            {row.productName}
+                          </div>
+                          <div className={`text-[10px] text-slate-400 dark:text-slate-500`}>
+                            {row.productSku}
+                          </div>
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-xs font-semibold whitespace-nowrap text-slate-600 dark:text-slate-300`}
+                        >
+                          {row.branchName}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              disabled={!canEdit}
+                              value={changed ? draft.quantityOnHand : String(row.quantityOnHand)}
+                              onChange={(e) => updateDraft(row.id, 'quantityOnHand', e.target.value)}
+                              className={`${inputBase} w-20 font-bold`}
+                            />
+                            {changed && (
+                              <span className="text-[10px] font-bold text-amber-500 whitespace-nowrap">
+                                {row.quantityOnHand} → {effQty}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
                           <input
                             type="number"
                             min={0}
                             step={1}
                             disabled={!canEdit}
-                            value={changed ? draft.quantityOnHand : String(row.quantityOnHand)}
-                            onChange={(e) => updateDraft(row.id, 'quantityOnHand', e.target.value)}
-                            className={`${inputBase} w-20 font-bold`}
+                            value={changed ? draft.damagedQty : String(row.damagedQty)}
+                            onChange={(e) => updateDraft(row.id, 'damagedQty', e.target.value)}
+                            className={`${inputBase} w-16`}
                           />
-                          {changed && (
-                            <span className="text-[10px] font-bold text-amber-500 whitespace-nowrap">
-                              {row.quantityOnHand} → {effQty}
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            disabled={!canEdit}
+                            value={changed ? draft.unitCost : String(row.unitCost)}
+                            onChange={(e) => updateDraft(row.id, 'unitCost', e.target.value)}
+                            className={`${inputBase} w-24`}
+                          />
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-xs font-bold whitespace-nowrap text-slate-800 dark:text-slate-200`}
+                        >
+                          {formatNPR(effQty * effCost)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`text-xs font-semibold ${valueMismatchesLive ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+                          >
+                            {row.liveQty}
+                            {valueMismatchesLive ? ' ⚠' : ''}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.sourceType === 'MANUAL_ADJUSTMENT' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 whitespace-nowrap">
+                              <Pencil className="h-3 w-3" /> Manual
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500 whitespace-nowrap">
+                              <CheckCircle2 className="h-3 w-3" /> Fiscal Close
                             </span>
                           )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          disabled={!canEdit}
-                          value={changed ? draft.damagedQty : String(row.damagedQty)}
-                          onChange={(e) => updateDraft(row.id, 'damagedQty', e.target.value)}
-                          className={`${inputBase} w-16`}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          disabled={!canEdit}
-                          value={changed ? draft.unitCost : String(row.unitCost)}
-                          onChange={(e) => updateDraft(row.id, 'unitCost', e.target.value)}
-                          className={`${inputBase} w-24`}
-                        />
-                      </td>
-                      <td
-                        className={`px-3 py-2 text-xs font-bold whitespace-nowrap text-slate-800 dark:text-slate-200`}
-                      >
-                        {formatNPR(effQty * effCost)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`text-xs font-semibold ${valueMismatchesLive ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
-                        >
-                          {row.liveQty}
-                          {valueMismatchesLive ? ' ⚠' : ''}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        {row.sourceType === 'MANUAL_ADJUSTMENT' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 whitespace-nowrap">
-                            <Pencil className="h-3 w-3" /> Manual
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500 whitespace-nowrap">
-                            <CheckCircle2 className="h-3 w-3" /> Fiscal Close
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className={`text-[10px] leading-tight text-slate-400 dark:text-slate-500`}>
-                          <div className="font-semibold truncate max-w-[130px]">{row.postedBy || '—'}</div>
-                          <div>{row.postedAt ? row.postedAt.replace('T', ' ').slice(0, 16) : '—'}</div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className={`text-[10px] leading-tight text-slate-400 dark:text-slate-500`}>
+                            <div className="font-semibold truncate max-w-[130px]">{row.postedBy || '—'}</div>
+                            <div>{row.postedAt ? row.postedAt.replace('T', ' ').slice(0, 16) : '—'}</div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
-      {/* ===== Add Row Modal ===== */}
+
+      {/* ===== Add Opening-Stock Row Modal ===== */}
       {showAddRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowAddRow(false)}>
           <div

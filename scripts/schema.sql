@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id VARCHAR(50) PRIMARY KEY,
     po_number VARCHAR(100) UNIQUE NOT NULL,
+    supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
     supplier_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     order_date_ad DATE NOT NULL,
@@ -262,6 +263,7 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     invoice_number VARCHAR(100) UNIQUE NOT NULL,
     po_reference_id VARCHAR(50),
     vendor_bill_number VARCHAR(100),
+    supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
     supplier_name VARCHAR(200) NOT NULL,
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     invoice_date_ad DATE NOT NULL,
@@ -284,6 +286,49 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ==========================================
+-- 10b. Vendor Payments Sub-ledger Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS vendor_payments (
+    id VARCHAR(50) PRIMARY KEY,
+    payment_number VARCHAR(100) UNIQUE NOT NULL,
+    supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
+    supplier_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    invoice_id VARCHAR(50) REFERENCES purchase_invoices(id) ON DELETE SET NULL,
+    invoice_number VARCHAR(100),
+    payment_date_ad DATE NOT NULL,
+    payment_date_bs VARCHAR(20),
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+    payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+    bank_name VARCHAR(150),
+    bank_branch VARCHAR(150),
+    account_number VARCHAR(100),
+    cheque_number VARCHAR(100),
+    cheque_date_ad DATE,
+    cheque_date_bs VARCHAR(20),
+    transaction_reference VARCHAR(200),
+    notes TEXT,
+    status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
+    reversal_reason TEXT,
+    reversed_by VARCHAR(150),
+    reversed_at_ad TIMESTAMP WITH TIME ZONE,
+    original_payment_id VARCHAR(50) REFERENCES vendor_payments(id) ON DELETE SET NULL,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_supplier ON vendor_payments(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_branch ON vendor_payments(branch_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_invoice ON vendor_payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_date ON vendor_payments(payment_date_ad);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_status ON vendor_payments(status);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_fiscal_year ON vendor_payments(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_demo ON vendor_payments(id) WHERE is_demo = TRUE;
 
 -- ==========================================
 -- 11. Shipments Table (with all required columns)
@@ -365,6 +410,31 @@ CREATE TABLE IF NOT EXISTS fiscal_year_opening_stock (
     created_by VARCHAR(150),
     UNIQUE (fiscal_year_id, product_id, branch_id)
 );
+
+-- ==========================================
+-- 13b. Fiscal-Year Vendor Opening Balances
+--      (Vendor Ledger roll-forward: opening
+--       account-payable per supplier × branch)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS vendor_opening_balances (
+    id VARCHAR(100) PRIMARY KEY,
+    fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+    supplier_id VARCHAR(50) NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE',
+    source_reference VARCHAR(100),
+    posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    posted_by VARCHAR(150),
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    UNIQUE (fiscal_year_id, supplier_id, branch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_opening_fy ON vendor_opening_balances(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_opening_supplier ON vendor_opening_balances(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_opening_branch ON vendor_opening_balances(branch_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_opening_demo ON vendor_opening_balances(id) WHERE is_demo = TRUE;
 
 -- ==========================================
 -- 14. Audit Trail Table
@@ -681,19 +751,34 @@ ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
 
--- is_demo labelling for master tables seeded with example/dummy data
--- (Nepali/BS calendar tables are real reference data and never carry it).
--- Added here for schema.sql parity with the server's inline migration
--- (older databases may lack the columns even though CREATE TABLE above
--- already declares them for fresh installs).
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
-
 -- v3.1 MIGRATION: Special Hardware Tracking flag on categories
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ============================================================================
+-- v3.2 MIGRATION for databases created before the vendor sub-ledger, damage
+-- lifecycle and vendor opening balances shipped.
+-- (All no-ops on fresh installs - the CREATE TABLE statements above already
+-- declare every column. These exist so an older v3.0/v3.1 database that has
+-- NEVER applied the full schema.sql (e.g. only the server's inline schema or
+-- an older schema.sql) is brought fully in sync before the server hydrates.)
+-- ============================================================================
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE';
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_reference VARCHAR(100);
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_by VARCHAR(150);
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+CREATE INDEX IF NOT EXISTS idx_vendor_payments_fiscal_year ON vendor_payments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 
 
 -- ============================================================================
@@ -758,6 +843,7 @@ CREATE INDEX IF NOT EXISTS idx_purchase_orders_demo ON purchase_orders(id) WHERE
 -- Purchase Invoices indexes
 CREATE INDEX IF NOT EXISTS idx_invoices_number ON purchase_invoices(invoice_number);
 CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON purchase_invoices(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_payment_status ON purchase_invoices(payment_status);
 CREATE INDEX IF NOT EXISTS idx_invoices_date ON purchase_invoices(invoice_date_ad DESC);
 CREATE INDEX IF NOT EXISTS idx_pi_branch_invoice_date ON purchase_invoices(branch_id, invoice_date_ad);
@@ -858,6 +944,7 @@ CREATE OR REPLACE TRIGGER trg_audit_logs_fiscal_year BEFORE INSERT OR UPDATE ON 
 CREATE OR REPLACE TRIGGER trg_transaction_logs_fiscal_year BEFORE INSERT OR UPDATE ON transaction_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
 CREATE OR REPLACE TRIGGER trg_customer_devices_fiscal_year BEFORE INSERT OR UPDATE ON customer_device_records FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('issued_date_ad');
 CREATE OR REPLACE TRIGGER trg_approval_requests_fiscal_year BEFORE INSERT OR UPDATE ON approval_requests FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('requested_at_ad');
+CREATE OR REPLACE TRIGGER trg_vendor_payments_fiscal_year BEFORE INSERT OR UPDATE ON vendor_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');
 
 UPDATE fixed_assets SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE acquisition_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
 UPDATE purchase_orders SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE order_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;

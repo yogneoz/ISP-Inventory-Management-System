@@ -27,6 +27,9 @@ import {
   LocationRecord,
   DocumentNumberConfig,
   DamageRecord,
+  VendorPayment,
+  VendorPaymentMethod,
+  VendorPaymentStatus,
 } from './src/types';
 import { calculateFixedAssetValues } from './src/utils/depreciation';
 
@@ -121,6 +124,11 @@ const INITIAL_DOCUMENT_NUMBER_CONFIGS: DocumentNumberConfig[] = [
   { id: 'JV', documentType: 'Journal Voucher', prefix: 'JV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for manual general ledger transactions and depreciation entries.' },
   { id: 'PV', documentType: 'Payment Disbursement Voucher', prefix: 'PV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for supplier bill payments, operational expenses, and bank disbursements.' },
   { id: 'RV', documentType: 'Cash & Bank Receipt Voucher', prefix: 'RV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for customer payments, advance collections, and bank deposits.' },
+  // Cash & Bank Payment / Receipt Document Numbering
+  { id: 'CP', documentType: 'Cash Payment', prefix: 'CP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1002, resetEveryFiscalYear: true, notes: 'Used for cash payment disbursements to suppliers and vendors. (Starts after demo CP-2081-1001.)' },
+  { id: 'CR', documentType: 'Cash Receive', prefix: 'CR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for cash receipts received from customers.' },
+  { id: 'BP', documentType: 'Bank Payment', prefix: 'BP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1003, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque payment disbursements to suppliers. (Starts after demo BP-2081-1001/1002.)' },
+  { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque receipts received from customers.' },
 ];
 
 let docNumberConfigs: DocumentNumberConfig[] = JSON.parse(JSON.stringify(INITIAL_DOCUMENT_NUMBER_CONFIGS));
@@ -177,9 +185,11 @@ const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
 ];
 
 // EXAMPLE/DUMMY suppliers (is_demo = TRUE). No real supplier data.
+// Ids match scripts/demo_dataset.js DEMO_SUPPLIERS (demo-sup-*) so the seed
+// rows are the SAME suppliers referenced by demo invoices/payments/POs.
 const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
   {
-    id: 'sup-1',
+    id: 'demo-sup-1',
     supplierCode: 'SUP-1001',
     name: 'Example Supplier 1',
     contactPerson: 'Example Contact 1',
@@ -190,7 +200,7 @@ const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
     rating: 4.8,
   },
   {
-    id: 'sup-2',
+    id: 'demo-sup-2',
     supplierCode: 'SUP-1002',
     name: 'Example Supplier 2',
     contactPerson: 'Example Contact 2',
@@ -201,7 +211,7 @@ const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
     rating: 4.7,
   },
   {
-    id: 'sup-3',
+    id: 'demo-sup-3',
     supplierCode: 'SUP-1003',
     name: 'Example Supplier 3',
     contactPerson: 'Example Contact 3',
@@ -249,6 +259,8 @@ let auditTrail: AuditLog[] = [];
 let transactionLogs: TransactionLog[] = [];
 let approvalRequests: ApprovalRequest[] = [];
 let damageRecords: DamageRecord[] = [];
+let vendorPayments: VendorPayment[] = [];
+let vendorOpeningBalances: any[] = [];
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -297,6 +309,36 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
 
   const counterStr = String(transactionSequenceMap[seqKey].count).padStart(4, '0');
   return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
+}
+
+// Document Numbering System helper (server-side)
+// Resolves the next voucher number from the document_number_configs master
+// (same sequences shown in Fiscal Year Management > Document Numbering
+// Initial Setup). Falls back to the legacy branch-based generator only when
+// the requested doc type has not been configured yet.
+function generateNextDocNumberForServer(docTypeId: string): string {
+  const config = docNumberConfigs.find((c) => c.id === docTypeId);
+  if (!config) {
+    return generateStandardTransactionId('WH001', docTypeId);
+  }
+  const seqNum = config.nextNumber;
+  const paddedNum = String(seqNum).padStart(config.minDigits || 4, '0');
+  const docNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
+
+  // Increment the in-memory sequence and persist to PostgreSQL best-effort
+  // (async) so concurrent requests still see a monotonically increasing number.
+  const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+  if (idx !== -1) docNumberConfigs[idx].nextNumber = seqNum + 1;
+  if (isPgConnected) {
+    pgPool
+      .query(
+        `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+        [seqNum + 1, docTypeId]
+      )
+      .catch((e: any) => console.warn('PostgreSQL increment document_number_config notice:', e?.message));
+  }
+
+  return docNum;
 }
 
 
@@ -518,6 +560,8 @@ function enforceOperationalPermissions(req: any, res: any, next: any) {
     ['/stock/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'AUDITOR']],
     ['/assets', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT']],
     ['/purchase-invoices', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
+    ['/vendor-payments', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
+    ['/vendors/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
   ];
   const rule = rules.find(([prefix]) => req.path === prefix.slice(0, -1) || req.path.startsWith(prefix));
   if (rule && !rule[1].includes(req.user?.role)) {
@@ -535,7 +579,7 @@ async function enforceBranchAccess(req: any, res: any, next: any) {
       return res.status(403).json({ message: 'Forbidden: bootstrap must be scoped to the authenticated user branch.' });
     }
   }
-  const branchScopedReadPaths = ['/stock', '/assets', '/purchase-orders', '/purchase-invoices', '/shipments', '/stock-operations', '/customer-devices', '/customers', '/approval-requests', '/locations'];
+  const branchScopedReadPaths = ['/stock', '/assets', '/purchase-orders', '/purchase-invoices', '/vendor-payments', '/shipments', '/stock-operations', '/customer-devices', '/customers', '/approval-requests', '/locations'];
   if (req.method === 'GET' && branchScopedReadPaths.some((path) => req.path === path || req.path.startsWith(`${path}/`))) {
     if (req.query?.branchId !== user.branchId && !(user.allowedBranchIds || []).includes(req.query?.branchId)) {
       return res.status(403).json({ message: 'Forbidden: branch-scoped reads require an authorized branch filter.' });
@@ -558,6 +602,7 @@ async function enforceBranchAccess(req: any, res: any, next: any) {
       ['/assets', 'fixed_assets', ['branch_id']],
       ['/purchase-orders', 'purchase_orders', ['branch_id']],
       ['/purchase-invoices', 'purchase_invoices', ['branch_id']],
+      ['/vendor-payments', 'vendor_payments', ['branch_id']],
       ['/shipments', 'shipments', ['source_branch_id', 'destination_branch_id']],
       ['/stock-operations', 'stock_operations', ['branch_id', 'destination_warehouse_id']],
       ['/customer-devices', 'customer_device_records', ['branch_id']],
@@ -789,9 +834,10 @@ app.get('/api/bootstrap', async (req, res) => {
       const locationScope = scoped({ branchCol: 'branch_id' });
 
       const damageScope = scoped({ branchCol: 'branch_id', dateCol: 'damage_date_ad' });
+      const vpScope = scoped({ branchCol: 'branch_id', dateCol: 'payment_date_ad' });
 
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes
       ] = await Promise.all([
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
@@ -799,8 +845,8 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId" FROM fixed_assets${assetScope.where}`, assetScope.params),
         pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records${deviceScope.where}`, deviceScope.params),
         pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records${customerScope.where}`, customerScope.params),
-        pgPool.query(`SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders${poScope.where}`, poScope.params),
-        pgPool.query(`SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices${piScope.where}`, piScope.params),
+        pgPool.query(`SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders${poScope.where}`, poScope.params),
+        pgPool.query(`SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices${piScope.where}`, piScope.params),
         pgPool.query(`SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments${shipmentScope.where}`, shipmentScope.params),
         pgPool.query(`SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations${opScope.where}`, opScope.params),
         pgPool.query(`SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs${auditScope.where} ORDER BY timestamp_ad DESC LIMIT 200`, auditScope.params),
@@ -808,11 +854,12 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
         pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
         pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests${approvalScope.where}`, approvalScope.params),
-        pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'),
+        pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
         pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
         pgPool.query(`SELECT id, damage_reference AS "damageReference", product_id AS "productId", branch_id AS "branchId", quantity_damaged AS "quantityDamaged", unit_cost AS "unitCost", total_cost AS "totalCost", damage_date_ad AS "damageDateAD", damage_date_bs AS "damageDateBS", damage_reason AS "damageReason", status, disposal_date_ad AS "disposalDateAD", disposal_date_bs AS "disposalDateBS", disposal_method AS "disposalMethod", salvage_value AS "salvageValue", gl_account_code AS "glAccountCode", write_off_loss AS "writeOffLoss", approved_by AS "approvedBy", notes, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM damage_records${damageScope.where} ORDER BY damage_date_ad DESC`, damageScope.params),
+        pgPool.query(`SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments${vpScope.where} ORDER BY payment_date_ad DESC, created_at DESC`, vpScope.params),
       ]);
 
       let pgStock = sRes.rows;
@@ -889,6 +936,7 @@ app.get('/api/bootstrap', async (req, res) => {
         locations: locRes.rows,
         companyProfile: compDbRes.rows[0] || companyProfile,
         damageRecords: dmgRes.rows,
+        vendorPayments: vpRes.rows,
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
@@ -954,41 +1002,30 @@ app.get('/api/db/status', async (req, res) => {
 // ==========================================
 
 // Clear Demo/Dummy Data Endpoint
-// Removes ALL rows marked is_demo = TRUE (the dataset created by
-// `npm run setup:pg` or seeded by the server on first launch). This
-// includes demo branches, demo users, and all operational demo data.
-// Real business data (is_demo = FALSE), Nepali BS calendar data
-// (bs_calendar_years, bs_day_records), company profile, UOM, document
-// number configs, and fiscal years with real transactions are never
-// touched. Demo branches and users are NOT re-seeded after clearing.
-// Run 'npm run setup:pg' to re-seed demo data from scratch.
+// Removes ONLY rows marked is_demo = TRUE (the dataset created by
+// `npm run setup:pg`). Real business data (is_demo = FALSE), users,
+// branches and fiscal years are never touched.
 app.post('/api/admin/clear-demo-data', async (req, res) => {
   try {
     // Child/detail tables first so their is_demo rows are counted before
     // parent rows are removed (FK cascades would otherwise hide them).
-    // Order respects FK constraints: users before branches (users.branch_id
-    // references branches), child operational tables before master tables.
     const demoTables = [
-      'users',
       'transaction_logs',
       'audit_logs',
+      'vendor_payments',
       'stock_operations',
       'approval_requests',
       'customer_device_records',
       'purchase_invoices',
       'shipments',
       'inventory_stock',
-      'damage_records',
-      'fiscal_year_opening_stock',
       'fixed_assets',
       'purchase_orders',
       'customer_records',
-      'locations',
       'products',
       'categories',
       'suppliers',
       'fiscal_years',
-      'branches',
     ];
     const removed: Record<string, number> = {};
     for (const table of demoTables) {
@@ -999,11 +1036,6 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
     // Re-hydrate the runtime caches so memory matches the database again.
     const client = await pgPool.connect();
     try {
-      // Re-seed ONLY master/config data that the app needs to function
-      // (fiscal years, company profile, UOM, document configs). Do NOT
-      // re-seed demo branches or demo users – they were just deleted and
-      // should stay gone so the operator can add real ones.
-      await seedMasterOnlyData(client);
       await hydrateOperationalData(client);
     } finally {
       client.release();
@@ -1018,7 +1050,7 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
 
     const totalRemoved = Object.values(removed).reduce((a, b) => a + b, 0);
     return res.json({
-      message: `Demo data cleared (${totalRemoved} rows where is_demo = TRUE). Demo branches and users have been removed. Run 'npm run setup:pg' to re-seed demo data, or add real branches and users. Nepali BS calendar data is preserved.`,
+      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, and branches are intact.`,
       removedRows: removed,
       totalRemoved,
       userCount: users.length,
@@ -1247,28 +1279,21 @@ app.post('/api/auth/switch-profile', async (req, res) => {
   if (!(req as any).user) {
     return res.status(401).json({ message: 'Not authenticated. Log in again to switch profiles.' });
   }
+  if (!(req as any).user.canSwitchUser) {
+    return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
+  }
 
-  const { targetUserId, targetEmail } = req.body;
-  let isSwitchBack = false;
+  const { targetUserId } = req.body;
   let user: any = null;
 
-  // Resolve the requested target profile FIRST so the permission gate can
-  // distinguish a normal switch from a "switch back to root" request.
   // PostgreSQL is the source of truth for user profiles. The in-memory user
   // list can be stale (users created/edited after boot, or a data reset),
   // which previously caused "Target user profile not found" on switch.
-  // The client also sends the root email so a stale id left in localStorage
-  // (e.g. after a demo data reset re-created the account with a new id) can
-  // still be resolved by its stable, unique email address.
-  if (isPgConnected && (targetUserId || targetEmail)) {
+  if (isPgConnected && targetUserId) {
     try {
       const dbRes = await pgPool.query(
-        `SELECT id, email, password, name, role, branch_id AS "branchId",
-                allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"
-         FROM users
-         WHERE id = $1 OR LOWER(email) = LOWER($1) OR ($2 <> '' AND LOWER(email) = LOWER($2))
-         LIMIT 1`,
-        [String(targetUserId || ''), typeof targetEmail === 'string' ? targetEmail.toLowerCase() : '']
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($1) LIMIT 1',
+        [String(targetUserId)]
       );
       user = dbRes.rows[0] || null;
     } catch (err: any) {
@@ -1278,37 +1303,11 @@ app.post('/api/auth/switch-profile', async (req, res) => {
 
   // Fallback to the in-memory mirror when PostgreSQL is unavailable.
   if (!user) {
-    user =
-      users.find(
-        (u) => u.id === targetUserId || u.email === targetUserId || (targetEmail && u.email === targetEmail)
-      ) || null;
+    user = users.find((u) => u.id === targetUserId || u.email === targetUserId) || null;
   }
 
-  // Target must exist before any permission evaluation; return a truthful 404
-  // instead of a misleading permission error when the id is stale.
   if (!user) {
     return res.status(404).json({ message: 'Target user profile not found.' });
-  }
-
-  // The origin account (the profile the request is currently signed in as).
-  const originUser = (req as any).user;
-  // Is this a "switch back" to the account that originally started the
-  // switched session? A root-capable target (canSwitchUser flag set, or a
-  // SUPER_ADMIN whose flag may be missing/false in the DB) is allowed even
-  // when the current (impersonated) profile lacks the canSwitchUser flag —
-  // otherwise the user would be permanently locked out of the root profile.
-  if (user && originUser) {
-    isSwitchBack =
-      user.id !== originUser.id && (Boolean(user.canSwitchUser) || user.role === 'SUPER_ADMIN');
-  }
-
-  // Gate: switching to another profile requires the CURRENT profile to have
-  // switch privileges (flag or SUPER_ADMIN role, mirroring the client-side
-  // canUserSwitchProfiles helper). Switching BACK to a root-capable profile
-  // bypasses the origin check entirely.
-  const canSwitchAway = Boolean(originUser?.canSwitchUser) || originUser?.role === 'SUPER_ADMIN';
-  if (!isSwitchBack && !canSwitchAway) {
-    return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
   }
 
   // Keep the in-memory user list in sync with the database row.
@@ -1323,11 +1322,9 @@ app.post('/api/auth/switch-profile', async (req, res) => {
     id: `aud-${Date.now()}`,
     userEmail: user.email,
     userName: user.name,
-    action: isSwitchBack ? 'PROFILE_SWITCHED_BACK' : 'PROFILE_SWITCHED',
+    action: 'PROFILE_SWITCHED',
     module: 'AUTH',
-    details: isSwitchBack
-      ? `Session profile switched back from ${previousUser?.email || 'System'} (${previousUser?.role}) to root profile ${user.email} (${user.role})`
-      : `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
+    details: `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
     timestampAD: new Date().toISOString(),
     timestampBS: '2083-04-16 BS',
   });
@@ -2189,7 +2186,7 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   if (isPgConnected) {
     try {
-      const { rows } = await pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC');
+      const { rows } = await pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC');
       return res.json(rows);
     } catch (err: any) {
       console.warn('Database note on GET /api/categories:', err?.message || err);
@@ -2215,14 +2212,13 @@ app.post('/api/categories', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO categories (id, name, code, description, is_special_tracked)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO categories (id, name, code, description)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            code = EXCLUDED.code,
-           description = EXCLUDED.description,
-           is_special_tracked = EXCLUDED.is_special_tracked;`,
-        [newCat.id, newCat.name, newCat.code, newCat.description, newCat.isSpecialTracked || false]
+           description = EXCLUDED.description;`,
+        [newCat.id, newCat.name, newCat.code, newCat.description]
       );
     }
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
@@ -2244,8 +2240,8 @@ app.put('/api/categories/:id', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `UPDATE categories SET name = $1, code = $2, description = $3, is_special_tracked = $4 WHERE id = $5;`,
-        [updated.name, updated.code, updated.description, updated.isSpecialTracked || false, id]
+        `UPDATE categories SET name = $1, code = $2, description = $3 WHERE id = $4;`,
+        [updated.name, updated.code, updated.description, id]
       );
     }
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
@@ -3028,7 +3024,7 @@ app.get('/api/purchase-orders', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
+        'SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3069,8 +3065,8 @@ app.post('/api/purchase-orders', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO purchase_orders (
-           id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            subtotal_amount = EXCLUDED.subtotal_amount,
@@ -3081,6 +3077,7 @@ app.post('/api/purchase-orders', async (req, res) => {
         [
           newPO.id,
           newPO.poNumber,
+          newPO.supplierId || null,
           newPO.supplierName || 'Vendor',
           newPO.branchId || 'WH001',
           newPO.orderDateAd,
@@ -3241,7 +3238,7 @@ app.get('/api/purchase-invoices', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items FROM purchase_invoices' +
+        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items FROM purchase_invoices' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3316,11 +3313,18 @@ app.post('/api/purchase-invoices', async (req, res) => {
     if (idx >= 0) purchaseInvoices[idx] = newInv;
     else purchaseInvoices.unshift(newInv);
 
+    // Resolve supplierId from the selected supplier name for the sub-ledger FK
+    const supplierId = req.body.supplierId || undefined;
+    const supLookup = suppliers.find(
+      (s) => s.id === supplierId || s.name.toLowerCase() === (newInv.supplierName || '').toLowerCase()
+    );
+    const resolvedSupplierId = supplierId || supLookup?.id || null;
+
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO purchase_invoices (
-           id, invoice_number, po_reference_id, vendor_bill_number, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+           id, invoice_number, po_reference_id, vendor_bill_number, supplier_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          ON CONFLICT (id) DO UPDATE SET
            payment_status = EXCLUDED.payment_status,
            payment_method = EXCLUDED.payment_method,
@@ -3332,6 +3336,7 @@ app.post('/api/purchase-invoices', async (req, res) => {
           newInv.invoiceNumber,
           newInv.poReferenceId || newInv.poId || null,
           newInv.vendorBillNumber || null,
+          resolvedSupplierId,
           newInv.supplierName || 'Vendor',
           targetBranchId,
           newInv.invoiceDateAD,
@@ -3504,6 +3509,591 @@ app.post('/api/purchase-invoices/:id/pay', async (req, res) => {
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 });
+
+// POST /api/purchase-invoices/:id/reverse-payments — reverse all payments for a fully paid invoice
+app.post('/api/purchase-invoices/:id/reverse-payments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required.' });
+    }
+
+    const inv = purchaseInvoices.find((i) => i.id === id);
+    if (!inv) {
+      return res.status(404).json({ message: 'Purchase invoice not found.' });
+    }
+    // A reversal is only meaningful once the bill is fully settled. Compute
+    // from amounts (rather than trusting paymentStatus) so invoices with a
+    // stale PARTIAL flag but a full amountPaid are still recognized.
+    const grandTotal = Number(inv.grandTotal) || 0;
+    const amountPaid = Number(inv.amountPaid) || 0;
+    if (grandTotal <= 0 || amountPaid < grandTotal) {
+      return res.status(409).json({ message: `Invoice #${inv.invoiceNumber} is not fully paid (status: ${inv.paymentStatus}, amount paid: ${amountPaid.toLocaleString()}).` });
+    }
+
+    // Find all POSTED payments for this invoice
+    const paymentsToReverse = vendorPayments.filter((p) => p.invoiceId === id && p.status === 'POSTED');
+    if (paymentsToReverse.length === 0) {
+      return res.status(409).json({ message: `No posted payments found for invoice #${inv.invoiceNumber}.` });
+    }
+    // Capture the settled total BEFORE resetting it so the audit trail and
+    // response can report the actual reversed amount.
+    const reversedTotal = paymentsToReverse.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Reverse all payments for this invoice
+        for (const payment of paymentsToReverse) {
+          await client.query(
+            `UPDATE vendor_payments SET
+               status = 'REVERSED',
+               reversal_reason = $1,
+               reversed_by = $2,
+               reversed_at_ad = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [reason, getUserFromReq(req).email || 'system', payment.id]
+          );
+        }
+        // Reset the invoice amount_paid and payment_status
+        await client.query(
+          `UPDATE purchase_invoices SET
+             amount_paid = 0,
+             payment_status = 'UNPAID'
+           WHERE id = $1`,
+          [id]
+        );
+      });
+    }
+
+    // Update in-memory state
+    for (const payment of paymentsToReverse) {
+      payment.status = 'REVERSED';
+      payment.reversalReason = reason;
+      payment.reversedBy = getUserFromReq(req).email || 'system';
+      payment.reversedAtAD = new Date().toISOString();
+    }
+    inv.amountPaid = 0;
+    inv.paymentStatus = 'UNPAID';
+
+    logAuditEvent(
+      req,
+      'REVERSE_INVOICE_PAYMENTS',
+      'PROCUREMENT',
+      `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber} (${reason})`,
+      inv.branchId
+    );
+    broadcastChange({ type: 'INVOICE_PAYMENTS_REVERSED', entity: 'purchase-invoices', branchId: inv.branchId });
+    res.json({
+      success: true,
+      message: `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber}.`,
+      reversedCount: paymentsToReverse.length,
+      reversedTotal,
+      invoiceId: inv.id,
+    });
+  } catch (err: any) {
+    console.error('Error reversing invoice payments:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// ==========================================
+// VENDOR PAYMENTS SUB-LEDGER
+// ==========================================
+
+const VENDOR_PAYMENT_SELECT = `
+  SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId",
+         supplier_name AS "supplierName", branch_id AS "branchId",
+         invoice_id AS "invoiceId", invoice_number AS "invoiceNumber",
+         payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS",
+         amount, payment_method AS "paymentMethod",
+         bank_name AS "bankName", bank_branch AS "bankBranch",
+         account_number AS "accountNumber", cheque_number AS "chequeNumber",
+         cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS",
+         transaction_reference AS "transactionReference", notes, status,
+         reversal_reason AS "reversalReason", reversed_by AS "reversedBy",
+         reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId",
+         fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo",
+         created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"
+  FROM vendor_payments`;
+
+// GET /api/vendor-payments?supplierId=&invoiceId=&branchId=&status=&fromAd=&toAd=&fiscalYearId=
+app.get('/api/vendor-payments', async (req, res) => {
+  const { supplierId, invoiceId, branchId, status, fromAd, toAd, fiscalYearId } = req.query;
+  if (isPgConnected) {
+    try {
+      const conds: string[] = [];
+      const params: any[] = [];
+      const push = (sql: string, value: any) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.push(value);
+          conds.push(`${sql} = $${params.length}`);
+        }
+      };
+      push('supplier_id', supplierId);
+      push('invoice_id', invoiceId);
+      push('branch_id', branchId && branchId !== 'ALL' ? branchId : undefined);
+      push('status', status);
+      push('fiscal_year_id', fiscalYearId);
+      if (fromAd) {
+        params.push(String(fromAd).split('T')[0]);
+        conds.push(`payment_date_ad >= $${params.length}`);
+      }
+      if (toAd) {
+        params.push(String(toAd).split('T')[0]);
+        conds.push(`payment_date_ad <= $${params.length}`);
+      }
+      const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+      const r = await pgPool.query(`${VENDOR_PAYMENT_SELECT}${where} ORDER BY payment_date_ad DESC, created_at DESC`, params);
+      return res.json(r.rows);
+    } catch (err: any) {
+      console.error('Error fetching vendor payments from DB:', err);
+    }
+  }
+  let list = vendorPayments;
+  if (supplierId) list = list.filter((p) => p.supplierId === String(supplierId));
+  if (invoiceId) list = list.filter((p) => p.invoiceId === String(invoiceId));
+  if (branchId && branchId !== 'ALL') list = list.filter((p) => p.branchId === String(branchId));
+  if (status) list = list.filter((p) => p.status === String(status));
+  if (fiscalYearId) list = list.filter((p) => p.fiscalYearId === String(fiscalYearId));
+  if (fromAd) {
+    const from = String(fromAd).split('T')[0];
+    list = list.filter((p) => String(p.paymentDateAD || '').split('T')[0] >= from);
+  }
+  if (toAd) {
+    const to = String(toAd).split('T')[0];
+    list = list.filter((p) => String(p.paymentDateAD || '').split('T')[0] <= to);
+  }
+  res.json(list);
+});
+
+// GET /api/purchase-invoices/:id/payments — payment history for one invoice
+app.get('/api/purchase-invoices/:id/payments', async (req, res) => {
+  const { id } = req.params;
+  if (isPgConnected) {
+    try {
+      const r = await pgPool.query(
+        `${VENDOR_PAYMENT_SELECT} WHERE invoice_id = $1 ORDER BY payment_date_ad DESC, created_at DESC`,
+        [id]
+      );
+      return res.json(r.rows);
+    } catch (err: any) {
+      console.error('Error fetching invoice payments from DB:', err);
+    }
+  }
+  res.json(vendorPayments.filter((p) => p.invoiceId === id));
+});
+
+// POST /api/vendor-payments — create a payment (sub-ledger entry)
+app.post('/api/vendor-payments', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: 'Payment amount must be greater than 0.' });
+    }
+
+    // Resolve the invoice first so supplier + branch can be inherited from it.
+    let linkedInvoice: any = body.invoiceId
+      ? purchaseInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
+      : undefined;
+    if (!linkedInvoice && body.invoiceId && isPgConnected) {
+      const invRes = await pgPool.query(
+        `SELECT id, invoice_number AS "invoiceNumber", supplier_name AS "supplierName",
+                branch_id AS "branchId",
+                invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS",
+                grand_total AS "grandTotal", amount_paid AS "amountPaid"
+         FROM purchase_invoices WHERE id = $1 OR invoice_number = $1 LIMIT 1`,
+        [body.invoiceId]
+      );
+      linkedInvoice = invRes.rows[0];
+    }
+
+    // Resolve supplier: explicit supplierId, else supplierName, else from invoice.
+    let supplierId: string | undefined = body.supplierId || undefined;
+    let supplierName = body.supplierName || linkedInvoice?.supplierName || '';
+    if (!supplierId && supplierName) {
+      const matched = suppliers.find((s) =>
+        s.name.toLowerCase() === String(supplierName).toLowerCase()
+      ) || suppliers.find((s) =>
+        String(supplierName).toLowerCase().includes(s.name.toLowerCase())
+      );
+      if (matched) supplierId = matched.id;
+    }
+    if (!supplierId && body.supplierName) {
+      supplierId = providerSupplierIdFromName(String(body.supplierName));
+    }
+    if (!supplierId && supplierName) {
+      supplierId = providerSupplierIdFromName(supplierName);
+    }
+    if (!supplierName && supplierId) {
+      const sup = suppliers.find((s) => s.id === supplierId);
+      supplierName = sup?.name || '';
+    }
+    if (!supplierName) {
+      return res.status(400).json({ message: 'Supplier is required to record a vendor payment.' });
+    }
+
+    const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req).branchId || branches[0]?.id || 'WH001';
+    const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    let paymentDateBS = body.paymentDateBS || linkedInvoice?.invoiceDateBS || '';
+    try {
+      const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
+      if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
+    } catch (_e) {}
+    if (!paymentDateBS) paymentDateBS = '2083-04-16 BS';
+
+    const paymentMethod = (body.paymentMethod || 'CASH').toUpperCase();
+    // Generate payment number from document numbering system based on payment method
+    // CP = Cash Payment, BP = Bank Payment (transfer/cheque/card/online)
+    const payDocType = paymentMethod === 'CASH' ? 'CP' : 'BP';
+    const paymentNumber = body.paymentNumber || generateNextDocNumberForServer(payDocType);
+    const id = `vp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newPayment: VendorPayment = {
+      id,
+      paymentNumber,
+      supplierId: supplierId || '',
+      supplierName,
+      branchId,
+      invoiceId: linkedInvoice?.id || body.invoiceId || null,
+      invoiceNumber: linkedInvoice?.invoiceNumber || body.invoiceNumber || null,
+      paymentDateAD,
+      paymentDateBS,
+      amount,
+      paymentMethod: paymentMethod as VendorPaymentMethod,
+      bankName: body.bankName || null,
+      bankBranch: body.bankBranch || null,
+      accountNumber: body.accountNumber || null,
+      chequeNumber: body.chequeNumber || null,
+      chequeDateAD: body.chequeDateAD || null,
+      chequeDateBS: body.chequeDateBS || null,
+      transactionReference: body.transactionReference || null,
+      notes: body.notes || null,
+      status: 'POSTED',
+      reversalReason: null,
+      reversedBy: null,
+      reversedAtAD: null,
+      originalPaymentId: null,
+      isDemo: false,
+      createdBy: getUserFromReq(req).email || 'system',
+    };
+
+    vendorPayments.unshift(newPayment);
+
+    if (isPgConnected) {
+      await pgPool.query(
+        `INSERT INTO vendor_payments (
+           id, payment_number, supplier_id, supplier_name, branch_id, invoice_id, invoice_number,
+           payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
+           account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
+           notes, status, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, FALSE, $21)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          newPayment.id, newPayment.paymentNumber, newPayment.supplierId || null, newPayment.supplierName,
+          newPayment.branchId, newPayment.invoiceId, newPayment.invoiceNumber,
+          newPayment.paymentDateAD, newPayment.paymentDateBS, newPayment.amount, newPayment.paymentMethod,
+          newPayment.bankName, newPayment.bankBranch, newPayment.accountNumber, newPayment.chequeNumber,
+          newPayment.chequeDateAD, newPayment.chequeDateBS, newPayment.transactionReference,
+          newPayment.notes, newPayment.status, newPayment.createdBy,
+        ]
+      );
+    }
+    logAuditEvent(
+      req,
+      'RECORD_VENDOR_PAYMENT',
+      'PROCUREMENT',
+      `Recorded vendor payment #${paymentNumber} of NPR ${amount.toLocaleString()} to ${supplierName} via ${paymentMethod}`,
+      branchId
+    );
+    broadcastChange({ type: 'VENDOR_PAYMENT', entity: 'purchase-invoices', branchId });
+    res.status(201).json(newPayment);
+  } catch (err: any) {
+    console.error('Error creating vendor payment:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// POST /api/vendor-payments/:id/reverse — reverse a posted payment
+app.post('/api/vendor-payments/:id/reverse', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required.' });
+    }
+    const payment = vendorPayments.find((p) => p.id === id);
+    if (!payment) {
+      return res.status(404).json({ message: 'Vendor payment not found.' });
+    }
+    if (payment.status !== 'POSTED') {
+      return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${payment.status.toLowerCase()}.` });
+    }
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Reverse the payment row.
+        await client.query(
+          `UPDATE vendor_payments SET
+             status = 'REVERSED',
+             reversal_reason = $1,
+             reversed_by = $2,
+             reversed_at_ad = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [reason, getUserFromReq(req).email || 'system', id]
+        );
+        // Undo the amount from the linked invoice so its balance is restored.
+        if (payment.invoiceId) {
+          await client.query(
+            `UPDATE purchase_invoices SET
+               amount_paid = GREATEST(0, amount_paid - $1),
+               payment_status = CASE WHEN (amount_paid - $1) >= grand_total THEN 'PAID'
+                                     WHEN (amount_paid - $1) > 0 THEN 'PARTIAL'
+                                     ELSE 'UNPAID' END
+             WHERE id = $2`,
+            [Number(payment.amount) || 0, payment.invoiceId]
+          );
+        }
+      });
+    }
+
+    payment.status = 'REVERSED';
+    payment.reversalReason = reason;
+    payment.reversedBy = getUserFromReq(req).email || 'system';
+    payment.reversedAtAD = new Date().toISOString();
+
+    // Mirror the invoice decrement in memory (only when not pg-connected).
+    if (!isPgConnected && payment.invoiceId) {
+      const inv = purchaseInvoices.find((i) => i.id === payment.invoiceId);
+      if (inv) {
+        inv.amountPaid = Math.max(0, Number(inv.amountPaid || 0) - Number(payment.amount || 0));
+        inv.paymentStatus = inv.amountPaid >= (Number(inv.grandTotal) || 0) ? 'PAID' : inv.amountPaid > 0 ? 'PARTIAL' : 'UNPAID';
+      }
+    }
+
+    logAuditEvent(
+      req,
+      'REVERSE_VENDOR_PAYMENT',
+      'PROCUREMENT',
+      `Reversed vendor payment #${payment.paymentNumber} of NPR ${Number(payment.amount || 0).toLocaleString()} (${reason})`,
+      payment.branchId
+    );
+    broadcastChange({ type: 'VENDOR_PAYMENT_REVERSED', entity: 'purchase-invoices', branchId: payment.branchId });
+    res.json({
+      success: true,
+      message: `Payment #${payment.paymentNumber} reversed.`,
+      paymentId: payment.id,
+    });
+  } catch (err: any) {
+    console.error('Error reversing vendor payment:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Vendor ledger report: debits (invoices) + credits (payments) with running balance.
+// GET /api/vendors/:supplierId/ledger?fromAd=&toAd=&fiscalYearId=&branchId=
+app.get('/api/vendors/:supplierId/ledger', async (req, res) => {
+  try {
+    const { supplierId } = req.params;
+    const { fromAd, toAd, fiscalYearId, branchId } = req.query;
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (!supplier) {
+      return res.status(404).json({ message: 'Supplier not found.' });
+    }
+
+    const nameMatcher = (name: string) =>
+      String(name || '').toLowerCase() === supplier.name.toLowerCase() ||
+      String(name || '').toLowerCase().includes(supplier.name.toLowerCase()) ||
+      supplier.name.toLowerCase().includes(String(name || '').toLowerCase());
+
+    // Match invoices/payments by the exact supplier_id FK first (the reliable
+    // route since duplicate supplier names can exist; e.g. demo vs real rows),
+    // and fall back to name matching only for legacy rows without a supplier_id.
+    const bySupplierId = (inv: any) =>
+      inv.supplierId && inv.supplierId === supplier.id;
+    const byLegacyName = (inv: any) => !inv.supplierId && nameMatcher(inv.supplierName);
+
+    let invoices: any[] = purchaseInvoices.filter((inv) => bySupplierId(inv) || byLegacyName(inv));
+    let payments: VendorPayment[] = vendorPayments.filter((p) =>
+      (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
+    );
+
+    if (isPgConnected) {
+      try {
+        const invRes = await pgPool.query(
+          `SELECT id, invoice_number AS "invoiceNumber", supplier_id AS "supplierId", supplier_name AS "supplierName",
+                  branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD",
+                  invoice_date_bs AS "invoiceDateBS", vat_amount AS "vatAmount",
+                  grand_total AS "grandTotal", notes
+           FROM purchase_invoices
+           WHERE supplier_id = $1 OR (supplier_id IS NULL AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3)))`,
+          [supplier.id, supplier.name, `%${supplier.name}%`]
+        );
+        invoices = invRes.rows;
+        const payRes = await pgPool.query(
+          `${VENDOR_PAYMENT_SELECT} WHERE supplier_id = $1 OR (supplier_id IS NULL OR supplier_id = '') AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3))`,
+          [supplier.id, supplier.name, `%${supplier.name}%`]
+        );
+        payments = payRes.rows;
+      } catch (err: any) {
+        console.error('Vendor ledger DB query failed, using cache:', err?.message || err);
+      }
+    }
+
+    // Apply branch + fiscal-year/date scoping.
+    const from = String(fromAd || '').split('T')[0];
+    const to = String(toAd || '').split('T')[0];
+    const scopedDate = (date: any) => {
+      const d = String(date || '').split('T')[0];
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    };
+    const inScope = (branch: string | undefined, date: any) =>
+      (!branchId || branchId === 'ALL' || branch === branchId) && scopedDate(date);
+
+    const invoiceLines = invoices
+      .filter((inv) => inScope(inv.branchId, inv.invoiceDateAD))
+      .map((inv) => ({
+        id: `inv-${inv.id}`,
+        documentNumber: inv.invoiceNumber,
+        dateAD: String(inv.invoiceDateAD || '').split('T')[0],
+        dateBS: inv.invoiceDateBS || '',
+        amount: Number(inv.grandTotal) || 0,
+        vatAmount: Number(inv.vatAmount) || 0,
+        type: 'INVOICE' as const,
+        notes: inv.notes || `Purchase invoice ${inv.invoiceNumber}`,
+        paymentMethod: undefined,
+        debit: Number(inv.grandTotal) || 0,
+        credit: 0,
+      }));
+
+    const paymentLines = payments
+      .filter((p) => p.status === 'POSTED' && inScope(p.branchId, p.paymentDateAD))
+      .map((p) => ({
+        id: `pay-${p.id}`,
+        documentNumber: p.paymentNumber,
+        dateAD: String(p.paymentDateAD || '').split('T')[0],
+        dateBS: p.paymentDateBS || '',
+        amount: Number(p.amount) || 0,
+        vatAmount: undefined,
+        type: 'PAYMENT' as const,
+        notes: p.notes || `Payment via ${p.paymentMethod}${p.chequeNumber ? ` (Chq ${p.chequeNumber})` : ''}`,
+        paymentMethod: p.paymentMethod,
+        debit: 0,
+        credit: Number(p.amount) || 0,
+      }));
+
+    const allLines = [...invoiceLines, ...paymentLines].sort((a, b) =>
+      a.dateAD === b.dateAD ? a.documentNumber.localeCompare(b.documentNumber) : a.dateAD.localeCompare(b.dateAD)
+    );
+
+    // Resolve the fiscal-year opening balance from the vendor_opening_balances
+    // register. Priority: explicit fiscalYearId → a from-date that equals a known
+    // fiscal year start → the current fiscal year. When a persisted opening
+    // exists, it is the carry-forward of the previous year's closing balance.
+    let fyStartAD = '';
+    let persistedOpening = 0;
+    let usedPersistedOpening = false;
+    if (isPgConnected) {
+      try {
+        let fyRow: any = null;
+        if (fiscalYearId) {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1',
+            [fiscalYearId]
+          );
+          fyRow = fyRes.rows[0] || null;
+        } else if (from) {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE start_date_ad = $1::date LIMIT 1',
+            [from]
+          );
+          fyRow = fyRes.rows[0] || null;
+        } else {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE is_current = TRUE ORDER BY start_date_ad DESC LIMIT 1'
+          );
+          fyRow = fyRes.rows[0] || null;
+        }
+        if (fyRow) {
+          fyStartAD = String(fyRow.startDateAD || '').split('T')[0];
+          const obRes = await pgPool.query(
+            `SELECT COALESCE(SUM(opening_balance), 0)::float AS total
+             FROM vendor_opening_balances
+             WHERE fiscal_year_id = $1 AND supplier_id = $2
+               AND ($3::text IS NULL OR $3 = 'ALL' OR branch_id = $3)`,
+            [fyRow.id, supplier.id, branchId === 'ALL' ? null : branchId]
+          );
+          persistedOpening = Number(obRes.rows[0]?.total) || 0;
+          usedPersistedOpening = true;
+        }
+      } catch (err: any) {
+        console.warn('Vendor ledger fiscal-year opening lookup failed, falling back to period-net:', err?.message || err);
+      }
+    }
+
+    // Opening balance:
+    //  - With a persisted fiscal-year opening: that carry-forward value, plus any
+    //    net activity between the fiscal-year start and an explicit earlier
+    //    cut-off (`from`). The ledger period then begins at `from`.
+    //  - Without a persisted opening (legacy / no fiscal year configured): net
+    //    (debits - credits) strictly before the `from` date.
+    let openingBalance: number;
+    let periodLines: typeof allLines;
+    if (usedPersistedOpening && fyStartAD) {
+      const periodStart = from && from > fyStartAD ? from : fyStartAD;
+      openingBalance =
+        persistedOpening +
+        allLines
+          .filter((line) => line.dateAD >= fyStartAD && line.dateAD < periodStart)
+          .reduce((sum, line) => sum + line.debit - line.credit, 0);
+      periodLines = allLines.filter((line) => line.dateAD >= periodStart);
+    } else {
+      openingBalance = allLines
+        .filter((line) => from && line.dateAD < from)
+        .reduce((sum, line) => sum + line.debit - line.credit, 0);
+      periodLines = allLines.filter((line) => !from || line.dateAD >= from);
+    }
+
+    let running = openingBalance;
+    const ledger = periodLines.map((line) => {
+      running += line.debit - line.credit;
+      return { ...line, balance: running };
+    });
+
+    const periodDebit = ledger.reduce((sum, line) => sum + line.debit, 0);
+    const periodCredit = ledger.reduce((sum, line) => sum + line.credit, 0);
+
+    res.json({
+      supplier: { id: supplier.id, name: supplier.name },
+      openingBalance,
+      openingSource: usedPersistedOpening && fyStartAD ? 'FISCAL_YEAR_OPENING' : 'PERIOD_NET',
+      fiscalYearStartAD: fyStartAD || null,
+      totalDebit: periodDebit,
+      totalCredit: periodCredit,
+      closingBalance: openingBalance + periodDebit - periodCredit,
+      ledger,
+    });
+  } catch (err: any) {
+    console.error('Error building vendor ledger:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Resolves an existing supplier master row by vendor name, creating one on the
+// fly for invoice-driven payments when no supplierId was supplied.
+function providerSupplierIdFromName(name: string): string | undefined {
+  const clean = String(name || '').trim();
+  if (!clean) return undefined;
+  const matched = suppliers.find((s) => s.name.toLowerCase() === clean.toLowerCase()) ||
+    suppliers.find((s) => s.name.toLowerCase().includes(clean.toLowerCase()));
+  if (matched) return matched.id;
+  return undefined;
+}
 
 // Shipments
 app.get('/api/shipments', async (req, res) => {
@@ -4752,6 +5342,333 @@ app.put(
   }
 );
 
+// ========== FISCAL-YEAR VENDOR OPENING BALANCES (Vendor Ledger roll-forward) ==========
+
+// View the vendor opening balance register for a fiscal year: every supplier ×
+// branch row (including zero rows) with names, source, and audit fields.
+app.get(
+  '/api/fiscal-years/:id/vendor-opening-balances',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const fyRes = await pgPool.query(
+        `SELECT id, code,
+                start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                is_current AS "isCurrent", is_closed AS "isClosed"
+         FROM fiscal_years WHERE id = $1`,
+        [id]
+      );
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+      const rowsRes = await pgPool.query(
+        `SELECT 'vopen-' || o.fiscal_year_id || '-' || o.supplier_id || '-' || o.branch_id AS id,
+                o.supplier_id AS "supplierId",
+                COALESCE(s.name, 'Deleted supplier') AS "supplierName",
+                COALESCE(s.supplier_code, '-') AS "supplierCode",
+                o.branch_id AS "branchId",
+                COALESCE(b.name, 'Deleted branch') AS "branchName",
+                o.opening_balance::float AS "openingBalance",
+                o.source_type AS "sourceType",
+                o.source_reference AS "sourceReference",
+                o.posted_at::text AS "postedAt",
+                o.posted_by AS "postedBy"
+         FROM vendor_opening_balances o
+         LEFT JOIN suppliers s ON s.id = o.supplier_id
+         LEFT JOIN branches b ON b.id = o.branch_id
+         WHERE o.fiscal_year_id = $1
+         ORDER BY s.name ASC, b.name ASC`,
+        [id]
+      );
+
+      const rows = rowsRes.rows;
+      const stats = {
+        totalRows: rows.length,
+        manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
+        zeroRows: rows.filter((r: any) => Number(r.openingBalance) === 0).length,
+        totalDebitOpening: rows.reduce(
+          (sum: number, r: any) => sum + (Number(r.openingBalance) > 0 ? Number(r.openingBalance) : 0),
+          0
+        ),
+        totalCreditOpening: rows.reduce(
+          (sum: number, r: any) => sum + (Number(r.openingBalance) < 0 ? Math.abs(Number(r.openingBalance)) : 0),
+          0
+        ),
+      };
+
+      return res.json({ fiscalYear: fy, rows, stats });
+    } catch (error: any) {
+      console.error('Error fetching vendor opening balances register:', error);
+      return res.status(500).json({ message: `Unable to load vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
+// Manual vendor opening balance adjustment (batch). Allowed only while the fiscal
+// year is OPEN — closed years are period-locked and require Super Admin reopen.
+// Every touched row is re-stamped as MANUAL_ADJUSTMENT with the authorizing user.
+app.put(
+  '/api/fiscal-years/:id/vendor-opening-balances',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+    const user = getUserFromReq(req);
+    const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    try {
+      const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+      if (fy.isClosed) {
+        return res.status(403).json({
+          message:
+            'This fiscal year is closed and period-locked. Reopen it with Super Admin authorization before adjusting vendor opening balances.',
+        });
+      }
+      if (incoming.length === 0) {
+        return res.status(400).json({ message: 'No vendor opening-balance rows were provided to adjust.' });
+      }
+
+      const [supRes, branchRes] = await Promise.all([
+        pgPool.query('SELECT id, name FROM suppliers'),
+        pgPool.query('SELECT id, name FROM branches'),
+      ]);
+      const supplierNameById = new Map<string, string>(supRes.rows.map((r: any) => [r.id, r.name]));
+      const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+
+      // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
+      const updates: Array<{ supplierId: string; branchId: string; openingBalance: number }> = [];
+
+      for (const item of incoming) {
+        const supplierId = String(item?.supplierId || '').trim();
+        const branchId = String(item?.branchId || '').trim();
+        const openingBalance = Number(item?.openingBalance ?? 0);
+        const label = `${supplierNameById.get(supplierId) || supplierId || 'unknown supplier'} @ ${
+          branchNameById.get(branchId) || branchId || 'unknown branch'
+        }`;
+
+        if (!supplierId || !supplierNameById.has(supplierId)) {
+          return res.status(400).json({ message: `Invalid supplier reference in vendor opening-balance adjustment: ${label}` });
+        }
+        if (!branchId || !branchNameById.has(branchId)) {
+          return res.status(400).json({ message: `Invalid branch reference in vendor opening-balance adjustment: ${label}` });
+        }
+        if (Number.isNaN(openingBalance)) {
+          return res.status(400).json({ message: `Opening balance must be a number for ${label}.` });
+        }
+
+        updates.push({ supplierId, branchId, openingBalance });
+      }
+
+      const result = await withTransaction(async (client) => {
+        const changeLog: string[] = [];
+        let createdCount = 0;
+
+        for (const u of updates) {
+          const beforeRes = await client.query(
+            `SELECT opening_balance::float AS "openingBalance"
+             FROM vendor_opening_balances
+             WHERE fiscal_year_id = $1 AND supplier_id = $2 AND branch_id = $3`,
+            [id, u.supplierId, u.branchId]
+          );
+          const before = beforeRes.rows[0];
+
+          const afterRes = await client.query(
+            `INSERT INTO vendor_opening_balances (
+               id, fiscal_year_id, supplier_id, branch_id, opening_balance,
+               source_type, source_reference, posted_at, posted_by
+             )
+             VALUES (
+               'vopen-' || $1::text || '-' || $2 || '-' || $3,
+               $1, $2, $3, $4,
+               'MANUAL_ADJUSTMENT', 'MANUAL_ADJUSTMENT', CURRENT_TIMESTAMP, $5
+             )
+             ON CONFLICT (fiscal_year_id, supplier_id, branch_id) DO UPDATE SET
+               opening_balance = EXCLUDED.opening_balance,
+               source_type = 'MANUAL_ADJUSTMENT',
+               source_reference = 'MANUAL_ADJUSTMENT',
+               posted_at = CURRENT_TIMESTAMP,
+               posted_by = EXCLUDED.posted_by
+             RETURNING id`,
+            [id, u.supplierId, u.branchId, u.openingBalance, user.email || 'system']
+          );
+
+          if (!afterRes.rowCount) continue;
+          if (!before) createdCount++;
+          const fmt = (v: number) => `NPR ${v.toLocaleString()}`;
+          changeLog.push(
+            `${before ? 'updated' : 'created'} ${supplierNameById.get(u.supplierId)} @ ${branchNameById.get(u.branchId)}: ` +
+              `${before ? fmt(Number(before.openingBalance)) : '—'} -> ${fmt(u.openingBalance)}`
+          );
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog };
+      });
+
+      if (result.appliedCount > 0) {
+        const details =
+          `Adjusted ${result.appliedCount} vendor opening-balance row(s) for fiscal year ${fy.code}` +
+          (result.createdCount ? ` (${result.createdCount} created)` : '') +
+          ` [${result.changeLog.slice(0, 15).join('; ')}${result.changeLog.length > 15 ? ' …' : ''}] ` +
+          `(by ${user.email || 'system'})`;
+        logAuditEvent(req, 'ADJUST_VENDOR_OPENING_BALANCE', 'FISCAL_YEAR', details);
+      }
+
+      return res.json({
+        applied: result.appliedCount,
+        created: result.createdCount,
+        message: `${result.appliedCount} vendor opening-balance row(s) saved for fiscal year ${fy.code}.`,
+      });
+    } catch (error: any) {
+      console.error('Error adjusting vendor opening balances:', error);
+      return res.status(500).json({ message: `Unable to adjust vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
+// Close the vendor ledger for a source fiscal year and roll each supplier × branch
+// closing balance forward into the next fiscal year's opening balance. The closing
+// balance is the net of all invoices (debits) minus posted payments (credits)
+// dated within the source fiscal year, plus any persisted opening balance carried
+// into that source year. Manual rows on the target year are preserved (not
+// overwritten) — matching the opening-stock roll-forward policy.
+app.post(
+  '/api/fiscal-years/:id/roll-forward-vendor-openings',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const result = await withTransaction(async (client) => {
+        const sourceResult = await client.query(
+          'SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", is_closed AS "isClosed" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+          [id]
+        );
+        const sourceFiscalYear = sourceResult.rows[0];
+        if (!sourceFiscalYear) {
+          const error: any = new Error('Source fiscal year not found.');
+          error.statusCode = 404;
+          throw error;
+        }
+        if (!sourceFiscalYear.isClosed) {
+          const error: any = new Error('Close and lock the source fiscal year before rolling forward vendor opening balances.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const targetResult = await client.query(
+          `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                  start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                  is_current AS "isCurrent", is_closed AS "isClosed"
+           FROM fiscal_years WHERE start_date_ad > $1 ORDER BY start_date_ad ASC LIMIT 1 FOR UPDATE;`,
+          [sourceFiscalYear.startDateAD]
+        );
+        const targetFiscalYear = targetResult.rows[0];
+        if (!targetFiscalYear) {
+          const error: any = new Error('Create the next fiscal year before rolling forward vendor opening balances.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const existingRes = await client.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE source_type = 'MANUAL_ADJUSTMENT')::int AS manual
+           FROM vendor_opening_balances WHERE fiscal_year_id = $1`,
+          [targetFiscalYear.id]
+        );
+        const manualRowsPreserved = existingRes.rows[0]?.manual || 0;
+
+        const inserted = await client.query(
+          `INSERT INTO vendor_opening_balances (
+             id, fiscal_year_id, supplier_id, branch_id, opening_balance, source_type, source_reference, posted_by
+           )
+           WITH ledger AS (
+             SELECT
+               COALESCE(inv.supplier_id, o.supplier_id) AS supplier_id,
+               COALESCE(inv.branch_id, o.branch_id) AS branch_id,
+               COALESCE(o.opening_balance, 0)
+                 + COALESCE(SUM(inv.grand_total), 0)
+                 - COALESCE(
+                     (SELECT COALESCE(SUM(p.amount), 0) FROM vendor_payments p
+                      WHERE p.supplier_id = COALESCE(inv.supplier_id, o.supplier_id)
+                        AND p.branch_id = COALESCE(inv.branch_id, o.branch_id)
+                        AND p.status = 'POSTED'
+                        AND p.payment_date_ad >= $2::date
+                        AND p.payment_date_ad <= $3::date),
+                     0
+                   ) AS closing_balance
+             FROM (
+               SELECT DISTINCT supplier_id, branch_id
+               FROM (
+                 SELECT supplier_id, branch_id FROM purchase_invoices
+                 WHERE invoice_date_ad >= $2::date AND invoice_date_ad <= $3::date
+                 UNION
+                 SELECT supplier_id, branch_id FROM vendor_payments
+                 WHERE payment_date_ad >= $2::date AND payment_date_ad <= $3::date
+               ) t1
+             ) drv
+             LEFT JOIN purchase_invoices inv
+               ON inv.supplier_id = drv.supplier_id
+              AND inv.branch_id = drv.branch_id
+              AND inv.invoice_date_ad >= $2::date
+              AND inv.invoice_date_ad <= $3::date
+             LEFT JOIN vendor_opening_balances o
+               ON o.fiscal_year_id = $1
+              AND o.supplier_id = drv.supplier_id
+              AND o.branch_id = drv.branch_id
+             GROUP BY inv.supplier_id, inv.branch_id, o.supplier_id, o.branch_id, o.opening_balance
+           )
+           SELECT
+             'vopen-' || $4 || '-' || ledger.supplier_id || '-' || ledger.branch_id,
+             $4,
+             ledger.supplier_id,
+             ledger.branch_id,
+             ROUND(ledger.closing_balance, 2),
+             'FISCAL_CLOSE',
+             $5,
+             $6
+           FROM ledger
+           WHERE ledger.supplier_id IS NOT NULL AND ledger.branch_id IS NOT NULL
+           ON CONFLICT (fiscal_year_id, supplier_id, branch_id) DO UPDATE SET
+             opening_balance = EXCLUDED.opening_balance,
+             source_type = EXCLUDED.source_type,
+             source_reference = EXCLUDED.source_reference,
+             posted_at = CURRENT_TIMESTAMP,
+             posted_by = EXCLUDED.posted_by
+           WHERE vendor_opening_balances.source_type <> 'MANUAL_ADJUSTMENT'
+           RETURNING id;`,
+          [
+            targetFiscalYear.id,
+            sourceFiscalYear.startDateAD,
+            sourceFiscalYear.endDateAD,
+            targetFiscalYear.id,
+            sourceFiscalYear.code,
+            getUserFromReq(req).email || 'system',
+          ]
+        );
+
+        return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
+      });
+
+      logAuditEvent(
+        req,
+        'ROLLFORWARD_VENDOR_OPENINGS',
+        'FISCAL_YEAR',
+        `Rolled forward ${result.recordsCreated} vendor opening-balance record(s) into ${result.targetFiscalYear.code}${
+          result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved` : ''
+        }`
+      );
+      return res.json(result);
+    } catch (error: any) {
+      if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+      console.error('Error rolling forward vendor opening balances:', error);
+      return res.status(500).json({ message: `Unable to roll forward vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
 app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
 
@@ -5188,154 +6105,6 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
     message: pgSynced
       ? `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!`
       : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`,
-  });
-});
-
-// Batch (multi-year) BS calendar seed: seeds one or more BS years in a single
-// request, expanding the day-by-day bs_day_records lookup table for all of them.
-// Body: { years: [{ yearBS, daysInMonths (12 ints), customStartAD? }], onlyIfNew? }
-app.post('/api/bs-calendar/seed-bulk', async (req, res) => {
-  const { years, onlyIfNew } = req.body;
-  if (!Array.isArray(years) || years.length === 0) {
-    return res.status(400).json({ success: false, message: 'Must provide a non-empty "years" array.' });
-  }
-
-  const validYears = years.filter(
-    (y) =>
-      y &&
-      !isNaN(parseInt(y.yearBS, 10)) &&
-      Array.isArray(y.daysInMonths) &&
-      y.daysInMonths.length === 12 &&
-      y.daysInMonths.every((n: any) => typeof n === 'number' && !isNaN(n))
-  );
-
-  if (validYears.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: 'No valid year entries provided. Each entry needs yearBS and a 12-element daysInMonths array.',
-    });
-  }
-
-  const skippedYears: number[] = [];
-  let pgSynced = false;
-  let syncedAny = false;
-
-  try {
-    for (const y of validYears) {
-      const yearBS = parseInt(y.yearBS, 10);
-      const daysInMonths = y.daysInMonths as number[];
-      let startAD = y.customStartAD;
-      if (!startAD) {
-        const estADYear = yearBS - 57;
-        startAD = `${estADYear}-04-14`;
-      }
-
-      const existingIdx = inMemoryBsCalendarYears.findIndex((ey) => ey.yearBS === yearBS);
-      if (onlyIfNew && existingIdx >= 0) {
-        skippedYears.push(yearBS);
-        continue;
-      }
-
-      await pgPool.query(
-        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (year_bs) DO UPDATE SET
-           days_in_months = EXCLUDED.days_in_months,
-           start_ad = EXCLUDED.start_ad;`,
-        [yearBS, daysInMonths, startAD]
-      );
-
-      let runningDate = new Date(startAD);
-      for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
-        const monthBS = monthIdx + 1;
-        const daysInMonth = daysInMonths[monthIdx] || 30;
-
-        for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
-          const adDateStr = runningDate.toISOString().split('T')[0];
-          const dayOfWeekIndex = runningDate.getUTCDay();
-
-          const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
-          const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
-          const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
-
-          let startYear = yearBS;
-          if (monthBS < 4) startYear = yearBS - 1;
-          const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
-
-          let qtr = 'Q4';
-          if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
-          else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
-          else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
-
-          await pgPool.query(
-            `INSERT INTO bs_day_records (
-               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-             ON CONFLICT (ad_date) DO UPDATE SET
-               bs_date = EXCLUDED.bs_date,
-               bs_year = EXCLUDED.bs_year,
-               bs_month = EXCLUDED.bs_month,
-               bs_month_name = EXCLUDED.bs_month_name,
-               bs_month_name_np = EXCLUDED.bs_month_name_np,
-               bs_day = EXCLUDED.bs_day,
-               day_of_week_name = EXCLUDED.day_of_week_name,
-               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-               fiscal_year = EXCLUDED.fiscal_year,
-               quarter = EXCLUDED.quarter,
-               is_weekend = EXCLUDED.is_weekend;`,
-            [
-              adDateStr,
-              bsDateStr,
-              yearBS,
-              monthBS,
-              NEPALI_MONTHS_EN_SERVER[monthIdx],
-              NEPALI_MONTHS_NP_SERVER[monthIdx],
-              dayBS,
-              DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
-              DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
-              fyCode,
-              qtr,
-              dayOfWeekIndex === 6
-            ]
-          );
-
-          runningDate.setDate(runningDate.getDate() + 1);
-        }
-      }
-
-      syncedAny = true;
-      if (existingIdx >= 0) {
-        inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
-      } else {
-        inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
-        inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
-      }
-    }
-    pgSynced = true;
-  } catch (_err) {
-    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
-    // (entries already pushed above are kept; the loop stops on first pg error)
-  }
-
-  // Always refresh in-memory fallback cache so at least local lookups work.
-  generateInMemoryBsDayRecords();
-
-  const seededCount = validYears.length - skippedYears.length;
-  const skipMsg =
-    skippedYears.length > 0
-      ? ` Skipped ${skippedYears.length} existing year(s) (${skippedYears.join(', ')}) because 'onlyIfNew' was specified.`
-      : '';
-
-  res.json({
-    success: true,
-    pgSynced,
-    seededCount,
-    skippedYears,
-    message: pgSynced
-      ? `Successfully batch-seeded ${seededCount} BS year(s) (${validYears.map((y: any) => parseInt(y.yearBS, 10)).join(', ')}) and regenerated the day-by-day lookup table in PostgreSQL (bs_day_records)!${skipMsg}`
-      : `Batch-seeded ${seededCount} BS year(s) (${validYears.map((y: any) => parseInt(y.yearBS, 10)).join(', ')}) in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.${skipMsg}`,
   });
 });
 
@@ -6649,7 +7418,7 @@ async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (25 tables) & creating high-throughput performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (26 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -6700,8 +7469,7 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(150) UNIQUE NOT NULL,
         code VARCHAR(30) UNIQUE NOT NULL,
-        description TEXT,
-        is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE
+        description TEXT
       );
 
       -- 5. Products
@@ -6772,6 +7540,7 @@ async function syncDatabaseAndIndexes() {
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id VARCHAR(50) PRIMARY KEY,
         po_number VARCHAR(100) UNIQUE NOT NULL,
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
         supplier_name VARCHAR(200) NOT NULL,
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         order_date_ad DATE NOT NULL,
@@ -6791,6 +7560,7 @@ async function syncDatabaseAndIndexes() {
         invoice_number VARCHAR(100) UNIQUE NOT NULL,
         po_reference_id VARCHAR(50),
         vendor_bill_number VARCHAR(100),
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
         supplier_name VARCHAR(200) NOT NULL,
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         invoice_date_ad DATE NOT NULL,
@@ -6860,34 +7630,6 @@ async function syncDatabaseAndIndexes() {
         is_current BOOLEAN DEFAULT FALSE,
         is_closed BOOLEAN DEFAULT FALSE,
         is_demo BOOLEAN NOT NULL DEFAULT FALSE
-      );
-
-      -- 12b. Damage Records (damage lifecycle: identified -> disposed/written-off)
-      CREATE TABLE IF NOT EXISTS damage_records (
-        id VARCHAR(50) PRIMARY KEY,
-        damage_reference VARCHAR(100) UNIQUE NOT NULL,
-        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-        quantity_damaged INT NOT NULL CHECK (quantity_damaged > 0),
-        unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
-        total_cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
-        damage_date_ad DATE NOT NULL,
-        damage_date_bs VARCHAR(20) NOT NULL,
-        damage_reason VARCHAR(100) NOT NULL CHECK (damage_reason IN ('PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER')),
-        status VARCHAR(30) NOT NULL DEFAULT 'IDENTIFIED' CHECK (status IN ('IDENTIFIED', 'UNDER_REVIEW', 'DISPOSED', 'WRITTEN_OFF', 'RETURNED_TO_SUPPLIER', 'CANCELLED')),
-        disposal_date_ad DATE,
-        disposal_date_bs VARCHAR(20),
-        disposal_method VARCHAR(50) CHECK (disposal_method IN ('SCRAP_DESTRUCTION', 'SALVAGE_E_WASTE', 'VENDOR_RMA', 'INSURANCE_CLAIM', 'WRITE_OFF', 'RETURN_TO_SUPPLIER', 'AUCTION')),
-        salvage_value NUMERIC(15, 2) DEFAULT 0,
-        gl_account_code VARCHAR(100),
-        write_off_loss NUMERIC(15, 2) DEFAULT 0,
-        approved_by VARCHAR(150),
-        notes TEXT,
-        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
-        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-        created_by VARCHAR(150),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 13. Audit Trail
@@ -7077,7 +7819,9 @@ async function syncDatabaseAndIndexes() {
 
       -- SCHEMA MIGRATION SAFE ALTERS
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_number VARCHAR(100);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL;
       ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS items JSONB;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS items JSONB;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) DEFAULT 'CREDIT';
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS notes TEXT;
@@ -7115,6 +7859,33 @@ async function syncDatabaseAndIndexes() {
         UNIQUE (fiscal_year_id, product_id, branch_id)
       );
 
+      -- 24. Fiscal-Year Vendor Opening Balances (Vendor Ledger roll-forward)
+      CREATE TABLE IF NOT EXISTS vendor_opening_balances (
+        id VARCHAR(100) PRIMARY KEY,
+        fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+        supplier_id VARCHAR(50) NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+        source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE',
+        source_reference VARCHAR(100),
+        posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        posted_by VARCHAR(150),
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        UNIQUE (fiscal_year_id, supplier_id, branch_id)
+      );
+
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE';
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_reference VARCHAR(100);
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_by VARCHAR(150);
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_fy ON vendor_opening_balances(fiscal_year_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_supplier ON vendor_opening_balances(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_branch ON vendor_opening_balances(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_demo ON vendor_opening_balances(id) WHERE is_demo = TRUE;
+
       -- HIGH-THROUGHPUT COMPOSITE PERFORMANCE INDEXES --
       CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
       CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(active);
@@ -7132,11 +7903,6 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_stock_branch ON inventory_stock(branch_id);
       CREATE INDEX IF NOT EXISTS idx_stock_reorder ON inventory_stock(quantity_on_hand, min_reorder_level);
 
-      CREATE INDEX IF NOT EXISTS idx_damage_records_product ON damage_records(product_id);
-      CREATE INDEX IF NOT EXISTS idx_damage_records_branch ON damage_records(branch_id);
-      CREATE INDEX IF NOT EXISTS idx_damage_records_status ON damage_records(status);
-      CREATE INDEX IF NOT EXISTS idx_damage_records_fiscal_year ON damage_records(fiscal_year_id);
-
       CREATE INDEX IF NOT EXISTS idx_assets_tag ON fixed_assets(tag_number);
       CREATE INDEX IF NOT EXISTS idx_assets_branch ON fixed_assets(branch_id);
       CREATE INDEX IF NOT EXISTS idx_assets_status ON fixed_assets(status);
@@ -7147,6 +7913,7 @@ async function syncDatabaseAndIndexes() {
 
       CREATE INDEX IF NOT EXISTS idx_invoices_num ON purchase_invoices(invoice_number);
       CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON purchase_invoices(supplier_id);
       CREATE INDEX IF NOT EXISTS idx_invoices_status ON purchase_invoices(payment_status);
 
       CREATE INDEX IF NOT EXISTS idx_shipments_track ON shipments(tracking_code);
@@ -7203,7 +7970,6 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -7235,6 +8001,45 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- 24. Vendor Payments Sub-ledger
+      CREATE TABLE IF NOT EXISTS vendor_payments (
+        id VARCHAR(50) PRIMARY KEY,
+        payment_number VARCHAR(100) UNIQUE NOT NULL,
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_name VARCHAR(200) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+        invoice_id VARCHAR(50) REFERENCES purchase_invoices(id) ON DELETE SET NULL,
+        invoice_number VARCHAR(100),
+        payment_date_ad DATE NOT NULL,
+        payment_date_bs VARCHAR(20),
+        amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+        payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+        bank_name VARCHAR(150),
+        bank_branch VARCHAR(150),
+        account_number VARCHAR(100),
+        cheque_number VARCHAR(100),
+        cheque_date_ad DATE,
+        cheque_date_bs VARCHAR(20),
+        transaction_reference VARCHAR(200),
+        notes TEXT,
+        status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
+        reversal_reason TEXT,
+        reversed_by VARCHAR(150),
+        reversed_at_ad TIMESTAMP WITH TIME ZONE,
+        original_payment_id VARCHAR(50) REFERENCES vendor_payments(id) ON DELETE SET NULL,
+        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_supplier ON vendor_payments(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_branch ON vendor_payments(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_invoice ON vendor_payments(invoice_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_date ON vendor_payments(payment_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_status ON vendor_payments(status);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_fiscal_year ON vendor_payments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_demo ON vendor_payments(id) WHERE is_demo = TRUE;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -7245,10 +8050,6 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
-      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
-      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
-      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
-      ALTER TABLE damage_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
@@ -7295,7 +8096,6 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_purchase_invoices_demo ON purchase_invoices(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_shipments_demo ON shipments(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
-      CREATE INDEX IF NOT EXISTS idx_damage_records_demo ON damage_records(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_audit_logs_demo ON audit_logs(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
       CREATE INDEX IF NOT EXISTS idx_customer_records_demo ON customer_records(id) WHERE is_demo = TRUE;
@@ -7341,12 +8141,14 @@ async function syncDatabaseAndIndexes() {
       CREATE OR REPLACE TRIGGER trg_transaction_logs_fiscal_year BEFORE INSERT OR UPDATE ON transaction_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
       CREATE OR REPLACE TRIGGER trg_customer_devices_fiscal_year BEFORE INSERT OR UPDATE ON customer_device_records FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('issued_date_ad');
       CREATE OR REPLACE TRIGGER trg_approval_requests_fiscal_year BEFORE INSERT OR UPDATE ON approval_requests FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('requested_at_ad');
+      CREATE OR REPLACE TRIGGER trg_vendor_payments_fiscal_year BEFORE INSERT OR UPDATE ON vendor_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');
       UPDATE fixed_assets SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE acquisition_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE purchase_orders SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE order_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE purchase_invoices SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE invoice_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE shipments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE dispatch_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE stock_operations SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE customer_device_records SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE issued_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE payment_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
     `);
 
     isPgConnected = true;
@@ -7356,7 +8158,7 @@ async function syncDatabaseAndIndexes() {
     await hydrateBsCalendarFromDb(client);
 
     client.release();
-    console.log('✅ All 24 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
+    console.log('✅ All 26 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
     setIsPgConnected(false);
@@ -7483,94 +8285,6 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
   }
 }
 
-// Re-seeds ONLY structural master data that the app requires to function
-// (fiscal years, company profile, UOMs, document-number configs). It does
-// NOT re-seed branches, users, suppliers, or locations – those are left
-// empty after a demo-data clear so the operator can add real ones. The
-// in-memory caches for branches/users/suppliers/locations are re-hydrated
-// (and cleared) to mirror the database.
-async function seedMasterOnlyData(client: pg.PoolClient) {
-  try {
-    for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
-      await client.query(
-        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
-        [fy.id, fy.code, fy.startDateAD || '2025-07-16', fy.endDateAD || '2026-07-15', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
-      );
-    }
-    // Seed Company Profile if empty
-    await client.query(
-      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
-      [
-        INITIAL_COMPANY_PROFILE.id,
-        INITIAL_COMPANY_PROFILE.name,
-        INITIAL_COMPANY_PROFILE.legalName,
-        INITIAL_COMPANY_PROFILE.tagline,
-        INITIAL_COMPANY_PROFILE.address,
-        INITIAL_COMPANY_PROFILE.city,
-        INITIAL_COMPANY_PROFILE.country,
-        INITIAL_COMPANY_PROFILE.phone,
-        INITIAL_COMPANY_PROFILE.email,
-        INITIAL_COMPANY_PROFILE.website,
-        INITIAL_COMPANY_PROFILE.panVatNumber,
-        INITIAL_COMPANY_PROFILE.registrationNumber,
-        INITIAL_COMPANY_PROFILE.logoUrl,
-        INITIAL_COMPANY_PROFILE.logoPreset,
-        INITIAL_COMPANY_PROFILE.currencySymbol,
-        INITIAL_COMPANY_PROFILE.defaultTaxRate,
-        INITIAL_COMPANY_PROFILE.notes,
-      ]
-    );
-    for (const u of INITIAL_MASTER_UOM) {
-      await client.query(
-        `INSERT INTO uom (id, name, symbol, type, is_base_unit)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING`,
-        [u.id, u.name, u.symbol, u.type, u.isBaseUnit]
-      );
-    }
-    for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
-      await client.query(
-        `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
-        [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
-      );
-    }
-
-    // Re-hydrate caches from PostgreSQL.  Unconditional assignment so rows
-    // that were just deleted (demo users/branches) drop out of memory too.
-    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code');
-    branches = bRes.rows;
-
-    const dbUsersRes = await client.query(
-      'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC'
-    );
-    users = dbUsersRes.rows;
-
-    const locRes = await client.query('SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations ORDER BY name ASC');
-    locationRecords = locRes.rows;
-
-    const supDbRes = await client.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
-    suppliers = supDbRes.rows;
-
-    const fyRes = await client.query('SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo" FROM fiscal_years ORDER BY start_date_ad DESC');
-    if (fyRes.rows.length > 0) fiscalYears = fyRes.rows;
-
-    const uomRes = await client.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC');
-    if (uomRes.rows.length > 0) uomList = uomRes.rows;
-
-    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
-    if (compRes.rows.length > 0) companyProfile = compRes.rows[0];
-
-    const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');
-    if (docCfgRes.rows.length > 0) docNumberConfigs = docCfgRes.rows;
-
-    console.log(`✅ Master-only data seeded and hydrated (${branches.length} branches, ${users.length} users remain; demo branches/users not re-seeded).`);
-  } catch (seedErr: any) {
-    console.log('PostgreSQL master-only seed note:', seedErr?.message || seedErr);
-  }
-}
-
 // Re-hydrates the operational runtime caches directly from PostgreSQL so the
 // server always starts with a mirror of the database (PostgreSQL is the
 // single source of truth). Each table is loaded independently; a failure on
@@ -7599,12 +8313,12 @@ async function hydrateOperationalData(client: pg.PoolClient) {
     },
     {
       name: 'purchase_orders',
-      query: 'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders',
+      query: 'SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders',
       apply: (rows) => { purchaseOrders = rows; },
     },
     {
       name: 'purchase_invoices',
-      query: 'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices',
+      query: 'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices',
       apply: (rows) => { purchaseInvoices = rows; },
     },
     {
@@ -7638,9 +8352,14 @@ async function hydrateOperationalData(client: pg.PoolClient) {
       apply: (rows) => { customerDeviceRecords = rows; },
     },
     {
-      name: 'approval_requests',
-      query: 'SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests',
-      apply: (rows) => { approvalRequests = rows; },
+      name: 'vendor_payments',
+      query: 'SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments ORDER BY payment_date_ad DESC, created_at DESC',
+      apply: (rows) => { vendorPayments = rows; },
+    },
+    {
+      name: 'vendor_opening_balances',
+      query: 'SELECT id, fiscal_year_id AS "fiscalYearId", supplier_id AS "supplierId", branch_id AS "branchId", opening_balance::float AS "openingBalance", source_type AS "sourceType", source_reference AS "sourceReference", posted_at::text AS "postedAt", posted_by AS "postedBy" FROM vendor_opening_balances',
+      apply: (rows) => { vendorOpeningBalances = rows; },
     },
   ];
 
@@ -7655,7 +8374,8 @@ async function hydrateOperationalData(client: pg.PoolClient) {
   console.log(
     `✅ Operational caches hydrated from PostgreSQL: ` +
     `${products.length} products, ${inventoryStock.length} stock rows, ${purchaseOrders.length} POs, ` +
-    `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops.`
+    `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops, ` +
+    `${vendorPayments.length} vendor payments, ${vendorOpeningBalances.length} vendor opening balances.`
   );
 }
 

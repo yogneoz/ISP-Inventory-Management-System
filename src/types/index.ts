@@ -146,6 +146,41 @@ export interface DamageRecord {
   updatedAt?: string;
 }
 
+export type VendorPaymentMethod = 'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
+export type VendorPaymentStatus = 'POSTED' | 'REVERSED' | 'VOIDED';
+
+export interface VendorPayment {
+  id: string;
+  paymentNumber: string;
+  supplierId: string;
+  supplierName: string;
+  branchId: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  paymentDateAD: string;
+  paymentDateBS: string;
+  amount: number;
+  paymentMethod: VendorPaymentMethod;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  chequeNumber?: string | null;
+  chequeDateAD?: string | null;
+  chequeDateBS?: string | null;
+  transactionReference?: string | null;
+  notes?: string | null;
+  status: VendorPaymentStatus;
+  reversalReason?: string | null;
+  reversedBy?: string | null;
+  reversedAtAD?: string | null;
+  originalPaymentId?: string | null;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+  createdBy: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Asset {
   id: string;
   tagNumber: string;
@@ -200,6 +235,7 @@ export interface POLineItem {
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
+  supplierId?: string;
   supplierName: string;
   branchId: string;
   orderDateAD: string;
@@ -265,6 +301,7 @@ export interface PurchaseInvoice {
   invoiceNumber: string;
   vendorBillNumber?: string;
   poReferenceId?: string;
+  supplierId?: string;
   supplierName: string;
   branchId: string;
   invoiceDateAD: string;
@@ -447,6 +484,34 @@ export interface FiscalYearOpeningStockResponse {
     zeroQtyRows: number;
     totalUnits: number;
     totalValue: number;
+  };
+}
+
+/** Fiscal-year vendor opening balance (Vendor Ledger roll-forward). */
+export interface VendorOpeningBalanceRow {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  supplierCode: string;
+  branchId: string;
+  branchName: string;
+  /** Signed: positive = payable (debit) owed to supplier, negative = advance/credit. */
+  openingBalance: number;
+  sourceType: string; // 'FISCAL_CLOSE' | 'MANUAL_ADJUSTMENT'
+  sourceReference: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+}
+
+export interface VendorOpeningBalanceResponse {
+  fiscalYear: FiscalYear;
+  rows: VendorOpeningBalanceRow[];
+  stats: {
+    totalRows: number;
+    manualAdjustments: number;
+    zeroRows: number;
+    totalDebitOpening: number;
+    totalCreditOpening: number;
   };
 }
 

@@ -141,7 +141,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       transactionNumber: `DAMAGE-${damageRec.damageReference}`,
       productId: damageRec.productId,
       productSku: product?.sku || '',
-      productName: product?.name || damageRec.productName || 'Product',
+      productName: product?.name || (damageRec as any).productName || 'Product',
       branchId: damageRec.branchId,
       changeType: 'DAMAGE' as TransactionLog['changeType'],
       quantityBefore: 0,

@@ -281,7 +281,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock & assets
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (25 tables)
+│   ├── schema.sql                     # Full PostgreSQL schema (26 tables)
 │   ├── setup_db.js                    # Node.js database migration runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE)
@@ -301,7 +301,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (25 tables)
+### 5.1 Tables Overview (26 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -316,6 +316,7 @@ ISP-Inventory-Management-System/
 | 9 | `fixed_assets` | Fixed asset register | id (PK), tag_number (UNIQUE), product_id (FK→products), branch_id (FK→branches), depreciation_method |
 | 10 | `purchase_orders` | Purchase orders | id (PK), po_number (UNIQUE), branch_id (FK→branches), items (JSONB), fiscal_year_id (FK→fiscal_years) |
 | 11 | `purchase_invoices` | Supplier invoices | id (PK), invoice_number (UNIQUE), branch_id (FK→branches), items (JSONB), fiscal_year_id (FK→fiscal_years) |
+| 11b | `vendor_payments` | Vendor payments sub-ledger | id (PK), payment_number (UNIQUE), supplier_id (FK→suppliers), invoice_id (FK→purchase_invoices), branch_id (FK→branches), amount, payment_method, bank_name, cheque_number, status (POSTED/REVERSED/VOIDED), reversal_reason, fiscal_year_id (FK→fiscal_years) |
 | 12 | `shipments` | Inter-branch transfers | id (PK), tracking_code (UNIQUE), source_branch_id (FK→branches), destination_branch_id (FK→branches), items (JSONB) |
 | 13 | `stock_operations` | Stock movements | id (PK), reference_number (UNIQUE), branch_id (FK→branches), product_id (FK→products), type, items (JSONB) |
 | 14 | `fiscal_year_opening_stock` | Year opening balances | id (PK), fiscal_year_id (FK→fiscal_years), product_id (FK→products), branch_id (FK→branches) |
@@ -522,6 +523,11 @@ These tables store line items as JSONB arrays rather than normalized child table
 | `/api/purchase-invoices` | GET, POST | Supplier invoice management |
 | `/api/purchase-invoices/:id` | DELETE | |
 | `/api/purchase-invoices/:id/payment` | POST | Record partial payment |
+| `/api/purchase-invoices/:id/payments` | GET | Payment history for one invoice (vendor_payments sub-ledger) |
+| `/api/purchase-invoices/:id/reverse-payments` | POST | Reverse ALL posted payments of a fully paid invoice in one audited action (restores it to UNPAID; requires a reason) |
+| `/api/vendor-payments` | GET, POST | Vendor payments sub-ledger (bank details, cheque, dated) |
+| `/api/vendor-payments/:id/reverse` | POST | Reverse a posted payment (restores invoice balance) |
+| `/api/vendors/:supplierId/ledger` | GET | Vendor ledger report (debit/credit/running balance) |
 | `/api/shipments` | GET, POST | Inter-branch transfers |
 | `/api/shipments/:id/receive` | POST | Receive + verify incoming shipment |
 | `/api/shipments/:id/cancel-receive` | POST | Cancel received shipment |

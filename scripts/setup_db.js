@@ -358,6 +358,11 @@ async function seedDocumentConfigs(client) {
     { id: 'doc-ship', documentType: 'SHIPMENT', prefix: 'SHIP-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
     { id: 'doc-stockop', documentType: 'STOCK_OPERATION', prefix: 'SO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
     { id: 'doc-appreq', documentType: 'APPROVAL_REQUEST', prefix: 'AR-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
+    // Cash & Bank Payment / Receipt document numbering (used by vendor payments)
+    { id: 'CP', documentType: 'Cash Payment', prefix: 'CP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1002, resetEveryFiscalYear: true },
+    { id: 'CR', documentType: 'Cash Receive', prefix: 'CR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true },
+    { id: 'BP', documentType: 'Bank Payment', prefix: 'BP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1003, resetEveryFiscalYear: true },
+    { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true },
   ];
   for (const config of defaultDocConfigs) {
     await client.query(
@@ -569,13 +574,68 @@ async function seedDemoData(client) {
   if (!(await skipTable('purchase_orders'))) {
     for (const po of dataset.purchaseOrders) {
       await client.query(
-        `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items, is_demo, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, 'setup:pg demo seeder')
+        `INSERT INTO purchase_orders (id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE, 'setup:pg demo seeder')
          ON CONFLICT (id) DO NOTHING`,
-        [po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAD, po.orderDateBS, po.expectedDeliveryDateAD, po.status, po.subtotalAmount, po.taxAmount, po.totalAmount, po.notes, JSON.stringify(po.items)]
+        [po.id, po.poNumber, po.supplierId || null, po.supplierName, po.branchId, po.orderDateAD, po.orderDateBS, po.expectedDeliveryDateAD, po.status, po.subtotalAmount, po.taxAmount, po.totalAmount, po.notes, JSON.stringify(po.items)]
       );
     }
     summary.purchase_orders = dataset.purchaseOrders.length;
+  }
+
+  // Seed purchase_invoices demo rows (is_demo = TRUE) so Accounts Payable has
+  // realistic vendor bills for payment recording and the vendor ledger.
+  if (!(await skipTable('purchase_invoices'))) {
+    const demoInvoices = dataset.purchaseInvoices || [];
+    for (const inv of demoInvoices) {
+      const itemsJson = JSON.stringify(inv.items || []);
+      await client.query(
+        `INSERT INTO purchase_invoices (
+           id, invoice_number, po_reference_id, vendor_bill_number, supplier_id, supplier_name, branch_id,
+           invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount,
+           non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          inv.id, inv.invoiceNumber, inv.poReferenceId || null, inv.vendorBillNumber || null,
+          inv.supplierId || null, inv.supplierName, inv.branchId,
+          inv.invoiceDateAD, inv.invoiceDateBS, inv.dueDateAD || null, inv.dueDateBS || null,
+          inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
+          inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.paymentMethod || 'CREDIT',
+          inv.amountPaid || 0, inv.notes || '', itemsJson,
+        ]
+      );
+    }
+    summary.purchase_invoices = demoInvoices.length;
+  }
+
+  // Seed vendor_payments demo rows (is_demo = TRUE) — the sub-ledger entries
+  // behind the Vendor Ledger report and invoice payment history.
+  if (!(await skipTable('vendor_payments'))) {
+    const demoPayments = dataset.vendorPayments || [];
+    for (const p of demoPayments) {
+      await client.query(
+        `INSERT INTO vendor_payments (
+           id, payment_number, supplier_id, supplier_name, branch_id, invoice_id, invoice_number,
+           payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
+           account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
+           notes, status, reversal_reason, reversed_by, reversed_at_ad, original_payment_id,
+           fiscal_year_id, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, TRUE, $26)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          p.id, p.paymentNumber, p.supplierId || null, p.supplierName, p.branchId,
+          p.invoiceId || null, p.invoiceNumber || null,
+          p.paymentDateAD, p.paymentDateBS || null, p.amount, p.paymentMethod || 'CASH',
+          p.bankName || null, p.bankBranch || null, p.accountNumber || null,
+          p.chequeNumber || null, p.chequeDateAD || null, p.chequeDateBS || null,
+          p.transactionReference || null, p.notes || null, p.status || 'POSTED',
+          p.reversalReason || null, p.reversedBy || null, p.reversedAtAD || null,
+          p.originalPaymentId || null, p.fiscalYearId || null, p.createdBy || 'System Seeder',
+        ]
+      );
+    }
+    summary.vendor_payments = demoPayments.length;
   }
 
   if (Object.keys(summary).length === 0) {
@@ -593,6 +653,7 @@ async function backfillFiscalYearIds(client) {
     { table: 'fixed_assets', dateCol: 'acquisition_date_ad' },
     { table: 'purchase_orders', dateCol: 'order_date_ad' },
     { table: 'purchase_invoices', dateCol: 'invoice_date_ad' },
+    { table: 'vendor_payments', dateCol: 'payment_date_ad' },
     { table: 'shipments', dateCol: 'dispatch_date_ad' },
     { table: 'stock_operations', dateCol: 'date_ad' },
     { table: 'customer_device_records', dateCol: 'issued_date_ad' },
@@ -712,7 +773,10 @@ async function runSetup() {
         (SELECT COUNT(*) FROM products WHERE is_demo)        AS products,
         (SELECT COUNT(*) FROM inventory_stock WHERE is_demo) AS stock,
         (SELECT COUNT(*) FROM fixed_assets WHERE is_demo)    AS assets,
-        (SELECT COUNT(*) FROM purchase_orders WHERE is_demo) AS orders
+        (SELECT COUNT(*) FROM purchase_orders WHERE is_demo) AS orders,
+        (SELECT COUNT(*) FROM purchase_invoices WHERE is_demo) AS invoices,
+        (SELECT COUNT(*) FROM vendor_payments WHERE is_demo) AS vendor_payments,
+        (SELECT COUNT(*) FROM damage_records WHERE is_demo)  AS damage_records
     `);
     console.log(`\n📌 Demo rows now in database: ${JSON.stringify(demoCounts.rows[0])}`);
     console.log('🎉 PostgreSQL setup verified and operational!');

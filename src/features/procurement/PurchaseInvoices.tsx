@@ -10,6 +10,7 @@ import {
   DeviceSerialPair,
   User,
   CompanyProfile,
+  VendorPayment,
 } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -49,9 +50,16 @@ import {
   MapPin,
   Building,
   Check,
+  Banknote,
+  Landmark,
+  Hash,
+  Undo2,
+  History,
+  Loader2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { api } from '../../services/api';
 
 interface PurchaseInvoicesProps {
   companyProfile?: CompanyProfile | null;
@@ -70,7 +78,22 @@ interface PurchaseInvoicesProps {
   onCreateInvoice: (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
   ) => Promise<void>;
-  onRecordPayment: (id: string, amount: number) => Promise<void>;
+  onRecordPayment: (
+    id: string,
+    amount: number,
+    paymentMethod?: string,
+    details?: {
+      bankName?: string;
+      bankBranch?: string;
+      accountNumber?: string;
+      chequeNumber?: string;
+      transactionReference?: string;
+      paymentDateAD?: string;
+    }
+  ) => Promise<void>;
+  onReversePayment?: (paymentId: string, reason: string) => Promise<void>;
+  /** Reverses ALL posted payments of a fully paid invoice, restoring it to UNPAID. */
+  onReverseInvoicePayments?: (invoiceId: string, reason: string) => Promise<void>;
   onDeleteInvoice?: (id: string) => Promise<void>;
 }
 
@@ -100,6 +123,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   autoOpenModal = false,
   onCreateInvoice,
   onRecordPayment,
+  onReversePayment,
+  onReverseInvoicePayments,
   onDeleteInvoice,
 }) => {
   // Suppliers list strictly sourced from master supplier directory
@@ -112,6 +137,25 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
   const [productsModalInvoice, setProductsModalInvoice] = useState<PurchaseInvoice | null>(null);
+
+  // Payment State
+  const [payInvoice, setPayInvoice] = useState<PurchaseInvoice | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE'>('CASH');
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  // Payment bank details (sub-ledger)
+  const [bankName, setBankName] = useState('');
+  const [bankBranch, setBankBranch] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [chequeNumber, setChequeNumber] = useState('');
+  const [transactionReference, setTransactionReference] = useState('');
+  const [paymentDateAD, setPaymentDateAD] = useState(new Date().toISOString().split('T')[0]);
+  // Payment history for the current payInvoice
+  const [invoicePayments, setInvoicePayments] = useState<VendorPayment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [reversalId, setReversalId] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [vendorFilter, setVendorFilter] = useState('ALL');
 
@@ -136,6 +180,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   // Form State
   const [supplierName, setSupplierName] = useState(availableSuppliers[0]?.name || '');
+  const [supplierId, setSupplierId] = useState<string>(availableSuppliers[0]?.id || '');
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
   const supplierDropdownRef = useRef<HTMLDivElement>(null);
@@ -179,6 +224,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   useEffect(() => {
     if (availableSuppliers.length > 0 && (!supplierName || !availableSuppliers.some((s) => s.name === supplierName))) {
       setSupplierName(availableSuppliers[0].name);
+      setSupplierId(availableSuppliers[0].id);
     }
   }, [availableSuppliers]);
 
@@ -271,10 +317,189 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     0
   );
 
+  // Payment status render helpers
+  const paymentStatusBadge = (inv: PurchaseInvoice) => {
+    const paid = Number(inv.amountPaid) || 0;
+    const total = Number(inv.grandTotal) || 0;
+    const status = paid >= total && total > 0 ? 'PAID' : inv.paymentStatus;
+    if (status === 'PAID') {
+      return (
+        <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+          PAID
+        </span>
+      );
+    }
+    if (status === 'PARTIAL') {
+      return (
+        <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          PARTIAL (Rs. {(paid || 0).toLocaleString('en-IN')})
+        </span>
+      );
+    }
+    return (
+      <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+        UNPAID
+      </span>
+    );
+  };
+
+  const unpaidAmount = (inv: PurchaseInvoice) =>
+    Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.amountPaid) || 0));
+
+  // Open the payment modal for an invoice
+  const openPaymentModal = async (inv: PurchaseInvoice) => {
+    setPayInvoice(inv);
+    setPaymentError('');
+    setPaymentMethod('CASH');
+    setPaymentAmount(String(unpaidAmount(inv)));
+    setBankName('');
+    setBankBranch('');
+    setAccountNumber('');
+    setChequeNumber('');
+    setTransactionReference('');
+    setPaymentDateAD(new Date().toISOString().split('T')[0]);
+    setReversalId(null);
+    setReversalReason('');
+    // Load payment history for this invoice (vendor_payments sub-ledger)
+    setPaymentsLoading(true);
+    setInvoicePayments([]);
+    try {
+      const history = await api.getInvoicePayments(inv.id);
+      setInvoicePayments(history);
+    } catch (_err) {
+      setInvoicePayments([]);
+    } finally {
+      setPaymentsLoading(false);
+    }
+  };
+
+  const closePaymentModal = () => {
+    if (paymentSubmitting) return;
+    setPayInvoice(null);
+    setPaymentError('');
+    setPaymentAmount('');
+    setInvoicePayments([]);
+    setReversalId(null);
+    setReversalReason('');
+  };
+
+  const handleReversePayment = async (p: VendorPayment) => {
+    const reason = window.prompt(`Reason for reversing payment #${p.paymentNumber} (NPR ${(Number(p.amount) || 0).toLocaleString('en-IN')})?`);
+    if (!reason || !reason.trim()) return;
+    try {
+      if (onReversePayment) {
+        await onReversePayment(p.id, reason.trim());
+      } else {
+        await api.reverseVendorPayment(p.id, reason.trim());
+      }
+      // Refresh history + invoice
+      setInvoicePayments((prev) => prev.map((item) =>
+        item.id === p.id
+          ? { ...item, status: 'REVERSED', reversalReason: reason.trim() }
+          : item
+      ));
+      if (payInvoice) {
+        const amountPaid = invoicePayments
+          .filter((item) => item.id !== p.id)
+          .reduce((sum, item) => sum + (item.status === 'POSTED' ? Number(item.amount) : 0), 0);
+        setPayInvoice({ ...payInvoice, amountPaid, paymentStatus: amountPaid >= (Number(payInvoice.grandTotal) || 0) ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'UNPAID' });
+        setPaymentAmount(String(Math.max(0, (Number(payInvoice.grandTotal) || 0) - amountPaid)));
+      }
+      alert(`Payment #${p.paymentNumber} reversed.`);
+    } catch (err: any) {
+      alert(err?.message || 'Unable to reverse payment.');
+    }
+  };
+
+  // Is this invoice fully settled (used to gate the "reverse full invoice" action)?
+  const isFullyPaid = (inv: PurchaseInvoice) =>
+    (Number(inv.grandTotal) || 0) > 0 && (Number(inv.amountPaid) || 0) >= (Number(inv.grandTotal) || 0);
+
+  // Reverse ALL posted payments of a fully paid invoice in one audited action.
+  // The server marks every payment REVERSED and resets the invoice to UNPAID.
+  const handleReverseInvoicePayments = async (inv: PurchaseInvoice) => {
+    const paid = Number(inv.amountPaid) || 0;
+    const reason = window.prompt(
+      `Reverse ALL payments for Invoice #${inv.invoiceNumber} (NPR ${paid.toLocaleString('en-IN')})? This will restore the bill to UNPAID and reverse every posted payment, including any on partial invoices already at their full amount.\n\nReason:`
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert('A reversal reason is required.');
+      return;
+    }
+    if (!window.confirm(`Confirm reversing Invoice #${inv.invoiceNumber}: all posted payment(s) totaling NPR ${paid.toLocaleString('en-IN')} will be reversed and the bill will be restored to UNPAID. This action is audited and cannot be undone automatically.`)) return;
+    try {
+      if (onReverseInvoicePayments) {
+        await onReverseInvoicePayments(inv.id, reason.trim());
+      } else {
+        await api.reverseInvoicePayments(inv.id, reason.trim());
+      }
+      // Refresh in-memory state so the UI reflects UNPAID immediately.
+      setInvoicePayments((prev) => prev.map((item) => (item.invoiceId === inv.id ? { ...item, status: 'REVERSED', reversalReason: reason.trim() } : item)));
+      if (payInvoice?.id === inv.id) {
+        setPayInvoice({ ...payInvoice, amountPaid: 0, paymentStatus: 'UNPAID' });
+        setPaymentAmount(String(Math.max(0, Number(payInvoice.grandTotal) || 0)));
+      }
+      alert(`Invoice #${inv.invoiceNumber} has been set back to UNPAID and all its payments reversed.`);
+    } catch (err: any) {
+      alert(err?.message || 'Unable to reverse invoice payments.');
+    }
+  };
+
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payInvoice) return;
+    const amount = Number(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPaymentError('Payment amount must be greater than 0.');
+      return;
+    }
+    const remaining = unpaidAmount(payInvoice);
+    if (amount > remaining) {
+      setPaymentError(
+        `Payment cannot exceed the outstanding balance of Rs. ${(remaining || 0).toLocaleString('en-IN')}.`
+      );
+      return;
+    }
+    setPaymentSubmitting(true);
+    setPaymentError('');
+    try {
+      await onRecordPayment(payInvoice.id, amount, paymentMethod, {
+        bankName,
+        bankBranch,
+        accountNumber,
+        chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber : undefined,
+        transactionReference: paymentMethod === 'BANK_TRANSFER' ? transactionReference : undefined,
+        paymentDateAD,
+      });
+      setPaymentSubmitting(false);
+      setPayInvoice(null);
+      setPaymentAmount('');
+      setInvoicePayments([]);
+      setReversalId(null);
+      setReversalReason('');
+    } catch (err: any) {
+      setPaymentSubmitting(false);
+      setPaymentError(err?.message || 'Unable to record payment. Please try again.');
+    }
+  };
+
+  // Quick "Mark as Fully Paid" action for unpaid invoices
+  const handleMarkInvoicePaid = async (inv: PurchaseInvoice) => {
+    const remaining = unpaidAmount(inv);
+    if (!window.confirm(`Mark invoice #${inv.invoiceNumber} as fully paid (Rs. ${(remaining || 0).toLocaleString('en-IN')})?`)) return;
+    try {
+      await onRecordPayment(inv.id, remaining, 'CASH');
+    } catch (error: any) {
+      alert(error?.message || 'Unable to mark invoice as paid.');
+    }
+  };
+
   const handleResetForm = () => {
     setLines([]);
     setSelectedPoId('');
     setSupplierName(availableSuppliers[0]?.name || '');
+    setSupplierId(availableSuppliers[0]?.id || '');
     setSupplierSearchQuery('');
     setIsSupplierDropdownOpen(false);
     setBillDiscountValue(0);
@@ -486,6 +711,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
     // Default to CREDIT mode transaction as requested
     await onCreateInvoice({
+      supplierId,
       supplierName,
       vendorBillNumber,
       poReferenceId: selectedPoId || undefined,
@@ -838,12 +1064,34 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             Rs. {(inv.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="p-2.5 text-center">
-                            <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                              CREDIT MODE
-                            </span>
+                            {paymentStatusBadge(inv)}
                           </td>
                           <td className="p-2.5 text-center">
                             <div className="flex items-center justify-center gap-1.5">
+                              {unpaidAmount(inv) > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => openPaymentModal(inv)}
+                                  title={`Record Payment — Rs. ${(unpaidAmount(inv) || 0).toLocaleString('en-IN')} outstanding`}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
+                                >
+                                  <Banknote className="h-3.5 w-3.5" />
+                                  <span className="hidden lg:inline">Pay</span>
+                                </button>
+                              )}
+
+                              {isFullyPaid(inv) && onReverseInvoicePayments && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleReverseInvoicePayments(inv)}
+                                  title="Reverse all payments on this fully paid invoice (restore to UNPAID)"
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
+                                >
+                                  <Undo2 className="h-3.5 w-3.5" />
+                                  <span className="hidden lg:inline">Reverse</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={() => setProductsModalInvoice(inv)}
@@ -1009,6 +1257,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     }}
                     onChange={(e) => {
                       setSupplierName(e.target.value);
+                      // If the typed text exactly matches a directory supplier, keep its id for the FK.
+                      const exact = availableSuppliers.find((s) => s.name.toLowerCase() === e.target.value.trim().toLowerCase());
+                      setSupplierId(exact?.id || '');
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Search supplier name or PAN..."
@@ -1056,6 +1307,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             type="button"
                             onClick={() => {
                               setSupplierName(s.name);
+                              setSupplierId(s.id);
                               setIsSupplierDropdownOpen(false);
                             }}
                             className={`w-full text-left p-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
@@ -1627,9 +1879,18 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               <div>
                 Transaction Mode: <span className={`font-bold text-amber-600 dark:text-amber-400`}>CREDIT MODE</span>
               </div>
-              <div>
-                Status: <span className={`font-bold text-amber-600 dark:text-amber-400`}>UNPAID (Pending Accounting Settlement)</span>
+              <div className="flex items-center gap-2">
+                <span>Payment Status:</span>
+                {paymentStatusBadge(viewingInvoice)}
               </div>
+              {unpaidAmount(viewingInvoice) > 0 && (
+                <div>
+                  Outstanding Balance:{' '}
+                  <span className={`font-bold text-rose-600 dark:text-rose-400`}>
+                    Rs. {(unpaidAmount(viewingInvoice) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
@@ -1671,6 +1932,269 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               <Printer className="h-4 w-4" />
               <span>Print Bill Voucher (PDF)</span>
             </button>
+
+            {unpaidAmount(viewingInvoice) > 0 && (
+              <button
+                type="button"
+                onClick={() => openPaymentModal(viewingInvoice)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all cursor-pointer shadow-lg shadow-emerald-600/25"
+              >
+                <Banknote className="h-4 w-4" />
+                <span>Record Payment</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal: Record Vendor Payment */}
+      {payInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div
+            className={`w-full max-w-2xl rounded-2xl shadow-2xl border overflow-hidden bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          >
+            <div className={`flex items-center justify-between border-b p-4 bg-slate-50 border-slate-200 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <div className="flex items-center gap-2">
+                <Banknote className={`h-5 w-5 text-emerald-600 dark:text-emerald-400`} />
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">Record Vendor Payment — Sub-ledger</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {isFullyPaid(payInvoice) && onReverseInvoicePayments && (
+                  <button
+                    type="button"
+                    onClick={() => handleReverseInvoicePayments(payInvoice)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-bold transition-all cursor-pointer"
+                    title="Reverse all payments on this fully paid invoice (restore to UNPAID)"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Reverse Full Invoice</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closePaymentModal}
+                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handlePaymentSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[70vh] overflow-y-auto">
+              <div className={`md:col-span-2 rounded-xl p-3 border bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 space-y-0.5`}>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Invoice <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{payInvoice.invoiceNumber}</span>
+                  <span className="ml-1.5">• {payInvoice.supplierName}</span>
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Grand Total:{' '}
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    Rs. {(Number(payInvoice.grandTotal) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  {' '}• Paid:{' '}
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    Rs. {(Number(payInvoice.amountPaid) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  {' '}• Outstanding:{' '}
+                  <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                    Rs. {(unpaidAmount(payInvoice) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {paymentError && (
+                <div className="md:col-span-2 flex items-center gap-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span className="font-medium">{paymentError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Payment Amount (Rs.) *
+                </label>
+                <div className="relative">
+                  <Banknote className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400`} />
+                  <input
+                    type="number"
+                    required
+                    min={0.01}
+                    step="0.01"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    placeholder="0.00"
+                    className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-9 pr-3 py-2 text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Payment Date *
+                </label>
+                <DateField
+                  value={paymentDateAD}
+                  onChange={(v) => setPaymentDateAD(v)}
+                  mode="AD"
+                  compact
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Payment Method
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none cursor-pointer`}
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="CREDIT">Credit / Adjustment</option>
+                </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <div className="flex items-center gap-1.5 mb-1 text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <Landmark className="h-3.5 w-3.5 text-slate-400" />
+                  Bank Details (for CHEQUE / BANK_TRANSFER)
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="Bank name"
+                    className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none`}
+                  />
+                  <input
+                    type="text"
+                    value={bankBranch}
+                    onChange={(e) => setBankBranch(e.target.value)}
+                    placeholder="Bank branch"
+                    className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none`}
+                  />
+                  <input
+                    type="text"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    placeholder="Account number"
+                    className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none`}
+                  />
+                  {paymentMethod === 'CHEQUE' ? (
+                    <input
+                      type="text"
+                      value={chequeNumber}
+                      onChange={(e) => setChequeNumber(e.target.value)}
+                      placeholder="Cheque number"
+                      className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none`}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={transactionReference}
+                      onChange={(e) => setTransactionReference(e.target.value)}
+                      placeholder="Transaction reference"
+                      className={`w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none`}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Payment history */}
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <History className="h-3.5 w-3.5 text-slate-400" />
+                    Payment History
+                  </div>
+                  {paymentsLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                </div>
+                {invoicePayments.length === 0 && !paymentsLoading ? (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 py-2">No payments recorded yet for this invoice.</p>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800 max-h-44 overflow-y-auto">
+                    {invoicePayments.map((p) => {
+                      const isReversed = p.status === 'REVERSED' || p.status === 'VOIDED';
+                      return (
+                        <div key={p.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {p.paymentNumber}
+                              {isReversed ? (
+                                <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300">
+                                  {p.status}
+                                </span>
+                              ) : (
+                                <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300">
+                                  Posted
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400">
+                              {formatDualDate(p.paymentDateAD, dateMode)}
+                              {' • '}
+                              {p.paymentMethod}
+                              {p.bankName ? ` • ${p.bankName}` : ''}
+                              {p.chequeNumber ? ` • Chq ${p.chequeNumber}` : ''}
+                              {p.transactionReference ? ` • Ref ${p.transactionReference}` : ''}
+                            </div>
+                            {isReversed && p.reversalReason && (
+                              <div className="text-rose-500 dark:text-rose-400">Reversed: {p.reversalReason}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              Rs. {(Number(p.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            {!isReversed && onReversePayment && (
+                              <button
+                                type="button"
+                                onClick={() => handleReversePayment(p)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 cursor-pointer"
+                                title="Reverse payment"
+                              >
+                                <Undo2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="md:col-span-2 flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closePaymentModal}
+                  disabled={paymentSubmitting}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={paymentSubmitting}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-emerald-600/25 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {paymentSubmitting ? (
+                    <>
+                      <div className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Recording...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>Confirm Payment</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1748,6 +2272,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           onClick={() => {
                             setSelectedPoId(po.id);
                             if (po.supplierName) setSupplierName(po.supplierName);
+                            if (po.supplierId) setSupplierId(po.supplierId);
                             if (po.branchId) setBranchId(po.branchId);
                             setIsPoSelectModalOpen(false);
                           }}

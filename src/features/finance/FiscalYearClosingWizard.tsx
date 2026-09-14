@@ -21,6 +21,7 @@ import {
   KeyRound,
   Download,
   Award,
+  Wallet,
 } from 'lucide-react';
 
 interface FiscalYearClosingWizardProps {
@@ -29,6 +30,9 @@ interface FiscalYearClosingWizardProps {
   onCloseFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
   onReopenFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
   onInitializeOpeningStock: (
+    id: string
+  ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
+  onRollForwardVendorOpenings: (
     id: string
   ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
   dateMode: 'BS' | 'AD';
@@ -47,6 +51,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   onCloseFiscalYear,
   onReopenFiscalYear,
   onInitializeOpeningStock,
+  onRollForwardVendorOpenings,
   dateMode,
   financialSummary,
   products,
@@ -70,7 +75,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const [step2Completed, setStep2Completed] = useState<boolean>(false);
   const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
+  const [step5Completed, setStep5Completed] = useState<boolean>(false);
   const [openingStockMessage, setOpeningStockMessage] = useState<string>('');
+  const [vendorOpeningMessage, setVendorOpeningMessage] = useState<string>('');
 
   const now = new Date();
   const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -132,12 +139,13 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     { number: 1, title: 'Pre-Closing Audit & Diagnostics', icon: FileCheck2 },
     { number: 2, title: 'Asset Depreciation & Stock Valuation Lock', icon: Calculator },
     { number: 3, title: 'Trial Balance & Retained Earnings', icon: Scale },
-    { number: 4, title: 'Opening Balance Roll-Forward', icon: Building2 },
-    { number: 5, title: 'Lock Period & Compliance Seal', icon: ShieldCheck },
+    { number: 4, title: 'Opening Balances Roll-Forward', icon: Building2 },
+    { number: 5, title: 'Close Vendor Ledgers', icon: Wallet },
+    { number: 6, title: 'Lock Period & Compliance Seal', icon: ShieldCheck },
   ];
 
   const handleNextStep = () => {
-    if (currentStep < 5) {
+    if (currentStep < 6) {
       setCurrentStep((prev) => prev + 1);
     }
   };
@@ -209,6 +217,29 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       );
     } catch (error) {
       setOpeningStockMessage(error instanceof Error ? error.message : 'Unable to initialize opening stock.');
+    } finally {
+      setIsProcessingStep(false);
+    }
+  };
+
+  const handleRollForwardVendorOpenings = async () => {
+    if (!currentFy) return;
+    setVendorOpeningMessage('');
+    setIsProcessingStep(true);
+    try {
+      const result = await onRollForwardVendorOpenings(currentFy.id);
+      setStep5Completed(true);
+      const baseMessage = `${result.recordsCreated} vendor opening-balance record(s) rolled forward to FY ${result.targetFiscalYear.code}`;
+      const preservedNote = result.manualRowsPreserved
+        ? ` ${result.manualRowsPreserved} manually adjusted row(s) were preserved and not overwritten.`
+        : '';
+      setVendorOpeningMessage(
+        baseMessage +
+          ' — each supplier × branch closing balance (invoices minus posted payments) is carried into the new period.' +
+          preservedNote
+      );
+    } catch (error) {
+      setVendorOpeningMessage(error instanceof Error ? error.message : 'Unable to close vendor ledgers.');
     } finally {
       setIsProcessingStep(false);
     }
@@ -387,7 +418,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
       <div
         className={`p-3 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {wizardSteps.map((step) => {
             const isActive = currentStep === step.number;
             const StepIcon = step.icon;
@@ -597,13 +628,64 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           </div>
         )}
 
-        {/* STEP 5: LOCK PERIOD & COMPLIANCE SEAL */}
+        {/* STEP 5: CLOSE VENDOR LEDGERS (ROLL-FORWARD ACCOUNTS PAYABLE) */}
         {currentStep === 5 && (
           <div className="space-y-5">
             <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-indigo-500" />
+                <span>Step 5: Close Vendor Ledgers & Carry Opening Payables</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Close every supplier sub-ledger for FY {currentFy?.code} BS and carry the net closing balance
+                (purchases minus payments) forward as the opening payable in the next fiscal year.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-700 dark:text-indigo-300 space-y-2">
+              <p className="font-bold">Target Roll-forward Fiscal Period:</p>
+              <div className="flex items-center justify-between font-mono font-semibold">
+                <span>Closing FY: <strong>FY {currentFy?.code || '—'} BS</strong></span>
+                <span>Closing Date: <strong>{currentFy?.endDateBS || '—'}</strong></span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Each supplier × branch closing balance is computed from billed purchase invoices minus posted
+                payments within the fiscal period, plus any opening balance already carried into this year.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs space-y-2">
+              <div className="flex items-center justify-between font-mono">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Total Accounts Payable (unpaid invoices)</span>
+                <span className="font-bold text-amber-500">
+                  NPR {(financialSummary?.totalAccountsPayable || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-mono">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Payable sources</span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">{purchaseInvoices.length} purchase invoices</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRollForwardVendorOpenings}
+              disabled={!isLocked || isProcessingStep || step5Completed}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 text-white text-xs font-bold"
+            >
+              {step5Completed ? 'Vendor Ledgers Closed' : 'Close Vendor Ledgers & Carry Balances Forward'}
+            </button>
+            {vendorOpeningMessage && <p className={`text-xs font-semibold ${step5Completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{vendorOpeningMessage}</p>}
+          </div>
+        )}
+
+        {/* STEP 6: LOCK PERIOD & COMPLIANCE SEAL */}
+        {currentStep === 6 && (
+          <div className="space-y-5">
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-indigo-500" />
-                <span>Step 5: Lock Fiscal Period & Generate IRD Compliance Certificate</span>
+                <span>Step 6: Lock Fiscal Period & Generate IRD Compliance Certificate</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Final authorization step to prevent backdated edits and issue audit certificate.
@@ -696,14 +778,14 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           </button>
 
           <span className="text-xs font-mono font-bold text-slate-400">
-            Step {currentStep} of 5
+            Step {currentStep} of 6
           </span>
 
           <button
             onClick={handleNextStep}
-            disabled={currentStep === 5}
+            disabled={currentStep === 6}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              currentStep === 5
+              currentStep === 6
                 ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
             }`}

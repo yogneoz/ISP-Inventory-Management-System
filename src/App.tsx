@@ -71,6 +71,8 @@ import { StockMovementLedger } from './features/inventory/StockMovementLedger';
 import { PhysicalStockAudit } from './features/inventory/PhysicalStockAudit';
 import { FiscalYearClosingWizard } from './features/finance/FiscalYearClosingWizard';
 import { OpeningStockManager } from './features/finance/OpeningStockManager';
+import { VendorOpeningBalances } from './features/finance/VendorOpeningBalances';
+import { VendorLedger } from './features/finance/VendorLedger';
 import { WarrantyProducts } from './features/inventory/WarrantyProducts';
 import { CategoryManagement } from './features/inventory/CategoryManagement';
 import { UomManagement } from './features/inventory/UomManagement';
@@ -683,8 +685,52 @@ export default function App() {
     await refreshAllData();
   };
 
-  const handleRecordPayment = async (id: string, amount: number) => {
-    await api.recordInvoicePayment(id, amount);
+  const handleRecordPayment = async (
+    id: string,
+    amount: number,
+    paymentMethod?: string,
+    details?: {
+      bankName?: string;
+      bankBranch?: string;
+      accountNumber?: string;
+      chequeNumber?: string;
+      transactionReference?: string;
+      paymentDateAD?: string;
+    }
+  ) => {
+    await api.recordInvoicePayment(id, amount, paymentMethod);
+    // Also write the sub-ledger row (bank details, dated, full history) so the
+    // Vendor Ledger report and the invoice payment history stay authoritative.
+    try {
+      const linkedInv = purchaseInvoices.find((inv) => inv.id === id);
+      await api.createVendorPayment({
+        supplierId: linkedInv?.supplierId,
+        supplierName: linkedInv?.supplierName || '',
+        invoiceId: id,
+        invoiceNumber: linkedInv?.invoiceNumber,
+        amount,
+        paymentMethod: paymentMethod || 'CASH',
+        paymentDateAD: details?.paymentDateAD || new Date().toISOString().split('T')[0],
+        bankName: details?.bankName,
+        bankBranch: details?.bankBranch,
+        accountNumber: details?.accountNumber,
+        chequeNumber: details?.chequeNumber,
+        transactionReference: details?.transactionReference,
+      });
+    } catch (err: any) {
+      console.warn('Sub-ledger sync notice:', err?.message || err);
+    }
+    refreshAllData();
+  };
+
+  const handleReversePayment = async (paymentId: string, reason: string) => {
+    await api.reverseVendorPayment(paymentId, reason);
+    refreshAllData();
+  };
+
+  // Reverse all posted payments on a fully paid invoice (restores it to UNPAID)
+  const handleReverseInvoicePayments = async (invoiceId: string, reason: string) => {
+    await api.reverseInvoicePayments(invoiceId, reason);
     refreshAllData();
   };
 
@@ -750,6 +796,12 @@ export default function App() {
 
   const handleInitializeFiscalYearOpeningStock = async (id: string) => {
     const result = await api.initializeFiscalYearOpeningStock(id);
+    await refreshAllData();
+    return result;
+  };
+
+  const handleRollForwardVendorOpenings = async (id: string) => {
+    const result = await api.rollForwardVendorOpenings(id);
     await refreshAllData();
     return result;
   };
@@ -1371,6 +1423,8 @@ export default function App() {
                   activeTab="create-purchase"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
                   onDeleteInvoice={handleDeleteInvoice}
                 />
               )}
@@ -1390,6 +1444,8 @@ export default function App() {
                   activeTab="purchase-list"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
                   onDeleteInvoice={handleDeleteInvoice}
                 />
               )}
@@ -1870,6 +1926,24 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'vendor-ledger' && (
+                <VendorLedger
+                  suppliers={suppliers}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              )}
+
+              {activeTab === 'vendor-opening-balances' && (
+                <VendorOpeningBalances
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  onRefreshData={refreshAllData}
+                />
+              )}
+
               {activeTab === 'vat-register' && (
                 <VatRegister
                   invoices={purchaseInvoices}
@@ -1915,6 +1989,7 @@ export default function App() {
                   onCloseFiscalYear={handleCloseFiscalYear}
                   onReopenFiscalYear={handleReopenFiscalYear}
                   onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
+                  onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
                   dateMode={dateMode}
                   financialSummary={financialSummary}
                   products={products}

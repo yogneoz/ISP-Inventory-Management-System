@@ -176,7 +176,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 col-span-2">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
                   <Receipt className={`h-4 w-4 text-rose-500 dark:text-rose-400`} />
-                  <span>Purchase Invoices & Audit Logs</span>
+                  <span>Invoices, Vendor Payments & Audit Logs</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{invoiceCount}</div>
               </div>

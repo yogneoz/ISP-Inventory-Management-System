@@ -58,8 +58,7 @@ try {
       UNION ALL SELECT fiscal_year_id FROM purchase_invoices WHERE fiscal_year_id IS NULL
       UNION ALL SELECT fiscal_year_id FROM shipments WHERE fiscal_year_id IS NULL
       UNION ALL SELECT fiscal_year_id FROM stock_operations WHERE fiscal_year_id IS NULL
-      UNION ALL SELECT fiscal_year_id FROM customer_device_records WHERE fiscal_year_id IS NULL
-    ) missing
+      UNION ALL SELECT fiscal_year_id FROM customer_device_records WHERE fiscal_year_id IS NULL      UNION ALL SELECT fiscal_year_id FROM vendor_payments WHERE fiscal_year_id IS NULL    ) missing
   `);
   check(missingFiscalIds.rows[0].count === 0, 'Operational records are missing fiscal-year ownership.');
 
@@ -73,7 +72,8 @@ try {
     SELECT tgname AS name FROM pg_trigger
     WHERE tgname IN (
       'trg_purchase_invoices_fiscal_year', 'trg_shipments_fiscal_year',
-      'trg_stock_operations_fiscal_year', 'trg_customer_devices_fiscal_year'
+      'trg_stock_operations_fiscal_year', 'trg_customer_devices_fiscal_year',
+      'trg_vendor_payments_fiscal_year'
     )
   `);
   const names = new Set(requiredObjects.rows.map((row) => row.name));

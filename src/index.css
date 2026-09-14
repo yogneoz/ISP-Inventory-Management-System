@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
-/* Enable class-based dark mode: toggle by adding/removing "dark" on <html> */
+/* Enable Tailwind v4 dark mode triggered by the `.dark` class on a parent
+   element (typically <html>). Allows `dark:bg-slate-900` style utilities
+   to work alongside the existing `isDarkMode` ternary infrastructure
+   that we are migrating to class-based dark mode. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* =====================================================================
@@ -87,58 +90,4 @@
 	.printable-document input,
 	.printable-document select,
 	.printable-document textarea { display: none !important; }
-}
-
-/* =====================================================================
-   SCROLLBAR THEMING — theme-aware, thin & subtle
-   ---------------------------------------------------------------------
-   Light mode: slate-300 thumb on a transparent track.
-   Dark mode:  slate-700/600 thumb on a transparent track so the
-   scrollbar never glares white against the dark page.
-   ===================================================================== */
-* {
-  scrollbar-width: thin;                 /* Firefox: slim scrollbar */
-  scrollbar-color: #cbd5e1 transparent;  /* Firefox: thumb, track */
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1; /* slate-300 */
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-/* Dark mode: darker scrollbars + native color-scheme fallback */
-.dark {
-  color-scheme: dark;
-  scrollbar-color: #334155 transparent; /* slate-700 */
-}
-.dark * {
-  scrollbar-color: #334155 transparent;
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155; /* slate-700 */
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #4b5d75; /* slate-600-ish */
-  border: 2px solid transparent;
-  background-clip: content-box;
 }

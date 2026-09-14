@@ -209,11 +209,13 @@ To recreate the demo database from scratch, drop/recreate `inventory_db`, then r
 The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus Fiscal Years, so you can immediately begin importing your real products or entering stock.
 
 ### Clearing Demo Data
-If demo data was previously loaded or tested, you can clear all operational demo records at any time:
+If demo data was previously loaded or tested, you can clear all demo records at any time (including demo branches, demo users, and all demo operational records):
 1. Navigate to **System Settings** -> **Maintenance & Data Management**.
 2. Click **"Clear Demo Data"**.
-3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
+3. All mock products, stock balances, test customer devices, invoices, audit records, demo branches, and demo users will be purged.
 4. The system persists the cleanup directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
+
+> **Note**: The "Clear Demo Data" action removes all rows where `is_demo = TRUE`. Real business data (rows where `is_demo = FALSE`) is never touched. If you created your own Super Admin account during first-launch setup, it will remain because it has `is_demo = FALSE`.
 
 ### 🔄 Full Reset to a Fresh Demo State
 To wipe **all** records (including users, branches, and locations) while **preserving the Nepali (BS) calendar reference tables**, then reseed the example dataset:

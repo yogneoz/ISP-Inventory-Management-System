@@ -211,6 +211,52 @@ export const DEFAULT_DOCUMENT_CONFIGS: DocumentNumberConfig[] = [
     resetEveryFiscalYear: true,
     notes: 'Used for customer payments, advance collections, and bank deposits.',
   },
+
+  // Cash & Bank Payment / Receipt Document Numbering
+  {
+    id: 'CP',
+    documentType: 'Cash Payment',
+    prefix: 'CP-2081-',
+    suffix: '',
+    minDigits: 4,
+    startingNumber: 1001,
+    nextNumber: 1002,
+    resetEveryFiscalYear: true,
+    notes: 'Used for cash payment disbursements to suppliers and vendors. (Starts after demo CP-2081-1001.)',
+  },
+  {
+    id: 'CR',
+    documentType: 'Cash Receive',
+    prefix: 'CR-2081-',
+    suffix: '',
+    minDigits: 4,
+    startingNumber: 1001,
+    nextNumber: 1001,
+    resetEveryFiscalYear: true,
+    notes: 'Used for cash receipts received from customers.',
+  },
+  {
+    id: 'BP',
+    documentType: 'Bank Payment',
+    prefix: 'BP-2081-',
+    suffix: '',
+    minDigits: 4,
+    startingNumber: 1001,
+    nextNumber: 1003,
+    resetEveryFiscalYear: true,
+    notes: 'Used for bank transfer and cheque payment disbursements to suppliers. (Starts after demo BP-2081-1001/1002.)',
+  },
+  {
+    id: 'BR',
+    documentType: 'Bank Receive',
+    prefix: 'BR-2081-',
+    suffix: '',
+    minDigits: 4,
+    startingNumber: 1001,
+    nextNumber: 1001,
+    resetEveryFiscalYear: true,
+    notes: 'Used for bank transfer and cheque receipts received from customers.',
+  },
 ];
 
 export function getDocumentNumberConfigs(): DocumentNumberConfig[] {

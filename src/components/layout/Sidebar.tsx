@@ -51,6 +51,7 @@ import {
   HelpCircle,
   RefreshCw,
   Trash2,
+  Wallet,
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -100,6 +101,8 @@ export type NavTab =
   | 'import-customers'
   | 'permissions'
   | 'financial-statements'
+  | 'vendor-ledger'
+  | 'vendor-opening-balances'
   | 'vat-register'
   | 'depreciation-register'
   | 'nepali-fiscal'
@@ -158,6 +161,8 @@ export const NAV_TABS: NavTab[] = [
   'import-customers',
   'permissions',
   'financial-statements',
+  'vendor-ledger',
+  'vendor-opening-balances',
   'vat-register',
   'depreciation-register',
   'nepali-fiscal',
@@ -419,7 +424,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
     ...(isStockMasterAdmin || isAccountant
-      ? [{ id: 'opening-stock' as NavTab, label: 'Fiscal Opening Stock Register', icon: Scale }]
+      ? [{ id: 'opening-stock' as NavTab, label: 'Fiscal Year Opening Register', icon: Scale }]
       : []),
     ...(isStockMasterAdmin ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }] : []),
     ...(isStockMasterAdmin ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }] : []),
@@ -450,6 +455,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
         { id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus },
         { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
+        { id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet },
+        { id: 'vendor-opening-balances' as NavTab, label: 'Vendor Opening Balances', icon: Wallet },
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },
         { id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList },

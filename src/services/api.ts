@@ -12,6 +12,7 @@ import {
   StockOperation,
   FiscalYear,
   FiscalYearOpeningStockResponse,
+  VendorOpeningBalanceResponse,
   AuditLog,
   TransactionLog,
   FinancialSummary,
@@ -23,6 +24,7 @@ import {
   UnitOfMeasure,
   LocationRecord,
   DocumentNumberConfig,
+  VendorPayment,
 } from '../types';
 import { generateNextDocumentNumber } from '../utils/documentNumbering';
 
@@ -422,15 +424,126 @@ export const api = {
     });
   },
 
-  async recordInvoicePayment(id: string, amount: number): Promise<PurchaseInvoice> {
+  async recordInvoicePayment(id: string, amount: number, paymentMethod?: string): Promise<PurchaseInvoice> {
     return fetchJson(`/api/purchase-invoices/${id}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, paymentMethod }),
     });
   },
 
   async deletePurchaseInvoice(id: string): Promise<{ success: boolean }> {
     return fetchJson(`/api/purchase-invoices/${id}`, { method: 'DELETE' });
+  },
+
+  async getInvoicePayments(id: string): Promise<VendorPayment[]> {
+    return fetchJson(`/api/purchase-invoices/${id}/payments`);
+  },
+
+  // Vendor Payments Sub-ledger
+  async getVendorPayments(params?: {
+    supplierId?: string;
+    invoiceId?: string;
+    branchId?: string;
+    status?: string;
+    fromAd?: string;
+    toAd?: string;
+    fiscalYearId?: string;
+  }): Promise<VendorPayment[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.supplierId) queryParams.set('supplierId', params.supplierId);
+    if (params?.invoiceId) queryParams.set('invoiceId', params.invoiceId);
+    if (params?.branchId) queryParams.set('branchId', params.branchId);
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
+    if (params?.toAd) queryParams.set('toAd', params.toAd);
+    if (params?.fiscalYearId) queryParams.set('fiscalYearId', params.fiscalYearId);
+    const qs = queryParams.toString();
+    return fetchJson(`/api/vendor-payments${qs ? `?${qs}` : ''}`);
+  },
+
+  async createVendorPayment(payload: {
+    supplierId?: string;
+    supplierName?: string;
+    invoiceId?: string;
+    invoiceNumber?: string;
+    amount: number;
+    paymentDateAD?: string;
+    paymentDateBS?: string;
+    paymentMethod?: string;
+    paymentNumber?: string;
+    bankName?: string;
+    bankBranch?: string;
+    accountNumber?: string;
+    chequeNumber?: string;
+    chequeDateAD?: string;
+    chequeDateBS?: string;
+    transactionReference?: string;
+    branchId?: string;
+  }): Promise<VendorPayment> {
+    // Generate payment number from document numbering system (CP = Cash, BP = Bank)
+    const method = (payload.paymentMethod || 'CASH').toUpperCase();
+    const docType = method === 'CASH' ? 'CP' : 'BP';
+    const paymentNumber = payload.paymentNumber || generateNextDocumentNumber(docType, true);
+    return fetchJson('/api/vendor-payments', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, paymentNumber }),
+    });
+  },
+
+  async reverseVendorPayment(id: string, reason: string): Promise<{ success: boolean; message: string; paymentId: string }> {
+    return fetchJson(`/api/vendor-payments/${id}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  // Reverse ALL posted payments for a fully paid invoice (restores it to UNPAID)
+  async reverseInvoicePayments(
+    id: string,
+    reason: string
+  ): Promise<{ success: boolean; message: string; reversedCount: number; invoiceId: string }> {
+    return fetchJson(`/api/purchase-invoices/${id}/reverse-payments`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getVendorLedger(
+    supplierId: string,
+    params?: {
+      fromAd?: string;
+      toAd?: string;
+      fiscalYearId?: string;
+      branchId?: string;
+    }
+  ): Promise<{
+    supplier: { id: string; name: string };
+    openingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+    closingBalance: number;
+    ledger: Array<{
+      id: string;
+      documentNumber: string;
+      dateAD: string;
+      dateBS: string;
+      amount: number;
+      type: 'INVOICE' | 'PAYMENT';
+      notes?: string | null;
+      vatAmount?: number;
+      paymentMethod?: string;
+      debit: number;
+      credit: number;
+      balance: number;
+    }>;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
+    if (params?.toAd) queryParams.set('toAd', params.toAd);
+    if (params?.fiscalYearId) queryParams.set('fiscalYearId', params.fiscalYearId);
+    if (params?.branchId) queryParams.set('branchId', params.branchId);
+    const qs = queryParams.toString();
+    return fetchJson(`/api/vendors/${supplierId}/ledger${qs ? `?${qs}` : ''}`);
   },
 
   // Shipments
@@ -569,6 +682,31 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ rows }),
     });
+  },
+
+  // Fiscal-Year Vendor Opening Balances (Vendor Ledger roll-forward)
+  async getVendorOpeningBalances(id: string): Promise<VendorOpeningBalanceResponse> {
+    return fetchJson(`/api/fiscal-years/${id}/vendor-opening-balances`);
+  },
+
+  async adjustVendorOpeningBalances(
+    id: string,
+    rows: Array<{
+      supplierId: string;
+      branchId: string;
+      openingBalance: number;
+    }>
+  ): Promise<{ applied: number; created: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${id}/vendor-opening-balances`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    });
+  },
+
+  async rollForwardVendorOpenings(
+    id: string
+  ): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }> {
+    return fetchJson(`/api/fiscal-years/${id}/roll-forward-vendor-openings`, { method: 'POST' });
   },
 
   async deleteFiscalYear(id: string): Promise<{ message: string; id: string }> {
