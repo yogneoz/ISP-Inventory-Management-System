@@ -449,7 +449,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Settings,
       children: [
         { id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 },
-        { id: 'fiscal-year-management' as NavTab, label: 'Fiscal Year Management', icon: CalendarDays },
+        { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays },
         { id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays },
         { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays },
         { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
@@ -712,7 +712,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => onSelectTab('company-setup')}
-            title={`Company Setup Database: ${companyProfile?.name || 'IZone Inventory'} - Click to manage setup`}
+            title={`Company Setup Database: ${companyProfile?.name || 'Inventory'} - Click to manage setup`}
             className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300 dark:bg-slate-900/90 dark:border-slate-800/80 dark:text-slate-300 dark:hover:border-indigo-500/50`}
           >
             {companyProfile?.logoUrl ? (
@@ -733,14 +733,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       .filter(Boolean)
                       .slice(0, 2)
                       .map((w) => w[0].toUpperCase())
-                      .join('') || 'iZ'
-                  : 'iZ'}
+                      .join('') || 'IN'
+                  : 'IN'}
               </div>
             )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
                 <p className="text-[11px] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                  {companyProfile?.name || 'IZone Inventory'}
+                  {companyProfile?.name || 'Inventory'}
                 </p>
                 <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="PostgreSQL Database Connected">
                   DB

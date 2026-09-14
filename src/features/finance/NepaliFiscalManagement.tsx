@@ -410,7 +410,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   const handleResetDefaults = () => {
     if (confirm('Reset bsCalendarData to default initial reference tables?')) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('izone_bs_calendar_data');
+        localStorage.removeItem('inventory_bs_calendar_data');
       }
       refreshCalendarData();
       setSeedStatus({
@@ -754,7 +754,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             </div>
 
             {/* List Table of Displayed BS Years */}
-            <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/40`}>
+            <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40`}>
               <table className="w-full text-left text-xs font-mono">
                 <thead className={`font-bold border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
                   <tr>

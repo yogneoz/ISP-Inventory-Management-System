@@ -14,6 +14,7 @@ import {
 import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears } from '../../utils/permissions';
+import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import {
   Branch,
   FiscalYear,
@@ -27,6 +28,10 @@ interface VendorOpeningBalancesProps {
   fiscalYears: FiscalYear[];
   branches: Branch[];
   onRefreshData?: () => void;
+  /** Globally selected fiscal year id (app-wide scope). */
+  selectedFiscalYearId?: string;
+  /** Update the global fiscal-year view when the user changes it here. */
+  onSelectFiscalYear?: (fiscalYearId: string) => void;
 }
 
 const formatNPR = (value: number) =>
@@ -44,6 +49,8 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   fiscalYears,
   branches,
   onRefreshData,
+  selectedFiscalYearId,
+  onSelectFiscalYear,
 }) => {
   const role = currentUser?.role;
   const canView = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'ACCOUNTANT';
@@ -80,6 +87,15 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
       setSelectedFyId(defaultFyId);
     }
   }, [fiscalYears, selectedFyId, defaultFyId]);
+
+  // Keep the register in sync with the app-wide fiscal-year view (header /
+  // fiscal year closing wizard) whenever the user changes it elsewhere.
+  useEffect(() => {
+    if (selectedFiscalYearId && fiscalYears.some((f) => f.id === selectedFiscalYearId) && selectedFiscalYearId !== selectedFyId) {
+      setSelectedFyId(selectedFiscalYearId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFiscalYearId, fiscalYears]);
 
   const fetchVendorRegister = useCallback(async (fyId: string) => {
     if (!fyId) return;
@@ -274,20 +290,17 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <FiscalYearSelect
+            fiscalYears={availableFiscalYears}
             value={selectedFyId}
-            onChange={(e) => setSelectedFyId(e.target.value)}
-            className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-          >
-            {availableFiscalYears.length === 0 && <option value="">No fiscal years</option>}
-            {availableFiscalYears.map((f) => (
-              <option key={f.id} value={f.id}>
-                FY {f.code}
-                {f.isCurrent ? ' (Current)' : ''}
-                {f.isClosed ? ' (Closed)' : ''}
-              </option>
-            ))}
-          </select>
+            onChange={(fyId) => {
+              setSelectedFyId(fyId);
+              onSelectFiscalYear?.(fyId);
+            }}
+            pageSize={3}
+            showFyPrefix
+            triggerClassName="px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+          />
           {periodLocked ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-rose-500/10 text-rose-500">
               <Lock className="h-3.5 w-3.5" /> Period Locked

@@ -47,7 +47,7 @@ const PRESERVED_TABLES = ['bs_calendar_years', 'bs_day_records'];
 
 // Known real-data signatures scanned for after the reset (PII guard).
 const PII_PATTERN =
-  'izone|\\.net\\.np|Urlabari|Biratchowk|Birtamode|Chulachuli|Kathmandu|Pokhara|Lalitpur|' +
+  'inventory|\\.net\\.np|Urlabari|Biratchowk|Birtamode|Chulachuli|Kathmandu|Pokhara|Lalitpur|' +
   'Shrestha|Dhimal|Khatiwada|Chaudhary|Adhikari|Thapa|Karki|Gurung|' +
   'Nabin|Sandesh|Bidhya|Sanjiwani|Ramesh|Sunita|Binod|Prakash|Deepak|Suman|' +
   'Aarav|Pooja|Subash|Bina|Suresh|Bikash|Anita|Manoj';

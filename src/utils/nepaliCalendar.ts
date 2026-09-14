@@ -1,5 +1,5 @@
 /**
- * Bikram Sambat (BS) <-> Anno Domini (AD) Date Conversion Utility for IZone
+ * Bikram Sambat (BS) <-> Anno Domini (AD) Date Conversion Utility for Inventory
  * Powered by Reference Table Calendar Data & Full Day-by-Day Database Generator
  */
 
@@ -128,7 +128,7 @@ const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = {
   },
 };
 
-const STORAGE_KEY = 'izone_bs_calendar_data';
+const STORAGE_KEY = 'inventory_bs_calendar_data';
 
 /**
  * Loads BS Calendar Dataset from Local Storage or returns initial defaults

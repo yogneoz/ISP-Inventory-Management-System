@@ -28,7 +28,8 @@ interface UsersManagementProps {
   onCreateUser?: (user: Omit<User, 'id'> & { password?: string }) => Promise<void>;
   onUpdateUser?: (id: string, user: Partial<User> & { password?: string }) => Promise<void>;
   onResetPassword?: (userId: string, newPassword: string) => Promise<void>;
-  onDeleteUser?: (id: string) => Promise<void>;}
+  onDeleteUser?: (id: string) => Promise<void>;
+}
 
 export const UsersManagement: React.FC<UsersManagementProps> = ({
   users,
@@ -36,7 +37,8 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   onCreateUser,
   onUpdateUser,
   onResetPassword,
-  onDeleteUser,}) => {
+  onDeleteUser,
+}) => {
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -113,7 +115,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
   const generateRandomPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-    let pass = 'IZ';
+    let pass = 'INV';
     for (let i = 0; i < 6; i++) {
       pass += chars.charAt(Math.floor(Math.random() * chars.length));
     }

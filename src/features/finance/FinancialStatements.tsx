@@ -1,68 +1,97 @@
 import React, { useState } from 'react';
-import { FinancialSummary, Asset, PurchaseInvoice, PurchaseOrder } from '../../types';
+import { FinancialSummary, Asset, PurchaseInvoice, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { calculateFixedAssetValues } from '../../utils/depreciation';
 import {
   Scale,
   TrendingUp,
-  FileText,
   Printer,
   Download,
   Building,
-  Package,
   Receipt,
-  DollarSign,
   PieChart,
-  ArrowUpRight,
-  ArrowDownRight,
-  CheckCircle2,
+  Info,
+  Wallet,
+  Package,
 } from 'lucide-react';
 
 interface FinancialStatementsProps {
   financialSummary: FinancialSummary;
   assets: Asset[];
   invoices: PurchaseInvoice[];
-  purchaseOrders: PurchaseOrder[];
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+  /** As-of date used for live NBV; matches the Fixed Asset Register / Depreciation Register view. */
+  asOfDateAD?: string;
+  /** Company master record — used for the official statement letterhead / header. */
+  companyProfile?: CompanyProfile | null;
+}
+
+// PostgreSQL NUMERIC columns arrive as strings over the API. Coerce every
+// value to a real number before arithmetic so we never fall into JS string
+// concatenation (e.g. 0 + "3000.00" -> "03000.00").
+const toNumber = (value: unknown): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const npr = (value: number | string | undefined): string =>
+  Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   financialSummary,
   assets,
   invoices,
-  purchaseOrders,
-  dateMode,}) => {
+  dateMode,
+  asOfDateAD,
+  companyProfile,
+}) => {
   const [statementType, setStatementType] = useState<'BALANCE_SHEET' | 'PROFIT_LOSS'>('BALANCE_SHEET');
 
-  // PostgreSQL NUMERIC columns arrive as strings over the API. Coerce every
-  // value to a real number before arithmetic so we never fall into JS string
-  // concatenation (e.g. 0 + "3000.00" -> "03000.00").
-  const toNumber = (value: unknown): number => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  // Balance Sheet Calculations
+  // ----- Balance Sheet Calculations -----------------------------------------
   const inventoryAssetVal = toNumber(financialSummary?.totalInventoryAssetValue);
-  const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + toNumber(a.netBookValue), 0);
-  const totalAssets = inventoryAssetVal + fixedAssetNBV;
 
-  const accountsPayable = (invoices || []).reduce(
-    (sum, inv) => sum + Math.max(0, toNumber(inv.grandTotal) - toNumber(inv.amountPaid)),
+  // Fixed assets: recompute NBV live from the asset register (same util as the
+  // Fixed Asset Register & Depreciation Register) so this report always
+  // reconciles with those tabs and honors the as-of date.
+  const grossFixedAssets = (assets || []).reduce(
+    (sum, a) => sum + toNumber(a.acquisitionCost),
     0
   );
+  const accumulatedDepreciation = (assets || []).reduce(
+    (sum, a) =>
+      sum +
+      toNumber(
+        calculateFixedAssetValues({
+          ...a,
+          acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD,
+          asOfDateAD,
+        }).accumulatedDepreciation
+      ),
+    0
+  );
+  const fixedAssetNBV = grossFixedAssets - accumulatedDepreciation;
+  const totalAssets = inventoryAssetVal + fixedAssetNBV;
+
+  // Accounts Payable comes from the server (financialSummary), which computes
+  //  AP = vendor opening balances + current-period unpaid invoices − posted
+  //  payments. That formula reconciles with the Vendor Ledger / Vendor Opening
+  //  Balances registers — a client-side recompute would silently diverge.
+  const accountsPayable = Math.max(0, toNumber(financialSummary?.totalAccountsPayable));
   const totalLiabilities = accountsPayable;
   const netEquity = totalAssets - totalLiabilities;
 
-  // Income Statement (Profit & Loss) Calculations
-  // Purchases are inventory/cash-flow events, not sales revenue. This module
-  // has no posted sales, COGS, or expense journal, so do not invent values in
-  // a statutory-looking profit and loss statement.
-  const salesRevenue = 0;
+  // Income Statement — Trading summary. Sales revenue and COGS are computed
+  // server-side from the posted customer product sales (STOCK_OUT operations
+  // with priced line items) so Revenue − COGS = Gross Surplus is always real
+  // and reconciles with the Balance Sheet's inventory-at-cost valuation.
+  const trackedSalesRevenue = toNumber(financialSummary?.totalSalesRevenue);
   const trackedCOGS = toNumber(financialSummary?.totalCostOfGoodsSold);
-  const trackedExpenses = 0;
-  const netRevenue = salesRevenue;
-  const grossProfit = netRevenue - trackedCOGS;
-  const netProfit = grossProfit - trackedExpenses;
+  const grossSurplus = trackedSalesRevenue - trackedCOGS;
+  const grossMargin =
+    trackedSalesRevenue > 0
+      ? ((grossSurplus / trackedSalesRevenue) * 100).toFixed(1)
+      : '—';
 
   const handlePrint = () => {
     window.print();
@@ -71,12 +100,14 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   const handleExport = () => {
     if (statementType === 'BALANCE_SHEET') {
       const data = [
-        { Category: 'Current Assets', Account: 'Inventory Value', Amount: inventoryAssetVal },
-        { Category: 'Non-Current Assets', Account: 'Fixed Assets (Net Book Value)', Amount: fixedAssetNBV },
+        { Category: 'Equity & Liabilities', Account: 'Capital & Retained Surplus (Balancing Figure)', Amount: netEquity },
+        { Category: 'Equity & Liabilities', Account: 'Trade Payables — Accounts Payable (Opening + Invoices − Payments)', Amount: accountsPayable },
+        { Category: 'Equity & Liabilities', Account: 'TOTAL EQUITY & LIABILITIES', Amount: totalLiabilities + netEquity },
+        { Category: 'Non-Current Assets', Account: 'Fixed Assets — Gross Cost', Amount: grossFixedAssets },
+        { Category: 'Non-Current Assets', Account: 'Less: Accumulated Depreciation', Amount: -accumulatedDepreciation },
+        { Category: 'Non-Current Assets', Account: 'Net Block — Fixed Assets (NBV)', Amount: fixedAssetNBV },
+        { Category: 'Current Assets', Account: 'Merchandise Inventory (At Valuation)', Amount: inventoryAssetVal },
         { Category: 'Total Assets', Account: 'TOTAL ASSETS', Amount: totalAssets },
-        { Category: 'Current Liabilities', Account: 'Accounts Payable', Amount: accountsPayable },
-        { Category: 'Total Liabilities', Account: 'TOTAL LIABILITIES', Amount: totalLiabilities },
-        { Category: 'Owner Equity', Account: 'Retained Earnings & Capital', Amount: netEquity },
       ];
       exportToCSV('Balance_Sheet_Statement', data, [
         { key: 'Category', label: 'Category' },
@@ -85,15 +116,16 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
       ]);
     } else {
       const data = [
-        { Section: 'Revenue', Item: 'Posted Sales Revenue', Amount: salesRevenue },
-        { Section: 'Cost of Sales', Item: 'Posted Cost of Goods Sold', Amount: trackedCOGS },
-        { Section: 'Operating Expenses', Item: 'Posted Operating Expenses', Amount: trackedExpenses },
-        { Section: 'Net Profit', Item: 'Net Operating Profit', Amount: netProfit },
+        { Section: 'Revenue', Item: 'Posted Sales Revenue', Amount: trackedSalesRevenue, Status: 'From customer product sales (STOCK_OUT)' },
+        { Section: 'Cost of Sales', Item: 'Cost of Goods Sold', Amount: trackedCOGS, Status: 'From sold quantity × product cost price' },
+        { Section: 'Gross Profit', Item: 'Gross Surplus', Amount: grossSurplus, Status: 'Revenue − COGS' },
+        { Section: 'Operating Expenses', Item: 'Posted Operating Expenses', Amount: 0, Status: 'Not yet posted — no expense journal' },
       ];
       exportToCSV('Profit_And_Loss_Statement', data, [
         { key: 'Section', label: 'Section' },
         { key: 'Item', label: 'Line Item' },
         { key: 'Amount', label: 'Amount (NPR)' },
+        { key: 'Status', label: 'Source / Status' },
       ]);
     }
   };
@@ -105,10 +137,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
             <Scale className="h-5 w-5 text-indigo-500" />
-            <span>Financial Statements (Balance Sheet & Profit/Loss)</span>
+            <span>Financial Statements (Balance Sheet &amp; Profit/Loss)</span>
           </h2>
           <p className="truncate text-slate-400 text-xs mt-0.5">
-            Audit-grade corporate financial statements, balance sheet asset valuation, and income statement breakdown.
+            Management balance sheet: inventory at valuation, fixed assets at net book value, and supplier payables from the vendor registers.
           </p>
         </div>
 
@@ -153,12 +185,39 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           }`}
         >
           <TrendingUp className="h-4 w-4" />
-          <span>Profit & Loss Statement (Income Statement)</span>
+          <span>Profit &amp; Loss Statement (Income Statement)</span>
         </button>
       </div>
 
       {statementType === 'BALANCE_SHEET' ? (
         <div className="space-y-3">
+          {/* Official Company Letterhead + Statement Title */}
+          <div className="text-center border-b-2 border-slate-300 dark:border-slate-700 pb-4">
+            <h2 className="text-xl font-serif font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {companyProfile?.legalName || companyProfile?.name || 'Inventory Management System'}
+            </h2>
+            {(companyProfile?.address || companyProfile?.city || companyProfile?.phone || companyProfile?.email) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {[companyProfile?.address, companyProfile?.city, companyProfile?.country]
+                  .filter(Boolean)
+                  .join(', ')}
+                {companyProfile?.phone ? ` | Tel: ${companyProfile.phone}` : ''}
+                {companyProfile?.email ? ` | ${companyProfile.email}` : ''}
+              </p>
+            )}
+            {companyProfile?.panVatNumber && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                PAN / VAT No: {companyProfile.panVatNumber}
+              </p>
+            )}
+            <h3 className="text-lg font-serif font-bold text-slate-800 dark:text-slate-200 mt-2 tracking-wide">
+              BALANCE SHEET
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              As at {asOfDateAD ? formatDualDate(asOfDateAD, dateMode) : formatDualDate(new Date().toISOString().split('T')[0], dateMode)}
+            </p>
+          </div>
+
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div
@@ -169,10 +228,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Building className="h-4 w-4 text-emerald-500" />
               </div>
               <p className="text-xl font-bold font-mono text-emerald-500">
-                NPR {(totalAssets ?? 0).toLocaleString('en-IN')}
+                NPR {npr(totalAssets)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Inventory (NPR {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}) + Fixed Assets (NPR {(fixedAssetNBV ?? 0).toLocaleString('en-IN')})
+                Inventory (NPR {npr(inventoryAssetVal)}) + Fixed Assets NBV (NPR {npr(fixedAssetNBV)})
               </p>
             </div>
 
@@ -184,10 +243,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Receipt className="h-4 w-4 text-amber-500" />
               </div>
               <p className="text-xl font-bold font-mono text-amber-500">
-                NPR {(totalLiabilities ?? 0).toLocaleString('en-IN')}
+                NPR {npr(totalLiabilities)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Accounts Payable to Suppliers ({invoices.length} Invoices)
+                Accounts Payable — vendor opening balances + invoices − payments ({invoices.length} Invoices this period)
               </p>
             </div>
 
@@ -199,145 +258,152 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <PieChart className="h-4 w-4 text-indigo-500" />
               </div>
               <p className="text-xl font-bold font-mono text-indigo-500">
-                NPR {(netEquity ?? 0).toLocaleString('en-IN')}
+                NPR {npr(netEquity)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Assets minus Total Payables & Liabilities
+                Capital &amp; Retained Surplus (balancing figure: assets − liabilities)
               </p>
             </div>
           </div>
 
-          {/* Balance Sheet Detailed Tables */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* ASSETS SIDE */}
+          {/* Standard Vertical Balance Sheet */}
+          <div className="max-w-3xl mx-auto">
             <div
-              className={`p-4 rounded-2xl border space-y-4 bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
+              className={`p-5 rounded-2xl border space-y-5 bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
             >
-              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className={`font-bold text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2`}>
-                  <Building className="h-4 w-4" />
-                  <span>ASSETS</span>
-                </h3>
-                <span className="text-xs font-mono font-bold text-slate-400">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
-                  Current Assets
+              {/* EQUITY & LIABILITIES */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b-2 border-slate-300 dark:border-slate-700 pb-2">
+                  <h3 className={`font-bold text-sm text-indigo-600 dark:text-indigo-400 tracking-wide`}>
+                    EQUITY AND LIABILITIES
+                  </h3>
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
-                  <span className="text-slate-600 dark:text-slate-300">Merchandise Inventory (At Valuation)</span>
-                  <span className="font-mono font-semibold">NPR {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}</span>
+
+                <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-1">
+                  1. Shareholders' Funds
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
+                  <span className="text-slate-600 dark:text-slate-300">Capital &amp; Retained Surplus (Balancing Figure)</span>
+                  <span className="font-mono font-semibold">NPR {npr(netEquity)}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
-                  Non-Current Assets (Fixed Assets)
+                  2. Current Liabilities
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
-                  <span className="text-slate-600 dark:text-slate-300">Fixed Assets Net Book Value (NBV)</span>
-                  <span className="font-mono font-semibold">NPR {(fixedAssetNBV ?? 0).toLocaleString('en-IN')}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
+                  <span className="text-slate-600 dark:text-slate-300">Trade Payables — Accounts Payable (Opening + Invoices − Payments)</span>
+                  <span className="font-mono font-semibold text-amber-500">NPR {npr(accountsPayable)}</span>
                 </div>
-                <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
-                  <span>Gross Property, Plant & Equipment</span>
-                  <span className="font-mono">NPR {((assets || []).reduce((sum, a) => sum + toNumber(a.acquisitionCost), 0) ?? 0).toLocaleString('en-IN')}</span>
+
+                <div className="pt-2 flex justify-between items-center font-bold text-sm">
+                  <span>TOTAL EQUITY &amp; LIABILITIES</span>
+                  <span className="font-mono text-indigo-500">NPR {npr(totalLiabilities + netEquity)}</span>
                 </div>
-                <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
+              </div>
+
+              {/* ASSETS */}
+              <div className="space-y-2 pt-3 border-t-2 border-slate-300 dark:border-slate-700">
+                <div className="flex items-center justify-between border-b-2 border-slate-300 dark:border-slate-700 pb-2">
+                  <h3 className={`font-bold text-sm text-emerald-600 dark:text-emerald-400 tracking-wide`}>
+                    ASSETS
+                  </h3>
+                </div>
+
+                <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-1">
+                  1. Non-Current Assets — Fixed Assets
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
+                  <span className="text-slate-600 dark:text-slate-300">Fixed Assets at Gross Cost</span>
+                  <span className="font-mono font-semibold">NPR {npr(grossFixedAssets)}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-6">
                   <span>Less: Accumulated Depreciation</span>
-                  <span className="font-mono text-rose-500">
-                    - NPR {((assets || []).reduce((sum, a) => sum + toNumber(a.accumulatedDepreciation), 0) ?? 0).toLocaleString('en-IN')}
-                  </span>
+                  <span className="font-mono text-rose-500">- NPR {npr(accumulatedDepreciation)}</span>
                 </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center font-bold text-sm">
-                <span>TOTAL ASSETS</span>
-                <span className="font-mono text-emerald-500">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
-              </div>
-            </div>
-
-            {/* LIABILITIES & EQUITY SIDE */}
-            <div
-              className={`p-4 rounded-2xl border space-y-4 bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
-            >
-              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h3 className={`font-bold text-sm text-indigo-600 dark:text-indigo-400 flex items-center gap-2`}>
-                  <Scale className="h-4 w-4" />
-                  <span>LIABILITIES & EQUITY</span>
-                </h3>
-                <span className="text-xs font-mono font-bold text-slate-400">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
-                  Current Liabilities
-                </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
-                  <span className="text-slate-600 dark:text-slate-300">Accounts Payable (Unpaid Supplier Invoices)</span>
-                  <span className="font-mono font-semibold text-amber-500">NPR {(accountsPayable ?? 0).toLocaleString('en-IN')}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3 text-emerald-600 dark:text-emerald-400 font-semibold">
+                  <span>Net Block — Fixed Assets (NBV)</span>
+                  <span className="font-mono">NPR {npr(fixedAssetNBV)}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
-                  Equity & Retained Capital
+                  2. Current Assets — Inventories
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
-                  <span className="text-slate-600 dark:text-slate-300">Retained Earnings & Contributed Capital</span>
-                  <span className="font-mono font-semibold">NPR {(netEquity ?? 0).toLocaleString('en-IN')}</span>
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
+                  <span className="text-slate-600 dark:text-slate-300">Merchandise Inventory (At Valuation)</span>
+                  <span className="font-mono font-semibold">NPR {npr(inventoryAssetVal)}</span>
+                </div>
+
+                <div className="pt-2 flex justify-between items-center font-bold text-sm">
+                  <span>TOTAL ASSETS</span>
+                  <span className="font-mono text-emerald-500">NPR {npr(totalAssets)}</span>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center font-bold text-sm">
-                <span>TOTAL LIABILITIES & EQUITY</span>
-                <span className="font-mono text-indigo-500">NPR {((totalLiabilities || 0) + (netEquity || 0)).toLocaleString('en-IN')}</span>
+              {/* Sign-off line */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-4 text-[10px] text-slate-400">
+                <div className="text-left">
+                  <p className="font-bold uppercase tracking-wider">Prepared By</p>
+                  <p className="mt-8 border-t border-slate-300 dark:border-slate-700 pt-1">Authorized Signatory</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold uppercase tracking-wider">Reviewed By</p>
+                  <p className="mt-8 border-t border-slate-300 dark:border-slate-700 pt-1">Management / Accountant</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
       ) : (
-        /* PROFIT & LOSS STATEMENT */
+        /* PROFIT & LOSS — Trading / Gross Surplus statement computed from the
+           customer product sales that ARE posted in this installation.  We
+           publish Sales Revenue, COGS and Gross Surplus honestly; operating
+           expenses and net profit stay unpublished until an expense journal. */
         <div className="space-y-3">
+          {/* Header with real totals */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div
-              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-            >
+            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-                <span>NET REVENUE / INFLOWS</span>
-                <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                <span>SALES REVENUE</span>
+                <Wallet className="h-4 w-4 text-emerald-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-emerald-500">
-                NPR {(netRevenue ?? 0).toLocaleString('en-IN')}
-              </p>
+              <p className="text-xl font-bold font-mono text-emerald-500">NPR {npr(trackedSalesRevenue)}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Posted sales ledger (NPR {(salesRevenue ?? 0).toLocaleString('en-IN')})
+                Net value of customer product sales (Branch Operations → Sell Product)
               </p>
             </div>
 
-            <div
-              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-            >
+            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-                <span>TOTAL OPERATING COSTS</span>
-                <ArrowDownRight className="h-4 w-4 text-rose-500" />
+                <span>COST OF GOODS SOLD</span>
+                <Package className="h-4 w-4 text-amber-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-rose-500">
-                NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}
-              </p>
+              <p className="text-xl font-bold font-mono text-amber-500">NPR {npr(trackedCOGS)}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Posted expense journal only; no expense ledger is configured.
+                Sold quantity × product cost price — matches the inventory-at-cost valuation basis
               </p>
             </div>
 
-            <div
-              className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-            >
+            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
               <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-                <span>NET OPERATING SURPLUS</span>
-                <DollarSign className="h-4 w-4 text-indigo-500" />
+                <span>GROSS SURPLUS (MARGIN)</span>
+                <TrendingUp className="h-4 w-4 text-indigo-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-indigo-500">
-                NPR {(netProfit ?? 0).toLocaleString('en-IN')}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Gross Profit minus Operating Expenses
+              <p className="text-xl font-bold font-mono text-indigo-500">NPR {npr(grossSurplus)}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Margin: {grossMargin}% — Revenue − COGS</p>
+            </div>
+          </div>
+
+          {/* Honest "not published below the gross line" note */}
+          <div
+            className={`p-4 rounded-2xl border bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/60 flex items-start gap-3`}
+          >
+            <Info className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <p className="font-bold">Operating expenses &amp; net profit are not published</p>
+              <p>
+                This installation posts product sales, so revenue, cost of goods sold and gross
+                surplus above are real figures. There is no expense journal and no general-ledger
+                posting yet, so net operating profit below the gross line remains unpublished.
               </p>
             </div>
           </div>
@@ -347,37 +413,49 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           >
             <div className="text-center border-b border-slate-200 dark:border-slate-800 pb-4">
               <h3 className="text-lg font-serif font-bold text-slate-900 dark:text-white">
-                IZONE ISP CORPORATE PROFIT & LOSS STATEMENT
+                {companyProfile?.name || 'Inventory Management System'}
               </h3>
+              <h4 className="text-base font-serif font-bold text-slate-800 dark:text-slate-200 mt-1">
+                PROFIT &amp; LOSS STATEMENT
+              </h4>
               <p className="text-xs text-slate-400">
-                Period Ending: {formatDualDate(new Date().toISOString().split('T')[0], dateMode)}
+                Trading Period Ending: {formatDualDate(new Date().toISOString().split('T')[0], dateMode)}
               </p>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 font-medium">
-                <span>Posted Sales Revenue</span>
-                <span className="font-mono">NPR {(salesRevenue ?? 0).toLocaleString('en-IN')}</span>
+              <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80">
+                <span className="text-slate-600 dark:text-slate-300">Posted Sales Revenue</span>
+                <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">NPR {npr(trackedSalesRevenue)}</span>
               </div>
 
-              <div className={`flex justify-between items-center py-2 border-b border-slate-100 text-emerald-600 dark:border-slate-800/80 dark:text-emerald-400`}>
-                <span>Less: Posted Cost of Goods Sold</span>
-                <span className="font-mono">- NPR {(trackedCOGS ?? 0).toLocaleString('en-IN')}</span>
+              <div className="flex justify-between items-center py-2 border-b border-slate-100 text-rose-600 dark:border-slate-800/80 dark:text-rose-400">
+                <span>Less: Cost of Goods Sold</span>
+                <span className="font-mono">
+                  - NPR {npr(trackedCOGS)}
+                  {trackedCOGS <= 0 && trackedSalesRevenue <= 0 ? ' — no product sales posted' : ''}
+                </span>
               </div>
 
-              <div className="flex justify-between items-center py-2.5 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
-                <span>NET TRADING REVENUE</span>
-                <span className="font-mono">NPR {(netRevenue ?? 0).toLocaleString('en-IN')}</span>
+              <div
+                className={`flex justify-between items-center py-2.5 px-3 rounded-xl font-bold ${
+                  grossSurplus >= 0
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300'
+                }`}
+              >
+                <span>GROSS SURPLUS (SALES − COGS)</span>
+                <span className="font-mono">NPR {npr(grossSurplus)}</span>
               </div>
 
-              <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-rose-500">
+              <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-slate-400">
                 <span>Less: Posted Operating Expenses</span>
-                <span className="font-mono">- NPR {(trackedExpenses ?? 0).toLocaleString('en-IN')}</span>
+                <span className="font-mono">- NPR {npr(0)} — no expense journal</span>
               </div>
 
-              <div className={`flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base text-indigo-600 dark:text-indigo-400`}>
+              <div className={`flex justify-between items-center py-3 border-t-2 border-slate-300 dark:border-slate-700 font-bold text-base text-slate-400`}>
                 <span>NET OPERATING PROFIT / SURPLUS</span>
-                <span className="font-mono">NPR {(netProfit ?? 0).toLocaleString('en-IN')}</span>
+                <span className="font-mono">Not Published — requires expense journal</span>
               </div>
             </div>
           </div>

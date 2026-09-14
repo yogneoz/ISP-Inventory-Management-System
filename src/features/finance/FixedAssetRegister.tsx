@@ -29,7 +29,8 @@ interface FixedAssetRegisterProps {
   asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
-  currentUser?: User | null;  onCreateAsset: (
+  currentUser?: User | null;
+  onCreateAsset: (
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
   ) => Promise<void>;
   onUpdateAssetStatus: (id: string, status: Asset['status']) => Promise<void>;
@@ -42,7 +43,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   asOfDateAD,
   dateMode,
   autoOpenModal = false,
-  currentUser,  onCreateAsset,
+  currentUser,
+  onCreateAsset,
   onUpdateAssetStatus,
 }) => {
   const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
@@ -114,7 +116,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const selectedBranchObj = branches.find((b) => b.id === selectedAssetDetail?.branchId);
 
   const handleExportCSV = () => {
-    exportToCSV('IZone_Fixed_Asset_Register', filteredAssets, [
+    exportToCSV('Inventory_Fixed_Asset_Register', filteredAssets, [
       { key: 'tagNumber', label: 'Tag Number' },
       { key: 'name', label: 'Asset Title' },
       { key: 'category', label: 'Category' },

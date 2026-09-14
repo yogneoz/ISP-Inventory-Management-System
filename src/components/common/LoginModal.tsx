@@ -158,7 +158,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
           <div className="relative z-10 flex flex-col items-center">
             <div className="mb-2.5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-white font-serif font-extrabold text-xl shadow-xl">
-              iZ
+              IN
             </div>
             <h2 className="text-lg font-extrabold tracking-tight text-white font-serif">
               Inventory Management System

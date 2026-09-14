@@ -1,5 +1,5 @@
 // ============================================================================
-// IZone-ERP Automated PostgreSQL Setup Engine (Node.js/pg)
+// Inventory-ERP Automated PostgreSQL Setup Engine (Node.js/pg)
 //
 // Responsibilities:
 //   1. Ensure the PostgreSQL server is reachable (falls back to the shell
@@ -391,7 +391,7 @@ async function seedCompanyProfile(client) {
     `INSERT INTO company_profile (
        id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
      )
-     VALUES ('COMP-001', 'EXAMPLE NETWORKS PVT. LTD.', 'Example Networks Private Limited (Dummy Data)', 'Example Street, Example City, Nepal', '+977-01-0000000', 'info@example.com', 'Rs.', 13.00)
+     VALUES ('COMP-001', 'Inventory Management System', 'Inventory Management System (Demo)', 'Kathmandu, Nepal', '', '', 'Rs.', 13.00)
      ON CONFLICT (id) DO NOTHING`
   );
   console.log('✅ Default company profile seeded.');

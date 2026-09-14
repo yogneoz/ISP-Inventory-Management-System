@@ -114,7 +114,7 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
 
 export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>> => {
   try {
-    const stored = localStorage.getItem('izone_permissions_matrix');
+    const stored = localStorage.getItem('inventory_permissions_matrix');
     if (stored) return JSON.parse(stored);
   } catch (e) {
     console.error('Error reading permissions matrix from localStorage', e);
@@ -124,9 +124,9 @@ export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>
 
 export const savePermissionsMatrix = (matrix: Record<string, Record<UserRole, boolean>>) => {
   try {
-    localStorage.setItem('izone_permissions_matrix', JSON.stringify(matrix));
+    localStorage.setItem('inventory_permissions_matrix', JSON.stringify(matrix));
     // Dispatch custom event for real-time app update
-    window.dispatchEvent(new Event('izone_permissions_updated'));
+    window.dispatchEvent(new Event('inventory_permissions_updated'));
   } catch (e) {
     console.error('Error saving permissions matrix', e);
   }

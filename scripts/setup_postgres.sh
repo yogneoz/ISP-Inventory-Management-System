@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# IZone Automated PostgreSQL Installation & Configuration Script
+# Inventory Automated PostgreSQL Installation & Configuration Script
 #
 # What it does (each step is safe to re-run):
 #   1. Detects/installs a PostgreSQL server (apt/yum/apk/brew/Docker).

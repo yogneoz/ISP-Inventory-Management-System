@@ -548,6 +548,8 @@ export interface FinancialSummary {
   totalInventoryAssetValue: number;
   totalFixedAssetValue: number;
   totalAccountsPayable: number;
+  /** Net sales revenue from customer product sales (Branch Operations → Sell Product). */
+  totalSalesRevenue?: number;
   totalCostOfGoodsSold: number;
   totalDamageLossValue: number;
   totalVatInputTax: number;

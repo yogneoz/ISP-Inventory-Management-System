@@ -1,7 +1,7 @@
 import { DocumentNumberConfig } from '../types';
 import { api } from '../services/api';
 
-const STORAGE_KEY = 'izone_document_number_configs';
+const STORAGE_KEY = 'inventory_document_number_configs';
 
 export const DEFAULT_DOCUMENT_CONFIGS: DocumentNumberConfig[] = [
   // Procurement & Purchasing

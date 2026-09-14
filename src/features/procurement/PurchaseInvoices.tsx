@@ -740,7 +740,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   };
 
   const handleExportCSV = () => {
-    exportToCSV('IZone_Purchase_Invoices', filteredInvoices, [
+    exportToCSV('Inventory_Purchase_Invoices', filteredInvoices, [
       { label: 'System Invoice #', key: 'invoiceNumber' },
       { label: 'Vendor Bill #', key: 'vendorBillNumber' },
       { label: 'Supplier Name', key: 'supplierName' },

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Asset, Branch } from '../../types';
+import { Asset, Branch, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
+import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import {
   Calculator,
   Download,
@@ -23,7 +24,9 @@ interface DepreciationRegisterProps {
   branches: Branch[];
   selectedBranchId: string;
   asOfDateAD?: string;
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+  companyProfile?: CompanyProfile | null;
+}
 
 interface AssetGroup {
   key: string;
@@ -43,7 +46,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
   branches,
   selectedBranchId,
   asOfDateAD,
-  dateMode,}) => {
+  dateMode,
+  companyProfile,
+}) => {
   const [activeTab, setActiveTab] = useState<'SUMMARY' | 'DATE_WISE'>('SUMMARY');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -185,12 +190,19 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
   return (
     <div className="printable-document space-y-6">
+      {/* Official Company Letterhead */}
+      <DocumentLetterhead
+        companyProfile={companyProfile}
+        title="Fixed Asset Depreciation Register"
+        subtitle="Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV)."
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <Calculator className="h-5 w-5 text-indigo-500" />
-            <span>Fixed Asset Depreciation Register</span>
+            <span>Register Filter &amp; Overview</span>
           </h2>
           <p className="truncate text-slate-400 text-xs mt-0.5">
             Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV).

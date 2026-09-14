@@ -85,22 +85,22 @@ let fiscalYears: FiscalYear[] = [];
 // Company Setup screen once real company details are available.
 const INITIAL_COMPANY_PROFILE: CompanyProfile = {
   id: 'COMP-001',
-  name: 'EXAMPLE NETWORKS PVT. LTD.',
-  legalName: 'Example Networks Private Limited (Dummy Data)',
-  tagline: 'Sample Fiber & ISP Inventory Company',
-  address: 'Example Street, Example City, Nepal',
-  city: 'Example City',
+  name: 'Inventory Management System',
+  legalName: 'Inventory Management System (Demo)',
+  tagline: 'Multi-Branch Inventory Management',
+  address: 'Kathmandu, Nepal',
+  city: 'Kathmandu',
   country: 'Nepal',
-  phone: '+977-01-0000000',
-  email: 'info@example.com',
-  website: 'https://example.com',
-  panVatNumber: '000000000',
-  registrationNumber: 'REG-0000-00000',
+  phone: '',
+  email: '',
+  website: '',
+  panVatNumber: '',
+  registrationNumber: '',
   logoUrl: '',
   logoPreset: 'telecom',
   currencySymbol: 'Rs.',
   defaultTaxRate: 13,
-  notes: 'Dummy company profile for testing — replace with real details in Company Setup.',
+  notes: 'Default company profile — configure real details in Company Setup.',
 };
 
 let companyProfile: CompanyProfile = { ...INITIAL_COMPANY_PROFILE };
@@ -772,6 +772,44 @@ function getFiscalYearCodeForDate(dateValue: any): string {
 }
 
 // ==========================================
+// TRADING SUMMARY HELPERS (Sales Revenue + Cost of Goods Sold)
+// ==========================================
+// A "customer sale" is a stock_operations row of type STOCK_OUT that carries
+// priced line items in its items JSONB (created by the Product Sale form in
+// Branch Operations). Asset-issue stock-outs (items JSONB = []) reclassify
+// inventory into Fixed Assets — they are NOT sales and are excluded here.
+//
+// Revenue and COGS are both derived from the same underlying sale lines so
+// the two figures always share one source and reconcile with the balance
+// sheet's "Merchandise Inventory (At Valuation)" (cost × quantity-on-hand).
+function computeTradingFromOps(ops: any[], productsList: any[]) {
+  let totalSalesRevenue = 0;
+  let totalCostOfGoodsSold = 0;
+  for (const op of ops || []) {
+    if (op.type !== 'STOCK_OUT') continue;
+    const lines = Array.isArray(op.items) ? op.items : [];
+    for (const it of lines) {
+      // Asset-issue stock-outs carry no priced lines; skip them.
+      if (it.totalValue === undefined && it.sellingPrice === undefined) continue;
+      const qty = Number(it.quantity) || 0;
+      const revenue = Number(it.totalValue) || Math.max(
+        0,
+        qty * (Number(it.sellingPrice) || 0) - (Number(it.discount) || 0)
+      );
+      if (revenue > 0) totalSalesRevenue += revenue;
+      if (qty > 0) {
+        const prod = (productsList || []).find((p: any) => p.id === it.productId);
+        // Prefer the cost captured on the sale line; fall back to the current
+        // product cost so COGS matches the merchandise valuation basis.
+        const unitCost = Number(it.unitCost) || (prod ? Number(prod.costPrice) : 0);
+        totalCostOfGoodsSold += qty * unitCost;
+      }
+    }
+  }
+  return { totalSalesRevenue, totalCostOfGoodsSold };
+}
+
+// ==========================================
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
 app.get('/api/bootstrap', async (req, res) => {
@@ -837,7 +875,7 @@ app.get('/api/bootstrap', async (req, res) => {
       const vpScope = scoped({ branchCol: 'branch_id', dateCol: 'payment_date_ad' });
 
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes, vobRes
       ] = await Promise.all([
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
@@ -860,6 +898,13 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
         pgPool.query(`SELECT id, damage_reference AS "damageReference", product_id AS "productId", branch_id AS "branchId", quantity_damaged AS "quantityDamaged", unit_cost AS "unitCost", total_cost AS "totalCost", damage_date_ad AS "damageDateAD", damage_date_bs AS "damageDateBS", damage_reason AS "damageReason", status, disposal_date_ad AS "disposalDateAD", disposal_date_bs AS "disposalDateBS", disposal_method AS "disposalMethod", salvage_value AS "salvageValue", gl_account_code AS "glAccountCode", write_off_loss AS "writeOffLoss", approved_by AS "approvedBy", notes, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM damage_records${damageScope.where} ORDER BY damage_date_ad DESC`, damageScope.params),
         pgPool.query(`SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments${vpScope.where} ORDER BY payment_date_ad DESC, created_at DESC`, vpScope.params),
+        // Vendor Opening Balances (for correct Accounts Payable = opening + invoices − payments)
+        pgPool.query(
+          `SELECT COALESCE(SUM(opening_balance), 0)::float AS "totalOpeningBalance"
+           FROM vendor_opening_balances
+           WHERE fiscal_year_id = $1` + (bId ? ` AND branch_id = $2` : ''),
+          bId ? [selectedFiscalYear.id, bId] : [selectedFiscalYear.id]
+        ),
       ]);
 
       let pgStock = sRes.rows;
@@ -892,21 +937,35 @@ app.get('/api/bootstrap', async (req, res) => {
       }, 0);
 
       const totalFixedAssetValue = pgAssets.reduce((sum: number, a: any) => sum + Number(a.netBookValue || 0), 0);
-      const totalAccountsPayable = pgInvoices.reduce(
-        (sum: number, inv: any) => sum + Math.max(0, Number(inv.grandTotal || 0) - Number(inv.amountPaid || 0)),
+      // Accounts Payable: opening balance (carry-forward from Vendor Opening Balances)
+      // + current-period unpaid invoices − posted vendor payments.  This matches
+      // the Vendor Ledger closing-balance formula so all three modules reconcile.
+      const vendorOpeningBalTotal = Number(vobRes.rows[0]?.totalOpeningBalance || 0);
+      // Sum full invoice grand totals, NOT (grandTotal − amountPaid): payments
+      // are already subtracted once below via the posted vendor payments, so
+      // subtracting amount_paid here too would double-count them.
+      const currentPeriodInvoiceTotal = pgInvoices.reduce(
+        (sum: number, inv: any) => sum + Number(inv.grandTotal || 0),
         0
       );
+      const postedPayments = (vpRes.rows || [])
+        .filter((p: any) => p.status === 'POSTED')
+        .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+      const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments;
       const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
       const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
       const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
 
+      // Trading summary — sales revenue + COGS derived from the same priced
+      // STOCK_OUT sale lines so Revenue − COGS = Gross Surplus reconciles to
+      // the inventory-at-cost balance sheet.
+      const tradingSummary = computeTradingFromOps(pgOps, pgProducts);
       const financialSummary = {
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        // COGS is not tracked (no sales ledger); consumers fall back to their
-        // own estimate when this is 0.
-        totalCostOfGoodsSold: 0,
+        totalSalesRevenue: tradingSummary.totalSalesRevenue,
+        totalCostOfGoodsSold: tradingSummary.totalCostOfGoodsSold,
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: currentFy,
@@ -7212,6 +7271,8 @@ app.get('/api/reports/financial-summary', async (req, res) => {
       const totalFixedAssetValue = Number(assetRes.rows[0]?.total || 0);
 
       // Accounts Payable & VAT Input Tax (scoped to the selected fiscal year)
+      // AP = opening balance (from vendor_opening_balances, i.e. the carry-forward
+      // from the prior FY close) + current-period unpaid invoices − posted payments.
       const piConds: string[] = [];
       const piParams: any[] = [];
       if (requestedFy) {
@@ -7223,11 +7284,50 @@ app.get('/api/reports/financial-summary', async (req, res) => {
         piConds.push(`branch_id = $${piParams.length}`);
       }
       const invPayRes = await pgPool.query(
-        `SELECT SUM(GREATEST(0, grand_total - amount_paid)) AS total_ap, SUM(vat_amount) AS total_vat FROM purchase_invoices` +
+        `SELECT SUM(grand_total) AS total_invoiced, SUM(vat_amount) AS total_vat FROM purchase_invoices` +
           (piConds.length ? ` WHERE ${piConds.join(' AND ')}` : ''),
         piParams
       );
-      const totalAccountsPayable = Number(invPayRes.rows[0]?.total_ap || 0);
+      // Opening balance carry-forward (same FY + branch scope)
+      const obParams: any[] = [];
+      const obConds: string[] = [];
+      if (requestedFy) {
+        obParams.push(requestedFy.id);
+        obConds.push(`fiscal_year_id = $${obParams.length}`);
+      }
+      if (hasBranch) {
+        obParams.push(branchId);
+        obConds.push(`branch_id = $${obParams.length}`);
+      }
+      const obRes = await pgPool.query(
+        `SELECT COALESCE(SUM(opening_balance), 0)::float AS total_ob FROM vendor_opening_balances` +
+          (obConds.length ? ` WHERE ${obConds.join(' AND ')}` : ''),
+        obParams
+      );
+      // Posted vendor payments in the same scope. Note: vendor payments are
+      // scoped by payment_date_ad date range (like the bootstrap endpoint),
+      // because older payments may have a NULL fiscal_year_id.
+      const vpConds: string[] = [];
+      const vpParams: any[] = [];
+      if (requestedFy) {
+        vpParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
+        vpConds.push(`payment_date_ad >= $${vpParams.length - 1}`);
+        vpConds.push(`payment_date_ad <= $${vpParams.length}`);
+      }
+      if (hasBranch) {
+        vpParams.push(branchId);
+        vpConds.push(`branch_id = $${vpParams.length}`);
+      }
+      vpConds.push(`status = 'POSTED'`);
+      const vpPayRes = await pgPool.query(
+        `SELECT COALESCE(SUM(amount), 0)::float AS total_paid FROM vendor_payments` +
+          (vpConds.length ? ` WHERE ${vpConds.join(' AND ')}` : ''),
+        vpParams
+      );
+      const vendorOpeningBal = Number(obRes.rows[0]?.total_ob || 0);
+      const currentPeriodInvoiced = Number(invPayRes.rows[0]?.total_invoiced || 0);
+      const postedPayments = Number(vpPayRes.rows[0]?.total_paid || 0);
+      const totalAccountsPayable = vendorOpeningBal + currentPeriodInvoiced - postedPayments;
       const totalVatInputTax = Number(invPayRes.rows[0]?.total_vat || 0);
 
       // Damage Loss Value (scoped to the selected fiscal year)
@@ -7248,15 +7348,62 @@ app.get('/api/reports/financial-summary', async (req, res) => {
       );
       const totalDamageLossValue = Number(opRes.rows[0]?.total || 0);
 
+      // Sales Revenue + Cost of Goods Sold: fetch the priced STOCK_OUT sale
+      // operations in the same FY/branch scope as inventory, then derive both
+      // numbers from the sale lines (identical logic to the bootstrap helper).
+      const saleConds: string[] = [`type = 'STOCK_OUT'`];
+      const saleParams: any[] = [];
+      if (requestedFy) {
+        saleParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
+        saleConds.push(`date_ad >= $${saleParams.length - 1}`);
+        saleConds.push(`date_ad <= $${saleParams.length}`);
+      }
+      if (hasBranch) {
+        saleParams.push(branchId);
+        saleConds.push(`branch_id = $${saleParams.length}`);
+      }
+      const saleRes = await pgPool.query(
+        `SELECT items FROM stock_operations` +
+          (saleConds.length ? ` WHERE ${saleConds.join(' AND ')}` : ''),
+        saleParams
+      );
+      const saleResRows: any[] = saleRes.rows || [];
+      const saleLines = saleResRows.flatMap((r: any) => {
+        const lines = Array.isArray(r.items) ? r.items : [];
+        return lines.filter(
+          (it: any) => it.totalValue !== undefined || it.sellingPrice !== undefined
+        );
+      });
+
+      // Products are needed to resolve cost for lines that don't carry unitCost.
+      const prodResForCogs = await pgPool.query(
+        'SELECT id, cost_price AS "costPrice" FROM products'
+      );
+      const productsForCogs = prodResForCogs.rows;
+      let totalSalesRevenue = 0;
+      let totalCostOfGoodsSold = 0;
+      for (const it of saleLines) {
+        const qty = Number(it.quantity) || 0;
+        const revenue = Number(it.totalValue) || Math.max(
+          0,
+          qty * (Number(it.sellingPrice) || 0) - (Number(it.discount) || 0)
+        );
+        if (revenue > 0) totalSalesRevenue += revenue;
+        if (qty > 0) {
+          const prod = productsForCogs.find((p: any) => p.id === it.productId);
+          const unitCost = Number(it.unitCost) || (prod ? Number(prod.costPrice) : 0);
+          totalCostOfGoodsSold += qty * unitCost;
+        }
+      }
+
       const currentFyCode = currentFy?.code || '2082/83';
 
       return res.json({
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        // COGS is not tracked by the system (no sales ledger exists);
-        // consumers fall back to their own estimate when this is 0.
-        totalCostOfGoodsSold: 0,
+        totalSalesRevenue,
+        totalCostOfGoodsSold,
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: requestedFy ? requestedFy.code : currentFyCode,
@@ -7304,13 +7451,18 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     0
   );
 
+  // In-memory fallback: derive the trading summary from the same STOCK_OUT
+  // sale-op lines (identical rules as the Postgres path).
+  const inMemTrading = computeTradingFromOps(targetOps, products);
+
   const currentFy = pickCurrentFiscalYear(fiscalYears)?.code || '2082/83';
 
   res.json({
     totalInventoryAssetValue,
     totalFixedAssetValue,
     totalAccountsPayable,
-    totalCostOfGoodsSold: 0,
+    totalSalesRevenue: inMemTrading.totalSalesRevenue,
+    totalCostOfGoodsSold: inMemTrading.totalCostOfGoodsSold,
     totalDamageLossValue,
     totalVatInputTax,
     currentFiscalYear: currentFy,

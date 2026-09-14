@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { PurchaseInvoice } from '../../types';
+import { PurchaseInvoice, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import {
   Receipt,
   FileSpreadsheet,
@@ -18,11 +19,15 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 
 interface VatRegisterProps {
   invoices: PurchaseInvoice[];
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+  companyProfile?: CompanyProfile | null;
+}
 
 export const VatRegister: React.FC<VatRegisterProps> = ({
   invoices,
-  dateMode,}) => {
+  dateMode,
+  companyProfile,
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [vatTypeFilter, setVatTypeFilter] = useState<'ALL' | '13%' | '0%'>('ALL');
 
@@ -81,12 +86,19 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
   return (
     <div className="printable-document space-y-6">
+      {/* Official Company Letterhead */}
+      <DocumentLetterhead
+        companyProfile={companyProfile}
+        title="Value Added Tax (VAT) Register"
+        subtitle="IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records."
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <Receipt className="h-5 w-5 text-indigo-500" />
-            <span>Value Added Tax (VAT) Register</span>
+            <span>Register Filter &amp; Overview</span>
           </h2>
           <p className="truncate text-slate-400 text-xs mt-0.5">
             IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records.

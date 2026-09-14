@@ -1378,7 +1378,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <span>Official Purchase Order Document</span>
               </div>
               <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white">
-                IZONE NETWORKS PVT. LTD.
+                {companyProfile?.legalName || companyProfile?.name || 'Inventory Management System'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Branch: {branches.find((b) => b.id === viewingPO.branchId)?.name || viewingPO.branchId}

@@ -32,7 +32,7 @@ const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '')
 
 let currentUserContext: User | null = null;
 let currentFiscalYearId: string | null = null;
-let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem('izone_auth_token') : null;
+let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem('inventory_auth_token') : null;
 
 export const setAuthToken = (token: string | null) => {
   authToken = token;
@@ -80,7 +80,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
         (error as any).status = res.status;
         // Dispatch auth expiration event on 401 so App can force logout
         if (res.status === 401) {
-          window.dispatchEvent(new CustomEvent('izone_auth_expired', { detail: { message: error.message } }));
+          window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
         }
         throw error;
       }

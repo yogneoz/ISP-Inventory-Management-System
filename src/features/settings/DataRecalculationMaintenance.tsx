@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertTriangle, Calculator, CheckCircle2, Database, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api } from '../../services/api';
 import { FiscalYear, User } from '../../types';
+import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 
 interface DataRecalculationMaintenanceProps {
   currentUser: User | null;
@@ -115,10 +116,18 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
               <div className="mb-3 flex items-center gap-2"><Icon className="h-5 w-5 text-indigo-500" /><h3 className="font-bold text-sm">{operation.title}</h3></div>
               <p className="min-h-16 text-xs leading-5 text-slate-500 dark:text-slate-400">{operation.description}</p>
               {operation.id === 'opening-stock' && (
-                  <select value={sourceFiscalYearId} onChange={(event) => setSourceFiscalYearId(event.target.value)} className={`mb-3 w-full rounded-xl border px-3 py-2 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white`}>
-                  <option value="">Select closed source year…</option>
-                  {fiscalYears.filter((fiscalYear) => fiscalYear.isClosed).map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — closed</option>)}
-                </select>
+                <div className="mb-3">
+                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Source Fiscal Year</span>
+                  <FiscalYearSelect
+                    fiscalYears={fiscalYears.filter((fiscalYear) => fiscalYear.isClosed)}
+                    value={sourceFiscalYearId}
+                    onChange={setSourceFiscalYearId}
+                    pageSize={3}
+                    showFyPrefix
+                    placeholder="Select closed source year…"
+                    triggerClassName="w-full rounded-xl border px-3 py-2 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  />
+                </div>
               )}
               <button type="button" onClick={() => runOperation(operation.id)} disabled={Boolean(busy)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
                 <RefreshCw className={`h-4 w-4 ${isBusy ? 'animate-spin' : ''}`} />{isBusy ? 'Running…' : 'Run recalculation'}

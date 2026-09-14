@@ -6,7 +6,8 @@ interface ImportStockProps {
   branches: Branch[];
   products: Product[];
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
-  onRefreshData?: () => void;}
+  onRefreshData?: () => void;
+}
 
 interface ParsedImportRow {
   sku: string;
@@ -30,7 +31,8 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   branches,
   products,
   onCreateProduct,
-  onRefreshData,}) => {
+  onRefreshData,
+}) => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -61,7 +63,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
 
       if (cols.length < 3) continue;
 
-      const sku = cols[0] || `IZ-${Math.floor(100000 + Math.random() * 900000)}`;
+      const sku = cols[0] || `INV-${Math.floor(100000 + Math.random() * 900000)}`;
       const barcode = cols[1] || `890${Math.floor(100000000 + Math.random() * 900000000)}`;
       const name = cols[2] || 'Imported Stock Item';
       const rawGrp = (cols[3] || 'Product Item').toLowerCase();
@@ -152,7 +154,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'iZone_Stock_Import_Template.csv';
+    a.download = 'Inventory_Stock_Import_Template.csv';
     a.click();
   };
 
@@ -289,7 +291,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                     Click to browse or drag & drop CSV template file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-1">
-                    Supports iZone CSV format with auto-duplicate detection
+                    Supports Inventory CSV format with auto-duplicate detection
                   </span>
                 </div>
               )}

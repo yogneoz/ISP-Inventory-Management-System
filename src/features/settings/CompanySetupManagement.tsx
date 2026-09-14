@@ -37,22 +37,22 @@ interface CompanySetupManagementProps {
 
 const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   id: 'COMP-001',
-  name: 'EXAMPLE NETWORKS PVT. LTD.',
-  legalName: 'Example Networks Private Limited (Dummy Data)',
-  tagline: 'Sample Fiber & ISP Inventory Company',
-  address: 'Example Street, Example City, Nepal',
-  city: 'Example City',
+  name: 'Inventory Management System',
+  legalName: 'Inventory Management System (Demo)',
+  tagline: 'Multi-Branch Inventory Management',
+  address: 'Kathmandu, Nepal',
+  city: 'Kathmandu',
   country: 'Nepal',
-  phone: '+977-01-0000000',
-  email: 'info@example.com',
-  website: 'https://example.com',
-  panVatNumber: '000000000',
-  registrationNumber: 'REG-0000-00000',
+  phone: '',
+  email: '',
+  website: '',
+  panVatNumber: '',
+  registrationNumber: '',
   logoUrl: '',
   logoPreset: 'telecom',
   currencySymbol: 'Rs.',
   defaultTaxRate: 13,
-  notes: 'Dummy company profile for testing — replace with real details in Company Setup.',
+  notes: 'Default company profile — configure real details in Company Setup.',
 };
 
 const LOGO_PRESETS = [
@@ -332,7 +332,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => handleBlur('name')}
-                    placeholder="e.g. IZONE DIGITAL NETWORK PVT. LTD."
+                    placeholder="e.g. Inventory Digital Network PVT. LTD."
                     className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all ${touched.name && !isNameValid ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/50 dark:bg-rose-950/30' : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500'}`}
                   />
                   {touched.name && !isNameValid && (
@@ -407,7 +407,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     type="text"
                     value={legalName}
                     onChange={(e) => setLegalName(e.target.value)}
-                    placeholder="e.g. iZone Digital Network Private Limited"
+                    placeholder="e.g. Inventory Digital Network Private Limited"
                     className={`w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all bg-white border-slate-300 text-slate-900 focus:border-indigo-500 dark:bg-slate-950 dark:border-slate-700 dark:text-white dark:focus:border-indigo-500`}
                   />
                 </div>
@@ -594,7 +594,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                 ) : (
                   <div className="flex flex-col items-center gap-2">
                     <div className="h-16 w-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-xl font-serif font-black shadow-lg">
-                      {name ? name.substring(0, 2).toUpperCase() : 'iZ'}
+                      {name ? name.substring(0, 2).toUpperCase() : 'IN'}
                     </div>
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                       Preset Emblem: {logoPreset.toUpperCase()}
@@ -680,7 +680,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     <img src={logoUrl} alt="Logo" className="h-10 max-w-[100px] object-contain" />
                   ) : (
                     <div className="h-10 w-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-serif font-black text-sm shadow-md">
-                      {name ? name.substring(0, 2).toUpperCase() : 'iZ'}
+                      {name ? name.substring(0, 2).toUpperCase() : 'IN'}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
@@ -745,7 +745,7 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     <img src={logoUrl} alt="Logo" className="h-12 object-contain" />
                   ) : (
                     <div className="h-12 w-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-serif font-black text-lg">
-                      {name ? name.substring(0, 2).toUpperCase() : 'iZ'}
+                      {name ? name.substring(0, 2).toUpperCase() : 'IN'}
                     </div>
                   )}
                   <div>

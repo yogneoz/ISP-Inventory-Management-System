@@ -7,7 +7,7 @@ interface DarkModeContextValue {
 
 const DarkModeContext = createContext<DarkModeContextValue | undefined>(undefined);
 
-const STORAGE_KEY = 'izone_theme';
+const STORAGE_KEY = 'inventory_theme';
 
 function getInitialDarkMode(): boolean {
  try {

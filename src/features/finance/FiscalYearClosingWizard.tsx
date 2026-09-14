@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User } from '../../types';
+import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User, CompanyProfile } from '../../types';
 import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { filterFiscalYears } from '../../utils/permissions';
+import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import {
   Lock,
   Unlock,
@@ -22,7 +23,10 @@ import {
   Download,
   Award,
   Wallet,
+  CalendarDays,
+  Info,
 } from 'lucide-react';
+import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
 
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
@@ -43,6 +47,11 @@ interface FiscalYearClosingWizardProps {
   purchaseInvoices: PurchaseInvoice[];
   currentUser: User | null;
   onRefreshData?: () => Promise<void>;
+  companyProfile?: CompanyProfile | null;
+  /** Globally selected fiscal year id (app-wide scope). */
+  selectedFiscalYearId?: string;
+  /** Update the global fiscal-year view when the user changes it here. */
+  onSelectFiscalYear?: (fiscalYearId: string) => void;
 }
 
 export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = ({
@@ -60,10 +69,13 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   purchaseInvoices,
   currentUser,
   onRefreshData,
+  companyProfile,
+  selectedFiscalYearId,
+  onSelectFiscalYear,
 }) => {
   const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
-  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(defaultFiscalYear?.id || '');
-  const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
+  const [selectedFyId, setSelectedFyId] = useState<string>(defaultFiscalYear?.id || '');
+  const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFyId) || defaultFiscalYear;
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
   const [adminEmail, setAdminEmail] = useState<string>(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
@@ -76,6 +88,26 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
   const [step5Completed, setStep5Completed] = useState<boolean>(false);
+
+  // Nepali Fiscal Year Accounting Periods overview table (sorted newest first).
+  const periodsSorted = useMemo(
+    () => [...fiscalYears].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))),
+    [fiscalYears]
+  );
+  const periodsPagination = useClientPagination(periodsSorted, 3, []);
+  const [viewFiscalYearId, setViewFiscalYearId] = useState<string>('');
+  const activePeriodFyId =
+    viewFiscalYearId ||
+    (selectedFiscalYearId && fiscalYears.some((f) => f.id === selectedFiscalYearId)
+      ? selectedFiscalYearId
+      : '') ||
+    fiscalYears.find((f) => f.isCurrent)?.id ||
+    periodsSorted[0]?.id ||
+    '';
+
+  // Period status helpers — mirror the wizard's live lock state.
+  const isPeriodLocked = (fy: FiscalYear) => Boolean(fy.isClosed);
+  const isPeriodActive = (fy: FiscalYear) => Boolean(fy.isCurrent);
   const [openingStockMessage, setOpeningStockMessage] = useState<string>('');
   const [vendorOpeningMessage, setVendorOpeningMessage] = useState<string>('');
 
@@ -84,8 +116,17 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const isClosingEligible = Boolean(currentFy?.endDateAD && currentFy.endDateAD < todayAD);
 
   useEffect(() => {
-    if (!currentFy && defaultFiscalYear) setSelectedFiscalYearId(defaultFiscalYear.id);
+    if (!currentFy && defaultFiscalYear) setSelectedFyId(defaultFiscalYear.id);
   }, [currentFy, defaultFiscalYear]);
+
+  // Keep the wizard in sync with the app-wide fiscal-year view (header /
+  // other fiscal-year pages) whenever the user changes it elsewhere.
+  useEffect(() => {
+    if (selectedFiscalYearId && fiscalYears.some((f) => f.id === selectedFiscalYearId) && selectedFiscalYearId !== selectedFyId) {
+      setSelectedFyId(selectedFiscalYearId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFiscalYearId, fiscalYears]);
 
   useEffect(() => {
     setIsLocked(currentFy?.isClosed || false);
@@ -247,8 +288,8 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
 
   const handleDownloadClosingCertificate = () => {
     const certText = `
-===================================================================
-       IZONE INVENTORY MANAGEMENT SYSTEM - FISCAL CLOSING
+=======${companyProfile?.name || 'INVENTORY MANAGEMENT SYSTEM'}=================================
+       INVENTORY MANAGEMENT SYSTEM - FISCAL CLOSING
 ===================================================================
 Fiscal Year Code: FY ${currentFy?.code || '2082/83'} BS
 Nepali BS Period: ${currentFy?.startDateBS} to ${currentFy?.endDateBS}
@@ -310,16 +351,19 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
         <div className="flex items-center gap-3">
           <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
             Closing year
-            <select
-              value={currentFy?.id || ''}
-              onChange={(event) => setSelectedFiscalYearId(event.target.value)}
-              className="ml-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
-            >
-              {filterFiscalYears(fiscalYears).map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
-              ))}
-            </select>
           </label>
+          <FiscalYearSelect
+            fiscalYears={filterFiscalYears(fiscalYears)}
+            value={currentFy?.id || ''}
+            onChange={(fyId) => {
+              setSelectedFyId(fyId);
+              onSelectFiscalYear?.(fyId);
+            }}
+            pageSize={3}
+            showFyPrefix
+            showStatus
+            triggerClassName="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
+          />
           <div
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
               isLocked
@@ -656,7 +700,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs space-y-2">
               <div className="flex items-center justify-between font-mono">
-                <span className="font-semibold text-slate-600 dark:text-slate-400">Total Accounts Payable (unpaid invoices)</span>
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Total Accounts Payable (opening + invoices − payments)</span>
                 <span className="font-bold text-amber-500">
                   NPR {(financialSummary?.totalAccountsPayable || 0).toLocaleString()}
                 </span>
@@ -784,8 +828,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           <button
             onClick={handleNextStep}
             disabled={currentStep === 6}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              currentStep === 6
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${currentStep === 6
                 ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
             }`}
@@ -794,6 +837,152 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
+      </div>
+
+      {/* Nepali Fiscal Year Accounting Periods Overview & Status */}
+      <div className={`rounded-2xl border p-4 shadow-xs bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
+          <h3 className={`text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
+            <CalendarDays className="h-4 w-4 text-indigo-500" />
+            <span>Nepali Fiscal Year Accounting Periods (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">YYYY/YY</code>)</span>
+          </h3>
+          <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300`}>
+            <CalendarDays className="h-3.5 w-3.5 text-indigo-500" />
+            <FiscalYearSelect
+              fiscalYears={periodsSorted}
+              value={activePeriodFyId}
+              onChange={(fyId) => {
+                setViewFiscalYearId(fyId);
+                onSelectFiscalYear?.(fyId);
+              }}
+              showFyPrefix={false}
+              pageSize={3}
+              title="Select fiscal year to inspect"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+          <table className="w-full min-w-[720px] text-left text-xs border-collapse">
+            <thead className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
+              <tr>
+                <th className="px-3 py-2">Fiscal Year</th>
+                <th className="px-3 py-2">BS Period</th>
+                <th className="px-3 py-2">AD Period</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2 text-right">Closing State</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
+              {periodsPagination.pagedItems.map((fy) => {
+                const locked = isPeriodLocked(fy);
+                const active = isPeriodActive(fy);
+                return (
+                  <tr
+                    key={fy.id}
+                    className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                      fy.id === activePeriodFyId
+                        ? 'bg-indigo-50/80 dark:bg-indigo-950/40'
+                        : active
+                        ? 'bg-indigo-50/70 dark:bg-indigo-950/30'
+                        : ''
+                    }`}
+                  >
+                    <td className="p-3 font-bold font-mono text-slate-900 dark:text-white">
+                      FY {fy.code}
+                      {fy.id === activePeriodFyId && (
+                        <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300`}>
+                          Viewing
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateBS} to {fy.endDateBS}</td>
+                    <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateAD} to {fy.endDateAD}</td>
+                    <td className="p-3 font-bold text-slate-900 dark:text-white">
+                      {active ? (
+                        <span className={`inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400`}>
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Active
+                        </span>
+                      ) : locked ? (
+                        <span className={`inline-flex items-center gap-1 text-amber-600 dark:text-amber-400`}>
+                          <Lock className="h-3 w-3" /> Closed
+                        </span>
+                      ) : (
+                        <span className={`text-emerald-600 dark:text-emerald-400`}>Open</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex justify-end items-center gap-2">
+                        {!active && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (confirm(`Set FY ${fy.code} as the active (current) fiscal year?`)) {
+                                try {
+                                  await onSetCurrentFiscalYear(fy.id);
+                                } catch (_e) {
+                                  /* refresh callback handled upstream */
+                                }
+                              }
+                            }}
+                            disabled={isProcessingStep}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Set Active
+                          </button>
+                        )}
+                        {locked ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFyId(fy.id);
+                              setShowUnlockAuth(true);
+                              setAuthError('');
+                            }}
+                            disabled={isProcessingStep}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Unlock className="h-3.5 w-3.5" /> Reopen
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFyId(fy.id);
+                              setCurrentStep(6);
+                            }}
+                            className={`inline-flex items-center gap-1 text-xs font-semibold hover:underline cursor-pointer ${
+                              active
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-indigo-600 dark:text-indigo-400'
+                            }`}
+                          >
+                            <Lock className="h-3.5 w-3.5" /> Close
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <TablePagination
+          page={periodsPagination.page}
+          pageCount={periodsPagination.pageCount}
+          totalItems={periodsPagination.totalItems}
+          rangeStart={periodsPagination.rangeStart}
+          rangeEnd={periodsPagination.rangeEnd}
+          pageSize={periodsPagination.pageSize}
+          onPageChange={periodsPagination.setPage}
+          onPageSizeChange={periodsPagination.setPageSize}
+          className="mt-1"
+        />
+        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+          <Info className="h-3 w-3" />
+          Status reflects the fiscal-year lock set by this wizard. Reopening a closed period removes its compliance seal.
+        </p>
       </div>
     </div>
   );

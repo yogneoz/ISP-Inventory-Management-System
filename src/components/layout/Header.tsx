@@ -4,6 +4,7 @@ import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
 import { NavTab } from './Sidebar';
 import { NotificationCenter } from '../common/NotificationCenter';
+import { FiscalYearSelect } from '../common/FiscalYearSelect';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   Building2,
@@ -178,7 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab && onSelectTab('dashboard')}
-          title={`${companyProfile?.name || 'EXAMPLE NETWORKS PVT. LTD.'} - Open Executive Dashboard`}
+          title={`${companyProfile?.name || 'Inventory'} - Open Executive Dashboard`}
           className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
         >
           {companyProfile?.logoUrl ? (
@@ -199,15 +200,15 @@ export const Header: React.FC<HeaderProps> = ({
                     .filter(Boolean)
                     .slice(0, 2)
                     .map((w) => w[0].toUpperCase())
-                    .join('') || 'iZ'
-                : 'iZ'}
+                    .join('') || 'IN'
+                : 'IN'}
             </div>
           )}
 
           {/* Company name shown only below md (the sidebar carries the full brand on desktop) */}
           <div className="hidden sm:block md:hidden">
             <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[150px]">
-              {companyProfile?.name || 'IZone Inventory'}
+              {companyProfile?.name || 'Inventory'}
             </h1>
           </div>
         </button>
@@ -264,19 +265,17 @@ export const Header: React.FC<HeaderProps> = ({
             title="Fiscal-year view"
           >
             <span className={`text-[9px] font-bold text-indigo-200 dark:text-slate-400`}>FY</span>
-            <select
+            <FiscalYearSelect
+              fiscalYears={filterFiscalYears(fiscalYears)}
               value={selectedFiscalYearId}
-              onChange={(e) => onSelectFiscalYear(e.target.value)}
-              aria-label="Select fiscal-year view"
-              className={`max-w-28 font-medium outline-none cursor-pointer rounded px-1 py-0.5 bg-white/20 text-white dark:bg-slate-800 dark:text-slate-200`}
-            >
-              {[...filterFiscalYears(fiscalYears)].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))).map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-white">
-                  {fiscalYear.code}
-                  {fiscalYear.isCurrent ? ' (Active)' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={onSelectFiscalYear}
+              showFyPrefix={false}
+              pageSize={3}
+              title="Select fiscal-year view"
+              triggerClassName="max-w-28 text-white dark:text-slate-200"
+              panelClassName=""
+              align="left"
+            />
           </div>
         </div>
       </div>

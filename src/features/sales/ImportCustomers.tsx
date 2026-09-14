@@ -5,7 +5,8 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 
 interface ImportCustomersProps {
   branches: Branch[];
-  onImportCustomersSuccess?: (newCustomers: CustomerRecord[]) => void;}
+  onImportCustomersSuccess?: (newCustomers: CustomerRecord[]) => void;
+}
 
 interface ParsedCustomerRow {
   customerId: string;
@@ -68,7 +69,8 @@ const createCsv = (rows: Record<string, string>[]): string => {
 
 export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   branches,
-  onImportCustomersSuccess,}) => {
+  onImportCustomersSuccess,
+}) => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedCustomerRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -201,7 +203,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', 'iZone_Customer_Master_Template.csv');
+    link.setAttribute('download', 'Inventory_Customer_Master_Template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

@@ -81,8 +81,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-organization/izone-enterprise-erp.git
-cd izone-enterprise-erp
+git clone https://github.com/your-organization/inventory-management-system.git
+cd inventory-management-system
 
 # Install all npm dependencies
 npm install
@@ -276,7 +276,7 @@ GRANT ALL ON SCHEMA public TO inventory_user;
 
 Import the database schema:
 ```bash
-cd /var/www/izone-enterprise-erp
+cd /var/www/inventory-management-system
 PGPASSWORD='<YOUR_STRONG_PASSWORD>' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
 ```
 
@@ -285,7 +285,7 @@ PGPASSWORD='<YOUR_STRONG_PASSWORD>' psql -h localhost -U inventory_user -d inven
 ### Step 3: Production Build
 
 ```bash
-cd /var/www/izone-enterprise-erp
+cd /var/www/inventory-management-system
 
 # Install dependencies (including dev tools for building)
 npm install
@@ -360,15 +360,15 @@ sudo certbot --nginx -d erp.yourdomain.com
 
 ```bash
 # Build multi-stage Docker image
-docker build -t izone-erp:latest .
+docker build -t inventory-erp:latest .
 
 # Run container
 docker run -d \
-  --name izone-erp-app \
+  --name inventory-erp-app \
   --restart always \
   -p 3000:3000 \
   --env-file .env \
-  izone-erp:latest
+  inventory-erp:latest
 ```
 
 ---

@@ -57,7 +57,7 @@ import { AuditTrailReports } from './features/finance/AuditTrailReports';
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
-const ACTIVE_TAB_STORAGE_KEY = 'izone_active_tab';
+const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
@@ -125,7 +125,7 @@ export default function App() {
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
   const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
-    const saved = localStorage.getItem('izone_date_mode');
+    const saved = localStorage.getItem('inventory_date_mode');
     return saved === 'AD' ? 'AD' : 'BS';
   });
 
@@ -134,7 +134,7 @@ export default function App() {
   const handleToggleDateMode = () => {
     setDateMode((prev) => {
       const next = prev === 'BS' ? 'AD' : 'BS';
-      localStorage.setItem('izone_date_mode', next);
+      localStorage.setItem('inventory_date_mode', next);
       return next;
     });
   };
@@ -160,8 +160,8 @@ export default function App() {
       console.warn('Session expired:', customEvent.detail?.message);
       handleLogout();
     };
-    window.addEventListener('izone_auth_expired', handleAuthExpired);
-    return () => window.removeEventListener('izone_auth_expired', handleAuthExpired);
+    window.addEventListener('inventory_auth_expired', handleAuthExpired);
+    return () => window.removeEventListener('inventory_auth_expired', handleAuthExpired);
   }, []);
 
   useEffect(() => {
@@ -176,8 +176,8 @@ export default function App() {
     const handlePermissionsUpdated = () => {
       setPermissionsVersion((v) => v + 1);
     };
-    window.addEventListener('izone_permissions_updated', handlePermissionsUpdated);
-    return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
+    window.addEventListener('inventory_permissions_updated', handlePermissionsUpdated);
+    return () => window.removeEventListener('inventory_permissions_updated', handlePermissionsUpdated);
   }, []);
 
   // Theme: managed by DarkModeContext (adds/removes `dark` class on <html>)
@@ -209,6 +209,7 @@ export default function App() {
     totalInventoryAssetValue: 0,
     totalFixedAssetValue: 0,
     totalAccountsPayable: 0,
+    totalSalesRevenue: 0,
     totalCostOfGoodsSold: 0,
     totalDamageLossValue: 0,
     totalVatInputTax: 0,
@@ -773,11 +774,6 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleUpdateFiscalYear = async (fiscalYear: FiscalYear) => {
-    await api.updateFiscalYear(fiscalYear);
-    refreshAllData();
-  };
-
   const handleCloseFiscalYear = async (
     id: string,
     credentials?: { adminEmail: string; adminPassword: string }
@@ -804,11 +800,6 @@ export default function App() {
     const result = await api.rollForwardVendorOpenings(id);
     await refreshAllData();
     return result;
-  };
-
-  const handleDeleteFiscalYear = async (id: string) => {
-    await api.deleteFiscalYear(id);
-    refreshAllData();
   };
 
   // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
@@ -1164,6 +1155,8 @@ export default function App() {
                   branches={branches}
                   products={products}
                   onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
                 />
               )}
 
@@ -1921,8 +1914,9 @@ export default function App() {
                   financialSummary={financialSummary}
                   assets={assets}
                   invoices={purchaseInvoices}
-                  purchaseOrders={purchaseOrders}
                   dateMode={dateMode}
+                  asOfDateAD={assetReportAsOfDateAD}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1941,6 +1935,8 @@ export default function App() {
                   fiscalYears={fiscalYears}
                   branches={branches}
                   onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
                 />
               )}
 
@@ -1948,6 +1944,7 @@ export default function App() {
                 <VatRegister
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1958,6 +1955,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1971,6 +1969,7 @@ export default function App() {
                   assets={assets}
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1998,6 +1997,9 @@ export default function App() {
                   purchaseInvoices={purchaseInvoices}
                   currentUser={currentUser}
                   onRefreshData={refreshAllData}
+                  companyProfile={companyProfile}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
                 />
               )}
 
@@ -2007,14 +2009,7 @@ export default function App() {
               )}
 
               {activeTab === 'fiscal-year-management' && (
-                <FiscalYearManagement
-                  fiscalYears={fiscalYears}
-                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
-                  onUpdateFiscalYear={handleUpdateFiscalYear}
-                  onDeleteFiscalYear={handleDeleteFiscalYear}
-                  currentUser={currentUser}
-                  dateMode={dateMode}
-                />
+                <FiscalYearManagement />
               )}
 
               {activeTab === 'nepali-fiscal' && (
@@ -2048,6 +2043,7 @@ export default function App() {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         products={products}
+        companyProfile={companyProfile}
       />
 
       {/* Global Quick Search Modal */}

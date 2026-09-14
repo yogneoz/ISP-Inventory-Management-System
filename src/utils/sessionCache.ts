@@ -1,14 +1,14 @@
 // Session & User State Caching Engine for Enterprise Single Page Application
 import { BootstrapState, User } from '../types';
 
-const LOGGED_USER_STORAGE_KEY = 'izone_auth_user';
-const ROOT_USER_STORAGE_KEY = 'izone_root_user';
-const AUTH_TOKEN_STORAGE_KEY = 'izone_auth_token';
-const LOGGED_OUT_FLAG_KEY = 'izone_session_logged_out';
-const RECENT_BOOTSTRAP_CACHE_KEY = 'izone_recent_bootstrap_cache_v2';
+const LOGGED_USER_STORAGE_KEY = 'inventory_auth_user';
+const ROOT_USER_STORAGE_KEY = 'inventory_root_user';
+const AUTH_TOKEN_STORAGE_KEY = 'inventory_auth_token';
+const LOGGED_OUT_FLAG_KEY = 'inventory_session_logged_out';
+const RECENT_BOOTSTRAP_CACHE_KEY = 'inventory_recent_bootstrap_cache_v2';
 // v3: scoped per user+branch+fiscal-year with freshness TTL. v2 key retained
 // only for one-shot migration & purge.
-const BOOTSTRAP_CACHE_V3_PREFIX = 'izone_bootstrap_v3';
+const BOOTSTRAP_CACHE_V3_PREFIX = 'inventory_bootstrap_v3';
 export const BOOTSTRAP_CACHE_MAX_AGE_MS = 2 * 60 * 1000; // 2 minutes
 
 export interface ScopedBootstrapCacheEntry {
@@ -120,8 +120,8 @@ export function clearUserSession() {
     localStorage.removeItem(LOGGED_USER_STORAGE_KEY);
     localStorage.removeItem(ROOT_USER_STORAGE_KEY);
     localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-    localStorage.removeItem('izone_logged_user');
-    localStorage.removeItem('izone_root_user');
+    localStorage.removeItem('inventory_logged_user');
+    localStorage.removeItem('inventory_root_user');
     localStorage.removeItem(RECENT_BOOTSTRAP_CACHE_KEY);
     sessionStorage.clear();
   } catch (_e) {}
@@ -129,9 +129,9 @@ export function clearUserSession() {
   // Erase any lingering cookies
   eraseCookie(LOGGED_USER_STORAGE_KEY);
   eraseCookie(ROOT_USER_STORAGE_KEY);
-  eraseCookie('izone_auth_user');
-  eraseCookie('izone_root_user');
-  eraseCookie('izone_logged_user');
+  eraseCookie('inventory_auth_user');
+  eraseCookie('inventory_root_user');
+  eraseCookie('inventory_logged_user');
 }
 
 // ------------------------------------

@@ -1,7 +1,7 @@
-# Project Handoff Document — IZone Enterprise ERP
+# Project Handoff Document — Inventory Management System
 
 > **Full project analysis, architecture, database relationships, and developer guide.**  
-> Generated: 2026-09-10 | Version: 1.0
+> Generated: 2026-09-10 | Version: 1.1
 
 ---
 
@@ -27,7 +27,7 @@
 
 ## 1. Project Overview
 
-**IZone Enterprise ERP** is a full-stack, multi-branch inventory management and enterprise resource planning system built specifically for **ISP/Fiber operations in Nepal**. It supports:
+**Inventory Management System** is a full-stack, multi-branch inventory management and enterprise resource planning system built specifically for **ISP/Fiber operations in Nepal**. It supports:
 
 - Multi-branch inventory tracking with inter-branch stock transfers
 - Purchase order → Invoice → Goods Receipt workflow
@@ -36,6 +36,8 @@
 - Physical stock audit & reconciliation with variance reports
 - Nepali Bikram Sambat (BS) ↔ AD (Gregorian) dual-calendar system
 - Fiscal year management with year-end closing wizard
+- Navigable fiscal-year dropdown with pagination, globally synced across the app
+- Document Numbering Setup page for dynamic voucher prefixes/sequences
 - VAT purchase register and financial statements
 - 5-step fiscal year closing wizard with IRD audit certificate
 - Demo data seeding (is_demo flag system) vs. real production data
@@ -264,9 +266,9 @@ ISP-Inventory-Management-System/
 │       │   ├── FinancialStatements.tsx      # Income statement, balance sheet, trial balance
 │       │   ├── VatRegister.tsx              # VAT purchase register
 │       │   ├── DepreciationRegister.tsx     # Depreciation schedule reports
-│       │   ├── FiscalYearManagement.tsx     # Fiscal year CRUD
+│       │   ├── FiscalYearManagement.tsx     # Document Numbering Setup (voucher prefixes/sequences)
 │       │   ├── NepaliFiscalManagement.tsx   # BS fiscal year settings
-│       │   ├── FiscalYearClosingWizard.tsx  # 5-step year-end closing wizard
+│       │   ├── FiscalYearClosingWizard.tsx  # 5-step year-end closing wizard + FY periods table (close/reopen/set-active)
 │       │   ├── OpeningStockManager.tsx      # Opening stock balances per fiscal year
 │       │   ├── BsCalendarUtility.tsx        # BS calendar seeding & lookup
 │       │   └── AuditTrailReports.tsx        # Audit log reports & CSV export
@@ -636,7 +638,7 @@ Key permission groups:
 - **Financials**: `assets-manage`, `fin-statements`, `vat-register`, `stock-valuation`
 - **Admin**: `auth-switch-user`, `workflow-approval`, `admin-users`, `admin-branches`, `admin-audit`, `admin-fiscal`
 
-**Storage**: Permissions matrix is stored in `localStorage` (`izone_permissions_matrix`) and can be customized per-installation via the Permission Management UI.
+**Storage**: Permissions matrix is stored in `localStorage` (`inventory_permissions_matrix`) and can be customized per-installation via the Permission Management UI.
 
 ---
 
@@ -835,7 +837,7 @@ calculateFixedAssetValues({
 
 - `saveUserSession(user, rootUser, token)` — Persists auth state to localStorage
 - `saveRecentBootstrapCache(data)` — Caches full bootstrap state for instant UI load
-- Used for `localStorage` keys: `izone_user_session`, `izone_bootstrap_cache`
+- Used for `localStorage` keys: `inventory_user_session`, `inventory_bootstrap_cache`
 
 ---
 
@@ -903,7 +905,7 @@ CMD ["node", "dist/server.cjs"]
 // ecosystem.config.js
 module.exports = {
   apps: [{
-    name: 'izone-erp',
+    name: 'inventory-erp',
     script: 'dist/server.cjs',
     instances: 1,  // Single instance (PostgreSQL connection pool)
     env: { NODE_ENV: 'production', PORT: 3000 }

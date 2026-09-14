@@ -7,9 +7,11 @@ import {
   Branch,
   Asset,
   PurchaseInvoice,
+  CompanyProfile,
 } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import {
   FileSpreadsheet,
   History,
@@ -30,7 +32,9 @@ interface AuditTrailReportsProps {
   branches: Branch[];
   assets: Asset[];
   invoices: PurchaseInvoice[];
-  dateMode: 'BS' | 'AD';}
+  dateMode: 'BS' | 'AD';
+  companyProfile?: CompanyProfile | null;
+}
 
 export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   auditLogs,
@@ -40,7 +44,9 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   branches,
   assets,
   invoices,
-  dateMode,}) => {
+  dateMode,
+  companyProfile,
+}) => {
   const [subTab, setSubTab] = useState<
     'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
   >('AUDIT_TRAIL');
@@ -70,13 +76,20 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
 
   return (
     <div className="printable-document space-y-6">
+      {/* Official Company Letterhead */}
+      <DocumentLetterhead
+        companyProfile={companyProfile}
+        title="Activities Log (System Audit Trail)"
+        subtitle={`Generated: ${formatDualDate(new Date().toISOString().split('T')[0], dateMode)} — Realtime security audit trails, user access activities, role permissions changes, and system mutation records.`}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
             <span className="text-slate-900 dark:text-white">
-              Activities Log (System Audit Trail)
+              Register Overview
             </span>
           </h2>
           <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
@@ -125,7 +138,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             </h3>
             <button
               onClick={() =>
-                exportToCSV('IZone_Stock_Transaction_Ledger', transactionLogs, [
+                exportToCSV('Inventory_Stock_Transaction_Ledger', transactionLogs, [
                   { key: 'transactionNumber', label: 'Txn #' },
                   { key: 'productName', label: 'Product' },
                   { key: 'productSku', label: 'SKU' },
@@ -215,7 +228,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             </h3>
             <button
               onClick={() =>
-                exportToCSV('IZone_System_Audit_Log', auditLogs, [
+                exportToCSV('Inventory_System_Audit_Log', auditLogs, [
                   { key: 'userName', label: 'User Name' },
                   { key: 'userEmail', label: 'User Email' },
                   { key: 'module', label: 'Module' },

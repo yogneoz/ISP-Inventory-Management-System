@@ -30,7 +30,8 @@ interface ProfileSwitchModalProps {
   branches: Branch[];
   onSwitchProfile: (targetUserId: string) => Promise<void>;
   onUpdateProfile: (data: Partial<User> & { newPassword?: string }) => Promise<void>;
-  onLogout: () => void;}
+  onLogout: () => void;
+}
 
 export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   isOpen,
@@ -42,7 +43,8 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   branches,
   onSwitchProfile,
   onUpdateProfile,
-  onLogout,}) => {
+  onLogout,
+}) => {
   const [activeTab, setActiveTab] = useState<'switch' | 'edit' | 'info'>('switch');
   const [search, setSearch] = useState('');
   const [switchingId, setSwitchingId] = useState<string | null>(null);
@@ -442,7 +444,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
         {/* Modal Footer with Sign Out */}
         <div className="p-4 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-            Session ID: <span className="font-mono text-slate-700 dark:text-slate-300">IZ-SES-{currentUser.id}</span>
+            Session ID: <span className="font-mono text-slate-700 dark:text-slate-300">INV-SES-{currentUser.id}</span>
           </div>
 
           <button

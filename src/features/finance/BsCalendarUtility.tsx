@@ -535,7 +535,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
   const handleResetDefaults = () => {
     if (confirm('Reset BS Calendar back to standard reference values?')) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('izone_bs_calendar_data');
+        localStorage.removeItem('inventory_bs_calendar_data');
       }
       refreshCalendarData();
       setSeedStatus({

@@ -174,7 +174,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   // Company-Wide Blind Stock Audit Mode (Persisted in localStorage)
   const [isCompanyWideBlindCount, setIsCompanyWideBlindCount] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('izone_company_wide_blind_count') === 'true';
+      return localStorage.getItem('inventory_company_wide_blind_count') === 'true';
     } catch (_e) {
       return false;
     }
@@ -182,7 +182,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   useEffect(() => {
     try {
-      localStorage.setItem('izone_company_wide_blind_count', String(isCompanyWideBlindCount));
+      localStorage.setItem('inventory_company_wide_blind_count', String(isCompanyWideBlindCount));
     } catch (_e) {
       // ignore
     }
