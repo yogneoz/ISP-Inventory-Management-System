@@ -26,7 +26,6 @@ import {
   DocumentNumberConfig,
   VendorPayment,
 } from '../types';
-import { generateNextDocumentNumber } from '../utils/documentNumbering';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
@@ -385,10 +384,11 @@ export const api = {
   },
 
   async createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'> & { poNumber?: string }): Promise<PurchaseOrder> {
-    const poNumber = po.poNumber || generateNextDocumentNumber('PO', true);
+    // The server issues the PO number via issueNextDocNumber (per-branch daily
+    // atomic counter). Only pass one through when the caller explicitly set it.
     return fetchJson('/api/purchase-orders', {
       method: 'POST',
-      body: JSON.stringify({ ...po, poNumber }),
+      body: JSON.stringify(po),
     });
   },
 
@@ -417,10 +417,10 @@ export const api = {
   },
 
   async createPurchaseInvoice(inv: Partial<PurchaseInvoice>): Promise<PurchaseInvoice> {
-    const invoiceNumber = inv.invoiceNumber || generateNextDocumentNumber('PI', true);
+    // The server issues the invoice number via issueNextDocNumber.
     return fetchJson('/api/purchase-invoices', {
       method: 'POST',
-      body: JSON.stringify({ ...inv, invoiceNumber }),
+      body: JSON.stringify(inv),
     });
   },
 
@@ -480,13 +480,11 @@ export const api = {
     transactionReference?: string;
     branchId?: string;
   }): Promise<VendorPayment> {
-    // Generate payment number from document numbering system (CP = Cash, BP = Bank)
-    const method = (payload.paymentMethod || 'CASH').toUpperCase();
-    const docType = method === 'CASH' ? 'CP' : 'BP';
-    const paymentNumber = payload.paymentNumber || generateNextDocumentNumber(docType, true);
+    // The server issues the payment number via issueNextDocNumber
+    // (CP = Cash Payment, BP = Bank Payment, both per-branch daily counters).
     return fetchJson('/api/vendor-payments', {
       method: 'POST',
-      body: JSON.stringify({ ...payload, paymentNumber }),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -553,10 +551,10 @@ export const api = {
   },
 
   async createShipment(shipment: Partial<Shipment>): Promise<Shipment> {
-    const trackingCode = shipment.trackingCode || generateNextDocumentNumber('ST', true);
+    // The server issues the tracking code via issueNextDocNumber (ST).
     return fetchJson('/api/shipments', {
       method: 'POST',
-      body: JSON.stringify({ ...shipment, trackingCode }),
+      body: JSON.stringify(shipment),
     });
   },
 
@@ -634,6 +632,19 @@ export const api = {
     return fetchJson(`/api/fiscal-years/${fiscalYear.id}`, {
       method: 'PUT',
       body: JSON.stringify(fiscalYear),
+    });
+  },
+
+  async createFiscalYear(input: {
+    code: string;
+    startDateAD: string;
+    endDateAD: string;
+    startDateBS: string;
+    endDateBS: string;
+  }): Promise<FiscalYear> {
+    return fetchJson('/api/fiscal-years', {
+      method: 'POST',
+      body: JSON.stringify(input),
     });
   },
 

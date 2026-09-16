@@ -351,25 +351,43 @@ async function seedUnitOfMeasures(client) {
   console.log('✅ Default Units of Measure seeded.');
 }
 
+// Document number configurations. The server issues document numbers itself
+// using document_sequence_daily as `{DOC_TYPE}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}`
+// (e.g. PO-BRC01-202609150001). Only the `prefix` remains user-editable and it
+// is just the human label; the actual code placed in front of the branch code
+// is the leading alphanumeric token of the prefix (PO-2081- -> PO). These 22
+// configs mirror server.ts INITIAL_DOCUMENT_NUMBER_CONFIGS exactly.
 async function seedDocumentConfigs(client) {
   const defaultDocConfigs = [
-    { id: 'doc-po', documentType: 'PURCHASE_ORDER', prefix: 'PO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    { id: 'doc-pi', documentType: 'PURCHASE_INVOICE', prefix: 'PI-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    { id: 'doc-ship', documentType: 'SHIPMENT', prefix: 'SHIP-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    { id: 'doc-stockop', documentType: 'STOCK_OPERATION', prefix: 'SO-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    { id: 'doc-appreq', documentType: 'APPROVAL_REQUEST', prefix: 'AR-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true },
-    // Cash & Bank Payment / Receipt document numbering (used by vendor payments)
-    { id: 'CP', documentType: 'Cash Payment', prefix: 'CP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1002, resetEveryFiscalYear: true },
-    { id: 'CR', documentType: 'Cash Receive', prefix: 'CR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true },
-    { id: 'BP', documentType: 'Bank Payment', prefix: 'BP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1003, resetEveryFiscalYear: true },
-    { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true },
+    { id: 'PO', documentType: 'Purchase Order', prefix: 'PO-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for vendor purchase requisitions and official purchase orders.' },
+    { id: 'PI', documentType: 'Purchase Invoice / Bill', prefix: 'PI-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for supplier purchase invoices and tax bills.' },
+    { id: 'GRN', documentType: 'Goods Receipt Note (GRN)', prefix: 'GRN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used when warehouse receives inbound stock shipments.' },
+    { id: 'DN', documentType: 'Purchase Return & Debit Note', prefix: 'DN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for returning defective goods to vendors and supplier debit notes.' },
+    { id: 'INV', documentType: 'Sales & POS Invoice', prefix: 'INV-2081-', suffix: '', minDigits: 5, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for POS sales bills and customer sales tax invoices.' },
+    { id: 'QUO', documentType: 'Sales Quotation & Proforma Invoice', prefix: 'QUO-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for issuing formal price quotes and proforma invoices to clients.' },
+    { id: 'CN', documentType: 'Sales Return & Credit Note', prefix: 'CN-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer product returns and VAT credit note adjustments.' },
+    { id: 'ST', documentType: 'Inter-Branch Stock Transfer', prefix: 'ST-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for branch-to-branch stock transfers and dispatches.' },
+    { id: 'SA', documentType: 'Stock Adjustment & Audit', prefix: 'SA-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used during physical stock audits and inventory reconciliations.' },
+    { id: 'DC', documentType: 'Damage & Pullout Claim', prefix: 'DC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for damaged stock write-offs and pullout dispatches.' },
+    { id: 'CPI', documentType: 'Consumable Product Issue', prefix: 'CPI-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for internal material consumption, office supplies, and store use requisitions.' },
+    { id: 'EXC', documentType: 'Device Exchange & Replacement', prefix: 'EXC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer device trade-ins, replacement swaps, and exchange vouchers.' },
+    { id: 'WC', documentType: 'Warranty Service & Repair Slip', prefix: 'WC-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer repair jobs, device service intake, and warranty claims.' },
+    { id: 'FAA', documentType: 'Fixed Asset Assignment & Transfer', prefix: 'FAA-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for assigning company assets to staff, custody handovers, and department transfers.' },
+    { id: 'FAR', documentType: 'Fixed Asset Capitalization & Register', prefix: 'FAR-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for logging newly capitalized fixed assets into company asset register.' },
+    { id: 'JV', documentType: 'Journal Voucher', prefix: 'JV-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for manual general ledger transactions and depreciation entries.' },
+    { id: 'PV', documentType: 'Payment Disbursement Voucher', prefix: 'PV-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for supplier bill payments, operational expenses, and bank disbursements.' },
+    { id: 'RV', documentType: 'Cash & Bank Receipt Voucher', prefix: 'RV-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for customer payments, advance collections, and bank deposits.' },
+    { id: 'CP', documentType: 'Cash Payment', prefix: 'CP-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for cash payment disbursements to suppliers and vendors.' },
+    { id: 'CR', documentType: 'Cash Receive', prefix: 'CR-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for cash receipts received from customers.' },
+    { id: 'BP', documentType: 'Bank Payment', prefix: 'BP-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque payment disbursements to suppliers.' },
+    { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1, nextNumber: 1, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque receipts received from customers.' },
   ];
   for (const config of defaultDocConfigs) {
     await client.query(
       `INSERT INTO document_number_configs (
-         id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year
+         id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE SET
          document_type = EXCLUDED.document_type,
          prefix = EXCLUDED.prefix,
@@ -377,11 +395,12 @@ async function seedDocumentConfigs(client) {
          min_digits = EXCLUDED.min_digits,
          starting_number = EXCLUDED.starting_number,
          next_number = EXCLUDED.next_number,
-         reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year`,
-      [config.id, config.documentType, config.prefix, config.suffix, config.minDigits, config.startingNumber, config.nextNumber, config.resetEveryFiscalYear]
+         reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year,
+         notes = EXCLUDED.notes`,
+      [config.id, config.documentType, config.prefix, config.suffix, config.minDigits, config.startingNumber, config.nextNumber, config.resetEveryFiscalYear, config.notes || '']
     );
   }
-  console.log('✅ Document number configurations seeded.');
+  console.log('✅ Document number configurations seeded (22 types, daily per-branch numbering).');
 }
 
 async function seedCompanyProfile(client) {

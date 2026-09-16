@@ -311,6 +311,148 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
   return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
 }
 
+// ---------------------------------------------------------------------------
+// STRICT PER-BRANCH DAILY DOCUMENT NUMBERING (audit-safe)
+// ---------------------------------------------------------------------------
+// Produces the canonical, branch-scoped, daily-reset document number used by
+// every operational document in the system:
+//
+//   {DOC_TYPE}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}
+//   e.g. PO-BRC01-202609150001   (4-digit counter, rolls to 5 digits at 9999)
+//   e.g. ST-BRH01-2026091510002  (branch transfers / shipments)
+//
+// The counter is a database row in `document_sequence_daily` keyed by
+// (branch, doc_type, date). Issuing is atomic:
+//   INSERT ... ON CONFLICT (branch_id, doc_type, date_ad)
+//   DO UPDATE SET next_number = document_sequence_daily.next_number + 1
+//   RETURNING next_number
+// so two concurrent users (or server restarts) can never receive the same
+// number. Because the key includes the calendar date, the counter resets to 1
+// automatically each day with no fiscal-year reset and no reuse across days.
+//
+// When PostgreSQL is unreachable we fall back to the in-memory legacy
+// generator ONLY so a DB outage never blocks creating documents; once the DB
+// returns the real sequences resume.
+const DOC_TYPE_CODE_MAP: Record<string, string> = {
+  'PO': 'PO',
+  'PURCHASE_ORDER': 'PO',
+  'PURCHASE_INVOICE': 'PI',
+  'INV': 'PI',
+  'PI': 'PI',
+  'BILL': 'PI',
+  'TRF': 'ST',
+  'TRANSFER': 'ST',
+  'SHIPMENT': 'ST',
+  'ST': 'ST',
+  'SALE': 'SALE',
+  'STOCK_OUT': 'SALE',
+  'INVOICE': 'INV',
+  'SALES_INVOICE': 'INV',
+  'CON': 'CON',
+  'CONSUMABLE_ISSUE': 'CON',
+  'DMG': 'DMG',
+  'DAMAGE': 'DMG',
+  'DSP': 'DSP',
+  'DISPOSAL': 'DSP',
+  'PLT': 'PLT',
+  'PULLOUT': 'PLT',
+  'SA': 'SA',
+  'STOCK_ADJUSTMENT': 'SA',
+  'GRN': 'GRN',
+  'DN': 'DN',
+  'QUO': 'QUO',
+  'CN': 'CN',
+  'EXC': 'EXC',
+  'WC': 'WC',
+  'FAA': 'FAA',
+  'FAR': 'FAR',
+  'JV': 'JV',
+  'PV': 'PV',
+  'RV': 'RV',
+  'CP': 'CP',
+  'CR': 'CR',
+  'BP': 'BP',
+  'BR': 'BR',
+  'DC': 'DC',
+};
+
+function normalizeDocTypeCode(docType: string): string {
+  return DOC_TYPE_CODE_MAP[docType.toUpperCase()] || docType.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+}
+
+// Formats a raw sequence with a flexible width: 4 digits normally, widening
+// automatically once the counter exceeds 9999 (e.g. 10000 → "10000").
+function padSequence(seqNum: number): string {
+  return String(seqNum).padStart(4, '0');
+}
+
+/**
+ * Issues the next document number for a branch + document type on the given
+ * calendar day. When `client` is provided (inside an existing transaction) the
+ * counter claim joins that transaction; otherwise a one-off connection is used.
+ */
+async function issueNextDocNumber(
+  branchIdOrCode: string,
+  docType: string,
+  dateAd?: string,
+  client?: any
+): Promise<string> {
+  const br = branches.find((b) => b.id === branchIdOrCode || b.code === branchIdOrCode);
+  const branchCode = br?.code || branchIdOrCode || 'WH001';
+  const branchId = br?.id || branchIdOrCode || 'WH001';
+  // The admin-editable "doctype prefix" from document_number_configs is the
+  // single source of the issued code (e.g. prefix "PO" -> "PO-BRC01-202609150001").
+  // Only the leading letters/digits of the saved prefix are used, so legacy
+  // values like "PO-2081-" still resolve to "PO". Unconfigured doc types
+  // fall back to the built-in code map.
+  const cfg = docNumberConfigs.find((c) => c.id === docType);
+  const configuredPrefix = String(cfg?.prefix || '').trim();
+  const opCode = configuredPrefix
+    ? (configuredPrefix.match(/^[A-Z0-9]+/i)?.[0] || normalizeDocTypeCode(docType)).toUpperCase()
+    : normalizeDocTypeCode(docType);
+  const day = (dateAd || new Date().toISOString().split('T')[0]).slice(0, 10);
+
+  if (!isPgConnected) {
+    // DB is down — mirror the exact same format using the in-memory daily map
+    // so callers never see a different shape (still per-branch + per-day).
+    const dateStr = day.replace(/-/g, '');
+    const seqKey = `${branchCode}:${opCode}:${dateStr}`;
+    if (!transactionSequenceMap[seqKey] || transactionSequenceMap[seqKey].lastDateStr !== dateStr) {
+      transactionSequenceMap[seqKey] = { lastDateStr: dateStr, count: 1 };
+    } else {
+      transactionSequenceMap[seqKey].count += 1;
+    }
+    return `${opCode}-${branchCode}-${dateStr}${String(transactionSequenceMap[seqKey].count).padStart(4, '0')}`;
+  }
+
+  try {
+    const pool = client || pgPool;
+    const result = await pool.query(
+      `INSERT INTO document_sequence_daily (branch_id, doc_type, date_ad, next_number)
+       VALUES ($1, $2, $3, 1)
+       ON CONFLICT (branch_id, doc_type, date_ad)
+       DO UPDATE SET
+         next_number = document_sequence_daily.next_number + 1,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING next_number;`,
+      [branchId, opCode, day]
+    );
+    const issuedSeq = Number(result.rows[0]?.next_number);
+    const seqStr = padSequence(issuedSeq);
+    return `${opCode}-${branchCode}-${day.replace(/-/g, '')}${seqStr}`;
+  } catch (e: any) {
+    console.warn('issueNextDocNumber DB fallback:', e?.message);
+    const dateStr = day.replace(/-/g, '');
+    const seqKey = `${branchCode}:${opCode}:${dateStr}`;
+    if (!transactionSequenceMap[seqKey] || transactionSequenceMap[seqKey].lastDateStr !== dateStr) {
+      transactionSequenceMap[seqKey] = { lastDateStr: dateStr, count: 1 };
+    } else {
+      transactionSequenceMap[seqKey].count += 1;
+    }
+    return `${opCode}-${branchCode}-${dateStr}${String(transactionSequenceMap[seqKey].count).padStart(4, '0')}`;
+  }
+}
+
 // Document Numbering System helper (server-side)
 // Resolves the next voucher number from the document_number_configs master
 // (same sequences shown in Fiscal Year Management > Document Numbering
@@ -376,7 +518,18 @@ function verifyPassword(password: string, storedPassword: string): { valid: bool
   }
 }
 
-function issueAuthToken(user: User): string {
+/**
+ * Issue a signed HMAC token for the given user.
+ *
+ * `sessionRoot` captures the profile that originally signed in (e.g. Super
+ * Admin) when a privileged account impersonates another profile. The root
+ * marker fields stamped into the token let the impersonated session verify
+ * it may switch *back* to the root account, even though the active profile
+ * itself has no switch permission. A null/self `sessionRoot` means the token
+ * has no root marker (a fresh login or a collapsed switch-back session).
+ */
+function issueAuthToken(user: User, sessionRoot?: Partial<User> | null): string {
+  const root = sessionRoot && sessionRoot.id && sessionRoot.id !== user.id ? sessionRoot : null;
   const payload = Buffer.from(JSON.stringify({
     sub: user.id,
     email: user.email,
@@ -385,6 +538,10 @@ function issueAuthToken(user: User): string {
     branchId: user.branchId || '',
     allowedBranchIds: user.allowedBranchIds || [],
     canSwitchUser: Boolean(user.canSwitchUser),
+    rootId: root?.id || '',
+    rootEmail: root?.email || '',
+    rootCanSwitchUser: Boolean(root?.canSwitchUser),
+    rootRole: root?.role || '',
     exp: Math.floor(Date.now() / 1000) + AUTH_TOKEN_TTL_SECONDS,
   })).toString('base64url');
   const signature = crypto.createHmac('sha256', AUTH_TOKEN_SECRET).update(payload).digest('base64url');
@@ -412,6 +569,10 @@ function verifyAuthToken(token: string): Partial<User> | null {
       branchId: parsed.branchId || '',
       allowedBranchIds: Array.isArray(parsed.allowedBranchIds) ? parsed.allowedBranchIds : [],
       canSwitchUser: Boolean(parsed.canSwitchUser),
+      rootId: parsed.rootId || '',
+      rootEmail: parsed.rootEmail || '',
+      rootCanSwitchUser: Boolean(parsed.rootCanSwitchUser),
+      rootRole: parsed.rootRole || '',
     };
   } catch (_err) {
     return null;
@@ -891,8 +1052,8 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query(`SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs${txnScope.where} ORDER BY timestamp_ad DESC`, txnScope.params),
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
         pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
-        pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests${approvalScope.where}`, approvalScope.params),
-        pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC'),
+        pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS", fiscal_year_id AS "fiscalYearId" FROM approval_requests${approvalScope.where}`, approvalScope.params),
+        pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
         pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
         pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
@@ -1335,24 +1496,38 @@ app.post('/api/auth/switch-profile', async (req, res) => {
   // A valid signed session and explicit switch permission are required.
   // After a server restart the browser may still hold a stale local session;
   // rejecting here forces a clean re-login instead of a broken switch.
-  if (!(req as any).user) {
+  const activeProfile = (req as any).user;
+  if (!activeProfile) {
     return res.status(401).json({ message: 'Not authenticated. Log in again to switch profiles.' });
   }
-  if (!(req as any).user.canSwitchUser) {
+
+  // Authorization gate:
+  //  - A profile that itself has switch permission may switch (canSwitchUser).
+  //  - A profile that is SUPER_ADMIN may always switch.
+  //  - An impersonated profile may switch *back* to its root (the account that
+  //    initiated the session) when the root granted switching or is SUPER_ADMIN.
+  const isActiveSuperAdmin = activeProfile.role === 'SUPER_ADMIN';
+  const rootAllowed =
+    Boolean(activeProfile.rootId) &&
+    (Boolean(activeProfile.rootCanSwitchUser) || activeProfile.rootRole === 'SUPER_ADMIN');
+  if (!activeProfile.canSwitchUser && !isActiveSuperAdmin && !rootAllowed) {
     return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
   }
 
   const { targetUserId } = req.body;
+  const targetEmail = typeof req.body?.targetEmail === 'string' ? req.body.targetEmail.trim() : '';
   let user: any = null;
 
   // PostgreSQL is the source of truth for user profiles. The in-memory user
   // list can be stale (users created/edited after boot, or a data reset),
   // which previously caused "Target user profile not found" on switch.
-  if (isPgConnected && targetUserId) {
+  // The frontend sends the target email alongside the id so a re-created
+  // account (new id after a demo data reset) can still be resolved.
+  if (isPgConnected && (targetUserId || targetEmail)) {
     try {
       const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($1) LIMIT 1',
-        [String(targetUserId)]
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($2) LIMIT 1',
+        [String(targetUserId || ''), String(targetEmail || '')]
       );
       user = dbRes.rows[0] || null;
     } catch (err: any) {
@@ -1362,7 +1537,8 @@ app.post('/api/auth/switch-profile', async (req, res) => {
 
   // Fallback to the in-memory mirror when PostgreSQL is unavailable.
   if (!user) {
-    user = users.find((u) => u.id === targetUserId || u.email === targetUserId) || null;
+    user =
+      users.find((u) => u.id === targetUserId || u.email === targetUserId || u.email.toLowerCase() === targetEmail.toLowerCase()) || null;
   }
 
   if (!user) {
@@ -1374,8 +1550,24 @@ app.post('/api/auth/switch-profile', async (req, res) => {
   if (memIdx >= 0) users[memIdx] = { ...users[memIdx], ...user };
   else users.push(user);
 
-  const previousUser = (req as any).user;
+  const previousUser = activeProfile;
   activeUser = user;
+
+  // Resolve the session root marker for the next token:
+  //  - Switching back to the root collapses the marker to null (fresh root session).
+  //  - Otherwise carry the existing root marker forward (preserves the chain).
+  const rootId = previousUser?.rootId || '';
+  const rootEmail = previousUser?.rootEmail || '';
+  const targetIsRoot =
+    Boolean(rootId) &&
+    (user.id === rootId || (rootEmail && user.email?.toLowerCase() === rootEmail.toLowerCase()));
+  const sessionRoot = targetIsRoot
+    ? null
+    : rootId
+      ? { id: rootId, email: rootEmail, canSwitchUser: previousUser?.rootCanSwitchUser, role: previousUser?.rootRole }
+      : previousUser?.id && previousUser.id !== user.id
+        ? { id: previousUser.id, email: previousUser.email, canSwitchUser: previousUser.canSwitchUser, role: previousUser.role }
+        : null;
 
   auditTrail.unshift({
     id: `aud-${Date.now()}`,
@@ -1389,7 +1581,7 @@ app.post('/api/auth/switch-profile', async (req, res) => {
   });
 
   const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: issueAuthToken(user) });
+  res.json({ user: userWithoutPass, token: issueAuthToken(user, sessionRoot) });
 });
 
 // Profile Update Endpoint
@@ -2245,7 +2437,9 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   if (isPgConnected) {
     try {
-      const { rows } = await pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC');
+      const { rows } = await pgPool.query(
+        'SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'
+      );
       return res.json(rows);
     } catch (err: any) {
       console.warn('Database note on GET /api/categories:', err?.message || err);
@@ -2261,6 +2455,7 @@ app.post('/api/categories', async (req, res) => {
       name: req.body.name || 'New Category',
       code: req.body.code || `CAT-${Date.now().toString().slice(-4)}`,
       description: req.body.description || '',
+      isSpecialTracked: Boolean(req.body.isSpecialTracked),
     };
     const existingIdx = categories.findIndex((c) => c.id === newCat.id || c.name.toLowerCase() === newCat.name.toLowerCase());
     if (existingIdx !== -1) {
@@ -2271,16 +2466,18 @@ app.post('/api/categories', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO categories (id, name, code, description)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO categories (id, name, code, description, is_special_tracked)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            code = EXCLUDED.code,
-           description = EXCLUDED.description;`,
-        [newCat.id, newCat.name, newCat.code, newCat.description]
+           description = EXCLUDED.description,
+           is_special_tracked = EXCLUDED.is_special_tracked;`,
+        [newCat.id, newCat.name, newCat.code, newCat.description, newCat.isSpecialTracked]
       );
     }
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
+    broadcastChange({ type: 'CATEGORY_CREATED', entity: 'categories' });
     res.status(201).json(newCat);
   } catch (err: any) {
     console.error('Error creating category:', err);
@@ -2299,11 +2496,17 @@ app.put('/api/categories/:id', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `UPDATE categories SET name = $1, code = $2, description = $3 WHERE id = $4;`,
-        [updated.name, updated.code, updated.description, id]
+        `UPDATE categories
+         SET name = $1,
+             code = $2,
+             description = $3,
+             is_special_tracked = $4
+         WHERE id = $5;`,
+        [updated.name, updated.code, updated.description || '', Boolean(updated.isSpecialTracked), id]
       );
     }
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
+    broadcastChange({ type: 'CATEGORY_UPDATED', entity: 'categories' });
     res.json(updated);
   } catch (err: any) {
     console.error('Error updating category:', err);
@@ -2321,6 +2524,7 @@ app.delete('/api/categories/:id', async (req, res) => {
       await pgPool.query('DELETE FROM categories WHERE id = $1;', [id]);
     }
     logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
+    broadcastChange({ type: 'CATEGORY_DELETED', entity: 'categories' });
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting category:', err);
@@ -3106,13 +3310,17 @@ app.post('/api/purchase-orders', async (req, res) => {
     const taxAmount = items.reduce((s: number, i: any) => s + (i.taxAmount || 0), 0);
     const totalAmount = subtotalAmount + taxAmount;
 
+    const poBranchId = req.body.branchId || 'WH001';
+    const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0];
+    const poNumber = req.body.poNumber || (await issueNextDocNumber(poBranchId, 'PO', poOrderDate));
+
     const newPO = {
       id: req.body.id || `po-${Date.now()}`,
-      poNumber: req.body.poNumber || generateStandardTransactionId(req.body.branchId || 'WH001', 'PO'),
+      poNumber,
       subtotalAmount,
       taxAmount,
       totalAmount,
-      orderDateAd: req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0],
+      orderDateAd: poOrderDate,
       orderDateBs: req.body.orderDateBS || req.body.orderDateBs || '2083-04-10 BS',
       ...req.body,
     };
@@ -3316,10 +3524,12 @@ app.get('/api/purchase-invoices', async (req, res) => {
 app.post('/api/purchase-invoices', async (req, res) => {
   try {
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
+    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
+    const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'PI', invDate));
     const newInv = {
       id: req.body.id || `inv-${Date.now()}`,
-      invoiceNumber: req.body.invoiceNumber || generateStandardTransactionId(targetBranchId, 'PI'),
-      invoiceDateAD: req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0],
+      invoiceNumber,
+      invoiceDateAD: invDate,
       invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || '2083-04-10 BS',
       ...req.body,
     };
@@ -3804,10 +4014,11 @@ app.post('/api/vendor-payments', async (req, res) => {
     if (!paymentDateBS) paymentDateBS = '2083-04-16 BS';
 
     const paymentMethod = (body.paymentMethod || 'CASH').toUpperCase();
-    // Generate payment number from document numbering system based on payment method
-    // CP = Cash Payment, BP = Bank Payment (transfer/cheque/card/online)
+    // Generate payment number from the daily per-branch sequence based on the
+    // payment method: CP = Cash Payment, BP = Bank Payment
+    // (transfer/cheque/card/online). Format: CP-BRC01-202609150001
     const payDocType = paymentMethod === 'CASH' ? 'CP' : 'BP';
-    const paymentNumber = body.paymentNumber || generateNextDocNumberForServer(payDocType);
+    const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
     const id = `vp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
     const newPayment: VendorPayment = {
@@ -4190,10 +4401,13 @@ app.post('/api/shipments', async (req, res) => {
       });
     }
 
+    const sourceBranchId = req.body.sourceBranchId || branches[0]?.id || 'WH001';
+    const trackingCode = req.body.trackingCode || (await issueNextDocNumber(sourceBranchId, 'ST', dispatchDateAD));
+
     const newShipment = {
       ...req.body,
       id: req.body.id || `sh-${Date.now()}`,
-      trackingCode: req.body.trackingCode || generateStandardTransactionId(req.body.sourceBranchId || 'WH001', 'TRF'),
+      trackingCode,
       sourceBranchName: sourceBranch?.name || req.body.sourceBranchName || 'Source',
       destinationBranchName: destBranch?.name || req.body.destinationBranchName || 'Destination',
       // Date integrity: the AD dispatch date stays in the AD column, and the BS
@@ -4515,10 +4729,22 @@ app.post('/api/stock-operations', async (req, res) => {
       });
     }
 
+    const opBranchId = req.body.branchId || 'WH001';
+    // Map operation type to document type code for numbering:
+    // DAMAGE → DMG, PULLOUT → PLT, STOCK_OUT → SALE, CONSUMABLE_ISSUE → CON,
+    // MANUAL_ADJUSTMENT → SA, others → their first 4 letters.
+    const opTypeDocMap: Record<string, string> = {
+      DAMAGE: 'DMG',
+      PULLOUT: 'PLT',
+      STOCK_OUT: 'SALE',
+      CONSUMABLE_ISSUE: 'CON',
+      MANUAL_ADJUSTMENT: 'SA',
+    };
+    const docType = opTypeDocMap[opType] || opType.slice(0, 4).toUpperCase();
     const newOp = {
       ...req.body,
       id: req.body.id || `op-${Date.now()}`,
-      referenceNumber: req.body.referenceNumber || generateStandardTransactionId(req.body.branchId || 'WH001', opType),
+      referenceNumber: req.body.referenceNumber || (await issueNextDocNumber(opBranchId, docType, opDateAD)),
       // Date integrity: the AD date stays in the AD column, and the BS date is
       // ALWAYS derived from the seeded bs_day_records DB record for that AD
       // date. A client-supplied dateBS can never override it (prevents
@@ -4933,6 +5159,58 @@ app.get('/api/fiscal-years', async (req, res) => {
     }
   }
   res.json(fiscalYears);
+});
+
+// Create a new fiscal year directly in Postgres. SUPER_ADMIN only. A new period
+// is never auto-activated: it starts open (is_closed = FALSE) and is normally
+// made the active view once it goes live.
+app.post('/api/fiscal-years', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
+
+  if (![code, startDateAD, endDateAD, startDateBS, endDateBS].every((v) => typeof v === 'string' && v.trim())) {
+    return res.status(400).json({ message: 'Fiscal year code and all BS/AD period dates are required.' });
+  }
+  if (Number.isNaN(Date.parse(startDateAD)) || Number.isNaN(Date.parse(endDateAD)) || startDateAD > endDateAD) {
+    return res.status(400).json({ message: 'Enter a valid AD period with an end date on or after the start date.' });
+  }
+
+  const cleanCode = code.trim();
+  try {
+    // Prevent overlapping fiscal periods so every AD date belongs to exactly one
+    // fiscal year (the assign_fiscal_year_id_from_date trigger relies on this).
+    const overlapCheck = await pgPool.query(
+      `SELECT code FROM fiscal_years
+       WHERE ($1::date BETWEEN start_date_ad AND end_date_ad)
+          OR ($2::date BETWEEN start_date_ad AND end_date_ad)
+          OR (start_date_ad BETWEEN $1::date AND $2::date)
+       LIMIT 1;`,
+      [startDateAD, endDateAD]
+    );
+    if (overlapCheck.rows[0]) {
+      return res.status(409).json({
+        message: `The new period overlaps with FY ${overlapCheck.rows[0].code}. Adjust the dates so every day belongs to exactly one fiscal year.`,
+      });
+    }
+
+    const id = `fy-${crypto.randomUUID()}`;
+    const result = await pgPool.query(
+      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, FALSE)
+       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo";`,
+      [id, cleanCode, startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim()]
+    );
+    const newFiscalYear = result.rows[0];
+    fiscalYears.push(newFiscalYear);
+    fiscalYears.sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD)));
+    logAuditEvent(req, 'CREATE_FISCAL_YEAR', 'FISCAL_YEAR', `Created fiscal year ${newFiscalYear.code}`);
+    return res.status(201).json(newFiscalYear);
+  } catch (error: any) {
+    if (error?.code === '23505') return res.status(409).json({ message: 'That fiscal year code already exists.' });
+    console.error('Error creating fiscal year:', error);
+    return res.status(500).json({ message: `Unable to create fiscal year: ${error.message}` });
+  }
 });
 
 app.post('/api/fiscal-years/:id/set-current', requireRole('SUPER_ADMIN'), async (req, res) => {
@@ -5734,7 +6012,7 @@ app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res)
   try {
     const result = await withTransaction(async (client) => {
       const fiscalYearResult = await client.query(
-        'SELECT id, code, is_current AS "isCurrent" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+        'SELECT id, code, is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
         [id]
       );
       const fiscalYear = fiscalYearResult.rows[0];
@@ -5751,12 +6029,59 @@ app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res)
         throw error;
       }
 
+      // Safety guard: a fiscal year that already carries ANY business records
+      // (invoices, stock operations, opening balances, audit/transaction logs,
+      // device records, etc.) must never be deleted. Only a completely empty
+      // period created by mistake can be removed. bs_day_records are excluded:
+      // they are auto-generated calendar reference rows (FK ON DELETE SET NULL)
+      // that exist for every period, not business records belonging to the FY.
+      const referenceTables: Array<[table: string, label: string]> = [
+        ['purchase_invoices', 'purchase invoices'],
+        ['purchase_orders', 'purchase orders'],
+        ['shipments', 'shipments'],
+        ['stock_operations', 'stock operations'],
+        ['damage_records', 'damage records'],
+        ['fixed_assets', 'fixed assets'],
+        ['vendor_payments', 'vendor payments'],
+        ['audit_logs', 'audit logs'],
+        ['transaction_logs', 'transaction logs'],
+        ['customer_device_records', 'customer device records'],
+        ['approval_requests', 'approval requests'],
+        ['fiscal_year_opening_stock', 'opening-stock records'],
+        ['vendor_opening_balances', 'vendor opening-balance records'],
+      ];
+      const tableCounts: Array<{ label: string; count: number }> = [];
+
+      for (const [table, label] of referenceTables) {
+        try {
+          const countResult = await client.query(
+            `SELECT COUNT(*)::int AS count FROM ${table} WHERE fiscal_year_id = $1;`,
+            [id]
+          );
+          const count = Number(countResult.rows[0]?.count || 0);
+          if (count > 0) tableCounts.push({ label, count });
+        } catch (countError: any) {
+          // The table may not exist in older deployments — skip it rather than
+          // failing the whole deletion check.
+          if (countError?.code !== '42P01') throw countError;
+        }
+      }
+
+      if (tableCounts.length > 0) {
+        const summary = tableCounts.map((t) => `${t.label} (${t.count})`).join(', ');
+        const error: any = new Error(
+          `Fiscal year ${fiscalYear.code} cannot be deleted because it already contains records: ${summary}. Only a fiscal year with no records can be removed.`
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
       await client.query('DELETE FROM fiscal_years WHERE id = $1;', [id]);
       return fiscalYear;
     });
 
     fiscalYears = fiscalYears.filter((fiscalYear) => fiscalYear.id !== id);
-    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code}`);
+    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code} (no records existed)`);
     return res.json({ message: `Fiscal year ${result.code} deleted successfully.`, id });
   } catch (error: any) {
     if (error?.statusCode) {
@@ -7570,7 +7895,7 @@ async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (26 tables) & creating high-throughput performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (28 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -7621,7 +7946,8 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(150) UNIQUE NOT NULL,
         code VARCHAR(30) UNIQUE NOT NULL,
-        description TEXT
+        description TEXT,
+        is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE
       );
 
       -- 5. Products
@@ -7662,7 +7988,40 @@ async function syncDatabaseAndIndexes() {
         CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
       );
 
-      -- 7. Fixed Assets
+      -- 7. Damage Records (damage lifecycle: identified -> disposed/written-off)
+      CREATE TABLE IF NOT EXISTS damage_records (
+        id VARCHAR(50) PRIMARY KEY,
+        damage_reference VARCHAR(100) UNIQUE NOT NULL,
+        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        quantity_damaged INT NOT NULL CHECK (quantity_damaged > 0),
+        unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        total_cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        damage_date_ad DATE NOT NULL,
+        damage_date_bs VARCHAR(20) NOT NULL,
+        damage_reason VARCHAR(100) NOT NULL CHECK (damage_reason IN ('PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER')),
+        status VARCHAR(30) NOT NULL DEFAULT 'IDENTIFIED' CHECK (status IN ('IDENTIFIED', 'UNDER_REVIEW', 'DISPOSED', 'WRITTEN_OFF', 'RETURNED_TO_SUPPLIER', 'CANCELLED')),
+        disposal_date_ad DATE,
+        disposal_date_bs VARCHAR(20),
+        disposal_method VARCHAR(50) CHECK (disposal_method IN ('SCRAP_DESTRUCTION', 'SALVAGE_E_WASTE', 'VENDOR_RMA', 'INSURANCE_CLAIM', 'WRITE_OFF', 'RETURN_TO_SUPPLIER', 'AUCTION')),
+        salvage_value NUMERIC(15, 2) DEFAULT 0,
+        gl_account_code VARCHAR(100),
+        write_off_loss NUMERIC(15, 2) DEFAULT 0,
+        approved_by VARCHAR(150),
+        notes TEXT,
+        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_damage_records_product ON damage_records(product_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_branch ON damage_records(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_status ON damage_records(status);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_fiscal_year ON damage_records(fiscal_year_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_demo ON damage_records(id) WHERE is_demo = TRUE;
+
+      -- 8. Fixed Assets
       CREATE TABLE IF NOT EXISTS fixed_assets (
         id VARCHAR(50) PRIMARY KEY,
         tag_number VARCHAR(100) UNIQUE NOT NULL,
@@ -7969,6 +8328,19 @@ async function syncDatabaseAndIndexes() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 23b. Daily Document Sequence Counters (per branch, per doc type, per day)
+      CREATE TABLE IF NOT EXISTS document_sequence_daily (
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        doc_type VARCHAR(20) NOT NULL,
+        date_ad DATE NOT NULL,
+        next_number INT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (branch_id, doc_type, date_ad)
+      );
+      CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequence_daily(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
+
       -- SCHEMA MIGRATION SAFE ALTERS
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_number VARCHAR(100);
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL;
@@ -8118,6 +8490,7 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
       ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
@@ -8310,7 +8683,7 @@ async function syncDatabaseAndIndexes() {
     await hydrateBsCalendarFromDb(client);
 
     client.release();
-    console.log('✅ All 26 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
+    console.log('✅ All 28 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
     setIsPgConnected(false);
@@ -8450,7 +8823,7 @@ async function hydrateOperationalData(client: pg.PoolClient) {
     },
     {
       name: 'categories',
-      query: 'SELECT id, name, code, description FROM categories ORDER BY name ASC',
+      query: 'SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC',
       apply: (rows) => { categories = rows; },
     },
     {

@@ -81,6 +81,8 @@ export function buildDemoDataset(branches) {
   const branch2 = branches.find((b) => !b.isHeadquarters) || branches[1] || hqBranch;
   const HQ_BRANCH_ID = hqBranch ? hqBranch.id : 'WH001';
   const BRANCH2_ID = branch2 ? branch2.id : HQ_BRANCH_ID;
+  const HQ_BRANCH_CODE = hqBranch ? hqBranch.code : 'WH001';
+  const BRANCH2_CODE = branch2 ? branch2.code : 'BRH01';
 
   const demoProducts = EXCEL_ITEMS.map((item, idx) => {
     const isConsumableOrCable =
@@ -240,7 +242,7 @@ export function buildDemoDataset(branches) {
   const demoPurchaseOrders = [
     {
       id: 'demo-po-101',
-      poNumber: 'PO-DEMO-001',
+      poNumber: `PO-${HQ_BRANCH_CODE}-202607200001`,
       supplierId: demoSuppliers[0].id,
       supplierName: demoSuppliers[0].name,
       branchId: branches.length > 0 ? branches[0].id : 'WH001',
@@ -275,7 +277,7 @@ export function buildDemoDataset(branches) {
   const demoPurchaseInvoices = [
     {
       id: 'demo-pi-101',
-      invoiceNumber: 'PI-DEMO-1001',
+      invoiceNumber: `PI-${HQ_BRANCH_CODE}-202608100001`,
       poReferenceId: 'demo-po-101',
       vendorBillNumber: 'VND-2026-001',
       supplierName: demoSuppliers[0].name,
@@ -311,7 +313,7 @@ export function buildDemoDataset(branches) {
     },
     {
       id: 'demo-pi-102',
-      invoiceNumber: 'PI-DEMO-1002',
+      invoiceNumber: `PI-${BRANCH2_CODE}-202608180001`,
       poReferenceId: null,
       vendorBillNumber: 'VND-2026-008',
       supplierName: demoSuppliers[1].name,
@@ -347,7 +349,7 @@ export function buildDemoDataset(branches) {
     },
     {
       id: 'demo-pi-103',
-      invoiceNumber: 'PI-DEMO-1003',
+      invoiceNumber: `PI-${HQ_BRANCH_CODE}-202608050001`,
       poReferenceId: null,
       vendorBillNumber: 'VND-2026-012',
       supplierName: demoSuppliers[2].name,
@@ -389,12 +391,12 @@ export function buildDemoDataset(branches) {
   const demoVendorPayments = [
     {
       id: 'demo-vp-101',
-      paymentNumber: 'BP-2081-1001',
+      paymentNumber: `BP-${HQ_BRANCH_CODE}-202608120001`,
       supplierId: demoSuppliers[0].id,
       supplierName: demoSuppliers[0].name,
       branchId: HQ_BRANCH_ID,
       invoiceId: 'demo-pi-101',
-      invoiceNumber: 'PI-DEMO-1001',
+      invoiceNumber: `PI-${HQ_BRANCH_CODE}-202608100001`,
       paymentDateAD: '2026-08-12',
       paymentDateBS: '2083-04-28 BS',
       amount: 50000,
@@ -406,7 +408,7 @@ export function buildDemoDataset(branches) {
       chequeDateAD: null,
       chequeDateBS: null,
       transactionReference: 'NIB-REF-2026-441',
-      notes: 'Demo partial payment for PI-DEMO-1001 (bank transfer).',
+      notes: `Demo partial payment for PI-${HQ_BRANCH_CODE}-202608100001 (bank transfer).`,
       status: 'POSTED',
       reversalReason: null,
       reversedBy: null,
@@ -418,12 +420,12 @@ export function buildDemoDataset(branches) {
     },
     {
       id: 'demo-vp-102',
-      paymentNumber: 'BP-2081-1002',
+      paymentNumber: `BP-${HQ_BRANCH_CODE}-202608070001`,
       supplierId: demoSuppliers[2].id,
       supplierName: demoSuppliers[2].name,
       branchId: HQ_BRANCH_ID,
       invoiceId: 'demo-pi-103',
-      invoiceNumber: 'PI-DEMO-1003',
+      invoiceNumber: `PI-${HQ_BRANCH_CODE}-202608050001`,
       paymentDateAD: '2026-08-07',
       paymentDateBS: '2083-04-23 BS',
       amount: 25425,
@@ -435,7 +437,7 @@ export function buildDemoDataset(branches) {
       chequeDateAD: '2026-08-07',
       chequeDateBS: '2083-04-23 BS',
       transactionReference: null,
-      notes: 'Demo full payment for PI-DEMO-1003 (cheque).',
+      notes: `Demo full payment for PI-${HQ_BRANCH_CODE}-202608050001 (cheque).`,
       status: 'POSTED',
       reversalReason: null,
       reversedBy: null,
@@ -447,12 +449,12 @@ export function buildDemoDataset(branches) {
     },
     {
       id: 'demo-vp-103',
-      paymentNumber: 'CP-2081-1001',
+      paymentNumber: `CP-${BRANCH2_CODE}-202608160001`,
       supplierId: demoSuppliers[1].id,
       supplierName: demoSuppliers[1].name,
       branchId: BRANCH2_ID,
       invoiceId: 'demo-pi-102',
-      invoiceNumber: 'PI-DEMO-1002',
+      invoiceNumber: `PI-${BRANCH2_CODE}-202608180001`,
       paymentDateAD: '2026-08-16',
       paymentDateBS: '2083-05-02 BS',
       amount: 20000,
@@ -464,7 +466,7 @@ export function buildDemoDataset(branches) {
       chequeDateAD: null,
       chequeDateBS: null,
       transactionReference: null,
-      notes: 'Demo cash advance for PI-DEMO-1002.',
+      notes: `Demo cash advance for PI-${BRANCH2_CODE}-202608180001.`,
       status: 'REVERSED',
       reversalReason: 'Cash advance cancelled - bank transfer issued instead.',
       reversedBy: 'demo@example.com',

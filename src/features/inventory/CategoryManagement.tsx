@@ -79,7 +79,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
     try {
       if (editingCat) {
         const updated = await api.updateCategory(editingCat.id, { name, code, description, isSpecialTracked });
-        setCategories(categories.map((c) => (c.id === editingCat.id ? updated : c)));
+        setCategories(categories.map((c) => (c.id === editingCat.id ? { ...updated, isSpecialTracked: updated.isSpecialTracked ?? isSpecialTracked } : c)));
       } else {
         const created = await api.createCategory({
           id: `cat-${Date.now()}`,
@@ -88,7 +88,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
           description,
           isSpecialTracked,
         });
-        setCategories([...categories, created]);
+        setCategories([...categories, { ...created, isSpecialTracked: created.isSpecialTracked ?? isSpecialTracked }]);
       }
       setIsModalOpen(false);
     } catch (err: any) {
@@ -116,7 +116,15 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
         description: cat.description || '',
         isSpecialTracked: newVal,
       });
-      setCategories(categories.map((c) => (c.id === cat.id ? updated : c)));
+      // Make sure the tracked flag survives even if a proxy/server response
+      // ever omits it — fall back to the value we just requested.
+      setCategories(
+        categories.map((c) =>
+          c.id === cat.id
+            ? { ...updated, isSpecialTracked: updated.isSpecialTracked ?? newVal }
+            : c
+        )
+      );
     } catch (err: any) {
       alert(`Failed to update: ${err?.message || 'Database error'}`);
     }

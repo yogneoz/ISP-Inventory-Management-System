@@ -51,7 +51,7 @@ import { Shipments } from './features/procurement/Shipments';
 import { StockOperations } from './features/inventory/StockOperations';
 import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
 import { BsCalendarUtility } from './features/finance/BsCalendarUtility';
-import { FiscalYearManagement } from './features/finance/FiscalYearManagement';
+import { DocumentNumbering } from './features/finance/DocumentNumbering';
 import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagement';
 import { AuditTrailReports } from './features/finance/AuditTrailReports';
 import { BranchesManagement } from './features/settings/BranchesManagement';
@@ -772,6 +772,24 @@ export default function App() {
   const handleSetCurrentFiscalYear = async (id: string) => {
     await api.setCurrentFiscalYear(id);
     refreshAllData();
+  };
+
+  const handleCreateFiscalYear = async (input: {
+    code: string;
+    startDateAD: string;
+    endDateAD: string;
+    startDateBS: string;
+    endDateBS: string;
+  }) => {
+    const created = await api.createFiscalYear(input);
+    await refreshAllData();
+    return created;
+  };
+
+  const handleDeleteFiscalYear = async (id: string) => {
+    const result = await api.deleteFiscalYear(id);
+    await refreshAllData();
+    return result;
   };
 
   const handleCloseFiscalYear = async (
@@ -1987,6 +2005,8 @@ export default function App() {
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
                   onCloseFiscalYear={handleCloseFiscalYear}
                   onReopenFiscalYear={handleReopenFiscalYear}
+                  onCreateFiscalYear={handleCreateFiscalYear}
+                  onDeleteFiscalYear={handleDeleteFiscalYear}
                   onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
                   onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
                   dateMode={dateMode}
@@ -1995,6 +2015,9 @@ export default function App() {
                   stock={stock}
                   assets={assets}
                   purchaseInvoices={purchaseInvoices}
+                  purchaseOrders={purchaseOrders}
+                  shipments={shipments}
+                  approvalRequests={approvalRequests}
                   currentUser={currentUser}
                   onRefreshData={refreshAllData}
                   companyProfile={companyProfile}
@@ -2009,7 +2032,7 @@ export default function App() {
               )}
 
               {activeTab === 'fiscal-year-management' && (
-                <FiscalYearManagement />
+                <DocumentNumbering />
               )}
 
               {activeTab === 'nepali-fiscal' && (

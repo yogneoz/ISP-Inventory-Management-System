@@ -35,6 +35,13 @@ export interface User {
   allowedBranchIds?: string[];
   avatarUrl?: string;
   canSwitchUser?: boolean;
+  // Session root marker (set only when this profile is an impersonated child
+  // of another account via profile switching). Lets a switched session switch
+  // back to the account that originally signed in.
+  rootId?: string;
+  rootEmail?: string;
+  rootCanSwitchUser?: boolean;
+  rootRole?: string;
 }
 
 export interface Supplier {

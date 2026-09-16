@@ -296,43 +296,62 @@ export function saveDocumentNumberConfigs(configs: DocumentNumberConfig[]): void
   });
 }
 
-export function formatDocumentNumber(config: DocumentNumberConfig, seqNum?: number): string {
-  const numToFormat = seqNum !== undefined ? seqNum : config.nextNumber;
+/**
+ * Extracts the editable DOCTYPE prefix from a config prefix value.
+ *
+ * The server emits document numbers as
+ *   {PREFIX}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}
+ * (e.g. PO-BRC01-202609150001). Only the leading letters/digits of the saved
+ * prefix matter for the issued code — legacy values like "PO-2081-" still
+ * resolve to "PO". This helper mirrors the server-side logic in
+ * `issueNextDocNumber`.
+ */
+export function getDocTypePrefix(config: DocumentNumberConfig): string {
+  const raw = String(config.prefix || '').trim();
+  const match = raw.match(/^[A-Za-z0-9]+/);
+  return (match ? match[0] : (config.id || 'DOC')).toUpperCase();
+}
+
+/**
+ * Formats a DOCUMENT NUMBER SAMPLE for display only.
+ *
+ * Actual document numbers are issued atomically by the server as
+ *   {PREFIX}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}
+ * (e.g. PO-BRC01-202609150001). This helper only renders what a number would
+ * look like using the configured prefix; it never issues or reserves a number.
+ */
+export function formatDocumentNumber(config: DocumentNumberConfig, seqNum?: number, branchCode = 'BRC01', dateStr = '20260915'): string {
+  const code = getDocTypePrefix(config);
+  const numToFormat = seqNum !== undefined ? seqNum : (config.nextNumber || 1);
   const paddedNum = String(numToFormat).padStart(config.minDigits || 4, '0');
-  return `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
+  return `${code}-${branchCode}-${dateStr}${paddedNum}`;
 }
 
-export function generateNextDocumentNumber(docTypeId: string, autoIncrement = false): string {
+/**
+ * @deprecated The server now issues every document number atomically via
+ * `issueNextDocNumber` (per-branch, per-day, DB-backed). This client-side
+ * generator is intentionally removed. Keep the signature so any legacy call
+ * site still compiles, but it no longer increments or persists anything.
+ */
+export function generateNextDocumentNumber(docTypeId: string, _autoIncrement = false): string {
   const configs = getDocumentNumberConfigs();
-  const index = configs.findIndex((c) => c.id === docTypeId);
-  if (index === -1) {
-    // Fallback if unrecognized type
-    const fallbackSeq = Math.floor(1000 + Math.random() * 9000);
-    return `${docTypeId}-2081-${fallbackSeq}`;
+  const config = configs.find((c) => c.id === docTypeId);
+  if (!config) {
+    // Match the server fallback shape as closely as possible.
+    return `${docTypeId}-BRC01-${new Date().toISOString().split('T')[0].replace(/-/g, '')}0001`;
   }
-
-  const config = configs[index];
-  const docNumber = formatDocumentNumber(config);
-
-  if (autoIncrement) {
-    configs[index].nextNumber = config.nextNumber + 1;
-    saveDocumentNumberConfigs(configs);
-
-    // Call API generate-next asynchronously to ensure server state is also updated
-    api.generateNextDocumentNumber(docTypeId, true).catch((_e) => {});
-  }
-
-  return docNumber;
+  return formatDocumentNumber(config, config.nextNumber || 1);
 }
 
-export function resetDocumentSequence(docTypeId: string, newStartNumber?: number): void {
+/**
+ * @deprecated The server's daily sequence cannot be reset from the client —
+ * only the editable prefix is stored in document_number_configs. This helper
+ * is kept only for compile-compatibility with legacy callers.
+ */
+export function resetDocumentSequence(docTypeId: string, _newStartNumber?: number): void {
   const configs = getDocumentNumberConfigs();
   const index = configs.findIndex((c) => c.id === docTypeId);
   if (index !== -1) {
-    const startNum = newStartNumber !== undefined ? newStartNumber : configs[index].startingNumber;
-    configs[index].nextNumber = startNum;
     saveDocumentNumberConfigs(configs);
-
-    api.resetDocumentSequence(docTypeId, startNum).catch((_e) => {});
   }
 }

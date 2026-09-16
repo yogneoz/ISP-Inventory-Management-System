@@ -664,6 +664,31 @@ CREATE TABLE IF NOT EXISTS document_number_configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 24b. Daily Document Sequence Counters (per branch, per document type, per day)
+-- ==============================================================================
+-- Strict per-branch audit numbering. Format produced by the server:
+--   {DOC_TYPE}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}
+-- e.g. PO-BRC01-202609150001
+--
+-- One row exists per (branch, doc type, calendar day). The counter resets
+-- naturally every day because a new date key starts at 1 — there is no
+-- fiscal-year reset and never any reuse across days. The number is issued
+-- atomically (INSERT ... ON CONFLICT DO UPDATE ... RETURNING next_number)
+-- so concurrent users can never receive duplicates even across server
+-- restarts (state is durable here, not in memory).
+CREATE TABLE IF NOT EXISTS document_sequence_daily (
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    doc_type VARCHAR(20) NOT NULL,
+    date_ad DATE NOT NULL,
+    next_number INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (branch_id, doc_type, date_ad)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequence_daily(branch_id);
+CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
+
 -- ============================================================================
 -- v3.0 MIGRATION for databases created with schema v2.x
 -- (No-ops on fresh installs where the columns already exist above.)

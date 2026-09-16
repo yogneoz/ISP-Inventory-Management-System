@@ -217,19 +217,26 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       {/* Stock Matrix Table with Sticky Frozen Headers and Column */}
       <div className={`rounded-2xl border shadow-lg overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-15rem)] relative">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-xs bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
+          {/* border-separate (not border-collapse) so sticky cells keep their
+              grid borders while scrolling; each cell draws border-b + border-r
+              for a clean matrix lining. */}
+          <table className="w-full text-left text-xs border-separate border-spacing-0">
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider bg-slate-100 text-slate-700 dark:bg-[#12161f] dark:text-slate-400`}>
               <tr>
-                <th className={`px-2.5 py-1.5 sticky top-0 left-0 z-30 w-64 border-r bg-slate-100 border-slate-200 dark:bg-[#12161f] dark:border-slate-800`}>
+                <th className={`sticky top-0 left-0 z-30 px-3 py-2 text-left whitespace-nowrap border-b border-r bg-slate-100 border-slate-200 dark:bg-[#12161f] dark:border-slate-800`}>
                   Product SKU & Name
                 </th>
-                <th className="px-2.5 py-1.5 text-center sticky top-0 bg-inherit">Category</th>
-                <th className="px-2.5 py-1.5 text-right sticky top-0 bg-inherit">Min Reorder</th>
-                <th className={`px-2.5 py-1.5 text-center sticky top-0 border-l border-r font-extrabold bg-indigo-50/80 text-indigo-900 border-slate-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-slate-800`}>
+                <th className="px-3 py-2 text-center sticky top-0 bg-inherit border-b border-r min-w-[110px] border-slate-200 dark:border-slate-800">
+                  Category
+                </th>
+                <th className="px-3 py-2 text-right sticky top-0 bg-inherit border-b border-r min-w-[90px] border-slate-200 dark:border-slate-800">
+                  Min Reorder
+                </th>
+                <th className={`px-3 py-2 text-center sticky top-0 border-b border-r font-extrabold bg-indigo-100/80 text-indigo-900 border-slate-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-slate-800`}>
                   Total Stock
                 </th>
                 {activeBranches.map((b) => (
-                  <th key={b.id} className={`px-2.5 py-1.5 text-center border-l sticky top-0 bg-inherit min-w-[130px] border-slate-200 dark:border-slate-800`}>
+                  <th key={b.id} className={`px-3 py-2 text-center border-b border-r sticky top-0 bg-inherit min-w-[140px] border-slate-200 dark:border-slate-800`}>
                     <div className={`font-bold text-slate-900 dark:text-white`}>{b.name}</div>
                     <div className="text-[9px] font-normal text-slate-500 font-mono">
                       {b.code} {b.isHeadquarters && '⭐ HQ'}
@@ -238,10 +245,10 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 ))}
               </tr>
             </thead>
-            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
+            <tbody>
               {visibleProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={4 + activeBranches.length} className="p-8 text-center text-slate-500 text-xs">
+                  <td colSpan={4 + activeBranches.length} className="p-8 text-center text-slate-500 text-xs border-b border-slate-200 dark:border-slate-800">
                     No available stock items found. Click "Showing Available Stock Only" to toggle and view zero-stock items.
                   </td>
                 </tr>
@@ -258,24 +265,25 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                   }, 0);
 
                   return (
-                    <tr key={prod.id} className={`group transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
-                      <td className={`p-2.5 sticky left-0 z-10 border-r font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800 transition-colors group-hover:bg-slate-200 dark:group-hover:bg-slate-800/40`}>
+                    <tr key={prod.id} className={`group transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/40`}>
+                      {/* Product SKU & Name — column width fits the product name */}
+                      <td className={`px-3 py-2.5 sticky left-0 z-10 whitespace-nowrap border-r border-b font-medium bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800 transition-colors group-hover:bg-slate-100 dark:group-hover:bg-slate-800/40`}>
                         <div className={`font-bold text-xs text-slate-900 dark:text-white`}>{prod.name}</div>
                         <div className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5`}>
                           SKU: {prod.sku}
                         </div>
                       </td>
-                      <td className="p-2.5 text-center">
+                      <td className="px-3 py-2.5 text-center border-b border-r border-slate-200 dark:border-slate-800">
                         <span className={`rounded px-2 py-0.5 text-[10px] font-semibold border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
                           {prod.category}
                         </span>
                       </td>
-                      <td className={`p-2.5 text-right font-mono font-semibold text-slate-600 dark:text-slate-400`}>
+                      <td className={`px-3 py-2.5 text-right border-b border-r font-mono font-semibold text-slate-600 border-slate-200 dark:border-slate-800 dark:text-slate-400`}>
                         {prod.minReorderLevel} {prod.unit}
                       </td>
 
                       {/* Total Stock Column */}
-                      <td className={`p-2.5 text-center border-l border-r font-mono font-bold bg-indigo-50/50 border-slate-200 text-indigo-900 dark:bg-indigo-950/20 dark:border-slate-800 dark:text-indigo-300`}>
+                      <td className={`px-3 py-2.5 text-center border-b border-r font-mono font-bold bg-indigo-50/60 border-slate-200 text-indigo-900 dark:bg-indigo-950/25 dark:border-slate-800 dark:text-indigo-300`}>
                         <div className="flex flex-col items-center">
                           <span className="text-xs">
                             {systemTotalUsable} <span className="text-[10px] font-normal opacity-75">{prod.unit}</span>
@@ -307,7 +315,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                       return (
                         <td
                           key={b.id}
-                          className={`p-3 text-center border-l font-medium border-slate-200 dark:border-slate-800 ${isLow ? 'bg-rose-50/60 dark:bg-rose-950/20' : ''}`}
+                          className={`px-3 py-2.5 text-center border-b border-r font-medium border-slate-200 dark:border-slate-800 ${isLow ? 'bg-rose-50/60 dark:bg-rose-950/20' : ''}`}
                         >
                           <div className="flex flex-col items-center justify-center">
                             <span

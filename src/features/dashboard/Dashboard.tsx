@@ -245,7 +245,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const formatNPR = (val?: number | null) =>
     (val ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-  // Filter products for Special Hardware table — dynamic, driven by categories where isSpecialTracked=true
+  // Filter products for Special Hardware table — dynamic, driven by categories
+  // where isSpecialTracked=true. Only serial / MAC / PON tracked products
+  // (i.e. requiresSerialTracking !== false and trackingType !== QUANTITY_ONLY)
+  // are shown in the table.
   const specialTrackedCatNames = new Set(
     specialTrackedCategories.map((c) => c.name.toLowerCase().trim())
   );
@@ -254,6 +257,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const prodCat = (p.category || '').toLowerCase().trim();
     const isSpecial = specialTrackedCatNames.has(prodCat);
     if (!isSpecial) return false;
+    // Serial Track enable check — the table only lists serial-tracked hardware
+    const isSerialized =
+      p.requiresSerialTracking !== false && p.trackingType !== 'QUANTITY_ONLY';
+    if (!isSerialized) return false;
     if (specialCategoryTab !== 'ALL') {
       // Match the selected tab's category id to the product's category name
       const tabCat = specialTrackedCategories.find((c) => c.id === specialCategoryTab);

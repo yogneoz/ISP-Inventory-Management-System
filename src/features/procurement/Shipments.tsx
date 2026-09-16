@@ -44,6 +44,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface ShipmentsProps {
   currentUser?: User | null;
@@ -101,8 +102,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onCancelReceiveShipment,
   onRequestApproval,
   onCancelApproval,
-  isDarkMode = false,
 }) => {
+  const { isDarkMode } = useDarkMode();
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
     activeTab === 'create-shipment' ? 'CREATE_SHIPMENT' : 'REGISTER'
   );
