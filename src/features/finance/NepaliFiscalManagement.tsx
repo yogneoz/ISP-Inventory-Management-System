@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiscalYear } from '../../types';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 import {
   convertADToBS,
   convertBSToAD,
@@ -56,6 +57,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -408,8 +410,8 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     setSqlSyncSuccess(null);
   };
 
-  const handleResetDefaults = () => {
-    if (confirm('Reset bsCalendarData to default initial reference tables?')) {
+  const handleResetDefaults = async () => {
+    if (await confirmDialog('Reset bsCalendarData to default initial reference tables?')) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('inventory_bs_calendar_data');
       }

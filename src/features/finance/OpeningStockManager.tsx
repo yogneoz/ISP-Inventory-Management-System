@@ -17,6 +17,7 @@ import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Branch,
   FiscalYear,
@@ -39,9 +40,6 @@ interface OpeningStockManagerProps {
 }
 
 type Draft = { quantityOnHand: string; damagedQty: string; unitCost: string };
-
-const formatNPR = (value: number) =>
-  `NPR ${Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /**
  * Fiscal Year Opening Stock Register (Setup / Stock Adjustment).

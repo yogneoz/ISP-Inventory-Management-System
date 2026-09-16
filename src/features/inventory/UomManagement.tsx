@@ -4,6 +4,7 @@ import { Ruler, Plus, Edit2, Trash2, Search, X, CheckCircle2, Layers } from 'luc
 import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface UomManagementProps {
   currentUser?: User | null;
@@ -11,6 +12,7 @@ interface UomManagementProps {
 
 export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => {
   const { isDarkMode } = useDarkMode();
+  const { confirm: confirmDialog } = useDialog();
   const canManageUom = isOperationAllowed('uom-manage', currentUser?.role);
   const [uoms, setUoms] = useState<UnitOfMeasure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +84,7 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this Unit of Measure?')) {
+    if (await confirmDialog('Are you sure you want to delete this Unit of Measure?')) {
       try {
         await api.deleteUom(id);
         await loadUoms();

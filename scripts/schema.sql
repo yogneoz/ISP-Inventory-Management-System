@@ -635,6 +635,7 @@ CREATE TABLE IF NOT EXISTS company_profile (
     address TEXT NOT NULL,
     city VARCHAR(100),
     country VARCHAR(100),
+    postal_code VARCHAR(30),
     phone VARCHAR(100),
     email VARCHAR(100),
     website VARCHAR(100),
@@ -643,6 +644,10 @@ CREATE TABLE IF NOT EXISTS company_profile (
     logo_url TEXT,
     logo_preset VARCHAR(50),
     currency_symbol VARCHAR(20),
+    currency_code VARCHAR(10) DEFAULT 'NPR',
+    currency_locale VARCHAR(20) DEFAULT 'en-IN',
+    currency_position VARCHAR(10) DEFAULT 'before',
+    currency_decimals INT DEFAULT 2,
     default_tax_rate NUMERIC(5, 2) DEFAULT 13.00,
     notes TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

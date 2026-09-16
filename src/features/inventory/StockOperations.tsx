@@ -19,6 +19,8 @@ import {
 } from '../../types';
 import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   AlertOctagon,
   Plus,
@@ -72,7 +74,8 @@ interface StockOperationsProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   initialType?: string;
-  autoOpenModal?: boolean;  currentUser?: User | null;
+  autoOpenModal?: boolean;
+  currentUser?: User | null;
   shipments?: Shipment[];
   assets?: Asset[];
   locations?: LocationRecord[];
@@ -124,7 +127,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   selectedBranchId,
   dateMode,
   initialType = 'PULLOUT',
-  autoOpenModal = false,  currentUser = null,
+  autoOpenModal = false,
+  currentUser = null,
   shipments = [],
   assets = [],
   locations = [],
@@ -141,6 +145,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onUpdateAssetStatus,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { confirm: confirmDialog } = useDialog();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -1466,7 +1471,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const handleUnassignAsset = async (asset: Asset) => {
     if (!ensureBsDateAvailable()) return;
     if (!onUpdateAssetStatus) return;
-    if (confirm(`Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`)) {
+    if (await confirmDialog(`Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`)) {
       await onUpdateAssetStatus(asset.id, {
         status: 'ACTIVE',
         assignedType: undefined,
@@ -1574,7 +1579,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${(netSaleAmount ?? 0).toLocaleString('en-IN')}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
+    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: ${formatNPR(netSaleAmount)}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
     setSaleItems([]);
   };
 
@@ -2067,12 +2072,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
                     <div className="flex items-center gap-2">
                       <span className={`font-bold font-mono text-indigo-600 dark:text-indigo-400`}>
-                        रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(op.totalValue)}
                       </span>
                       {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
                         <button
                           onClick={async () => {
-                            if (confirm(`Confirm receipt of Pullout Bin ${op.referenceNumber} into Warehouse Stock?`)) {
+                            if (await confirmDialog(`Confirm receipt of Pullout Bin ${op.referenceNumber} into Warehouse Stock?`)) {
                               await onReceiveOperation(op.id);
                             }
                           }}
@@ -2121,7 +2126,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
               <div className="text-xs font-semibold text-slate-500 mb-1">Total Estimated Loss Valuation</div>
               <div className={`text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400`}>
-                रु {filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0).toLocaleString('en-IN')}
+                {formatNPR(filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0))}
               </div>
             </div>
           </div>
@@ -2167,10 +2172,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
                       <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{Math.abs(op.quantityChanged || 1)} Pcs</td>
                       <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
-                        <div>रु {(op.totalValue ?? 0).toLocaleString('en-IN')}</div>
+                        <div>{formatNPR(op.totalValue)}</div>
                         {op.netWriteOffLoss !== undefined && (
                           <div className={`text-[10px] font-normal text-rose-500 dark:text-rose-400`}>
-                            Net Loss: रु {(op.netWriteOffLoss ?? 0).toLocaleString('en-IN')}
+                            Net Loss: {formatNPR(op.netWriteOffLoss)}
                           </div>
                         )}
                       </td>
@@ -2307,7 +2312,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <th className="px-2.5 py-1.5">Route (Sender ➔ Recipient)</th>
                     <th className="px-2.5 py-1.5">Dispatch Date</th>
                     <th className="px-2.5 py-1.5 text-center">Items & Qty</th>
-                    <th className="px-2.5 py-1.5 text-right">Valuation (रु)</th>
+                    <th className="px-2.5 py-1.5 text-right">Valuation (NPR)</th>
                     <th className="px-2.5 py-1.5 text-center">Status</th>
                     <th className="px-2.5 py-1.5 text-right">Action Controls</th>
                   </tr>
@@ -2464,7 +2469,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                             {/* 6. Valuation */}
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                              रु {totalValue.toLocaleString('en-IN')}
+                              {formatNPR(totalValue)}
                             </td>
 
                             {/* 7. Status */}
@@ -2612,10 +2617,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                                 {qty} {prod?.unit || 'pcs'}
                                               </td>
                                               <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                                                रु {cost.toLocaleString('en-IN')}
+                                                {formatNPR(cost)}
                                               </td>
                                               <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                                                रु {(qty * cost).toLocaleString('en-IN')}
+                                                {formatNPR(qty * cost)}
                                               </td>
                                               <td className="p-2.5">
                                                 {isSerialized ? (
@@ -2975,7 +2980,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </div>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white mt-1 line-clamp-1">{prod.name}</h4>
                         <p className="text-[10px] text-slate-500 mt-0.5">
-                          Cost: रु {(prod.costPrice ?? 0).toLocaleString('en-IN')} | Cat: {prod.category}
+                          Cost: {formatNPR(prod.costPrice)} | Cat: {prod.category}
                         </p>
                       </div>
 
@@ -3024,7 +3029,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </span>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Cost: रु {(asset.acquisitionCost ?? 0).toLocaleString('en-IN')} | Category: {asset.category}
+                          Cost: {formatNPR(asset.acquisitionCost)} | Category: {asset.category}
                         </p>
                       </div>
 
@@ -3247,11 +3252,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             <td className="p-2.5 text-right font-mono text-slate-500">
-                              रु {item.unitCost}
+                              {formatNPR(item.unitCost)}
                             </td>
 
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
+                              {formatNPR(item.totalValue)}
                             </td>
 
                             <td className="p-2.5 text-center">
@@ -3338,7 +3343,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </td>
                         <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
+                          {formatNPR(op.totalValue)}
                         </td>
                       </tr>
                     ))}
@@ -3458,8 +3463,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5">Product Name</th>
                         <th className="px-2.5 py-1.5 text-center">Branch Stock</th>
                         <th className="px-2.5 py-1.5 text-center">Sale Qty</th>
-                        <th className="px-2.5 py-1.5 text-right">Unit Price (रु)</th>
-                        <th className="px-2.5 py-1.5 text-right">Discount (रु)</th>
+                        <th className="px-2.5 py-1.5 text-right">Unit Price (NPR)</th>
+                        <th className="px-2.5 py-1.5 text-right">Discount (NPR)</th>
                         <th className="px-2.5 py-1.5 text-right">Subtotal</th>
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
@@ -3580,7 +3585,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
+                              {formatNPR(item.totalValue)}
                             </td>
 
                             <td className="p-2.5 text-center">
@@ -3607,19 +3612,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div>
                   <span className="text-slate-400 block text-[10px]">Gross Product Bill</span>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                    रु {(saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) ?? 0).toLocaleString('en-IN')}
+                    {formatNPR(saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0))}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Total Discounts Applied</span>
                   <span className={`font-mono font-bold text-amber-600 dark:text-amber-400`}>
-                    रु {(saleItems.reduce((s, i) => s + (i.discount || 0), 0) ?? 0).toLocaleString('en-IN')}
+                    {formatNPR(saleItems.reduce((s, i) => s + (i.discount || 0), 0))}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Net Receivable Bill Amount</span>
                   <span className="font-mono font-extrabold text-purple-700 dark:text-purple-300 text-sm">
-                    रु {(Math.max(0, saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) - saleItems.reduce((s, i) => s + (i.discount || 0), 0)) ?? 0).toLocaleString('en-IN')}
+                    {formatNPR(Math.max(0, saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) - saleItems.reduce((s, i) => s + (i.discount || 0), 0)))}
                   </span>
                 </div>
               </div>
@@ -3998,7 +4003,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <td className="p-2.5 font-bold">{op.type}</td>
                     <td className="p-2.5">{op.branchId}</td>
                     <td className="p-2.5">{op.productName || op.reason}</td>
-                    <td className="p-2.5 font-mono font-bold">रु {(op.totalValue ?? 0).toLocaleString('en-IN')}</td>
+                    <td className="p-2.5 font-mono font-bold">{formatNPR(op.totalValue)}</td>
                     <td className="p-2.5">{op.inspectorName}</td>
                     <td className="p-2.5 font-mono text-slate-400">{op.dateAD}</td>
                   </tr>
@@ -4120,7 +4125,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <div className="text-right">
                               <span className="text-[9px] text-slate-400 block">Total Val</span>
                               <span className={`font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400`}>
-                                रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
+                                {formatNPR(item.totalValue)}
                               </span>
                             </div>
 

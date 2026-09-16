@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeftRight, Calculator, CalendarDays, CheckCircle2, 
 import { api } from '../../services/api';
 import { FiscalYear, User } from '../../types';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface DataRecalculationMaintenanceProps {
   currentUser: User | null;
@@ -73,6 +74,7 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
   fiscalYears,
   onRefreshData,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [busy, setBusy] = useState<Operation | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [sourceFiscalYearId, setSourceFiscalYearId] = useState<string>(
@@ -86,7 +88,11 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
       return;
     }
     const definition = operations.find((item) => item.id === operation);
-    if (!window.confirm(`Run “${definition?.title}”? ${definition?.warning}`)) return;
+    const ok = await confirmDialog(`Run “${definition?.title}”? ${definition?.warning}`, {
+      title: 'Run Recalculation',
+      confirmLabel: 'Run',
+    });
+    if (!ok) return;
 
     setBusy(operation);
     setMessage(null);

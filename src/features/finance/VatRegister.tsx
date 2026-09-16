@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PurchaseInvoice, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR } from '../../utils/nprFormat';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import {
   Receipt,
@@ -134,7 +135,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
             <DollarSign className="h-4 w-4 text-emerald-500" />
           </div>
           <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
-            {(totalTaxableAmount ?? 0).toLocaleString('en-IN')}
+            {formatNPR(totalTaxableAmount)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Subtotal before 13% VAT calculation
@@ -149,7 +150,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
             <Percent className="h-4 w-4 text-indigo-500" />
           </div>
           <p className="text-xl font-bold font-mono text-indigo-500">
-            {(totalVatAmount ?? 0).toLocaleString('en-IN')}
+            {formatNPR(totalVatAmount)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Claimable Input Tax Credit from Purchase Invoices
@@ -164,7 +165,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
             <FileSpreadsheet className="h-4 w-4 text-amber-500" />
           </div>
           <p className="text-xl font-bold font-mono text-amber-500">
-            {(totalGrandAmount ?? 0).toLocaleString('en-IN')}
+            {formatNPR(totalGrandAmount)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Total Purchase Cost including VAT ({filteredInvoices.length} Invoices)
@@ -260,13 +261,13 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                         {inv.vendorBillNumber || '600123987'}
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono">
-                        {(taxable ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(taxable)}
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono font-bold text-indigo-500">
-                        {(vat ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(vat)}
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono font-bold">
-                        {(grand ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(grand)}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span
@@ -292,13 +293,13 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                   Total Tax Register Balance:
                 </td>
                 <td className={`px-2.5 py-1.5 text-right font-mono text-emerald-600 dark:text-emerald-400`}>
-                  {(totalTaxableAmount ?? 0).toLocaleString('en-IN')}
+                  {formatNPR(totalTaxableAmount)}
                 </td>
                 <td className={`px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400`}>
-                  {(totalVatAmount ?? 0).toLocaleString('en-IN')}
+                  {formatNPR(totalVatAmount)}
                 </td>
                 <td className="px-2.5 py-1.5 text-right font-mono">
-                  {(totalGrandAmount ?? 0).toLocaleString('en-IN')}
+                  {formatNPR(totalGrandAmount)}
                 </td>
                 <td></td>
               </tr>

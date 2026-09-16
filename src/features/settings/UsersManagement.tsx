@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface UsersManagementProps {
   currentUser: User | null;
@@ -39,6 +40,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   onResetPassword,
   onDeleteUser,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -170,7 +172,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   };
 
   const handleDelete = async (u: User) => {
-    if (window.confirm(`Are you sure you want to delete user "${u.name}" (${u.email})?`)) {
+    if (await confirmDialog(`Are you sure you want to delete user "${u.name}" (${u.email})?`)) {
       if (onDeleteUser) {
         await onDeleteUser(u.id);
       }

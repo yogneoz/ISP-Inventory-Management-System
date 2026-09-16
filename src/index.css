@@ -91,3 +91,76 @@
 	.printable-document select,
 	.printable-document textarea { display: none !important; }
 }
+
+/* =====================================================================
+   THEME-AWARE SLIM SCROLLBARS
+   ---------------------------------------------------------------------
+   A slim, modern scrollbar that adapts to light/dark mode via the `.dark`
+   class on <html>. Applies to the whole document and every scrollable area
+   in the app (including the `overflow-auto/y` panels and modal panels).
+
+   Design:
+     - 8px track with a fully transparent base so cards/layouts stay clean
+     - Rounded, slightly translucent thumb that darkens on hover
+     - Dark mode uses softer slate tones that match the app's dark palette
+     - Firefox gets a compact scrollbar-width + neutral colors
+     - The native (non-WebKit) scrollbar corner is hidden so dual-axis
+       panels do not render an empty square
+   ===================================================================== */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+}
+
+:root.dark {
+  scrollbar-color: rgb(71 85 105 / 0.7) transparent;
+}
+
+/* WebKit / Blink (Chrome, Edge, Brave, Safari desktop) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184 / 0.55); /* slate-400 @ 55% */
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.85); /* slate-500 solid-ish */
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:root.dark *::-webkit-scrollbar-thumb {
+  background: rgb(71 85 105 / 0.7); /* slate-600 @ 70% */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+:root.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.9); /* slate-500 */
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+:root.dark *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox global app scrollbar color (already set via scrollbar-color above). */
+::-webkit-scrollbar {
+  scrollbar-width: thin;
+}

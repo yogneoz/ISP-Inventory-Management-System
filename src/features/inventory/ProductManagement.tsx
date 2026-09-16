@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Category, InventoryStock, Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Package,
   Plus,
@@ -92,7 +93,8 @@ interface ProductManagementProps {
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
   onUpdateProduct: (id: string, prod: Partial<Product>) => Promise<void>;
   onDeleteProduct: (id: string) => Promise<void>;
-  searchQuery: string;  mode?: 'product-master' | 'all-stock';
+  searchQuery: string;
+  mode?: 'product-master' | 'all-stock';
   dbCategories?: Category[];
 }
 
@@ -104,7 +106,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   onCreateProduct,
   onUpdateProduct,
   onDeleteProduct,
-  searchQuery,  mode = 'product-master',
+  searchQuery,
+  mode = 'product-master',
   dbCategories = [],
 }) => {
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -689,10 +692,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       </td>
                       <td className={`px-2.5 py-1.5 font-medium text-slate-600 dark:text-slate-400`}>{p.unit}</td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300`}>
-                        रु {(p.costPrice ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(p.costPrice)}
                       </td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white`}>
-                        रु {(p.sellingPrice ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(p.sellingPrice)}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className="rounded bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
@@ -825,7 +828,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                       {showPriceOnLabel && (
                         <div className="text-xs font-mono font-extrabold text-slate-900 mt-0.5">
-                          NPR {(printingProduct.sellingPrice ?? 0).toLocaleString('en-IN')}
+                          {formatNPR(printingProduct.sellingPrice)}
                         </div>
                       )}
                     </div>
@@ -1427,7 +1430,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                             <span className="font-bold text-indigo-700">{lbl.product.sku}</span>
                             {bulkShowPrice && (
                               <span className="font-extrabold text-slate-900">
-                                NPR {(lbl.product.sellingPrice ?? 0).toLocaleString('en-IN')}
+                                {formatNPR(lbl.product.sellingPrice)}
                               </span>
                             )}
                           </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, Branch } from '../../types';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Bell,
   AlertTriangle,
@@ -24,7 +25,8 @@ interface NotificationCenterProps {
   purchaseOrders: PurchaseOrder[];
   shipments: Shipment[];
   branches: Branch[];
-  selectedBranchId: string;  onSelectTab: (tabId: string) => void;
+  selectedBranchId: string;
+  onSelectTab: (tabId: string) => void;
   /** Dismissed notification ids (lifted to App so badges stay in sync). */
   dismissedIds?: string[];
   onDismiss?: (id: string) => void;
@@ -40,7 +42,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   purchaseOrders = [],
   shipments = [],
   branches = [],
-  selectedBranchId,  onSelectTab,
+  selectedBranchId,
+  onSelectTab,
   dismissedIds = [],
   onDismiss,
   onClearAll,
@@ -178,7 +181,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       id: `po-${po.id}`,
       type: 'PO' as const,
       title: `Purchase Order #${po.poNumber} (${po.status})`,
-      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${(po.totalAmount ?? 0).toLocaleString('en-IN')}`,
+      subtitle: `Supplier: ${po.supplierName} • Total: ${formatNPR(po.totalAmount ?? 0)}`,
       branchName: branches.find((b) => b.id === po.branchId)?.name || 'Branch',
       date: po.orderDateAD,
       severity: 'INFO' as const,

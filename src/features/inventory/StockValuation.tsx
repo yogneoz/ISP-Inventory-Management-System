@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, Branch, InventoryStock } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
 import {
   Coins,
   TrendingUp,
@@ -21,13 +22,15 @@ interface StockValuationProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
-  selectedBranchId: string;}
+  selectedBranchId: string;
+}
 
 export const StockValuation: React.FC<StockValuationProps> = ({
   products,
   branches,
   stock,
-  selectedBranchId,}) => {
+  selectedBranchId,
+}) => {
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [stockStatusFilter, setStockStatusFilter] = useState<'ALL' | 'LOW' | 'NORMAL' | 'OUT_OF_STOCK'>('ALL');
@@ -226,7 +229,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
-            {(grandCostValuation ?? 0).toLocaleString('en-IN')}
+            {formatNPRInteger(grandCostValuation)}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             At purchase cost across {(grandTotalUnits ?? 0).toLocaleString('en-IN')} units
@@ -244,7 +247,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-sky-600 dark:text-sky-400`}>
-            {(grandRetailValuation ?? 0).toLocaleString('en-IN')}
+            {formatNPRInteger(grandRetailValuation)}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             At selling price market value
@@ -262,7 +265,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-emerald-600 dark:text-emerald-400`}>
-            {(grandPotentialMargin ?? 0).toLocaleString('en-IN')}
+            {formatNPRInteger(grandPotentialMargin)}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium flex items-center gap-1">
             <span className="font-bold text-emerald-500 font-mono">{grandMarginPercent.toFixed(1)}%</span> average margin
@@ -280,7 +283,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            {(grandDamagedLoss ?? 0).toLocaleString('en-IN')}
+            {formatNPRInteger(grandDamagedLoss)}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             Unusable damaged stock write-off
@@ -396,11 +399,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       </td>
 
                       <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-400`}>
-                        {(prod.costPrice ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(prod.costPrice)}
                       </td>
 
                       <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-400`}>
-                        {(prod.sellingPrice ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(prod.sellingPrice)}
                       </td>
 
                       <td className={`p-2.5 text-center font-mono font-bold text-slate-900 dark:text-white dark:text-white`}>
@@ -408,16 +411,16 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       </td>
 
                       <td className={`p-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
-                        {(costValuation ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(costValuation)}
                       </td>
 
                       <td className={`p-2.5 text-right font-mono font-bold text-sky-600 dark:text-sky-400`}>
-                        {(retailValuation ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(retailValuation)}
                       </td>
 
                       <td className="p-2.5 text-right font-mono">
                         <div className={`font-bold text-emerald-500 dark:text-emerald-400`}>
-                          +{(potentialMargin ?? 0).toLocaleString('en-IN')}
+                          +{formatNPR(potentialMargin)}
                         </div>
                         <div className={`text-[10px] font-semibold text-slate-400 dark:text-slate-500 dark:text-slate-500`}>
                           {marginPercent.toFixed(1)}% margin
@@ -427,7 +430,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       <td className="p-2.5 text-center font-mono">
                         {totalDamaged > 0 ? (
                           <span className={`text-rose-500 font-bold text-rose-500 dark:text-rose-400`}>
-                            {totalDamaged} Pcs ({(damagedLoss ?? 0).toLocaleString('en-IN')})
+                            {totalDamaged} Pcs ({formatNPR(damagedLoss)})
                           </span>
                         ) : (
                           <span className="text-slate-400">0</span>
@@ -478,13 +481,13 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                     <td className={`p-2.5 text-center font-mono text-slate-700 dark:text-slate-300 dark:text-slate-300`}>{catRow.skusCount} SKUs</td>
                     <td className={`p-2.5 text-center font-mono font-bold text-slate-900 dark:text-white dark:text-white`}>{(catRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
                     <td className={`p-2.5 text-right font-mono font-bold text-indigo-500 dark:text-indigo-400 dark:text-indigo-400`}>
-                      {(catRow.costValuation ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(catRow.costValuation)}
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-sky-500 dark:text-sky-400 dark:text-sky-400`}>
-                      {(catRow.retailValuation ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(catRow.retailValuation)}
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-emerald-500 dark:text-emerald-400 dark:text-emerald-400`}>
-                      +{(catRow.margin ?? 0).toLocaleString('en-IN')}
+                      +{formatNPR(catRow.margin)}
                     </td>
                     <td className="p-2.5 text-right font-mono">
                       <div className="flex items-center justify-end gap-2">
@@ -536,13 +539,13 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       {bRow.damagedUnits} Pcs
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-indigo-500 dark:text-indigo-400`}>
-                      {(bRow.costValuation ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(bRow.costValuation)}
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-sky-500 dark:text-sky-400`}>
-                      {(bRow.retailValuation ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(bRow.retailValuation)}
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-emerald-500 dark:text-emerald-400`}>
-                      +{(bRow.margin ?? 0).toLocaleString('en-IN')}
+                      +{formatNPR(bRow.margin)}
                     </td>
                   </tr>
                 ))}

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Branch, InventoryStock, Product, CustomerDeviceRecord, User } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatBSDate } from '../../utils/nepaliCalendar';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   DownloadCloud,
   FileSpreadsheet,
@@ -1103,15 +1104,15 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                           )}
                         </td>
                         <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                          रु {(p.costPrice || 0).toLocaleString('en-IN')}
+                          {formatNPR(p.costPrice)}
                         </td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {estimatedReorderBudget > 0 ? (
                             <span className="text-rose-600 dark:text-rose-400">
-                              रु {(estimatedReorderBudget ?? 0).toLocaleString('en-IN')}
+                              {formatNPR(estimatedReorderBudget)}
                             </span>
                           ) : (
-                            <span className="text-slate-400 font-normal">रु 0</span>
+                            <span className="text-slate-400 font-normal">NPR 0</span>
                           )}
                         </td>
                       </tr>
@@ -1182,10 +1183,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                         {p.minReorderLevel} {p.unit}
                       </td>
                       <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                        रु {(p.costPrice ?? 0).toLocaleString('en-IN')}
+                        {formatNPR(p.costPrice)}
                       </td>
                       <td className="p-2.5 text-right font-mono font-semibold text-slate-900 dark:text-white">
-                        रु {((qty || 0) * (p.costPrice || 0)).toLocaleString('en-IN')}
+                        {formatNPR((qty || 0) * (p.costPrice || 0))}
                       </td>
                     </tr>
                   );

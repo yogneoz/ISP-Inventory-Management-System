@@ -3,20 +3,24 @@ import { Branch, User } from '../../types';
 import { Building2, Plus, Search, CheckCircle2, Phone, MapPin, Star, Edit, Trash2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface BranchesManagementProps {
   branches: Branch[];
   currentUser?: User | null;
   onCreateBranch?: (branch: Omit<Branch, 'id'>) => Promise<void>;
   onUpdateBranch?: (id: string, branch: Partial<Branch>) => Promise<void>;
-  onDeleteBranch?: (id: string) => Promise<void>;}
+  onDeleteBranch?: (id: string) => Promise<void>;
+}
 
 export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   branches,
   currentUser,
   onCreateBranch,
   onUpdateBranch,
-  onDeleteBranch,}) => {
+  onDeleteBranch,
+}) => {
+  const { confirm: confirmDialog } = useDialog();
   const canManageBranches = isOperationAllowed('admin-branches', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,7 +68,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   };
 
   const handleDelete = async (b: Branch) => {
-    if (window.confirm(`Are you sure you want to delete branch "${b.name}" (${b.code})?`)) {
+    if (await confirmDialog(`Are you sure you want to delete branch "${b.name}" (${b.code})?`)) {
       if (onDeleteBranch) {
         await onDeleteBranch(b.id);
       }

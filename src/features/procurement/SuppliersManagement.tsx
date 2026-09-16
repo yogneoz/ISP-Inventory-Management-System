@@ -3,20 +3,24 @@ import { Supplier, User } from '../../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
   currentUser?: User | null;
   onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<void>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
-  onDeleteSupplier?: (id: string) => Promise<void>;}
+  onDeleteSupplier?: (id: string) => Promise<void>;
+}
 
 export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   suppliers,
   currentUser,
   onCreateSupplier,
   onUpdateSupplier,
-  onDeleteSupplier,}) => {
+  onDeleteSupplier,
+}) => {
+  const { confirm: confirmDialog } = useDialog();
   const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -61,7 +65,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   };
 
   const handleDelete = async (s: Supplier) => {
-    if (window.confirm(`Are you sure you want to delete supplier "${s.name}"?`)) {
+    if (await confirmDialog(`Are you sure you want to delete supplier "${s.name}"?`)) {
       if (onDeleteSupplier) {
         await onDeleteSupplier(s.id);
       }

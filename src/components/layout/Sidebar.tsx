@@ -54,6 +54,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
+import { getCompanyLocation } from '../../utils/companyProfile';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -747,9 +748,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
               <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate leading-tight mt-0.5">
-                {companyProfile?.city || companyProfile?.country
-                  ? `${companyProfile.city || ''}${companyProfile.city && companyProfile.country ? ', ' : ''}${companyProfile.country || ''}`
-                  : 'Enterprise Multi-Branch Ed.'}
+                {getCompanyLocation(companyProfile) || 'Enterprise Multi-Branch Ed.'}
               </p>
             </div>
           </button>

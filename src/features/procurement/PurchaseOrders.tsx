@@ -5,6 +5,8 @@ import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
+import { useDialog } from '../../components/common/DialogProvider';
+import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import {
   ShoppingCart,
   Plus,
@@ -94,6 +96,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onDeletePO,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { confirm: confirmDialog } = useDialog();
   // Role-level gate: the inline create form is only reachable when the role may create POs
   const canCreatePoByRole = isOperationAllowed('po-create', currentUser?.role);
 
@@ -665,20 +668,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-indigo-600 dark:text-indigo-400`}>Pending Order Value</span>
               <div className={`text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1`}>
-                Rs. {(filteredPOs
+                {formatNPR(filteredPOs
                   .filter((p) => p.status !== 'RECEIVED' && p.status !== 'CANCELLED')
-                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
-                  .toLocaleString('en-IN')}
+                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0))}
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-emerald-600 dark:text-emerald-400`}>Received Stock Value</span>
               <div className={`text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1`}>
-                Rs. {(filteredPOs
+                {formatNPR(filteredPOs
                   .filter((p) => p.status === 'RECEIVED')
-                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) ?? 0)
-                  .toLocaleString('en-IN')}
+                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0))}
               </div>
             </div>
           </div>
@@ -793,13 +794,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                             {po.items.length} item(s)
                           </td>
                           <td className="p-2.5 text-right font-mono font-medium text-slate-600 dark:text-slate-400">
-                            {(po.subtotalAmount ?? 0).toLocaleString('en-IN')}
+                            {formatNPR(po.subtotalAmount)}
                           </td>
                           <td className={`p-2.5 text-right font-mono font-medium text-indigo-600 dark:text-indigo-400`}>
-                            {(po.taxAmount ?? 0).toLocaleString('en-IN')}
+                            {formatNPR(po.taxAmount)}
                           </td>
                           <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                            {(po.totalAmount ?? 0).toLocaleString('en-IN')}
+                            {formatNPR(po.totalAmount)}
                           </td>
                           <td className="p-2.5 text-center">
                             <span
@@ -834,7 +835,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               {isOperationAllowed('po-delete', currentUser?.role) && <button
                                 type="button"
                                 onClick={async () => {
-                                  if (!onDeletePO || !window.confirm(`Delete Purchase Order #${po.poNumber}?`)) return;
+                                  if (!onDeletePO || !(await confirmDialog(`Delete Purchase Order #${po.poNumber}?`))) return;
                                   try {
                                     await onDeletePO(po.id);
                                   } catch (error: any) {
@@ -886,7 +887,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    if (window.confirm(`Are you sure you want to cancel PO #${po.poNumber}?`)) {
+                                    if (await confirmDialog(`Are you sure you want to cancel PO #${po.poNumber}?`)) {
                                       if (onUpdatePOStatus) {
                                         await onUpdatePOStatus(po.id, 'CANCELLED');
                                       }
@@ -1211,7 +1212,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                                 <span>Unit: <strong className="text-slate-700 dark:text-slate-300">{prod?.unit || 'Pcs'}</strong></span>
                                 <span>•</span>
-                                <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">Rs. {prod?.costPrice || 0}</strong></span>
+                                <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">{formatNPR(prod?.costPrice)}</strong></span>
                               </div>
                             </td>
                             <td className="p-2.5 text-center">
@@ -1239,7 +1240,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                               />
                             </td>
                             <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                              Rs. {(lineTotal ?? 0).toLocaleString('en-IN')}
+                              {formatNPR(lineTotal)}
                             </td>
                             <td className="p-2.5 text-center">
                               <button
@@ -1283,7 +1284,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
                   <span className="font-semibold">Gross Subtotal:</span>
                   <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
-                    Rs. {(grossSubtotal ?? 0).toLocaleString('en-IN')}
+                    {formatNPRPrecise(grossSubtotal)}
                   </span>
                 </div>
 
@@ -1303,21 +1304,21 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
                   <span>Taxable Base Subtotal:</span>
                   <span className="font-mono font-bold">
-                    Rs. {(taxableAfterDiscount ?? 0).toLocaleString('en-IN')}
+                    {formatNPRPrecise(taxableAfterDiscount)}
                   </span>
                 </div>
 
                 <div className={`flex justify-between items-center text-indigo-600 border-slate-200 dark:text-indigo-400 dark:border-slate-800 font-semibold border-t pt-2.5`}>
                   <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
                   <span className="font-mono font-bold">
-                    Rs. {(totalVAT ?? 0).toLocaleString('en-IN')}
+                    {formatNPRPrecise(totalVAT)}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2.5 border-t border-slate-300 dark:border-slate-700">
                   <span>Grand Total Order Amount:</span>
                   <span className={`font-mono text-indigo-600 dark:text-indigo-400 text-lg`}>
-                    Rs. {(grandTotal ?? 0).toLocaleString('en-IN')}
+                    {formatNPRPrecise(grandTotal)}
                   </span>
                 </div>
               </div>
@@ -1456,16 +1457,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       {item.quantity} {item.unit || 'Pcs'}
                     </td>
                     <td className="p-2.5 text-right font-mono">
-                      Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(item.unitPrice)}
                     </td>
                     <td className="p-2.5 text-right font-mono">
-                      Rs. {(item.subtotal ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN')}
+                      {formatNPR(item.subtotal ?? (item.quantity * item.unitPrice))}
                     </td>
                     <td className={`p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400`}>
-                      Rs. {(item.taxAmount ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(item.taxAmount)}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                      Rs. {(item.total ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN')}
+                      {formatNPR(item.total ?? (item.quantity * item.unitPrice))}
                     </td>
                   </tr>
                 ))}
@@ -1485,16 +1486,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <div className="w-full sm:w-72 space-y-2 text-xs font-mono">
               <div className="flex justify-between text-slate-500">
                 <span>Subtotal:</span>
-                <span>Rs. {(viewingPO.subtotalAmount ?? 0).toLocaleString('en-IN')}</span>
+                <span>{formatNPR(viewingPO.subtotalAmount)}</span>
               </div>
               <div className={`flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold`}>
                 <span>13% VAT:</span>
-                <span>Rs. {(viewingPO.taxAmount ?? 0).toLocaleString('en-IN')}</span>
+                <span>{formatNPR(viewingPO.taxAmount)}</span>
               </div>
               <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                 <span>Grand Total:</span>
                 <span className="text-indigo-600 dark:text-indigo-400">
-                  Rs. {(viewingPO.totalAmount ?? 0).toLocaleString('en-IN')}
+                  {formatNPR(viewingPO.totalAmount)}
                 </span>
               </div>
             </div>

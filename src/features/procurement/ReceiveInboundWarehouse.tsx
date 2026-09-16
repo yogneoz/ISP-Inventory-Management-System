@@ -28,6 +28,7 @@ import {
   InventoryStock,
   ApprovalRequest,
 } from '../../types';
+import { formatNPR } from '../../utils/nprFormat';
 
 interface ReceiveInboundWarehouseProps {
   currentUser: User | null;
@@ -446,11 +447,11 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                                 </td>
 
                                 <td className="p-2 text-right font-mono text-slate-500 text-[10px]">
-                                  रु {(item.unitCost ?? 0).toLocaleString('en-IN')}
+                                  {formatNPR(item.unitCost)}
                                 </td>
 
                                 <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white text-[10px]">
-                                  रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
+                                  {formatNPR(item.totalValue)}
                                 </td>
 
                                 <td className="p-2">

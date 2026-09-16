@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Users,
   Search,
@@ -40,7 +41,8 @@ interface CustomerMasterDirectoryProps {
   onUpdateCustomer: (id: string, updates: Partial<CustomerRecord>) => Promise<void>;
   onDeleteCustomer: (id: string) => Promise<void>;
   onNavigateToImport: () => void;
-  onSelectTab?: (tab: string, searchQuery?: string) => void;}
+  onSelectTab?: (tab: string, searchQuery?: string) => void;
+}
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
   customers,
@@ -51,7 +53,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   onUpdateCustomer,
   onDeleteCustomer,
   onNavigateToImport,
-  onSelectTab,}) => {
+  onSelectTab,
+}) => {
   // Check permission: Only Super Admin and Inventory Manager can Edit / Delete master customer records
   const canManageMaster =
     currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
@@ -331,7 +334,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Total Credit Capacity</span>
             <div className="text-lg font-bold mt-0.5 text-amber-700 dark:text-amber-400">
-              रु {customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0).toLocaleString('en-IN')}
+              {formatNPR(customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
             </div>
           </div>
         </div>
@@ -492,7 +495,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
                         {/* Credit Limit */}
                         <td className="p-2.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                          रु {(customer.creditLimit || 0).toLocaleString('en-IN')}
+                          {formatNPR(customer.creditLimit)}
                         </td>
 
                         {/* Status */}

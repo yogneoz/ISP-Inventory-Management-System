@@ -3,6 +3,7 @@ import { Category, Product, User } from '../../types';
 import { Grid, Plus, Edit2, Trash2, Tag, Search, X, Layers, CheckCircle2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface CategoryManagementProps {
   products: Product[];
@@ -13,6 +14,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   products,
   currentUser,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -97,7 +99,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this category?')) {
+    if (await confirmDialog('Are you sure you want to delete this category?')) {
       try {
         await api.deleteCategory(id);
         setCategories(categories.filter((c) => c.id !== id));

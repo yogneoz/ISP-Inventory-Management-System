@@ -11,6 +11,7 @@ import {
   InventoryStock,
 } from '../../types';
 import { NavTab } from '../layout/Sidebar';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Search,
   Package,
@@ -40,7 +41,8 @@ interface GlobalSearchModalProps {
   branches: Branch[];
   stock: InventoryStock[];
   selectedBranchId: string;
-  onSelectResult: (tab: NavTab, filterText?: string) => void;}
+  onSelectResult: (tab: NavTab, filterText?: string) => void;
+}
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   isOpen,
@@ -57,7 +59,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   branches = [],
   stock = [],
   selectedBranchId = 'ALL',
-  onSelectResult,}) => {
+  onSelectResult,
+}) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -294,7 +297,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <div className="text-[11px] text-slate-400 flex items-center gap-3 mt-0.5">
                                 <span>Category: {p.category}</span>
                                 <span>•</span>
-                                <span>Price: NPR {(p.sellingPrice || 0).toLocaleString('en-IN')}</span>
+                                <span>Price: {formatNPR(p.sellingPrice)}</span>
                               </div>
                             </div>
                           </div>
@@ -349,7 +352,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <span className="text-slate-400 text-[11px] font-normal">• {po.supplierName}</span>
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Date: {po.orderDateBS} BS | Total: NPR {(po.totalAmount || 0).toLocaleString('en-IN')}
+                              Date: {po.orderDateBS} BS | Total: {formatNPR(po.totalAmount)}
                             </div>
                           </div>
                         </div>
@@ -405,7 +408,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               )}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Supplier: {inv.supplierName} | Grand Total: NPR {(inv.grandTotal || 0).toLocaleString('en-IN')}
+                              Supplier: {inv.supplierName} | Grand Total: {formatNPR(inv.grandTotal)}
                             </div>
                           </div>
                         </div>
@@ -510,7 +513,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <span className="font-mono text-[10px] text-cyan-400">({ast.tagNumber})</span>
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Category: {ast.category} | Cost: NPR {(ast.acquisitionCost || 0).toLocaleString('en-IN')}
+                              Category: {ast.category} | Cost: {formatNPR(ast.acquisitionCost)}
                             </div>
                           </div>
                         </div>

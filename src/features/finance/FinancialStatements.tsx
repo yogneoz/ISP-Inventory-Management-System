@@ -3,6 +3,7 @@ import { FinancialSummary, Asset, PurchaseInvoice, CompanyProfile } from '../../
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
+import { formatNPR, formatNPRPrecise, formatNPRInteger } from '../../utils/nprFormat';
 import {
   Scale,
   TrendingUp,
@@ -34,9 +35,6 @@ const toNumber = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 };
-
-const npr = (value: number | string | undefined): string =>
-  Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   financialSummary,
@@ -228,10 +226,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Building className="h-4 w-4 text-emerald-500" />
               </div>
               <p className="text-xl font-bold font-mono text-emerald-500">
-                NPR {npr(totalAssets)}
+                {formatNPR(totalAssets)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Inventory (NPR {npr(inventoryAssetVal)}) + Fixed Assets NBV (NPR {npr(fixedAssetNBV)})
+                Inventory ({formatNPR(inventoryAssetVal)}) + Fixed Assets NBV ({formatNPR(fixedAssetNBV)})
               </p>
             </div>
 
@@ -243,7 +241,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Receipt className="h-4 w-4 text-amber-500" />
               </div>
               <p className="text-xl font-bold font-mono text-amber-500">
-                NPR {npr(totalLiabilities)}
+                {formatNPR(totalLiabilities)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Accounts Payable — vendor opening balances + invoices − payments ({invoices.length} Invoices this period)
@@ -258,7 +256,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <PieChart className="h-4 w-4 text-indigo-500" />
               </div>
               <p className="text-xl font-bold font-mono text-indigo-500">
-                NPR {npr(netEquity)}
+                {formatNPR(netEquity)}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Capital &amp; Retained Surplus (balancing figure: assets − liabilities)
@@ -284,7 +282,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
                   <span className="text-slate-600 dark:text-slate-300">Capital &amp; Retained Surplus (Balancing Figure)</span>
-                  <span className="font-mono font-semibold">NPR {npr(netEquity)}</span>
+                  <span className="font-mono font-semibold">{formatNPR(netEquity)}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
@@ -292,12 +290,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
                   <span className="text-slate-600 dark:text-slate-300">Trade Payables — Accounts Payable (Opening + Invoices − Payments)</span>
-                  <span className="font-mono font-semibold text-amber-500">NPR {npr(accountsPayable)}</span>
+                  <span className="font-mono font-semibold text-amber-500">{formatNPR(accountsPayable)}</span>
                 </div>
 
                 <div className="pt-2 flex justify-between items-center font-bold text-sm">
                   <span>TOTAL EQUITY &amp; LIABILITIES</span>
-                  <span className="font-mono text-indigo-500">NPR {npr(totalLiabilities + netEquity)}</span>
+                  <span className="font-mono text-indigo-500">{formatNPR(totalLiabilities + netEquity)}</span>
                 </div>
               </div>
 
@@ -314,15 +312,15 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
                   <span className="text-slate-600 dark:text-slate-300">Fixed Assets at Gross Cost</span>
-                  <span className="font-mono font-semibold">NPR {npr(grossFixedAssets)}</span>
+                  <span className="font-mono font-semibold">{formatNPR(grossFixedAssets)}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-6">
                   <span>Less: Accumulated Depreciation</span>
-                  <span className="font-mono text-rose-500">- NPR {npr(accumulatedDepreciation)}</span>
+                  <span className="font-mono text-rose-500">- {formatNPR(accumulatedDepreciation)}</span>
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3 text-emerald-600 dark:text-emerald-400 font-semibold">
                   <span>Net Block — Fixed Assets (NBV)</span>
-                  <span className="font-mono">NPR {npr(fixedAssetNBV)}</span>
+                  <span className="font-mono">{formatNPR(fixedAssetNBV)}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
@@ -330,12 +328,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60 pl-3">
                   <span className="text-slate-600 dark:text-slate-300">Merchandise Inventory (At Valuation)</span>
-                  <span className="font-mono font-semibold">NPR {npr(inventoryAssetVal)}</span>
+                  <span className="font-mono font-semibold">{formatNPR(inventoryAssetVal)}</span>
                 </div>
 
                 <div className="pt-2 flex justify-between items-center font-bold text-sm">
                   <span>TOTAL ASSETS</span>
-                  <span className="font-mono text-emerald-500">NPR {npr(totalAssets)}</span>
+                  <span className="font-mono text-emerald-500">{formatNPR(totalAssets)}</span>
                 </div>
               </div>
 
@@ -366,7 +364,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span>SALES REVENUE</span>
                 <Wallet className="h-4 w-4 text-emerald-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-emerald-500">NPR {npr(trackedSalesRevenue)}</p>
+              <p className="text-xl font-bold font-mono text-emerald-500">{formatNPR(trackedSalesRevenue)}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Net value of customer product sales (Branch Operations → Sell Product)
               </p>
@@ -377,7 +375,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span>COST OF GOODS SOLD</span>
                 <Package className="h-4 w-4 text-amber-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-amber-500">NPR {npr(trackedCOGS)}</p>
+              <p className="text-xl font-bold font-mono text-amber-500">{formatNPR(trackedCOGS)}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Sold quantity × product cost price — matches the inventory-at-cost valuation basis
               </p>
@@ -388,7 +386,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <span>GROSS SURPLUS (MARGIN)</span>
                 <TrendingUp className="h-4 w-4 text-indigo-500" />
               </div>
-              <p className="text-xl font-bold font-mono text-indigo-500">NPR {npr(grossSurplus)}</p>
+              <p className="text-xl font-bold font-mono text-indigo-500">{formatNPR(grossSurplus)}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">Margin: {grossMargin}% — Revenue − COGS</p>
             </div>
           </div>
@@ -426,13 +424,13 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             <div className="space-y-3 text-xs">
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80">
                 <span className="text-slate-600 dark:text-slate-300">Posted Sales Revenue</span>
-                <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">NPR {npr(trackedSalesRevenue)}</span>
+                <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">{formatNPR(trackedSalesRevenue)}</span>
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 text-rose-600 dark:border-slate-800/80 dark:text-rose-400">
                 <span>Less: Cost of Goods Sold</span>
                 <span className="font-mono">
-                  - NPR {npr(trackedCOGS)}
+                  - {formatNPR(trackedCOGS)}
                   {trackedCOGS <= 0 && trackedSalesRevenue <= 0 ? ' — no product sales posted' : ''}
                 </span>
               </div>
@@ -445,12 +443,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 }`}
               >
                 <span>GROSS SURPLUS (SALES − COGS)</span>
-                <span className="font-mono">NPR {npr(grossSurplus)}</span>
+                <span className="font-mono">{formatNPR(grossSurplus)}</span>
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-slate-400">
                 <span>Less: Posted Operating Expenses</span>
-                <span className="font-mono">- NPR {npr(0)} — no expense journal</span>
+                <span className="font-mono">- {formatNPR(0)} — no expense journal</span>
               </div>
 
               <div className={`flex justify-between items-center py-3 border-t-2 border-slate-300 dark:border-slate-700 font-bold text-base text-slate-400`}>

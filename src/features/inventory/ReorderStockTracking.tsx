@@ -3,6 +3,7 @@ import { Product, Branch, InventoryStock, User } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   AlertTriangle,
   Building2,
@@ -375,7 +376,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
-            {(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units
+            {Math.round(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Calculated against branch minimum levels
@@ -390,7 +391,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-amber-600 dark:text-amber-400`}>
-            रु {(grandTotalReorderCost ?? 0).toLocaleString('en-IN')}
+            {formatNPR(grandTotalReorderCost ?? 0)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Procurement cost to achieve min levels

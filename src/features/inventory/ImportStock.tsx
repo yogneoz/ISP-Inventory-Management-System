@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Branch, Product } from '../../types';
 import { UploadCloud, FileSpreadsheet, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw } from 'lucide-react';
+import { formatNPR } from '../../utils/nprFormat';
 
 interface ImportStockProps {
   branches: Branch[];
@@ -369,8 +370,8 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                         <div className="text-[10px] text-slate-500">{row.productGroup}</div>
                       </td>
                       <td className="p-2.5 text-right font-mono text-[11px]">
-                        <div>रु {(row.costPrice ?? 0).toLocaleString('en-IN')}</div>
-                        <div className="text-slate-400 text-[10px]">रु {(row.sellingPrice ?? 0).toLocaleString('en-IN')}</div>
+                        <div>{formatNPR(row.costPrice)}</div>
+                        <div className="text-slate-400 text-[10px]">{formatNPR(row.sellingPrice)}</div>
                       </td>
                       <td className={`p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
                         {row.initialQty} {row.unit}

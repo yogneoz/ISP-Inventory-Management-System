@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Product, InventoryStock } from '../../types';
 import { Search, Barcode, Plus, Package, AlertTriangle } from 'lucide-react';
+import { formatNPR } from '../../utils/nprFormat';
 
 interface ProductSearchBarProps {
   products: Product[];
@@ -9,7 +10,8 @@ interface ProductSearchBarProps {
   inputId?: string;
   stock?: InventoryStock[];
   selectedBranchId?: string;
-  showStockBadges?: boolean;}
+  showStockBadges?: boolean;
+}
 
 export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   products,
@@ -18,7 +20,8 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   inputId,
   stock,
   selectedBranchId,
-  showStockBadges = true,}) => {
+  showStockBadges = true,
+}) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -176,7 +179,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
 
                   <div className="text-right shrink-0">
                     <span className={`text-xs font-bold font-mono block text-slate-900 dark:text-white`}>
-                      रु {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {formatNPR(prod.costPrice)}
                     </span>
                     <div className={`text-[10px] font-semibold flex items-center gap-1 justify-end mt-1 text-blue-600 dark:text-blue-400`}>
                       <Plus className="h-3 w-3" /> Select / Add

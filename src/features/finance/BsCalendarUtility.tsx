@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 import {
   convertADToBS,
   getBsCalendarData,
@@ -48,6 +49,7 @@ interface BsCalendarUtilityProps {
 
 export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -536,8 +538,12 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     }
   };
 
-  const handleResetDefaults = () => {
-    if (confirm('Reset BS Calendar back to standard reference values?')) {
+  const handleResetDefaults = async () => {
+    const ok = await confirmDialog('Reset BS Calendar back to standard reference values?', {
+      title: 'Reset BS Calendar',
+      confirmLabel: 'Reset',
+    });
+    if (ok) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('inventory_bs_calendar_data');
       }

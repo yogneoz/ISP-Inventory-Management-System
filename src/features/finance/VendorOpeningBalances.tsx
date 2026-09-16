@@ -15,6 +15,7 @@ import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Branch,
   FiscalYear,
@@ -33,9 +34,6 @@ interface VendorOpeningBalancesProps {
   /** Update the global fiscal-year view when the user changes it here. */
   onSelectFiscalYear?: (fiscalYearId: string) => void;
 }
-
-const formatNPR = (value: number) =>
-  `NPR ${Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /**
  * Vendor Opening Balances (Accounts Payable) — standalone register tab.

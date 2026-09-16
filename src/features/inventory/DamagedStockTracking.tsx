@@ -4,6 +4,7 @@ import { NavTab } from '../../components/layout/Sidebar';
 import { api } from '../../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR } from '../../utils/nprFormat';
 import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import {
   AlertTriangle,
@@ -334,7 +335,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         salvageRecoveryAmount: salvageVal,
         netWriteOffLoss: netLoss,
         glAccountCode,
-        reason: `[${disposalMethod}] ${disposalNotes} (Gross: NPR ${(grossCost ?? 0).toLocaleString('en-IN')}, Salvage: NPR ${(salvageVal ?? 0).toLocaleString('en-IN')}, Net Loss: NPR ${(netLoss ?? 0).toLocaleString('en-IN')})`,
+        reason: `[${disposalMethod}] ${disposalNotes} (Gross: ${formatNPR(grossCost ?? 0)}, Salvage: ${formatNPR(salvageVal ?? 0)}, Net Loss: ${formatNPR(netLoss ?? 0)})`,
         inspectorName: currentUser?.name || 'Inventory Quality Auditor',
         dateAD: disposalDateAD,
         dateBS: disposalBS?.formattedBSShort || '',
@@ -582,7 +583,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            रु {(grandTotalLossValuation ?? 0).toLocaleString('en-IN')}
+            {formatNPR(grandTotalLossValuation ?? 0)}
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">Estimated gross cost inventory impairment</p>
         </div>
@@ -689,7 +690,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       <div className="text-[10px] text-slate-400">{prod.barcode}</div>
                     </td>
                     <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-300`}>
-                      रु {(prod.costPrice ?? 0).toLocaleString('en-IN')}
+                      {formatNPR(prod.costPrice ?? 0)}
                     </td>
                     <td className="p-2.5 text-center">
                       {totalDamagedQty > 0 ? (
@@ -702,7 +703,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       )}
                     </td>
                     <td className={`p-2.5 text-right font-mono font-bold text-rose-600 dark:text-rose-400`}>
-                      {totalLossValuation > 0 ? `रु ${(totalLossValuation ?? 0).toLocaleString('en-IN')}` : '-'}
+                      {totalLossValuation > 0 ? formatNPR(totalLossValuation ?? 0) : '-'}
                     </td>
 
                     {/* Branch Cells */}
@@ -928,7 +929,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     {disposalStock.stockItem.damagedQty || 0} {disposalStock.product.unit} Available Damaged
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    Cost: NPR {(disposalStock.product.costPrice ?? 0).toLocaleString('en-IN')} / unit
+                    Cost: {formatNPR(disposalStock.product.costPrice ?? 0)} / unit
                   </div>
                 </div>
               </div>
@@ -1060,21 +1061,21 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               {/* Financial Write-Off Accounting Summary Card */}
               <div className="p-3.5 rounded-xl bg-slate-900 text-slate-200 border border-slate-800 space-y-2 text-xs font-mono">
                 <div className="flex justify-between text-slate-400">
-                  <span>Gross Inventory Cost Value ({disposalQty} × NPR {(disposalStock.product.costPrice ?? 0).toLocaleString('en-IN')}):</span>
+                  <span>Gross Inventory Cost Value ({disposalQty} × {formatNPR(disposalStock.product.costPrice ?? 0)}):</span>
                   <span className="font-bold text-slate-200">
-                    रु {((disposalQty || 0) * (disposalStock.product.costPrice || 0)).toLocaleString('en-IN')}
+                    {formatNPR(((disposalQty || 0) * (disposalStock.product.costPrice || 0)))}
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Salvage Recovery / Offsetting Income:</span>
                   <span className="font-bold text-emerald-400">
-                    - रु {(salvageRecoveryAmount || 0).toLocaleString('en-IN')}
+                    - {formatNPR(salvageRecoveryAmount || 0)}
                   </span>
                 </div>
                 <div className="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
                   <span className="text-rose-400">Net Write-Off Loss Expense:</span>
                   <span className="text-rose-400">
-                    रु {Math.max(0, (disposalQty * disposalStock.product.costPrice) - (salvageRecoveryAmount || 0)).toLocaleString('en-IN')}
+                    {formatNPR(Math.max(0, (disposalQty * disposalStock.product.costPrice) - (salvageRecoveryAmount || 0)))}
                   </span>
                 </div>
               </div>

@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Branch, LocationRecord } from '../../types';
 import { MapPin, Plus, Search, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation, Trash2, Edit } from 'lucide-react';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface LocationsManagementProps {
-  branches: Branch[];}
+  branches: Branch[];
+}
 
 export const LocationsManagement: React.FC<LocationsManagementProps> = ({
-  branches,}) => {
+  branches,
+}) => {
+  const { confirm: confirmDialog } = useDialog();
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,7 +92,7 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   };
 
   const handleDeleteLocation = async (id: string) => {
-    if (confirm('Are you sure you want to delete this location site?')) {
+    if (await confirmDialog('Are you sure you want to delete this location site?')) {
       try {
         await api.deleteLocation(id);
         await loadLocations();

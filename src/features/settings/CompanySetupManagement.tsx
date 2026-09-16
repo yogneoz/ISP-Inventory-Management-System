@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CompanyProfile, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { processLogoFile } from '../../utils/logoImage';
+import { CURRENCY_PRESETS, formatMoney as formatMoneyPreviewBase, formatMoneyPrecise as formatMoneyPreciseBase, setCurrencyConfig, getCurrencyConfig } from '../../utils/nprFormat';
 import {
   Building2,
   Globe,
@@ -50,7 +51,7 @@ const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   registrationNumber: '',
   logoUrl: '',
   logoPreset: 'telecom',
-  currencySymbol: 'Rs.',
+  currencySymbol: 'NPR',
   defaultTaxRate: 13,
   notes: 'Default company profile — configure real details in Company Setup.',
 };
@@ -62,6 +63,30 @@ const LOGO_PRESETS = [
   { id: 'shield', label: 'Security & Enterprise', icon: ShieldCheck, color: 'bg-amber-600' },
 ];
 
+const LOCALE_PRESETS = [
+  { value: 'en-IN', label: 'en-IN — Indian/Nepali (lakh/crore grouping)' },
+  { value: 'en-US', label: 'en-US — US/International' },
+  { value: 'en-GB', label: 'en-GB — UK' },
+  { value: 'de-DE', label: 'de-DE — German (European)' },
+  { value: 'fr-FR', label: 'fr-FR — French (European)' },
+  { value: 'es-ES', label: 'es-ES — Spanish' },
+  { value: 'ja-JP', label: 'ja-JP — Japanese' },
+  { value: 'zh-CN', label: 'zh-CN — Chinese (Simplified)' },
+  { value: 'ko-KR', label: 'ko-KR — Korean' },
+  { value: 'ar-AE', label: 'ar-AE — Arabic (UAE)' },
+  { value: 'en-AU', label: 'en-AU — Australian' },
+  { value: 'en-CA', label: 'en-CA — Canadian' },
+  { value: 'en-BD', label: 'en-BD — Bangladeshi' },
+  { value: 'en-PK', label: 'en-PK — Pakistani' },
+  { value: 'en-LK', label: 'en-LK — Sri Lankan' },
+  { value: 'en-NG', label: 'en-NG — Nigerian' },
+  { value: 'en-ZA', label: 'en-ZA — South African' },
+  { value: 'en-TH', label: 'en-TH — Thai' },
+  { value: 'en-SG', label: 'en-SG — Singapore' },
+  { value: 'en-MY', label: 'en-MY — Malaysian' },
+  { value: 'vi-VN', label: 'vi-VN — Vietnamese' },
+];
+
 export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
   companyProfile,
   initialProfile,
@@ -71,6 +96,23 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
 }) => {
   const profile = companyProfile || initialProfile || DEFAULT_COMPANY_PROFILE;
   const canManage = isOperationAllowed('admin-branches', currentUser?.role);
+
+  // Live currency preview functions — temporarily swap the active config
+  // to preview the *unsaved* form values, then restore the original.
+  const formatMoneyPreview = (value: number): string => {
+    const original = getCurrencyConfig();
+    setCurrencyConfig({ code: currencyCode, symbol: currencySymbol, locale: currencyLocale, position: currencyPosition, decimals: currencyDecimals });
+    const result = formatMoneyPreviewBase(value);
+    setCurrencyConfig({ code: original.code, symbol: original.symbol, locale: original.locale, position: original.position, decimals: original.decimals });
+    return result;
+  };
+  const formatMoneyPreviewPrecise = (value: number): string => {
+    const original = getCurrencyConfig();
+    setCurrencyConfig({ code: currencyCode, symbol: currencySymbol, locale: currencyLocale, position: currencyPosition, decimals: currencyDecimals });
+    const result = formatMoneyPreciseBase(value);
+    setCurrencyConfig({ code: original.code, symbol: original.symbol, locale: original.locale, position: original.position, decimals: original.decimals });
+    return result;
+  };
 
   // Form State initialized with safe fallback
   const [name, setName] = useState(profile?.name || DEFAULT_COMPANY_PROFILE.name);
@@ -88,7 +130,11 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
   );
   const [logoUrl, setLogoUrl] = useState(profile?.logoUrl || DEFAULT_COMPANY_PROFILE.logoUrl || '');
   const [logoPreset, setLogoPreset] = useState(profile?.logoPreset || DEFAULT_COMPANY_PROFILE.logoPreset || 'telecom');
-  const [currencySymbol, setCurrencySymbol] = useState(profile?.currencySymbol || DEFAULT_COMPANY_PROFILE.currencySymbol || 'Rs.');
+  const [currencySymbol, setCurrencySymbol] = useState(profile?.currencySymbol || DEFAULT_COMPANY_PROFILE.currencySymbol || 'NPR');
+  const [currencyCode, setCurrencyCode] = useState(profile?.currencyCode || DEFAULT_COMPANY_PROFILE.currencyCode || 'NPR');
+  const [currencyLocale, setCurrencyLocale] = useState(profile?.currencyLocale || DEFAULT_COMPANY_PROFILE.currencyLocale || 'en-IN');
+  const [currencyPosition, setCurrencyPosition] = useState<'before' | 'after'>(profile?.currencyPosition || DEFAULT_COMPANY_PROFILE.currencyPosition || 'before');
+  const [currencyDecimals, setCurrencyDecimals] = useState<number>(profile?.currencyDecimals ?? DEFAULT_COMPANY_PROFILE.currencyDecimals ?? 2);
   const [defaultTaxRate, setDefaultTaxRate] = useState<number>(profile?.defaultTaxRate ?? DEFAULT_COMPANY_PROFILE.defaultTaxRate ?? 13);
   const [notes, setNotes] = useState(profile?.notes || DEFAULT_COMPANY_PROFILE.notes || '');
 
@@ -116,7 +162,11 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
     if (p.registrationNumber !== undefined) setRegistrationNumber(p.registrationNumber || '');
     if (p.logoUrl !== undefined) setLogoUrl(p.logoUrl || '');
     if (p.logoPreset !== undefined) setLogoPreset(p.logoPreset || 'telecom');
-    if (p.currencySymbol !== undefined) setCurrencySymbol(p.currencySymbol || 'Rs.');
+    if (p.currencySymbol !== undefined) setCurrencySymbol(p.currencySymbol || 'NPR');
+    if (p.currencyCode !== undefined) setCurrencyCode(p.currencyCode || 'NPR');
+    if (p.currencyLocale !== undefined) setCurrencyLocale(p.currencyLocale || 'en-IN');
+    if (p.currencyPosition !== undefined) setCurrencyPosition(p.currencyPosition || 'before');
+    if (p.currencyDecimals !== undefined) setCurrencyDecimals(p.currencyDecimals ?? 2);
     if (p.defaultTaxRate !== undefined) setDefaultTaxRate(p.defaultTaxRate ?? 13);
     if (p.notes !== undefined) setNotes(p.notes || '');
   }, [companyProfile, initialProfile]);
@@ -174,7 +224,11 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
       registrationNumber: registrationNumber.trim(),
       logoUrl: logoUrl.trim(),
       logoPreset,
-      currencySymbol: currencySymbol.trim() || 'Rs.',
+      currencySymbol: currencySymbol.trim() || 'NPR',
+      currencyCode: currencyCode.trim() || 'NPR',
+      currencyLocale: currencyLocale.trim() || 'en-IN',
+      currencyPosition: currencyPosition || 'before',
+      currencyDecimals: Number(currencyDecimals) >= 0 ? Number(currencyDecimals) : 2,
       defaultTaxRate: Number(defaultTaxRate) || 13,
       notes: notes.trim(),
     };
@@ -501,6 +555,34 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                   />
                 </div>
 
+                {/* Currency Code */} 
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Currency Code (ISO 4217)
+                  </label>
+                  <select
+                    value={currencyCode}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setCurrencyCode(code);
+                      // Auto-fill symbol/locale/decimals from the preset if available
+                      const preset = CURRENCY_PRESETS[code];
+                      if (preset) {
+                        if (preset.symbol) setCurrencySymbol(preset.symbol);
+                        if (preset.locale) setCurrencyLocale(preset.locale);
+                        if (preset.decimals !== undefined) setCurrencyDecimals(preset.decimals);
+                      }
+                    }}
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
+                  >
+                    {Object.keys(CURRENCY_PRESETS).map((code) => (
+                      <option key={code} value={code}>
+                        {code} — {CURRENCY_PRESETS[code].symbol}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Currency Symbol */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -510,9 +592,80 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                     type="text"
                     value={currencySymbol}
                     onChange={(e) => setCurrencySymbol(e.target.value)}
-                    placeholder="e.g. Rs."
+                    placeholder="e.g. NPR"
                     className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
                   />
+                </div>
+
+                {/* Currency Locale */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Number Format Locale
+                  </label>
+                  <select
+                    value={currencyLocale}
+                    onChange={(e) => setCurrencyLocale(e.target.value)}
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
+                  >
+                    {LOCALE_PRESETS.map((loc) => (
+                      <option key={loc.value} value={loc.value}>
+                        {loc.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Currency Position */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Symbol Position
+                  </label>
+                  <select
+                    value={currencyPosition}
+                    onChange={(e) => setCurrencyPosition(e.target.value as 'before' | 'after')}
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
+                  >
+                    <option value="before">Before number (e.g. $ 1,234)</option>
+                    <option value="after">After number (e.g. 1,234 $)</option>
+                  </select>
+                </div>
+
+                {/* Currency Decimals */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Decimal Places
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={6}
+                    value={currencyDecimals}
+                    onChange={(e) => setCurrencyDecimals(Math.max(0, Math.min(6, Number(e.target.value))))}
+                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-bold font-mono bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
+                  />
+                </div>
+
+                {/* Live Currency Preview */}
+                <div className="md:col-span-3">
+                  <div className={`rounded-xl border p-3 text-xs bg-indigo-50/50 border-indigo-200 dark:bg-indigo-950/30 dark:border-indigo-800/60`}>
+                    <div className="font-bold text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-2">
+                      <CreditCard className="h-3.5 w-3.5" /> Live Formatting Preview
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">Whole number</span>
+                        <span className="font-bold text-slate-900 dark:text-white">{formatMoneyPreview(1234567)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">With decimals</span>
+                        <span className="font-bold text-slate-900 dark:text-white">{formatMoneyPreviewPrecise(1234567.89)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">Negative</span>
+                        <span className="font-bold text-rose-600 dark:text-rose-400">{formatMoneyPreview(-98765.4)}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Default VAT Tax Rate */}
@@ -784,8 +937,8 @@ export const CompanySetupManagement: React.FC<CompanySetupManagementProps> = ({
                   <span className="col-span-1 font-bold">1</span>
                   <span className="col-span-5 font-semibold">Gpon OLT Dual Power Module 8-Port</span>
                   <span className="col-span-2 text-right font-mono">2 Pcs</span>
-                  <span className="col-span-2 text-right font-mono">{currencySymbol} 45,000</span>
-                  <span className="col-span-2 text-right font-mono font-bold">{currencySymbol} 90,000</span>
+                  <span className="col-span-2 text-right font-mono">{formatMoneyPreview(45000)}</span>
+                  <span className="col-span-2 text-right font-mono font-bold">{formatMoneyPreview(90000)}</span>
                 </div>
               </div>
 

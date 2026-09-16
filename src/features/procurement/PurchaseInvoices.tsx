@@ -17,6 +17,8 @@ import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
+import { useDialog } from '../../components/common/DialogProvider';
+import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import {
   Receipt,
   Plus,
@@ -127,6 +129,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onReverseInvoicePayments,
   onDeleteInvoice,
 }) => {
+  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
@@ -332,7 +335,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     if (status === 'PARTIAL') {
       return (
         <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-          PARTIAL (Rs. {(paid || 0).toLocaleString('en-IN')})
+          PARTIAL ({formatNPR(paid)})
         </span>
       );
     }
@@ -384,7 +387,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   };
 
   const handleReversePayment = async (p: VendorPayment) => {
-    const reason = window.prompt(`Reason for reversing payment #${p.paymentNumber} (NPR ${(Number(p.amount) || 0).toLocaleString('en-IN')})?`);
+    const reason = await promptDialog(`Reason for reversing payment #${p.paymentNumber} (${formatNPR(p.amount)})?`);
     if (!reason || !reason.trim()) return;
     try {
       if (onReversePayment) {
@@ -419,15 +422,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   // The server marks every payment REVERSED and resets the invoice to UNPAID.
   const handleReverseInvoicePayments = async (inv: PurchaseInvoice) => {
     const paid = Number(inv.amountPaid) || 0;
-    const reason = window.prompt(
-      `Reverse ALL payments for Invoice #${inv.invoiceNumber} (NPR ${paid.toLocaleString('en-IN')})? This will restore the bill to UNPAID and reverse every posted payment, including any on partial invoices already at their full amount.\n\nReason:`
+    const reason = await promptDialog(
+      `Reverse ALL payments for Invoice #${inv.invoiceNumber} (${formatNPR(paid)})? This will restore the bill to UNPAID and reverse every posted payment, including any on partial invoices already at their full amount.\n\nReason:`
     );
     if (reason === null) return;
     if (!reason.trim()) {
       alert('A reversal reason is required.');
       return;
     }
-    if (!window.confirm(`Confirm reversing Invoice #${inv.invoiceNumber}: all posted payment(s) totaling NPR ${paid.toLocaleString('en-IN')} will be reversed and the bill will be restored to UNPAID. This action is audited and cannot be undone automatically.`)) return;
+    const ok = await confirmDialog(`Confirm reversing Invoice #${inv.invoiceNumber}: all posted payment(s) totaling ${formatNPR(paid)} will be reversed and the bill will be restored to UNPAID. This action is audited and cannot be undone automatically.`);
+    if (!ok) return;
     try {
       if (onReverseInvoicePayments) {
         await onReverseInvoicePayments(inv.id, reason.trim());
@@ -457,7 +461,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     const remaining = unpaidAmount(payInvoice);
     if (amount > remaining) {
       setPaymentError(
-        `Payment cannot exceed the outstanding balance of Rs. ${(remaining || 0).toLocaleString('en-IN')}.`
+        `Payment cannot exceed the outstanding balance of ${formatNPR(remaining)}.`
       );
       return;
     }
@@ -487,7 +491,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   // Quick "Mark as Fully Paid" action for unpaid invoices
   const handleMarkInvoicePaid = async (inv: PurchaseInvoice) => {
     const remaining = unpaidAmount(inv);
-    if (!window.confirm(`Mark invoice #${inv.invoiceNumber} as fully paid (Rs. ${(remaining || 0).toLocaleString('en-IN')})?`)) return;
+    const ok = await confirmDialog(`Mark invoice #${inv.invoiceNumber} as fully paid (${formatNPR(remaining)})?`);
+    if (!ok) return;
     try {
       await onRecordPayment(inv.id, remaining, 'CASH');
     } catch (error: any) {
@@ -925,14 +930,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 Taxable Purchases
               </span>
               <div className={`text-lg font-mono font-bold mt-1 text-slate-900 dark:text-white`}>
-                Rs. {(totalTaxable ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatNPRPrecise(totalTaxable)}
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-blue-600 dark:text-blue-400`}>13% Input VAT</span>
               <div className={`text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1`}>
-                Rs. {(totalVAT ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatNPRPrecise(totalVAT)}
               </div>
             </div>
 
@@ -943,14 +948,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 Grand Total
               </span>
               <div className={`text-lg font-mono font-bold mt-1 text-slate-900 dark:text-white`}>
-                Rs. {(totalGrand ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatNPRPrecise(totalGrand)}
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-amber-600 dark:text-amber-400`}>Vendor Credit Payable</span>
               <div className={`text-lg font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1`}>
-                Rs. {(totalUnpaid ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatNPRPrecise(totalUnpaid)}
               </div>
             </div>
           </div>
@@ -1055,13 +1060,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             {formatDualDate(inv.invoiceDateAD, dateMode)}
                           </td>
                           <td className="p-2.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
-                            Rs. {(inv.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(inv.taxableAmount)}
                           </td>
                           <td className={`p-2.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400`}>
-                            Rs. {(inv.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(inv.vatAmount)}
                           </td>
                           <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                            Rs. {(inv.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(inv.grandTotal)}
                           </td>
                           <td className="p-2.5 text-center">
                             {paymentStatusBadge(inv)}
@@ -1072,7 +1077,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => openPaymentModal(inv)}
-                                  title={`Record Payment — Rs. ${(unpaidAmount(inv) || 0).toLocaleString('en-IN')} outstanding`}
+                                  title={`Record Payment — ${formatNPR(unpaidAmount(inv))} outstanding`}
                                   className="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
                                 >
                                   <Banknote className="h-3.5 w-3.5" />
@@ -1117,7 +1122,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               {isOperationAllowed('inv-delete', currentUser?.role) && <button
                                 type="button"
                                 onClick={async () => {
-                                  if (!onDeleteInvoice || !window.confirm(`Delete Purchase Invoice #${inv.invoiceNumber}? This will reverse its stock and remove its unassigned serial records.`)) return;
+                                  if (!onDeleteInvoice || !(await confirmDialog(`Delete Purchase Invoice #${inv.invoiceNumber}? This will reverse its stock and remove its unassigned serial records.`))) return;
                                   try {
                                     await onDeleteInvoice(inv.id);
                                   } catch (error: any) {
@@ -1587,7 +1592,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               />
                             </td>
                             <td className={`p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white`}>
-                              Rs. {(line.netSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {formatNPRPrecise(line.netSubtotal)}
                             </td>
                             <td className="p-2.5 text-center">
                               <button
@@ -1715,7 +1720,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Gross Amount:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">
-                    Rs. {(grossSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(grossSubtotal)}
                   </span>
                 </div>
 
@@ -1740,14 +1745,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <div className={`flex justify-between text-blue-600 border-slate-200 dark:text-blue-400 dark:border-slate-800 font-semibold border-t pt-2`}>
                   <span>13% Input VAT:</span>
                   <span className="font-mono font-bold">
-                    Rs. {(billVatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(billVatAmount)}
                   </span>
                 </div>
 
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
                   <span>Grand Total (Credit Mode):</span>
                   <span className={`font-mono text-blue-600 dark:text-blue-400 text-lg`}>
-                    Rs. {(grandTotalCalculated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(grandTotalCalculated)}
                   </span>
                 </div>
 
@@ -1861,10 +1866,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                         {item.quantity} {item.unit || 'Pcs'}
                       </td>
                       <td className="p-2.5 text-right font-mono">
-                        Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatNPRPrecise(item.unitPrice)}
                       </td>
                       <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                        Rs. {(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatNPRPrecise(item.total)}
                       </td>
                     </tr>
                   ))}
@@ -1887,7 +1892,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <div>
                   Outstanding Balance:{' '}
                   <span className={`font-bold text-rose-600 dark:text-rose-400`}>
-                    Rs. {(unpaidAmount(viewingInvoice) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(unpaidAmount(viewingInvoice))}
                   </span>
                 </div>
               )}
@@ -1897,16 +1902,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               <div className="w-64 space-y-1.5 text-xs font-mono text-right">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Taxable Base:</span>
-                  <span>Rs. {(viewingInvoice.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span>{formatNPRPrecise(viewingInvoice.taxableAmount)}</span>
                 </div>
                 <div className={`flex justify-between text-blue-600 dark:text-blue-400 font-semibold`}>
                   <span>13% VAT:</span>
-                  <span>Rs. {(viewingInvoice.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span>{formatNPRPrecise(viewingInvoice.vatAmount)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                   <span>Grand Total:</span>
                   <span className={`text-blue-600 dark:text-blue-400`}>
-                    Rs. {(viewingInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(viewingInvoice.grandTotal)}
                   </span>
                 </div>
               </div>
@@ -1989,15 +1994,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   Grand Total:{' '}
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                    Rs. {(Number(payInvoice.grandTotal) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(payInvoice.grandTotal)}
                   </span>
                   {' '}• Paid:{' '}
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    Rs. {(Number(payInvoice.amountPaid) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(payInvoice.amountPaid)}
                   </span>
                   {' '}• Outstanding:{' '}
                   <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
-                    Rs. {(unpaidAmount(payInvoice) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(unpaidAmount(payInvoice))}
                   </span>
                 </div>
               </div>
@@ -2011,7 +2016,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Payment Amount (Rs.) *
+                  Payment Amount (NPR) *
                 </label>
                 <div className="relative">
                   <Banknote className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400`} />
@@ -2147,7 +2152,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                              Rs. {(Number(p.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {formatNPRPrecise(p.amount)}
                             </span>
                             {!isReversed && onReversePayment && (
                               <button
@@ -2262,7 +2267,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             <span>📅 {po.orderDateAD}</span>
                             <span>📦 {po.items.length} item line(s)</span>
                             <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                              Rs. {(po.totalAmount ?? 0).toLocaleString('en-IN')}
+                              {formatNPR(po.totalAmount)}
                             </span>
                           </div>
                         </div>
@@ -2368,7 +2373,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       <div>
                         <div className="font-bold text-slate-900 dark:text-white">{poItem.productName}</div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Ordered Quantity: <strong className="text-slate-800 dark:text-slate-200">{poItem.quantity} {poItem.unit}</strong> @ Rs. {(poItem.unitPrice ?? 0).toLocaleString('en-IN')}
+                          Ordered Quantity: <strong className="text-slate-800 dark:text-slate-200">{poItem.quantity} {poItem.unit}</strong> @ {formatNPR(poItem.unitPrice)}
                         </div>
                       </div>
 
@@ -2456,11 +2461,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Taxable Subtotal</span>
-                  <span className="font-mono font-bold">Rs. {(productsModalInvoice.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-bold">{formatNPRPrecise(productsModalInvoice.taxableAmount)}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Grand Total</span>
-                  <span className={`font-mono font-bold text-emerald-600 dark:text-emerald-400`}>Rs. {(productsModalInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className={`font-mono font-bold text-emerald-600 dark:text-emerald-400`}>{formatNPRPrecise(productsModalInvoice.grandTotal)}</span>
                 </div>
               </div>
 
@@ -2478,9 +2483,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                         <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-400`}>{item.quantity} {prod?.unit || 'Pcs'}</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-[10px]">
-                        <span>Unit<br /><strong>Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN')}</strong></span>
-                        <span>Discount<br /><strong>Rs. {(item.discount ?? 0).toLocaleString('en-IN')}</strong></span>
-                        <span>Total<br /><strong className="text-emerald-600 dark:text-emerald-400">Rs. {(item.total ?? item.quantity * item.unitPrice).toLocaleString('en-IN')}</strong></span>
+                        <span>Unit<br /><strong>{formatNPR(item.unitPrice)}</strong></span>
+                        <span>Discount<br /><strong>{formatNPR(item.discount)}</strong></span>
+                        <span>Total<br /><strong className="text-emerald-600 dark:text-emerald-400">{formatNPR(item.total ?? item.quantity * item.unitPrice)}</strong></span>
                       </div>
                       {item.deviceSerials?.length ? (
                         <div className="flex flex-wrap gap-1">
@@ -2525,13 +2530,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             {item.quantity} {prod?.unit || 'Pcs'}
                           </td>
                           <td className="p-2.5 text-right font-mono">
-                            Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            {formatNPRPrecise(item.unitPrice)}
                           </td>
                           <td className="p-2.5 text-right font-mono text-slate-500">
-                            Rs. {(item.discount ?? 0).toLocaleString('en-IN')}
+                            {formatNPR(item.discount)}
                           </td>
                           <td className={`p-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
-                            Rs. {(item.total ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            {formatNPRPrecise(item.total ?? (item.quantity * item.unitPrice))}
                           </td>
                           <td className="p-2.5">
                             {hasSerials ? (

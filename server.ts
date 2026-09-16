@@ -98,7 +98,11 @@ const INITIAL_COMPANY_PROFILE: CompanyProfile = {
   registrationNumber: '',
   logoUrl: '',
   logoPreset: 'telecom',
-  currencySymbol: 'Rs.',
+  currencySymbol: 'NPR',
+  currencyCode: 'NPR',
+  currencyLocale: 'en-IN',
+  currencyPosition: 'before',
+  currencyDecimals: 2,
   defaultTaxRate: 13,
   notes: 'Default company profile — configure real details in Company Setup.',
 };
@@ -1056,7 +1060,7 @@ app.get('/api/bootstrap', async (req, res) => {
         pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
         pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
-        pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
+        pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
         pgPool.query(`SELECT id, damage_reference AS "damageReference", product_id AS "productId", branch_id AS "branchId", quantity_damaged AS "quantityDamaged", unit_cost AS "unitCost", total_cost AS "totalCost", damage_date_ad AS "damageDateAD", damage_date_bs AS "damageDateBS", damage_reason AS "damageReason", status, disposal_date_ad AS "disposalDateAD", disposal_date_bs AS "disposalDateBS", disposal_method AS "disposalMethod", salvage_value AS "salvageValue", gl_account_code AS "glAccountCode", write_off_loss AS "writeOffLoss", approved_by AS "approvedBy", notes, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM damage_records${damageScope.where} ORDER BY damage_date_ad DESC`, damageScope.params),
         pgPool.query(`SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments${vpScope.where} ORDER BY payment_date_ad DESC, created_at DESC`, vpScope.params),
         // Vendor Opening Balances (for correct Accounts Payable = opening + invoices − payments)
@@ -1823,7 +1827,7 @@ app.delete('/api/locations/:id', async (req, res) => {
 app.get('/api/company-profile', async (req, res) => {
   if (isPgConnected) {
     try {
-      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
       if (r.rows.length > 0) {
         companyProfile = r.rows[0];
         return res.json(r.rows[0]);
@@ -1842,8 +1846,8 @@ app.put('/api/company-profile', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP)
+        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            legal_name = EXCLUDED.legal_name,
@@ -1851,6 +1855,7 @@ app.put('/api/company-profile', async (req, res) => {
            address = EXCLUDED.address,
            city = EXCLUDED.city,
            country = EXCLUDED.country,
+           postal_code = EXCLUDED.postal_code,
            phone = EXCLUDED.phone,
            email = EXCLUDED.email,
            website = EXCLUDED.website,
@@ -1859,6 +1864,10 @@ app.put('/api/company-profile', async (req, res) => {
            logo_url = EXCLUDED.logo_url,
            logo_preset = EXCLUDED.logo_preset,
            currency_symbol = EXCLUDED.currency_symbol,
+           currency_code = EXCLUDED.currency_code,
+           currency_locale = EXCLUDED.currency_locale,
+           currency_position = EXCLUDED.currency_position,
+           currency_decimals = EXCLUDED.currency_decimals,
            default_tax_rate = EXCLUDED.default_tax_rate,
            notes = EXCLUDED.notes,
            updated_at = CURRENT_TIMESTAMP;`,
@@ -1870,6 +1879,7 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.address,
           companyProfile.city || '',
           companyProfile.country || '',
+          companyProfile.postalCode || '',
           companyProfile.phone || '',
           companyProfile.email || '',
           companyProfile.website || '',
@@ -1877,7 +1887,11 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.registrationNumber || '',
           companyProfile.logoUrl || '',
           companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'Rs.',
+          companyProfile.currencySymbol || 'NPR',
+          companyProfile.currencyCode || 'NPR',
+          companyProfile.currencyLocale || 'en-IN',
+          companyProfile.currencyPosition || 'before',
+          companyProfile.currencyDecimals ?? 2,
           companyProfile.defaultTaxRate ?? 13,
           companyProfile.notes || '',
         ]
@@ -8374,7 +8388,7 @@ app.get('/api/company-profile', async (req, res) => {
   try {
     if (isPgConnected) {
       const dbRes = await pgPool.query(
-        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
+        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
       );
       if (dbRes.rows.length > 0) {
         return res.json(dbRes.rows[0]);
@@ -8397,8 +8411,8 @@ app.put('/api/company-profile', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            legal_name = EXCLUDED.legal_name,
@@ -8406,6 +8420,7 @@ app.put('/api/company-profile', async (req, res) => {
            address = EXCLUDED.address,
            city = EXCLUDED.city,
            country = EXCLUDED.country,
+           postal_code = EXCLUDED.postal_code,
            phone = EXCLUDED.phone,
            email = EXCLUDED.email,
            website = EXCLUDED.website,
@@ -8414,6 +8429,10 @@ app.put('/api/company-profile', async (req, res) => {
            logo_url = EXCLUDED.logo_url,
            logo_preset = EXCLUDED.logo_preset,
            currency_symbol = EXCLUDED.currency_symbol,
+           currency_code = EXCLUDED.currency_code,
+           currency_locale = EXCLUDED.currency_locale,
+           currency_position = EXCLUDED.currency_position,
+           currency_decimals = EXCLUDED.currency_decimals,
            default_tax_rate = EXCLUDED.default_tax_rate,
            notes = EXCLUDED.notes`,
         [
@@ -8424,6 +8443,7 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.address,
           companyProfile.city || '',
           companyProfile.country || 'Nepal',
+          companyProfile.postalCode || '',
           companyProfile.phone || '',
           companyProfile.email || '',
           companyProfile.website || '',
@@ -8431,7 +8451,11 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.registrationNumber || '',
           companyProfile.logoUrl || '',
           companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'Rs.',
+          companyProfile.currencySymbol || 'NPR',
+          companyProfile.currencyCode || 'NPR',
+          companyProfile.currencyLocale || 'en-IN',
+          companyProfile.currencyPosition || 'before',
+          companyProfile.currencyDecimals ?? 2,
           companyProfile.defaultTaxRate || 13,
           companyProfile.notes || '',
         ]
@@ -8875,6 +8899,7 @@ async function syncDatabaseAndIndexes() {
         address TEXT NOT NULL,
         city VARCHAR(100),
         country VARCHAR(100),
+        postal_code VARCHAR(30),
         phone VARCHAR(100),
         email VARCHAR(100),
         website VARCHAR(100),
@@ -8883,6 +8908,10 @@ async function syncDatabaseAndIndexes() {
         logo_url TEXT,
         logo_preset VARCHAR(50),
         currency_symbol VARCHAR(20),
+        currency_code VARCHAR(10) DEFAULT 'NPR',
+        currency_locale VARCHAR(20) DEFAULT 'en-IN',
+        currency_position VARCHAR(10) DEFAULT 'before',
+        currency_decimals INT DEFAULT 2,
         default_tax_rate NUMERIC,
         notes TEXT,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -8929,6 +8958,19 @@ async function syncDatabaseAndIndexes() {
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      -- Currency & locale columns for globally-configurable money formatting.
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS postal_code VARCHAR(30);
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_code VARCHAR(10) DEFAULT 'NPR';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_locale VARCHAR(20) DEFAULT 'en-IN';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_position VARCHAR(10) DEFAULT 'before';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_decimals INT DEFAULT 2;
+      -- Backfill an existing profile that only had the old symbol column.
+      UPDATE company_profile SET
+        currency_code = 'NPR',
+        currency_locale = 'en-IN',
+        currency_position = 'before',
+        currency_decimals = 2
+        WHERE currency_code IS NULL OR currency_code = '';
       -- Drop the stale hard-coded fiscal-year default (fiscal year is now
       -- derived from the record date at write time).
       DO $$ BEGIN
@@ -9283,8 +9325,8 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     }
     // Seed Company Profile if empty
     await client.query(
-      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) ON CONFLICT (id) DO NOTHING`,
       [
         INITIAL_COMPANY_PROFILE.id,
         INITIAL_COMPANY_PROFILE.name,
@@ -9293,6 +9335,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         INITIAL_COMPANY_PROFILE.address,
         INITIAL_COMPANY_PROFILE.city,
         INITIAL_COMPANY_PROFILE.country,
+        INITIAL_COMPANY_PROFILE.postalCode || '',
         INITIAL_COMPANY_PROFILE.phone,
         INITIAL_COMPANY_PROFILE.email,
         INITIAL_COMPANY_PROFILE.website,
@@ -9301,6 +9344,10 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         INITIAL_COMPANY_PROFILE.logoUrl,
         INITIAL_COMPANY_PROFILE.logoPreset,
         INITIAL_COMPANY_PROFILE.currencySymbol,
+        INITIAL_COMPANY_PROFILE.currencyCode || 'NPR',
+        INITIAL_COMPANY_PROFILE.currencyLocale || 'en-IN',
+        INITIAL_COMPANY_PROFILE.currencyPosition || 'before',
+        INITIAL_COMPANY_PROFILE.currencyDecimals ?? 2,
         INITIAL_COMPANY_PROFILE.defaultTaxRate,
         INITIAL_COMPANY_PROFILE.notes,
       ]
@@ -9372,7 +9419,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     const supDbRes = await client.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
     if (supDbRes.rows.length > 0) suppliers = supDbRes.rows;
 
-    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
     if (compRes.rows.length > 0) companyProfile = compRes.rows[0];
 
     const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');

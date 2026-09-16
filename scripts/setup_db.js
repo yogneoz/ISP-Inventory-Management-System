@@ -406,11 +406,20 @@ async function seedDocumentConfigs(client) {
 async function seedCompanyProfile(client) {
   const companyCheck = await client.query('SELECT COUNT(*) AS count FROM company_profile');
   if (parseInt(companyCheck.rows[0].count, 10) > 0) return;
+  // Ensure newly introduced currency/address columns exist even on an older schema.
+  await client.query(
+    `ALTER TABLE company_profile
+       ADD COLUMN IF NOT EXISTS currency_code VARCHAR(10) DEFAULT 'NPR',
+       ADD COLUMN IF NOT EXISTS currency_locale VARCHAR(20) DEFAULT 'en-IN',
+       ADD COLUMN IF NOT EXISTS currency_position VARCHAR(10) DEFAULT 'before',
+       ADD COLUMN IF NOT EXISTS currency_decimals INT DEFAULT 2,
+       ADD COLUMN IF NOT EXISTS postal_code VARCHAR(30)`
+  );
   await client.query(
     `INSERT INTO company_profile (
-       id, name, legal_name, address, phone, email, currency_symbol, default_tax_rate
+       id, name, legal_name, address, city, country, phone, email, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate
      )
-     VALUES ('COMP-001', 'Inventory Management System', 'Inventory Management System (Demo)', 'Kathmandu, Nepal', '', '', 'Rs.', 13.00)
+     VALUES ('COMP-001', 'Inventory Management System', 'Inventory Management System (Demo)', 'Kathmandu, Nepal', 'Kathmandu', 'Nepal', '', '', 'NPR', 'NPR', 'en-IN', 'before', 2, 13.00)
      ON CONFLICT (id) DO NOTHING`
   );
   console.log('✅ Default company profile seeded.');

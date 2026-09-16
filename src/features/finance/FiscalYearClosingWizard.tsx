@@ -15,6 +15,8 @@ import {
 import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { filterFiscalYears } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { useDialog } from '../../components/common/DialogProvider';
+import type { NavTab } from '../../components/layout/Sidebar';
 import {
   Lock,
   Unlock,
@@ -76,6 +78,8 @@ interface FiscalYearClosingWizardProps {
   selectedFiscalYearId?: string;
   /** Update the global fiscal-year view when the user changes it here. */
   onSelectFiscalYear?: (fiscalYearId: string) => void;
+  /** Navigate to a different tab in the app (used for diagnostic links). */
+  onNavigateTab?: (tab: NavTab) => void;
 }
 
 export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = ({
@@ -101,7 +105,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   companyProfile,
   selectedFiscalYearId,
   onSelectFiscalYear,
+  onNavigateTab,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
   const [selectedFyId, setSelectedFyId] = useState<string>(defaultFiscalYear?.id || '');
   const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFyId) || defaultFiscalYear;
@@ -137,6 +143,15 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   // Period status helpers — mirror the wizard's live lock state.
   const isPeriodLocked = (fy: FiscalYear) => Boolean(fy.isClosed);
   const isPeriodActive = (fy: FiscalYear) => Boolean(fy.isCurrent);
+
+  // Diagnostic ID → NavTab mapping for clickable "Go to" links
+  const diagnosticNavMap: Record<string, NavTab> = {
+    'unclosed-pos': 'purchase-list',        // Purchase Orders / Invoices
+    'stock-reconciliation': 'physical-stock-audit', // Physical Stock Audit
+    'asset-depreciation': 'fixed-assets',   // Fixed Asset Register
+    'vat-register': 'vat-register',         // VAT Register
+  };
+
   const [openingStockMessage, setOpeningStockMessage] = useState<string>('');
   const [vendorOpeningMessage, setVendorOpeningMessage] = useState<string>('');
 
@@ -369,6 +384,11 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   ];
 
   const handleNextStep = () => {
+    // Block navigation from Step 1 if critical issues exist
+    if (currentStep === 1 && diagnosticCounts.critical > 0) {
+      // The blocking message in Step 1 already tells the user what's wrong
+      return;
+    }
     if (currentStep < 6) {
       setCurrentStep((prev) => prev + 1);
     }
@@ -512,9 +532,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       setFyDeleteError('Deleting fiscal years is not available for your account.');
       return;
     }
-    if (!confirm(`Delete fiscal year FY ${fy.code}?\n\nOnly a fiscal year with NO records attached can be deleted. This cannot be undone.`)) {
-      return;
-    }
+    const ok = await confirmDialog(`Delete fiscal year FY ${fy.code}?\n\nOnly a fiscal year with NO records attached can be deleted. This cannot be undone.`);
+    if (!ok) return;
+
     setIsProcessingStep(true);
     try {
       await onDeleteFiscalYear(fy.id);
@@ -772,6 +792,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               {preCloseDiagnostics.map((diag) => {
                 const isCritical = diag.status === 'critical';
                 const isWarning = diag.status === 'warning';
+                const navTarget = diagnosticNavMap[diag.id];
                 return (
                   <div
                     key={diag.id}
@@ -805,6 +826,16 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{diag.detail}</p>
+                    {navTarget && onNavigateTab && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateTab(navTarget)}
+                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        <ArrowRight className="h-3 w-3" />
+                        Go to {navTarget.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -829,7 +860,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Closing Inventory Stock Value</p>
                 <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-                  NPR {(closingMetrics.inventoryValue ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.inventoryValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Evaluated at FIFO Cost Price</p>
               </div>
@@ -837,7 +868,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Gross Fixed Asset Acquisition</p>
                 <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                  NPR {(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">{assets.length} Active Hardware Items</p>
               </div>
@@ -845,7 +876,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Calculated Year Depreciation</p>
                 <p className="text-xl font-extrabold text-amber-500 mt-1">
-                  NPR {(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Income Tax Act Rates Applied</p>
               </div>
@@ -1079,9 +1110,11 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
           <button
             onClick={handleNextStep}
-            disabled={currentStep === 6}
+            disabled={currentStep === 6 || (currentStep === 1 && diagnosticCounts.critical > 0)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${currentStep === 6
                 ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
+                : currentStep === 1 && diagnosticCounts.critical > 0
+                ? 'opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
             }`}
           >
@@ -1297,7 +1330,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                           <button
                             type="button"
                             onClick={async () => {
-                              if (confirm(`Set FY ${fy.code} as the active (current) fiscal year?`)) {
+                              if (await confirmDialog(`Set FY ${fy.code} as the active (current) fiscal year?`)) {
                                 try {
                                   await onSetCurrentFiscalYear(fy.id);
                                 } catch (_e) {

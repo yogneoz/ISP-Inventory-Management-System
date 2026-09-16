@@ -86,6 +86,7 @@ import { HelpDocumentation } from './components/common/HelpDocumentation';
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
+import { setCurrencyConfig } from './utils/nprFormat';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
 
@@ -253,8 +254,23 @@ export default function App() {
     if (data.users) setUsers(data.users as User[]);
     if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
     if (data.categories) setCategories(data.categories);
-    if (data.companyProfile) setCompanyProfile(data.companyProfile);
+    if (data.companyProfile) {
+      setCompanyProfile(data.companyProfile);
+      applyCurrencyConfig(data.companyProfile);
+    }
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
+  };
+
+  // Apply the active currency configuration from the company profile so every
+  // formatMoney/formatNPR call site renders in the configured currency.
+  const applyCurrencyConfig = (profile: CompanyProfile) => {
+    setCurrencyConfig({
+      code: profile.currencyCode || profile.currencySymbol || 'NPR',
+      symbol: profile.currencySymbol || 'NPR',
+      locale: profile.currencyLocale || 'en-IN',
+      position: profile.currencyPosition || 'before',
+      decimals: profile.currencyDecimals ?? 2,
+    });
   };
 
   // Instant pre-hydration from recent cache (scoped per user+branch+FY, TTL-guarded)
@@ -2023,6 +2039,7 @@ export default function App() {
                   companyProfile={companyProfile}
                   selectedFiscalYearId={selectedFiscalYearId}
                   onSelectFiscalYear={setSelectedFiscalYearId}
+                  onNavigateTab={setActiveTab}
                 />
               )}
 

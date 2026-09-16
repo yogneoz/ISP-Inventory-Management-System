@@ -601,7 +601,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className={`p-2.5 text-right font-mono text-slate-600 dark:text-slate-400 dark:text-slate-400`}>
-                          {(prod.costPrice ?? 0).toLocaleString('en-IN')}
+                          {formatNPR(prod.costPrice)}
                         </td>
 
                         <td className={`p-2.5 text-right font-mono font-extrabold text-sm text-rose-600 dark:text-rose-400`}>
@@ -873,7 +873,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                          {(prod.costPrice ?? 0).toLocaleString('en-IN')}
+                          {formatNPR(prod.costPrice)}
                         </td>
 
                         <td className={`p-2.5 text-right font-mono font-extrabold text-sm text-indigo-600 dark:text-indigo-400`}>

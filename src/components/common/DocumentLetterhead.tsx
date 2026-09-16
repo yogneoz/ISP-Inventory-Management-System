@@ -1,5 +1,6 @@
 import React from 'react';
 import { CompanyProfile } from '../../types';
+import { getCompanyAddress } from '../../utils/companyProfile';
 
 interface DocumentLetterheadProps {
   companyProfile?: CompanyProfile | null;
@@ -20,9 +21,7 @@ export const DocumentLetterhead: React.FC<DocumentLetterheadProps> = ({
   subtitle,
 }) => {
   const name = companyProfile?.legalName || companyProfile?.name || 'Inventory Management System';
-  const addressLine = [companyProfile?.address, companyProfile?.city, companyProfile?.country]
-    .filter(Boolean)
-    .join(', ');
+  const addressLine = getCompanyAddress(companyProfile);
   const contactLine = [
     companyProfile?.phone ? `Tel: ${companyProfile.phone}` : '',
     companyProfile?.email ? companyProfile.email : '',

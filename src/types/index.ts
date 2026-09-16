@@ -6,6 +6,7 @@ export interface CompanyProfile {
   address: string;
   city?: string;
   country?: string;
+  postalCode?: string;
   phone?: string;
   email?: string;
   website?: string;
@@ -13,7 +14,16 @@ export interface CompanyProfile {
   registrationNumber?: string;
   logoUrl?: string;
   logoPreset?: string;
+  /** Display symbol, e.g. 'Rs.', '$', '€', '₹', '£'. */
   currencySymbol?: string;
+  /** ISO 4217 currency code, e.g. 'NPR', 'USD', 'EUR', 'INR'. */
+  currencyCode?: string;
+  /** BCP-47 locale used for grouping/decimals, e.g. 'en-IN', 'en-US', 'de-DE'. */
+  currencyLocale?: string;
+  /** Whether the symbol is placed before or after the number. */
+  currencyPosition?: 'before' | 'after';
+  /** Decimal places used for precise money display. */
+  currencyDecimals?: number;
   defaultTaxRate?: number;
   notes?: string;
 }
