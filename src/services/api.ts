@@ -377,6 +377,14 @@ export const api = {
     return fetchJson('/api/admin/recalculate/live-stock', { method: 'POST' });
   },
 
+  async rebuildBsDayRecords(): Promise<{ success: boolean; pgSynced: boolean; years: number; regeneratedRecords: number; message: string }> {
+    return fetchJson('/api/admin/recalculate/bs-day-records', { method: 'POST' });
+  },
+
+  async repairFiscalYearLinks(): Promise<{ success: boolean; totalFixed: number; perTable: Record<string, number>; message: string }> {
+    return fetchJson('/api/admin/repair/fiscal-year-links', { method: 'POST' });
+  },
+
   // Purchase Orders
   async getPurchaseOrders(branchId?: string): Promise<PurchaseOrder[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -939,6 +947,19 @@ export const api = {
     return fetchJson('/api/bs-calendar/sync-range', {
       method: 'POST',
       body: JSON.stringify({ dayRecords }),
+    });
+  },
+
+  // Update an existing BS year's month-length config / AD start date, then
+  // regenerate its day-by-day records (and those of subsequent years whose
+  // start date shifts) in bs_day_records.
+  async updateBsCalendarYear(
+    yearBS: number,
+    payload: { daysInMonths?: number[]; startAD?: string; recalculateNextStartAD?: boolean }
+  ): Promise<{ success: boolean; pgSynced?: boolean; affectedYears?: number[]; regeneratedRecords?: number; message: string }> {
+    return fetchJson(`/api/bs-calendar/years/${yearBS}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   },
 

@@ -141,12 +141,16 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     setEditError('');
 
     try {
-      seedBSYearCalendar(editingYearData.yearBS, editDaysInMonths, editStartAD);
-      await api.seedBsCalendarYear(editingYearData.yearBS, editDaysInMonths, editStartAD);
+      // Update the BS year config and regenerate day records in PostgreSQL
+      const updateRes = await api.updateBsCalendarYear(editingYearData.yearBS, {
+        daysInMonths: editDaysInMonths,
+        startAD: editStartAD,
+        recalculateNextStartAD: true,
+      });
 
       setSeedStatus({
         type: 'success',
-        message: `Successfully updated 12-month array and Start AD date for BS Year ${editingYearData.yearBS} in PostgreSQL database!`,
+        message: updateRes.message || `Successfully updated BS Year ${editingYearData.yearBS} and regenerated its day records in PostgreSQL!`,
       });
 
       setEditingYearData(null);

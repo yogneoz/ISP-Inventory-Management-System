@@ -136,15 +136,16 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     setEditError('');
 
     try {
-      // 1. Local storage & memory update
-      seedBSYearCalendar(editingYearData.yearBS, editDaysInMonths, editStartAD);
-
-      // 2. PostgreSQL DB update
-      await api.seedBsCalendarYear(editingYearData.yearBS, editDaysInMonths, editStartAD);
+      // Update the BS year config and regenerate day records in PostgreSQL
+      const updateRes = await api.updateBsCalendarYear(editingYearData.yearBS, {
+        daysInMonths: editDaysInMonths,
+        startAD: editStartAD,
+        recalculateNextStartAD: true,
+      });
 
       setSeedStatus({
         type: 'success',
-        message: `Successfully updated 12-month array and Start AD date for BS Year ${editingYearData.yearBS} in PostgreSQL database!`,
+        message: updateRes.message || `Successfully updated BS Year ${editingYearData.yearBS} and regenerated its day records in PostgreSQL!`,
       });
 
       setEditingYearData(null);

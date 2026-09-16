@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Calculator, CheckCircle2, Database, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Calculator, CalendarDays, CheckCircle2, Database, Link2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api } from '../../services/api';
 import { FiscalYear, User } from '../../types';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
@@ -10,7 +10,7 @@ interface DataRecalculationMaintenanceProps {
   onRefreshData?: () => Promise<void>;
 }
 
-type Operation = 'assets' | 'opening-stock' | 'stock';
+type Operation = 'assets' | 'opening-stock' | 'stock' | 'bs-calendar' | 'fy-links' | 'vendor-openings';
 
 const operations: Array<{
   id: Operation;
@@ -18,6 +18,8 @@ const operations: Array<{
   description: string;
   warning: string;
   icon: React.ElementType;
+  needsClosedSourceYear?: boolean;
+  needsClosedSourceLabel?: string;
 }> = [
   {
     id: 'assets',
@@ -32,6 +34,7 @@ const operations: Array<{
     description: 'Generate the next fiscal year opening register from a closed fiscal year, preserving manual adjustments.',
     warning: 'Choose the closed source year. The operation creates or refreshes the following year and does not alter transaction history.',
     icon: Database,
+    needsClosedSourceYear: true,
   },
   {
     id: 'stock',
@@ -39,6 +42,29 @@ const operations: Array<{
     description: 'Restore live quantities from the latest reliable stock transaction for each product and branch.',
     warning: 'Only records with usable transaction history are changed. Stock without transaction history is left untouched.',
     icon: RefreshCw,
+  },
+  {
+    id: 'vendor-openings',
+    title: 'Rebuild Vendor Opening Balances',
+    description: 'Re-run the vendor accounts roll-forward from a closed fiscal year into its successor, preserving manual corrections.',
+    warning: 'Choose the closed source year. Only closing-generated rows are refreshed; manually adjusted vendor balances survive.',
+    icon: ArrowLeftRight,
+    needsClosedSourceYear: true,
+    needsClosedSourceLabel: 'Source Fiscal Year (closed)',
+  },
+  {
+    id: 'bs-calendar',
+    title: 'Rebuild BS Calendar Days',
+    description: 'Regenerate the AD⇄BS day-by-day lookup table from the stored calendar year configuration.',
+    warning: 'Source calendar config is never rewritten. Only the derived daily conversion table is rebuilt to repair drift or gaps.',
+    icon: CalendarDays,
+  },
+  {
+    id: 'fy-links',
+    title: 'Repair Fiscal-Year Links',
+    description: 'Re-link every dated record to its correct fiscal year so reports and closing scoping stay accurate.',
+    warning: 'Only NULL or stale fiscal-year references are corrected from the row date. Raw documents are never modified.',
+    icon: Link2,
   },
 ];
 
@@ -55,7 +81,7 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
 
   const runOperation = async (operation: Operation) => {
     if (currentUser?.role !== 'SUPER_ADMIN') return;
-    if (operation === 'opening-stock' && !sourceFiscalYearId) {
+    if ((operation === 'opening-stock' || operation === 'vendor-openings') && !sourceFiscalYearId) {
       setMessage({ type: 'error', text: 'Select a closed source fiscal year first.' });
       return;
     }
@@ -72,6 +98,15 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
       } else if (operation === 'stock') {
         const result = await api.recalculateLiveStock();
         resultMessage = result.message;
+      } else if (operation === 'bs-calendar') {
+        const result = await api.rebuildBsDayRecords();
+        resultMessage = result.message;
+      } else if (operation === 'fy-links') {
+        const result = await api.repairFiscalYearLinks();
+        resultMessage = `${result.message} (${result.totalFixed} row(s) fixed).`;
+      } else if (operation === 'vendor-openings') {
+        const result = await api.rollForwardVendorOpenings(sourceFiscalYearId);
+        resultMessage = `${result.recordsCreated} vendor opening-balance record(s) prepared for FY ${result.targetFiscalYear.code}${result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved.` : '.'}`;
       } else {
         const result = await api.initializeFiscalYearOpeningStock(sourceFiscalYearId);
         resultMessage = `${result.recordsCreated} opening-stock record(s) prepared for FY ${result.targetFiscalYear.code}${result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved.` : '.'}`;
@@ -92,7 +127,7 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
           <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-500"><ShieldCheck className="h-5 w-5" /></div>
           <div>
             <h2 className="text-lg font-bold">Data Recalculation & Repair</h2>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Super Admin maintenance tools for rebuilding derived values. Raw documents and transaction history are never rewritten.</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Super Admin maintenance tools for rebuilding derived values, regenerating the BS calendar, and repairing fiscal-year scoping. Raw documents and transaction history are never rewritten.</p>
           </div>
         </div>
       </div>
@@ -115,9 +150,9 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
             <div key={operation.id} className={`rounded-2xl border p-5 bg-white border-slate-200 text-slate-900 shadow-xs dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-100`}>
               <div className="mb-3 flex items-center gap-2"><Icon className="h-5 w-5 text-indigo-500" /><h3 className="font-bold text-sm">{operation.title}</h3></div>
               <p className="min-h-16 text-xs leading-5 text-slate-500 dark:text-slate-400">{operation.description}</p>
-              {operation.id === 'opening-stock' && (
+              {operation.needsClosedSourceYear && (
                 <div className="mb-3">
-                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Source Fiscal Year</span>
+                  <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">{operation.needsClosedSourceLabel || 'Source Fiscal Year'}</span>
                   <FiscalYearSelect
                     fiscalYears={fiscalYears.filter((fiscalYear) => fiscalYear.isClosed)}
                     value={sourceFiscalYearId}

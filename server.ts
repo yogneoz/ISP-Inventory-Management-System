@@ -2642,6 +2642,206 @@ app.post('/api/admin/recalculate/live-stock', requireRole('SUPER_ADMIN'), async 
   }
 });
 
+// Regenerates the derived bs_day_records lookup table from the authoritative
+// bs_calendar_years configuration. This is an idempotent repair/maintenance
+// operation: it rebuilds every AD->BS day record from the stored start dates
+// and month-length arrays, so drifted, missing, or stale day rows are restored
+// to match the configuration. Source calendar config is never rewritten.
+app.post('/api/admin/recalculate/bs-day-records', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    let pgSynced = false;
+    let regeneratedRecords = 0;
+    let sourceYears = inMemoryBsCalendarYears;
+
+    if (isPgConnected) {
+      const cfgRes = await pgPool.query(
+        'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC'
+      );
+      if (cfgRes.rows.length > 0) sourceYears = cfgRes.rows;
+
+      await withTransaction(async (client) => {
+        // Delete stale rows for every configured year, then rebuild from config.
+        const yearList = sourceYears.map((y: any) => Number(y.yearBS));
+        await client.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [yearList]);
+
+        let count = 0;
+        for (const y of sourceYears) {
+          const yearBS = Number(y.yearBS);
+          const daysInMonths = Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12
+            ? y.daysInMonths
+            : y.daysInMonths;
+          const records = buildBsDayRecordsForYear(yearBS, daysInMonths, String(y.startAD));
+          for (const rec of records) {
+            await client.query(
+              `INSERT INTO bs_day_records (
+                 ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+                 bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend, fiscal_year_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       (SELECT fy.id FROM fiscal_years fy
+                        WHERE fy.start_date_ad <= $1::date AND fy.end_date_ad >= $1::date
+                        ORDER BY fy.start_date_ad DESC LIMIT 1))
+               ON CONFLICT (ad_date) DO UPDATE SET
+                 bs_date = EXCLUDED.bs_date,
+                 bs_year = EXCLUDED.bs_year,
+                 bs_month = EXCLUDED.bs_month,
+                 bs_month_name = EXCLUDED.bs_month_name,
+                 bs_month_name_np = EXCLUDED.bs_month_name_np,
+                 bs_day = EXCLUDED.bs_day,
+                 day_of_week_name = EXCLUDED.day_of_week_name,
+                 day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+                 fiscal_year = EXCLUDED.fiscal_year,
+                 quarter = EXCLUDED.quarter,
+                 is_weekend = EXCLUDED.is_weekend,
+                 fiscal_year_id = EXCLUDED.fiscal_year_id;`,
+              [
+                rec.adDate,
+                rec.bsDate,
+                rec.bsYear,
+                rec.bsMonth,
+                rec.bsMonthName,
+                rec.bsMonthNameNp,
+                rec.bsDay,
+                rec.dayOfWeekName,
+                rec.dayOfWeekNameNp,
+                rec.fiscalYear,
+                rec.quarter,
+                rec.isWeekend,
+              ]
+            );
+          }
+          count += records.length;
+        }
+        regeneratedRecords = count;
+      });
+      pgSynced = true;
+    }
+
+    // Refresh the in-memory fallback cache with the same config.
+    const memMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+    for (const m of inMemoryBsCalendarYears) memMap.set(m.yearBS, m);
+    inMemoryBsCalendarYears = Array.from(memMap.values()).sort((a, b) => a.yearBS - b.yearBS);
+    generateInMemoryBsDayRecords();
+    if (regeneratedRecords === 0) {
+      regeneratedRecords = inMemoryBsDayRecords.length;
+    }
+
+    logAuditEvent(req, 'RECALCULATE_BS_DAY_RECORDS', 'SYSTEM', `Regenerated ${regeneratedRecords} BS day-by-day lookup record(s) from configured calendar years.`);
+    res.json({
+      success: true,
+      pgSynced,
+      years: sourceYears.length,
+      regeneratedRecords,
+      message: pgSynced
+        ? `Rebuilt ${regeneratedRecords} BS day-by-day lookup record(s) across ${sourceYears.length} configured year(s) from the calendar configuration.`
+        : `Rebuilt ${regeneratedRecords} BS day-by-day lookup record(s) in the in-memory calendar only — PostgreSQL was unreachable.`,
+    });
+  } catch (error: any) {
+    console.error('Error rebuilding BS day records:', error);
+    res.status(500).json({ message: `Unable to rebuild BS day records: ${error.message}` });
+  }
+});
+
+// Re-derives the fiscal_year_id foreign key on every dated transactional table
+// from its own AD date column. This is a non-destructive repair: it only fills
+// NULL / stale references (rows already pointing at a matching period are left
+// untouched) by looking the date up in fiscal_years. No document is modified.
+app.post('/api/admin/repair/fiscal-year-links', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    if (!isPgConnected) {
+      return res.status(503).json({ message: 'PostgreSQL is required for fiscal-year link repair.' });
+    }
+
+    const reparse: Array<{ table: string; column: string; dateColumn: string; dateType: 'date' | 'timestamptz' | 'timestamp'; keyColumn: string }> = [
+      { table: 'fixed_assets', column: 'fiscal_year_id', dateColumn: 'acquisition_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'damage_records', column: 'fiscal_year_id', dateColumn: 'damage_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'purchase_orders', column: 'fiscal_year_id', dateColumn: 'order_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'purchase_invoices', column: 'fiscal_year_id', dateColumn: 'invoice_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'shipments', column: 'fiscal_year_id', dateColumn: 'dispatch_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'stock_operations', column: 'fiscal_year_id', dateColumn: 'date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'customer_device_records', column: 'fiscal_year_id', dateColumn: 'issued_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'approval_requests', column: 'fiscal_year_id', dateColumn: 'requested_at_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'vendor_payments', column: 'fiscal_year_id', dateColumn: 'payment_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'audit_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
+      { table: 'transaction_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
+      { table: 'bs_day_records', column: 'fiscal_year_id', dateColumn: 'ad_date', dateType: 'date', keyColumn: 'ad_date' },
+    ];
+
+    const results: Record<string, number> = {};
+    let totalFixed = 0;
+
+    await withTransaction(async (client) => {
+      for (const entry of reparse) {
+        // Only attempt when the column exists (older schemas may not have it).
+        const colCheck = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+          [entry.table, entry.column]
+        );
+        if (colCheck.rowCount === 0) {
+          results[entry.table] = 0;
+          continue;
+        }
+
+        const tableName = `"${entry.table}"`;
+        const keyColumn = entry.keyColumn;
+        const dateExpr = entry.dateType === 'date'
+          ? entry.dateColumn
+          : `(${entry.dateColumn})::date`;
+
+        // Fix NULL references and stale references in one pass: every row whose
+        // current fiscal_year_id does not actually contain its own date is
+        // re-linked to the fiscal year that does contain it (latest matching
+        // period wins; the schema forbids overlapping periods anyway). Rows
+        // whose date is not inside any fiscal period are left untouched.
+        const result = await client.query(
+          `WITH wrong AS (
+             SELECT t2.${keyColumn} AS row_key
+             FROM ${tableName} t2
+             WHERE t2.fiscal_year_id IS NULL
+                OR NOT EXISTS (
+                     SELECT 1 FROM fiscal_years cur
+                     WHERE cur.id = t2.fiscal_year_id
+                       AND cur.start_date_ad <= ${dateExpr}
+                       AND cur.end_date_ad >= ${dateExpr}
+                   )
+           ),
+           matched AS (
+             SELECT w.row_key, fy.id AS fy_id
+             FROM wrong w
+             JOIN ${tableName} t3 ON t3.${keyColumn} = w.row_key
+             JOIN fiscal_years fy
+               ON fy.start_date_ad <= ${dateExpr} AND fy.end_date_ad >= ${dateExpr}
+           )
+           UPDATE ${tableName} t
+           SET fiscal_year_id = m.fy_id
+           FROM matched m
+           WHERE t.${keyColumn} = m.row_key
+             AND t.fiscal_year_id IS DISTINCT FROM m.fy_id`
+        );
+        results[entry.table] = result.rowCount || 0;
+        totalFixed += results[entry.table];
+      }
+    });
+
+    logAuditEvent(
+      req,
+      'REPAIR_FISCAL_YEAR_LINKS',
+      'FISCAL_YEAR',
+      `Repaired fiscal-year links: ${totalFixed} row(s) re-linked across ${Object.values(results).filter((n) => n > 0).length} table(s).`
+    );
+    res.json({
+      success: true,
+      totalFixed,
+      perTable: results,
+      message: `Repaired ${totalFixed} fiscal-year link(s) across the database.`,
+    });
+  } catch (error: any) {
+    console.error('Error repairing fiscal-year links:', error);
+    res.status(500).json({ message: `Unable to repair fiscal-year links: ${error.message}` });
+  }
+});
+
 app.patch('/api/stock/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -6616,6 +6816,253 @@ app.post('/api/bs-calendar/seed-bulk', async (req, res) => {
     message: pgSynced
       ? `Successfully seeded ${seededCount} BS year(s) and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`
       : `Seeded ${seededCount} BS year(s) in the in-memory calendar only — PostgreSQL was unreachable. Re-run when database is back.${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`,
+  });
+});
+
+/**
+ * Builds the AD -> BS day-by-day records for one BS year from its config
+ * (start_ad + days_in_months). Mirrors generateInMemoryBsDayRecords() so the
+ * same mapping logic is used for PostgreSQL writes and the in-memory cache.
+ */
+function buildBsDayRecordsForYear(yearBS: number, daysInMonths: number[], startAD: string): any[] {
+  const records: any[] = [];
+  let runningDate = new Date(startAD);
+  for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+    const monthBS = monthIdx + 1;
+    const daysInMonth = daysInMonths[monthIdx] || 30;
+
+    for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+      const adDateStr = runningDate.toISOString().split('T')[0];
+      const dayOfWeekIndex = runningDate.getUTCDay();
+
+      const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+      const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+      const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+      let startYear = yearBS;
+      if (monthBS < 4) startYear = yearBS - 1;
+      const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+      let qtr = 'Q4';
+      if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+      else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+      else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+      records.push({
+        adDate: adDateStr,
+        bsDate: bsDateStr,
+        bsYear: yearBS,
+        bsMonth: monthBS,
+        bsMonthName: NEPALI_MONTHS_EN_SERVER[monthIdx],
+        bsMonthNameNp: NEPALI_MONTHS_NP_SERVER[monthIdx],
+        bsDay: dayBS,
+        dayOfWeekName: DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+        dayOfWeekNameNp: DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+        fiscalYear: fyCode,
+        quarter: qtr,
+        isWeekend: dayOfWeekIndex === 6,
+      });
+
+      runningDate.setDate(runningDate.getDate() + 1);
+    }
+  }
+  return records;
+}
+
+/**
+ * Updates the month-length configuration and/or the AD start date of an
+ * existing BS year, then regenerates that year's day-by-day records in
+ * bs_day_records so the derived lookup table always matches the configuration.
+ *
+ * When `recalculateNextStartAD` is true (default) and the edit changes the
+ * edited year's total length (or its start date), every subsequent seeded BS
+ * year is shifted by the same delta so AD->BS mappings stay continuous and
+ * intentional gaps between non-consecutive seeded years are preserved. All
+ * affected years have their day records regenerated.
+ *
+ * Body: { daysInMonths?: number[12], startAD?: string, recalculateNextStartAD?: boolean }
+ */
+app.put('/api/bs-calendar/years/:yearBS', async (req, res) => {
+  const yearBS = parseInt(req.params.yearBS as string, 10);
+  const { daysInMonths, startAD, recalculateNextStartAD = true } = req.body;
+
+  const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
+  if (existingIdx < 0) {
+    return res.status(404).json({
+      success: false,
+      message: `BS Year ${yearBS} does not exist. Use the seed endpoint to create it first.`,
+    });
+  }
+
+  if (daysInMonths !== undefined && (!Array.isArray(daysInMonths) || daysInMonths.length !== 12)) {
+    return res.status(400).json({ success: false, message: 'daysInMonths must be a 12-element month length array.' });
+  }
+  if (daysInMonths !== undefined && daysInMonths.some((d: number) => isNaN(d) || d < 28 || d > 32)) {
+    return res.status(400).json({ success: false, message: 'Each month day count must be between 28 and 32.' });
+  }
+  if (startAD !== undefined && isNaN(new Date(startAD).getTime())) {
+    return res.status(400).json({ success: false, message: `Invalid startAD value: ${startAD}` });
+  }
+
+  const newConfig: { yearBS: number; daysInMonths: number[]; startAD: string } = {
+    yearBS,
+    daysInMonths: daysInMonths !== undefined ? daysInMonths : [...inMemoryBsCalendarYears[existingIdx].daysInMonths],
+    startAD: startAD !== undefined ? startAD : inMemoryBsCalendarYears[existingIdx].startAD,
+  };
+
+  // Compute the end AD date of the edited year with its new config, both the
+  // original (before edit) and the updated version. The difference is the
+  // delta that must be applied to every subsequent seeded year so intervening
+  // real-world dates stay correct even when some BS years are not seeded.
+  const totalDaysOf = (days: number[]) => days.reduce((sum: number, d: number) => sum + (d || 30), 0);
+  const originalStart = new Date(inMemoryBsCalendarYears[existingIdx].startAD);
+  const originalEnd = new Date(originalStart);
+  originalEnd.setDate(originalEnd.getDate() + totalDaysOf(inMemoryBsCalendarYears[existingIdx].daysInMonths));
+
+  const newStart = new Date(newConfig.startAD);
+  const newEnd = new Date(newStart);
+  newEnd.setDate(newEnd.getDate() + totalDaysOf(newConfig.daysInMonths));
+
+  const deltaDays = Math.round((newEnd.getTime() - originalEnd.getTime()) / 86400000);
+
+  // The set of years whose day records must be regenerated. The edited year is
+  // always included; every subsequent seeded year is shifted by deltaDays and
+  // regenerated when recalculateNextStartAD is true.
+  const affectedYears: { yearBS: number; daysInMonths: number[]; startAD: string }[] = [];
+  affectedYears.push({ ...newConfig });
+
+  const sortedYears = inMemoryBsCalendarYears
+    .map((y) => ({ yearBS: y.yearBS, daysInMonths: [...y.daysInMonths], startAD: y.startAD }))
+    .sort((a, b) => a.yearBS - b.yearBS);
+
+  if (recalculateNextStartAD && deltaDays !== 0) {
+    const originalMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+    for (const y of sortedYears) originalMap.set(y.yearBS, y);
+
+    // Shift every seeded year AFTER the edited one by deltaDays. Using the
+    // previously seeded start_ad + delta preserves any intentional gaps
+    // between non-consecutive seeded years instead of collapsing them.
+    for (const y of sortedYears) {
+      if (y.yearBS <= yearBS) continue;
+
+      const orig = originalMap.get(y.yearBS)!;
+      const shiftedStart = new Date(orig.startAD);
+      shiftedStart.setDate(shiftedStart.getDate() + deltaDays);
+      const shiftedStartStr = shiftedStart.toISOString().split('T')[0];
+
+      affectedYears.push({ ...y, startAD: shiftedStartStr });
+    }
+  }
+  // When the edit does not change the edited year's total length
+  // (deltaDays === 0) no subsequent year's AD mapping changes, so only the
+  // edited year's day records are regenerated. When recalculateNextStartAD is
+  // false, the caller explicitly opted out of touching later years.
+
+  if (affectedYears.length === 0) {
+    return res.status(400).json({ success: false, message: `No change requested for BS Year ${yearBS}.` });
+  }
+
+  let pgSynced = false;
+  try {
+    await pgPool.query('BEGIN');
+
+    // 1. Upsert the edited year's config.
+    await pgPool.query(
+      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (year_bs) DO UPDATE SET
+         days_in_months = EXCLUDED.days_in_months,
+         start_ad = EXCLUDED.start_ad;`,
+      [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]
+    );
+
+    // 2. Rewrite the subsequent years' start_ad when the running calendar
+    //    requires it (keeps bs_calendar_years config consistent with the
+    //    regenerated day records).
+    for (const y of affectedYears) {
+      if (y.yearBS === yearBS) continue;
+      const dbIdx = inMemoryBsCalendarYears.findIndex((m) => m.yearBS === y.yearBS);
+      if (dbIdx < 0) continue;
+      const prevConfig = inMemoryBsCalendarYears[dbIdx];
+      if (prevConfig.startAD !== y.startAD) {
+        await pgPool.query(
+          `UPDATE bs_calendar_years SET start_ad = $2 WHERE year_bs = $1;`,
+          [y.yearBS, y.startAD]
+        );
+      }
+    }
+
+    // 3. Delete stale day records for every affected year, then regenerate.
+    const affectedNumList = affectedYears.map((y) => y.yearBS);
+    await pgPool.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [affectedNumList]);
+
+    for (const y of affectedYears) {
+      const records = buildBsDayRecordsForYear(y.yearBS, y.daysInMonths, y.startAD);
+      for (const rec of records) {
+        await pgPool.query(
+          `INSERT INTO bs_day_records (
+             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           ON CONFLICT (ad_date) DO UPDATE SET
+             bs_date = EXCLUDED.bs_date,
+             bs_year = EXCLUDED.bs_year,
+             bs_month = EXCLUDED.bs_month,
+             bs_month_name = EXCLUDED.bs_month_name,
+             bs_month_name_np = EXCLUDED.bs_month_name_np,
+             bs_day = EXCLUDED.bs_day,
+             day_of_week_name = EXCLUDED.day_of_week_name,
+             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+             fiscal_year = EXCLUDED.fiscal_year,
+             quarter = EXCLUDED.quarter,
+             is_weekend = EXCLUDED.is_weekend;`,
+          [
+            rec.adDate,
+            rec.bsDate,
+            rec.bsYear,
+            rec.bsMonth,
+            rec.bsMonthName,
+            rec.bsMonthNameNp,
+            rec.bsDay,
+            rec.dayOfWeekName,
+            rec.dayOfWeekNameNp,
+            rec.fiscalYear,
+            rec.quarter,
+            rec.isWeekend,
+          ]
+        );
+      }
+    }
+
+    await pgPool.query('COMMIT');
+    pgSynced = true;
+  } catch (err: any) {
+    try { await pgPool.query('ROLLBACK'); } catch (_rb) { /* ignore */ }
+    console.error('BS calendar update transaction failed:', err?.message || err);
+  }
+
+  // 4. Refresh the in-memory fallback cache with the same config + records.
+  const memMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+  for (const m of inMemoryBsCalendarYears) memMap.set(m.yearBS, m);
+  for (const y of affectedYears) {
+    memMap.set(y.yearBS, { yearBS: y.yearBS, daysInMonths: y.daysInMonths, startAD: y.startAD });
+  }
+  inMemoryBsCalendarYears = Array.from(memMap.values()).sort((a, b) => a.yearBS - b.yearBS);
+  generateInMemoryBsDayRecords();
+
+  const regenCount = affectedYears.reduce((sum, y) => {
+    return sum + y.daysInMonths.reduce((m, d) => m + d, 0);
+  }, 0);
+
+  res.json({
+    success: true,
+    pgSynced,
+    affectedYears: affectedYears.map((y) => y.yearBS),
+    regeneratedRecords: regenCount,
+    message: pgSynced
+      ? `BS Year ${yearBS} updated. Regenerated ${regenCount} day records across BS year(s): ${affectedYears.map((y) => y.yearBS).join(', ')}. Subsequent year start dates were recomputed for calendar continuity.`
+      : `BS Year ${yearBS} updated in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run when database is back.`,
   });
 });
 
