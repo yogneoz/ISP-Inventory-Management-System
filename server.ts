@@ -6492,6 +6492,133 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
   });
 });
 
+// Bulk (multi-year) seed endpoint - accepts array of { yearBS, daysInMonths, customStartAD? }
+app.post('/api/bs-calendar/seed-bulk', async (req, res) => {
+  const { years, onlyIfNew } = req.body;
+  if (!Array.isArray(years) || years.length === 0) {
+    return res.status(400).json({ success: false, message: 'Must provide non-empty years array' });
+  }
+
+  let pgSynced = false;
+  let seededCount = 0;
+  const skippedYears: number[] = [];
+  const errors: string[] = [];
+
+  try {
+    for (const item of years) {
+      const { yearBS, daysInMonths, customStartAD } = item;
+      if (!yearBS || !Array.isArray(daysInMonths) || daysInMonths.length !== 12) {
+        errors.push(`Year ${yearBS}: invalid payload`);
+        continue;
+      }
+
+      let startAD = customStartAD;
+      if (!startAD) {
+        const estADYear = yearBS - 57;
+        startAD = `${estADYear}-04-14`;
+      }
+
+      const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
+      if (onlyIfNew && existingIdx >= 0) {
+        skippedYears.push(yearBS);
+        continue;
+      }
+
+      await pgPool.query(
+        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (year_bs) DO UPDATE SET
+           days_in_months = EXCLUDED.days_in_months,
+           start_ad = EXCLUDED.start_ad;`,
+        [yearBS, daysInMonths, startAD]
+      );
+
+      let runningDate = new Date(startAD);
+      for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+        const monthBS = monthIdx + 1;
+        const daysInMonth = daysInMonths[monthIdx] || 30;
+
+        for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+          const adDateStr = runningDate.toISOString().split('T')[0];
+          const dayOfWeekIndex = runningDate.getUTCDay();
+
+          const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+          const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+          const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+          let startYear = yearBS;
+          if (monthBS < 4) startYear = yearBS - 1;
+          const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+          let qtr = 'Q4';
+          if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+          else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+          else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+          await pgPool.query(
+            `INSERT INTO bs_day_records (
+               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (ad_date) DO UPDATE SET
+               bs_date = EXCLUDED.bs_date,
+               bs_year = EXCLUDED.bs_year,
+               bs_month = EXCLUDED.bs_month,
+               bs_month_name = EXCLUDED.bs_month_name,
+               bs_month_name_np = EXCLUDED.bs_month_name_np,
+               bs_day = EXCLUDED.bs_day,
+               day_of_week_name = EXCLUDED.day_of_week_name,
+               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+               fiscal_year = EXCLUDED.fiscal_year,
+               quarter = EXCLUDED.quarter,
+               is_weekend = EXCLUDED.is_weekend;`,
+            [
+              adDateStr,
+              bsDateStr,
+              yearBS,
+              monthBS,
+              NEPALI_MONTHS_EN_SERVER[monthIdx],
+              NEPALI_MONTHS_NP_SERVER[monthIdx],
+              dayBS,
+              DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+              DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+              fyCode,
+              qtr,
+              dayOfWeekIndex === 6
+            ]
+          );
+
+          runningDate.setDate(runningDate.getDate() + 1);
+        }
+      }
+
+      if (existingIdx >= 0) {
+        inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+      } else {
+        inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+      }
+      seededCount++;
+    }
+
+    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+    generateInMemoryBsDayRecords();
+    pgSynced = true;
+  } catch (_err) {
+    // PostgreSQL is unreachable; in-memory fallback only
+  }
+
+  res.json({
+    success: true,
+    pgSynced,
+    seededCount,
+    skippedYears,
+    message: pgSynced
+      ? `Successfully seeded ${seededCount} BS year(s) and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`
+      : `Seeded ${seededCount} BS year(s) in the in-memory calendar only — PostgreSQL was unreachable. Re-run when database is back.${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`,
+  });
+});
+
 app.post('/api/bs-calendar/sync-range', async (req, res) => {
   const { dayRecords } = req.body;
   if (!Array.isArray(dayRecords) || dayRecords.length === 0) {
