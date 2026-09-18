@@ -740,9 +740,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <th className="px-2.5 py-1.5">Vendor Bill #</th>
                     <th className="px-2.5 py-1.5">Vendor Bill Date</th>
                     <th className="px-2.5 py-1.5 text-center">Items</th>
-                    <th className="px-2.5 py-1.5 text-right">Subtotal</th>
-                    <th className="px-2.5 py-1.5 text-right">13% VAT</th>
-                    <th className="px-2.5 py-1.5 text-right">Total Amount</th>
+                    <th className="px-2.5 py-1.5 text-right">Subtotal (NPR)</th>
+                    <th className="px-2.5 py-1.5 text-right">13% VAT (NPR)</th>
+                    <th className="px-2.5 py-1.5 text-right">Total Amount (NPR)</th>
                     <th className="px-2.5 py-1.5 text-center">Status</th>
                     <th className="px-2.5 py-1.5 text-center">Actions</th>
                   </tr>
@@ -944,29 +944,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   Scan barcodes or search products, configure quantity & unit prices, and calculate 13% VAT with bill-wise discount.
                 </p>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleResetForm}
-                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
-                title="Reset entire PO form to initial state"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset Form</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  handleResetForm();
-                  setInternalTab('PO_LIST');
-                }}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
-              >
-                Back to Register
-              </button>
             </div>
           </div>
 
@@ -1194,7 +1171,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                             key={idx}
                             className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}
                           >
-                            <td className="p-2.5 text-center font-mono font-bold text-slate-400">
+                            <td className="p-2.5 text-center align-middle font-mono font-bold text-slate-400">
                               {idx + 1}
                             </td>
                             <td className="p-2.5">
@@ -1215,7 +1192,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                 <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">{formatNPR(prod?.costPrice)}</strong></span>
                               </div>
                             </td>
-                            <td className="p-2.5 text-center">
+                            <td className="p-2.5 text-center align-middle">
                               <input
                                 type="number"
                                 min={1}
@@ -1227,7 +1204,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                 className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-2.5 text-right">
+                            <td className="p-2.5 text-right align-middle">
                               <input
                                 type="number"
                                 min={0}
@@ -1239,10 +1216,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                 className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                            <td className="p-2.5 text-right align-middle font-mono font-extrabold text-slate-900 dark:text-white">
                               {formatNPR(lineTotal)}
                             </td>
-                            <td className="p-2.5 text-center">
+                            <td className="p-2.5 text-center align-middle">
                               <button
                                 type="button"
                                 onClick={() => removeLine(idx)}

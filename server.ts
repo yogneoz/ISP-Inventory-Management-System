@@ -1042,7 +1042,7 @@ app.get('/api/bootstrap', async (req, res) => {
       const [
         bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes, vobRes
       ] = await Promise.all([
-        pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
+        pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
         pgPool.query(`SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock${stockScope.where}`, stockScope.params),
         pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId" FROM fixed_assets${assetScope.where}`, assetScope.params),
@@ -1910,7 +1910,7 @@ app.put('/api/company-profile', async (req, res) => {
 app.get('/api/branches', async (req, res) => {
   if (isPgConnected) {
     try {
-      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY name ASC');
+      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY name ASC');
       return res.json(r.rows);
     } catch (err) {
       console.error('Error querying branches from DB:', err);
@@ -1930,6 +1930,7 @@ app.post('/api/branches', async (req, res) => {
       isHeadquarters: Boolean(req.body.isHeadquarters),
       active: req.body.active !== false,
       allowProcurement: req.body.allowProcurement !== false,
+      allowWarehouseTransfer: req.body.allowWarehouseTransfer !== false,
     };
     const idx = branches.findIndex((b) => b.id === newBranch.id);
     if (idx >= 0) branches[idx] = newBranch;
@@ -1937,8 +1938,8 @@ app.post('/api/branches', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
            code = EXCLUDED.code,
            name = EXCLUDED.name,
@@ -1946,8 +1947,9 @@ app.post('/api/branches', async (req, res) => {
            phone = EXCLUDED.phone,
            is_headquarters = EXCLUDED.is_headquarters,
            active = EXCLUDED.active,
-           allow_procurement = EXCLUDED.allow_procurement;`,
-        [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement]
+           allow_procurement = EXCLUDED.allow_procurement,
+           allow_warehouse_transfer = EXCLUDED.allow_warehouse_transfer;`,
+        [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement, newBranch.allowWarehouseTransfer]
       );
     }
     logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
@@ -1969,9 +1971,9 @@ app.put('/api/branches/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `UPDATE branches SET
-           code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7
-         WHERE id = $8;`,
-        [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, id]
+           code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7, allow_warehouse_transfer = $8
+         WHERE id = $9;`,
+        [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false, id]
       );
     }
     logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
@@ -5177,6 +5179,174 @@ app.post('/api/stock-operations', async (req, res) => {
   }
 });
 
+// Reverse a DAMAGE stock operation (Super Admin / Inventory Manager only).
+// Safe-guarded entry reversal: the caller must supply a reason which is kept
+// on the audit trail. Units are moved back from damaged_qty to available
+// quantity_on_hand at the original branch, damage_records rows are marked
+// CANCELLED, and the stock operation status flips to CANCELLED.
+app.post('/api/stock-operations/:id/reverse', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body.reason || '').trim();
+    const reversedBy =
+      (req.body.user && (req.body.user.name || req.body.user.email)) ||
+      req.body.reversedBy ||
+      'Super Admin';
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required as a safeguard before undoing a damage record.' });
+    }
+
+    const opIndex = stockOperations.findIndex((o) => o.id === id);
+    if (opIndex < 0) {
+      return res.status(404).json({ message: 'Stock operation not found.' });
+    }
+    const op = stockOperations[opIndex];
+    if (op.type !== 'DAMAGE') {
+      return res.status(400).json({ message: 'Only DAMAGE stock operations can be reversed.' });
+    }
+    if (op.status === 'CANCELLED') {
+      return res.status(400).json({ message: 'This damage record has already been reversed.' });
+    }
+
+    const operationItems: any[] = Array.isArray(op.items) && op.items.length > 0
+      ? (op.items as any[])
+      : op.productId
+      ? [{ productId: op.productId, productName: op.productName || '', quantity: Math.abs(Number(op.quantityChanged) || 0), unitCost: op.costPerUnit }]
+      : [];
+
+    if (operationItems.length === 0) {
+      return res.status(400).json({ message: 'No items were found on this damage operation to reverse.' });
+    }
+
+    // Pre-flight availability check (safeguard: refuse partial / mismatched reversals)
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      const availableDamaged = Number(stockRecord?.damagedQty) || 0;
+      if (availableDamaged < qty) {
+        return res.status(400).json({
+          message: `Cannot reverse ${item.productName || item.productId}: only ${availableDamaged} damaged unit(s) remain at branch ${op.branchId || 'WH001'}. The current damaged stock has changed since this record was created.`,
+        });
+      }
+    }
+
+    // Reversal ledger date (today), with the same BS calendar gate used on creation.
+    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
+    const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
+
+    const reversalLedger: TransactionLog[] = [];
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const product = products.find((p) => p.id === item.productId);
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      const unitCost = Number(item.unitCost ?? item.costPerUnit ?? op.costPerUnit) || product?.costPrice || 0;
+      const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+      reversalLedger.push({
+        id: `txn-${op.id}-rev-${item.productId}`,
+        transactionNumber: `${op.referenceNumber}-REV`,
+        productId: item.productId,
+        productSku: item.sku || product?.sku || '',
+        productName: product?.name || item.productName || 'Product',
+        branchId: op.branchId,
+        changeType: 'DAMAGE_REVERSED',
+        quantityBefore,
+        quantityChanged: qty,
+        quantityAfter: quantityBefore + qty,
+        unitCost,
+        referenceDocId: op.referenceNumber,
+        timestampAD: new Date(`${reversalDateAD}T00:00:00.000Z`).toISOString(),
+        timestampBS: reversalDateBS,
+      });
+    }
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        for (const item of operationItems) {
+          const qty = Number(item.quantity) || 0;
+          if (qty <= 0) continue;
+          const result = await client.query(
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`,
+            [qty, item.productId, op.branchId]
+          );
+          if (result.rowCount !== 1) {
+            throw new Error(`Damaged stock changed before reversal could complete for ${item.productName || item.productId}.`);
+          }
+          await client.query(
+            `UPDATE damage_records SET status = 'CANCELLED', notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4 WHERE (damage_reference = $1 OR id = $2) AND status <> 'CANCELLED';`,
+            [`${op.referenceNumber}-${item.productId}`, `dmr-${op.id}-${item.productId}`, reason, reversedBy]
+          );
+        }
+
+        await client.query(
+          `UPDATE stock_operations SET status = 'CANCELLED', updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+          [reversedBy, op.id]
+        );
+
+        for (const txn of reversalLedger) {
+          await client.query(
+            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT (id) DO NOTHING`,
+            [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
+          );
+        }
+      });
+    }
+
+    // In-memory mirrors so the UI reflects the reversal immediately.
+    const updatedOp: any = {
+      ...op,
+      status: 'CANCELLED',
+      reversalReason: reason,
+      reversedBy,
+      reversedAtAD: reversalDateAD,
+      reversedAtBS: reversalDateBS,
+    };
+    stockOperations[opIndex] = updatedOp;
+
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      if (stockRecord) {
+        stockRecord.quantityOnHand = (stockRecord.quantityOnHand || 0) + qty;
+        stockRecord.damagedQty = Math.max(0, (stockRecord.damagedQty || 0) - qty);
+        stockRecord.lastUpdated = new Date().toISOString();
+      }
+      const damageIdx = damageRecords.findIndex(
+        (dr) => dr.damageReference === `${op.referenceNumber}-${item.productId}` || dr.id === `dmr-${op.id}-${item.productId}`
+      );
+      if (damageIdx >= 0) {
+        damageRecords[damageIdx] = {
+          ...damageRecords[damageIdx],
+          status: 'CANCELLED',
+          notes: `${damageRecords[damageIdx].notes || ''} | REVERSED (${reason}) by ${reversedBy}`,
+        };
+      }
+    }
+
+    for (const txn of reversalLedger) {
+      const existingTxn = transactionLogs.find((entry) => entry.id === txn.id);
+      if (!existingTxn) transactionLogs.unshift(txn);
+    }
+
+    logAuditEvent(req, 'REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS', `Reversed damage record ${op.referenceNumber} — ${reason}`);
+    res.json({ message: 'Damage record reversed successfully. Units restored to available stock.', operation: updatedOp });
+  } catch (err: any) {
+    console.error('Error reversing stock operation:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
 // Receive Pullout Bin at Warehouse
 app.post('/api/stock-operations/:id/receive', async (req, res) => {
   try {
@@ -7419,6 +7589,359 @@ app.patch('/api/customer-devices/:id/status', async (req, res) => {
   }
 });
 
+// Shared handler for editing serials across all inventory and customer records
+async function handleUpdateSerials(req: any, res: any) {
+  try {
+    const targetId = req.params?.id || req.body?.id;
+    const {
+      sourceType,
+      sourceId,
+      oldDeviceSerial: rawOldDeviceSerial,
+      oldPonSerial: rawOldPonSerial,
+      oldMacAddress: rawOldMacAddress,
+      deviceSerial,
+      ponSerial,
+      macAddress,
+    } = req.body;
+
+    if (!deviceSerial || !ponSerial) {
+      return res.status(400).json({ message: 'Device serial and PON serial are required.' });
+    }
+
+    const normalizedDeviceSerial = String(deviceSerial).trim().toUpperCase();
+    const normalizedPonSerial = String(ponSerial).trim().toUpperCase();
+    const normalizedMacAddress = macAddress ? String(macAddress).trim().toUpperCase() : null;
+
+    let oldDeviceSerial = rawOldDeviceSerial ? String(rawOldDeviceSerial).trim().toUpperCase() : '';
+    let oldPonSerial = rawOldPonSerial ? String(rawOldPonSerial).trim().toUpperCase() : '';
+    let oldMacAddress = rawOldMacAddress ? String(rawOldMacAddress).trim().toUpperCase() : '';
+    let matchedBranchId: string | undefined = req.body?.branchId;
+    let customerName: string = 'Inventory Stock';
+
+    // 1. Try to find customer device record
+    let customerRecord = customerDeviceRecords.find((c) => c.id === targetId || (oldDeviceSerial && c.deviceSerial === oldDeviceSerial));
+    if (isPgConnected && !customerRecord && targetId && !targetId.startsWith('pi-') && !targetId.startsWith('ship-') && !targetId.startsWith('op-') && !targetId.startsWith('fa-')) {
+      try {
+        const r = await pgPool.query(
+          `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", 
+                  branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", 
+                  pon_serial AS "ponSerial", mac_address AS "macAddress", status FROM customer_device_records 
+           WHERE id = $1 OR (device_serial = $2 AND $2 != '') LIMIT 1`,
+          [targetId, oldDeviceSerial || '']
+        );
+        if (r.rows.length > 0) customerRecord = r.rows[0];
+      } catch (_e) {}
+    }
+
+    if (customerRecord) {
+      if (!oldDeviceSerial) oldDeviceSerial = customerRecord.deviceSerial;
+      if (!oldPonSerial) oldPonSerial = customerRecord.ponSerial;
+      if (!oldMacAddress) oldMacAddress = customerRecord.macAddress;
+      if (!matchedBranchId) matchedBranchId = customerRecord.branchId;
+      customerName = customerRecord.customerName || 'Customer Device';
+
+      customerRecord.deviceSerial = normalizedDeviceSerial;
+      customerRecord.ponSerial = normalizedPonSerial;
+      customerRecord.macAddress = normalizedMacAddress;
+    }
+
+    // 2. If Fixed Asset
+    if (targetId && (targetId.startsWith('fa-') || sourceType === 'FIXED_ASSET')) {
+      const assetId = targetId.replace(/^fa-/, '');
+      const asset = assetRegister.find((a) => a.id === assetId || a.tagNumber === oldDeviceSerial);
+      if (asset) {
+        if (!oldDeviceSerial) oldDeviceSerial = asset.tagNumber;
+        if (!matchedBranchId) matchedBranchId = asset.branchId;
+        asset.tagNumber = normalizedDeviceSerial;
+      }
+    }
+
+    if (!oldDeviceSerial && targetId) {
+      const parts = targetId.split('-');
+      if (parts.length >= 3) {
+        oldDeviceSerial = parts.slice(2).join('-');
+      }
+    }
+
+    if (!oldDeviceSerial) {
+      oldDeviceSerial = normalizedDeviceSerial;
+    }
+
+    // PostgreSQL Cascading Updates
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Update customer_device_records
+        await client.query(
+          `UPDATE customer_device_records 
+           SET device_serial = $1, pon_serial = $2, mac_address = $3 
+           WHERE id = $4 OR device_serial = $5 OR (pon_serial IS NOT NULL AND pon_serial = $6)`,
+          [normalizedDeviceSerial, normalizedPonSerial, normalizedMacAddress, targetId, oldDeviceSerial, oldPonSerial || oldDeviceSerial]
+        );
+
+        // Update fixed_assets
+        const actualAssetId = targetId?.replace(/^fa-/, '');
+        await client.query(
+          `UPDATE fixed_assets SET tag_number = $1 WHERE id = $2 OR tag_number = $3`,
+          [normalizedDeviceSerial, actualAssetId, oldDeviceSerial]
+        );
+
+        // Update purchase_invoices items JSONB
+        const piResult = await client.query(
+          `SELECT id, items FROM purchase_invoices WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of piResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE purchase_invoices SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+
+        // Update shipments items JSONB
+        const shipResult = await client.query(
+          `SELECT id, items FROM shipments WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of shipResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            if (item.receivedSerials && Array.isArray(item.receivedSerials)) {
+              item.receivedSerials = item.receivedSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE shipments SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+
+        // Update stock_operations items JSONB
+        const soResult = await client.query(
+          `SELECT id, items FROM stock_operations WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of soResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE stock_operations SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+      });
+    }
+
+    // In-memory updates for all sources
+    customerDeviceRecords.forEach((c) => {
+      if (c.id === targetId || c.deviceSerial === oldDeviceSerial || (oldPonSerial && c.ponSerial === oldPonSerial)) {
+        c.deviceSerial = normalizedDeviceSerial;
+        c.ponSerial = normalizedPonSerial;
+        c.macAddress = normalizedMacAddress;
+      }
+    });
+
+    const actualAssetId = targetId?.replace(/^fa-/, '');
+    assetRegister.forEach((a) => {
+      if (a.id === actualAssetId || a.tagNumber === oldDeviceSerial) {
+        a.tagNumber = normalizedDeviceSerial;
+      }
+    });
+
+    purchaseInvoices.forEach((inv: any) => {
+      if (inv.items && Array.isArray(inv.items)) {
+        inv.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    shipments.forEach((ship: any) => {
+      if (ship.items && Array.isArray(ship.items)) {
+        ship.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+          if (item.receivedSerials && Array.isArray(item.receivedSerials)) {
+            item.receivedSerials = item.receivedSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    stockOperations.forEach((op: any) => {
+      if (op.items && Array.isArray(op.items)) {
+        op.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    logAuditEvent(
+      req,
+      'EDIT_DEVICE_SERIALS',
+      'CPE_MANAGEMENT',
+      `Updated serial information: Device ${oldDeviceSerial}→${normalizedDeviceSerial}, PON ${oldPonSerial}→${normalizedPonSerial}, MAC ${oldMacAddress || 'N/A'}→${normalizedMacAddress || 'N/A'} (${customerName})`,
+      matchedBranchId
+    );
+
+    broadcastChange({ type: 'SERIALS_UPDATED', entity: 'device-serials', branchId: matchedBranchId });
+
+    res.json({
+      success: true,
+      message: 'Serial information updated successfully across all inventory records.',
+      deviceSerial: normalizedDeviceSerial,
+      ponSerial: normalizedPonSerial,
+      macAddress: normalizedMacAddress,
+      record: customerRecord,
+    });
+  } catch (err: any) {
+    console.error('Error updating device serials:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+}
+
+app.patch('/api/inventory/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
+app.patch('/api/customer-devices/:id/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
+
 // Device Exchange & Replacement Handler
 app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res) => {
   try {
@@ -8508,6 +9031,7 @@ async function syncDatabaseAndIndexes() {
         is_headquarters BOOLEAN DEFAULT FALSE,
         active BOOLEAN DEFAULT TRUE,
         allow_procurement BOOLEAN DEFAULT TRUE,
+        allow_warehouse_transfer BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -9226,6 +9750,7 @@ async function syncDatabaseAndIndexes() {
       -- (Nepali/BS calendar tables are real reference data and never carry it)
       ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE branches ADD COLUMN IF NOT EXISTS allow_warehouse_transfer BOOLEAN NOT NULL DEFAULT TRUE;
       ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       -- v3.0 partial indexes: demo-row fast paths and fiscal-year scoping
       CREATE INDEX IF NOT EXISTS idx_suppliers_demo ON suppliers(id) WHERE is_demo = TRUE;
@@ -9311,9 +9836,9 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
   try {
     for (const b of INITIAL_MASTER_BRANCHES) {
       await client.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, is_demo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
-        [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false]
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false]
       );
     }
     for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
@@ -9397,7 +9922,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     }
 
     // Hydrate all master data from PostgreSQL
-    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code');
+    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY code');
     if (bRes.rows.length > 0) branches = bRes.rows;
 
     const dbUsersRes = await client.query(

@@ -24,7 +24,6 @@ import {
   Users,
   Lock,
   ArrowLeft,
-  ArrowLeftRight,
   Settings,
   CheckCircle2,
 } from 'lucide-react';
@@ -611,33 +610,6 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
       </div>
-
-      {/* Switched-session strip: persistent recovery path while impersonating another profile */}
-      {isSwitchedSession && (
-        <div
-          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 border-amber-200/60 bg-amber-300/20 text-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200`}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
-            <ArrowLeftRight className="h-3.5 w-3.5 flex-shrink-0 text-amber-400 dark:text-amber-300" />
-            <span className="truncate">
-              Viewing as <span className="font-bold">{currentUser?.name}</span>
-              <span className="opacity-75"> ({currentUser?.role.replace('_', ' ')})</span>
-              {' - switched from '}
-              <span className="font-bold">{rootUser?.name}</span>
-            </span>
-          </span>
-          {onSwitchBackToRoot && (
-            <button
-              type="button"
-              onClick={onSwitchBackToRoot}
-              title={`Switch back to root account (${rootUser?.name})`}
-              className="flex-shrink-0 rounded-md bg-amber-400 px-2.5 py-0.5 text-[10px] font-bold text-slate-950 transition-colors cursor-pointer hover:bg-amber-300"
-            >
-              Switch Back to {rootUser?.name.split(' ')[0]}
-            </button>
-          )}
-        </div>
-      )}
     </header>
   );
 };

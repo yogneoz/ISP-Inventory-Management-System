@@ -1009,7 +1009,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Deficit (Shortfall)</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Suggested Reorder</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Stock Health</th>
-                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Unit Cost</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Unit Cost (NPR)</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Reorder Budget (NPR)</th>
                 </tr>
               </thead>
@@ -1147,8 +1147,8 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">On-Hand Stock</th>
                   <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Reorder Threshold</th>
-                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Price</th>
-                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Valuation</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Price (NPR)</th>
+                  <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-right">Cost Valuation (NPR)</th>
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>

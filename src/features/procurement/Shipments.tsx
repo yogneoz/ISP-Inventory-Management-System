@@ -12,7 +12,7 @@ import {
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
-import { getAllowedBranches } from '../../utils/permissions';
+import { getAllowedBranches, isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import {
@@ -147,8 +147,10 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   const [isProcessingCancel, setIsProcessingCancel] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const isSuperOrInventory =
-    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+  const canDirectCancelTransfer =
+    isOperationAllowed('branch-transfer-cancel-receive', currentUser?.role);
+  const canRequestCancelTransfer =
+    isOperationAllowed('branch-transfer-request-cancel', currentUser?.role);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1290,7 +1292,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
                             {/* Cancellation Request / Action */}
                             {sh.status === 'RECEIVED' && !pendingCancelReq && (
-                              currentUser?.role === 'BRANCH_MANAGER' || currentUser?.role === 'FRONT_DESK' ? (
+                              canRequestCancelTransfer && !canDirectCancelTransfer ? (
                                 <button
                                   onClick={() => {
                                     setRequestCancelModalShipment(sh);
@@ -1302,13 +1304,13 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                                   <RotateCcw className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`} />
                                   <span>Request Cancel</span>
                                 </button>
-                              ) : isSuperOrInventory ? (
+                              ) : canDirectCancelTransfer ? (
                                 <button
                                   onClick={() => {
                                     setDirectCancelModalShipment(sh);
                                     setDirectCancelReason('');
                                   }}
-                                  title="Super Admin / Inventory Manager: Revert received stock and set transfer back to In-Transit"
+                                  title="Cancel received stock transfer and revert to In-Transit"
                                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-all"
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />

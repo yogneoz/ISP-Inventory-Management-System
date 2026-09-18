@@ -217,9 +217,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 <th className="px-2.5 py-1.5">Category</th>
                 <th className="px-2.5 py-1.5">Branch Used In</th>
                 <th className="px-2.5 py-1.5">Acquired Date</th>
-                <th className="px-2.5 py-1.5 text-right">Cost</th>
+                <th className="px-2.5 py-1.5 text-right">Cost (NPR)</th>
                 <th className="px-2.5 py-1.5 text-right">Method & Rate</th>
-                <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
+                <th className="px-2.5 py-1.5 text-right">Accum. Depr. (NPR)</th>
+                <th className="px-2.5 py-1.5 text-right">Net Book Value (NPR)</th>
                 <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>
             </thead>

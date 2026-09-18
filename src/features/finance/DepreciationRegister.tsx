@@ -3,6 +3,7 @@ import { Asset, Branch, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
+import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import {
   Calculator,
@@ -267,7 +268,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Landmark className="h-4 w-4 text-emerald-500" />
           </div>
           <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
-            {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatNPRPrecise(totalCost)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Total capital expenditure across {filteredAssets.length} purchase lots
@@ -282,7 +283,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <TrendingDown className="h-4 w-4 text-rose-500" />
           </div>
           <p className="text-xl font-bold font-mono text-rose-500">
-            {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatNPRPrecise(totalAccumDep)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Cumulative depreciation write-offs to date
@@ -297,7 +298,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Calculator className="h-4 w-4 text-indigo-500" />
           </div>
           <p className="text-xl font-bold font-mono text-indigo-500">
-            {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatNPRPrecise(totalNBV)}
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
             Carrying value on corporate balance sheet
@@ -356,9 +357,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                   <th className="px-2.5 py-1.5">Category</th>
                   <th className="px-2.5 py-1.5 text-center">Purchase Lots</th>
                   <th className="px-2.5 py-1.5 text-center">Depr. Method & Rate</th>
-                  <th className="px-2.5 py-1.5 text-right">Total Acquisition Cost</th>
-                  <th className="px-2.5 py-1.5 text-right">Accumulated Depr.</th>
-                  <th className="px-2.5 py-1.5 text-right">Net Book Value (NBV)</th>
+                  <th className="px-2.5 py-1.5 text-right">Total Acquisition Cost (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-right">Accumulated Depreciation (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-right">Net Book Value (NPR)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
@@ -408,13 +409,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                             </span>
                           </td>
                           <td className="px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            {(grp.totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(grp.totalCost)}
                           </td>
                           <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-bold">
-                            {(grp.totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(grp.totalAccumDep)}
                           </td>
                           <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
-                            {(grp.totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatNPRPrecise(grp.totalNBV)}
                           </td>
                         </tr>
 
@@ -434,9 +435,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                       <th className="px-2.5 py-1.5">Party Invoice Ref #</th>
                                       <th className="px-2.5 py-1.5">Supplier / Vendor</th>
                                       <th className="px-2.5 py-1.5">Tag Number</th>
-                                      <th className="px-2.5 py-1.5 text-right">Lot Cost</th>
-                                      <th className="px-2.5 py-1.5 text-right">Accum. Depreciation</th>
-                                      <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
+                                      <th className="px-2.5 py-1.5 text-right">Lot Cost (NPR)</th>
+                                      <th className="px-2.5 py-1.5 text-right">Accumulated Depreciation (NPR)</th>
+                                      <th className="px-2.5 py-1.5 text-right">Net Book Value (NPR)</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -455,13 +456,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                           {lot.tagNumber}
                                         </td>
                                         <td className="px-2.5 py-1.5 text-right font-bold text-slate-900 dark:text-white">
-                                          {(lot.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {formatNPRPrecise(lot.acquisitionCost)}
                                         </td>
                                         <td className="px-2.5 py-1.5 text-right text-rose-500 font-semibold">
-                                          {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {formatNPRPrecise(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation)}
                                         </td>
                                         <td className={`px-2.5 py-1.5 text-right text-emerald-600 dark:text-emerald-400 font-extrabold`}>
-                                          {(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {formatNPRPrecise(calculateFixedAssetValues({ ...lot, acquisitionDateAD: lot.placedInServiceDateAD || lot.acquisitionDateAD, asOfDateAD }).netBookValue)}
                                         </td>
                                       </tr>
                                     ))}
@@ -484,13 +485,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Fixed Asset Summary Schedule:
                   </td>
                   <td className="px-2.5 py-1.5 text-right font-mono text-slate-900 dark:text-white">
-                    {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalCost)}
                   </td>
                   <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
-                    {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalAccumDep)}
                   </td>
                   <td className={`px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400`}>
-                    {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalNBV)}
                   </td>
                 </tr>
               </tfoot>
@@ -513,10 +514,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                   <th className="px-2.5 py-1.5">Supplier / Vendor</th>
                   <th className="px-2.5 py-1.5">Asset Tag # & Title</th>
                   <th className="px-2.5 py-1.5">Category</th>
-                  <th className="px-2.5 py-1.5 text-right">Purchase Cost</th>
+                  <th className="px-2.5 py-1.5 text-right">Purchase Cost (NPR)</th>
                   <th className="px-2.5 py-1.5 text-center">Depr. Rate</th>
-                  <th className="px-2.5 py-1.5 text-right">Accum. Depr.</th>
-                  <th className="px-2.5 py-1.5 text-right">Net Book Value</th>
+                  <th className="px-2.5 py-1.5 text-right">Accum. Depr. (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-right">Net Book Value (NPR)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
@@ -553,7 +554,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                       </td>
                       <td className="px-2.5 py-1.5 text-slate-500">{asset.category}</td>
                       <td className="px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                        {(asset.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatNPRPrecise(asset.acquisitionCost)}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
@@ -561,7 +562,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5 text-right font-mono text-rose-500 font-semibold">
-                        {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatNPRPrecise(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation)}
                       </td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400`}>
                         {(calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -578,14 +579,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Datewise Purchase Lots Schedule:
                   </td>
                   <td className="px-2.5 py-1.5 text-right font-mono text-slate-900 dark:text-white">
-                    {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalCost)}
                   </td>
                   <td></td>
                   <td className="px-2.5 py-1.5 text-right font-mono text-rose-500">
-                    {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalAccumDep)}
                   </td>
                   <td className={`px-2.5 py-1.5 text-right font-mono text-indigo-600 dark:text-indigo-400`}>
-                    {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatNPRPrecise(totalNBV)}
                   </td>
                 </tr>
               </tfoot>

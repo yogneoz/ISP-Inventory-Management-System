@@ -229,7 +229,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                 <th className="px-2.5 py-1.5">PAN / VAT No</th>
                 <th className="px-2.5 py-1.5 text-right">Taxable Subtotal</th>
                 <th className="px-2.5 py-1.5 text-right">13% Input VAT</th>
-                <th className="px-2.5 py-1.5 text-right">Grand Total</th>
+                <th className="px-2.5 py-1.5 text-right">Grand Total (NPR)</th>
                 <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>
             </thead>

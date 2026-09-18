@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
-import { filterFiscalYears } from '../../utils/permissions';
+import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { formatNPR } from '../../utils/nprFormat';
 import {
@@ -51,8 +51,8 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
   onSelectFiscalYear,
 }) => {
   const role = currentUser?.role;
-  const canView = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'ACCOUNTANT';
-  const canEditRole = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+  const canView = isOperationAllowed('opening-stock-view', role);
+  const canEditRole = isOperationAllowed('opening-stock-edit', role);
 
   const defaultFyId = useMemo(() => {
     // Prioritize current fiscal year, then first open, then first available

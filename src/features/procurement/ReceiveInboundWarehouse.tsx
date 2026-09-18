@@ -29,6 +29,7 @@ import {
   ApprovalRequest,
 } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
+import { isOperationAllowed } from '../../utils/permissions';
 
 interface ReceiveInboundWarehouseProps {
   currentUser: User | null;
@@ -69,8 +70,8 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   onCancelReceiveShipment,
 }) => {
   const isWarehouseStaffOrAdmin =
-    currentUser?.role === 'SUPER_ADMIN' ||
-    currentUser?.role === 'INVENTORY_MANAGER' ||
+    isOperationAllowed('wh-receive-pullouts', currentUser?.role) ||
+    isOperationAllowed('po-receive', currentUser?.role) ||
     currentUser?.branchId === 'WH001' ||
     !currentUser?.branchId ||
     currentUser?.branchId === 'ALL';
@@ -415,7 +416,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
                               <th className="px-2 py-1">Product SKU & Name</th>
                               <th className="px-2 py-1 text-center">Condition</th>
                               <th className="px-2 py-1 text-center">Qty</th>
-                              <th className="px-2 py-1 text-right">Unit Price</th>
+                              <th className="px-2 py-1 text-right">Unit Price (NPR)</th>
                               <th className="px-2 py-1 text-right">Valuation</th>
                               <th className="px-2 py-1 min-w-[180px]">Serials & PON</th>
                             </tr>

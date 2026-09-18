@@ -60,6 +60,7 @@ import {
   AlertCircle,
   XCircle,
   Clock,
+  Undo2,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
 import { BarcodeScannerModal } from '../../components/common/BarcodeScannerModal';
@@ -105,6 +106,7 @@ interface StockOperationsProps {
     >
   ) => Promise<void>;
   onCancelApproval?: (id: string) => Promise<void>;
+  onReverseOperation?: (id: string, reason?: string) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
@@ -118,6 +120,21 @@ interface TransferFormLine extends ShipmentItem {
   unit?: string;
   quantity?: number;
 }
+
+// Central warehouse / head-office detection used by the inter-branch transfer
+// flow. Matches the legacy inline predicates (WH001, isWarehouse, WH-* codes,
+// and names containing warehouse / head office / central).
+const isWarehouseOrHeadOffice = (b?: Branch | null): boolean =>
+  Boolean(
+    b &&
+      (b.isHeadquarters ||
+        b.isWarehouse ||
+        b.id === 'WH001' ||
+        b.code.toUpperCase().startsWith('WH') ||
+        (b.name || '').toLowerCase().includes('warehouse') ||
+        (b.name || '').toLowerCase().includes('head office') ||
+        (b.name || '').toLowerCase().includes('central'))
+  );
 
 export const StockOperations: React.FC<StockOperationsProps> = ({
   operations,
@@ -142,10 +159,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onCancelReceiveShipment,
   onRequestApproval,
   onCancelApproval,
+  onReverseOperation,
   onUpdateAssetStatus,
 }) => {
   const { isDarkMode } = useDarkMode();
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -257,6 +275,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
   const canSeeAll = canUserSeeAllBranches(currentUser);
 
+  // Central warehouse dispatch is a warehouse function: only roles granted
+  // `wh-restrict-transfer` (Super Admin / Inventory Manager by default) may
+  // create inter-branch transfers originating from the warehouse.
+  const canDispatchFromWarehouse = isOperationAllowed('wh-restrict-transfer', currentUser?.role);
+
   // --- FORM STATES ---
 
   // Filter Central Warehouse & Warehouse locations for pullouts (exclude standard retail branches)
@@ -339,6 +362,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [transferItems, setTransferItems] = useState<TransferFormLine[]>([]);
 
   useEffect(() => {
+    const srcBranch = branches.find((b) => b.id === xferSourceBranchId || b.code === xferSourceBranchId);
+    const warehouseOrigin = isWarehouseOrHeadOffice(srcBranch);
     const validDestBranches = branches.filter(
       (b) =>
         b.id !== xferSourceBranchId &&
@@ -348,7 +373,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         !b.code.toUpperCase().startsWith('WH') &&
         !(b?.name || '').toLowerCase().includes('warehouse') &&
         !(b?.name || '').toLowerCase().includes('head office') &&
-        !(b?.name || '').toLowerCase().includes('central')
+        !(b?.name || '').toLowerCase().includes('central') &&
+        (!warehouseOrigin || b.allowWarehouseTransfer !== false)
     );
 
     if (validDestBranches.length > 0) {
@@ -1209,6 +1235,50 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setDamageItems([]);
   };
 
+  // 2b. Reverse a recorded damage entry (Safe-guarded; Super Admin / Inventory Manager only).
+  const canReverseDamage =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  const isReversibleDamageOp = (op: StockOperation): boolean =>
+    op.type === 'DAMAGE' && op.status !== 'CANCELLED' && !op.id.startsWith('syn-');
+
+  const handleReverseDamageRecord = async (op: StockOperation) => {
+    if (!canReverseDamage) {
+      showToast('Only Super Admin and Inventory Manager can reverse damage records.');
+      return;
+    }
+    const reason = await promptDialog(
+      `You are about to reverse damage record ${op.referenceNumber}.\n\n` +
+        `● Product: ${op.productName || op.productId}\n` +
+        `● Units: ${Math.abs(op.quantityChanged || 0)} Pcs\n` +
+        `● Valuation: ${formatNPR(op.totalValue)}\n` +
+        `● Branch: ${op.branchId}\n\n` +
+        `Reversing restores the units back to available stock and marks this record CANCELLED. ` +
+        `This action is irreversible and is logged to the audit trail under your credentials.`,
+      {
+        title: 'Reverse Damage Entry — Safeguard',
+        confirmLabel: 'Reverse & Restore Stock',
+        cancelLabel: 'Keep Record',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      showToast('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    try {
+      if (onReverseOperation) {
+        await onReverseOperation(op.id, reason.trim());
+      } else {
+        await api.reverseStockOperation(op.id, reason.trim(), currentUser);
+      }
+      showToast(`Damage record ${op.referenceNumber} reversed. Units restored to available stock.`);
+    } catch (err: any) {
+      showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   const handleAddDamageItem = (product: Product) => {
     const isSerialized = product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
     setDamageItems((previous) => {
@@ -1272,6 +1342,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     if (xferSourceBranchId === xferDestBranchId) {
       alert('Source and Destination branches must be different.');
       return;
+    }
+
+    // Warehouse functions (wh-restrict-transfer): warehouse-origin transfers are
+    // limited to the Super Admin / Inventory Manager roles and to destination
+    // branches configured to accept warehouse transfers (allowWarehouseTransfer).
+    if (isWarehouseOrHeadOffice(srcBranch)) {
+      if (!isOperationAllowed('wh-restrict-transfer', currentUser?.role)) {
+        alert('Warehouse stock transfers are restricted to the Super Admin and Inventory Manager roles only.');
+        return;
+      }
+      if (destBranch.allowWarehouseTransfer === false) {
+        alert(
+          `${destBranch.name} (${destBranch.code}) is not authorized to receive warehouse transfers. ` +
+            'Enable "Allow Warehouse Transfers" for this branch in Branch Settings first.'
+        );
+        return;
+      }
     }
 
     if (transferItems.length === 0) {
@@ -2074,7 +2161,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <span className={`font-bold font-mono text-indigo-600 dark:text-indigo-400`}>
                         {formatNPR(op.totalValue)}
                       </span>
-                      {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
+                      {op.status !== 'RECEIVED' && isOperationAllowed('wh-receive-pullouts', currentUser?.role) && onReceiveOperation && (
                         <button
                           onClick={async () => {
                             if (await confirmDialog(`Confirm receipt of Pullout Bin ${op.referenceNumber} into Warehouse Stock?`)) {
@@ -2151,16 +2238,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <th className="px-2.5 py-1.5">Valuation</th>
                     <th className="px-2.5 py-1.5">Reason & Method</th>
                     <th className="px-2.5 py-1.5">Inspector / Officer</th>
+                    <th className="px-2.5 py-1.5">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                   {filteredOperations.map((op) => (
-                    <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
+                    <tr key={op.id} className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 ${op.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
                       <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{op.referenceNumber}</td>
                       <td className="p-2.5">
                         {op.type === 'DISPOSAL' ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-rose-600 text-white shadow-xs">
                             🔥 DISPOSAL
+                          </span>
+                        ) : op.status === 'CANCELLED' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-slate-600 text-white shadow-xs">
+                            <Undo2 className="h-3 w-3" />
+                            REVERSED
                           </span>
                         ) : (
                           <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30`}>
@@ -2181,6 +2274,26 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       </td>
                       <td className="p-2.5 text-slate-500 text-[11px]">{op.reason}</td>
                       <td className="p-2.5 font-medium text-slate-600 dark:text-slate-400">{op.inspectorName}</td>
+                      <td className="p-2.5">
+                        {op.status === 'CANCELLED' ? (
+                          <div className="text-[9px] font-semibold text-slate-400 leading-tight">
+                            <div>Reversed by {op.reversedBy || 'Admin'}</div>
+                            {op.reversedAtAD && <div>{op.reversedAtAD}</div>}
+                          </div>
+                        ) : isReversibleDamageOp(op) && canReverseDamage ? (
+                          <button
+                            type="button"
+                            title="Reverse this damage entry (restores units to available stock)"
+                            onClick={() => handleReverseDamageRecord(op)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-amber-700 dark:text-amber-300 px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                            Reverse
+                          </button>
+                        ) : (
+                          <span className="text-[10px] italic text-slate-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2399,7 +2512,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         ))
                       );
 
-                      const isSuperOrInventory = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+                      const canDirectCancelTransfer = isOperationAllowed('branch-transfer-cancel-receive', currentUser?.role);
+                      const canRequestCancelTransfer = isOperationAllowed('branch-transfer-request-cancel', currentUser?.role);
+                      const canSuperCancelTransfers = canDirectCancelTransfer || canRequestCancelTransfer;
 
                       // STRICT WORKFLOW RULES:
                       // 1. Creator/Sender Branch:
@@ -2408,8 +2523,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       // 2. Receiver/Destination Branch:
                       //    - CAN see "Verify & Receive Stock"
                       //    - CANNOT see "Cancel Request"
-                      const canShowReceiveBtn = isInTransit && (isRecipientBranch || (isSuperOrInventory && !isSenderBranch)) && !isSenderBranch;
-                      const canShowCancelBtn = isInTransit && (isSenderBranch || (isSuperOrInventory && !isRecipientBranch)) && !isRecipientBranch;
+                      const canShowReceiveBtn = isInTransit && (isRecipientBranch || (canSuperCancelTransfers && !isSenderBranch)) && !isSenderBranch;
+                      const canShowCancelBtn = isInTransit && (isSenderBranch || (canSuperCancelTransfers && !isRecipientBranch)) && !isRecipientBranch;
 
                       return (
                         <React.Fragment key={sh.id}>
@@ -2527,8 +2642,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                     </button>
                                   )}
 
-                                  {canShowCancelBtn && (
-                                    isSuperOrInventory ? (
+                                  {canShowCancelBtn && canDirectCancelTransfer && (
                                       <button
                                         onClick={() => {
                                           setDirectCancelModalShipment(sh);
@@ -2540,7 +2654,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                         <RotateCcw className="h-3.5 w-3.5" />
                                         <span>Cancel Transfer</span>
                                       </button>
-                                    ) : (
+                                    )}
+
+                                    {canShowCancelBtn && !canDirectCancelTransfer && canRequestCancelTransfer && (
                                       <button
                                         onClick={() => {
                                           setRequestCancelModalShipment(sh);
@@ -2552,8 +2668,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                         <ShieldAlert className="h-3.5 w-3.5" />
                                         <span>Cancel Request</span>
                                       </button>
-                                    )
-                                  )}
+                                    )}
+
+                                    {canShowCancelBtn && !canDirectCancelTransfer && !canRequestCancelTransfer && (
+                                      <span className="text-[11px] text-slate-400 italic">In Transit</span>
+                                    )}
 
                                   {!canShowReceiveBtn && !canShowCancelBtn && (
                                     <span className="text-[11px] text-slate-400 italic">In Transit (Pending Recipient)</span>
@@ -2591,8 +2710,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                         <tr>
                                           <th className="px-2.5 py-1.5">Product & SKU</th>
                                           <th className="px-2.5 py-1.5 text-center">Qty Sent</th>
-                                          <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
-                                          <th className="px-2.5 py-1.5 text-right">Subtotal Value</th>
+                                          <th className="px-2.5 py-1.5 text-right">Unit Cost (NPR)</th>
+                                          <th className="px-2.5 py-1.5 text-right">Subtotal Value (NPR)</th>
                                           <th className="px-2.5 py-1.5">Device Serials & MAC Tracking</th>
                                         </tr>
                                       </thead>
@@ -2697,9 +2816,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   onChange={(e) => setXferSourceBranchId(e.target.value)}
                   className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
-                  {allowedBranches.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
-                  ))}
+                  {allowedBranches
+                    .filter((b) => (isWarehouseOrHeadOffice(b) ? canDispatchFromWarehouse : true))
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                    ))}
                 </select>
               </div>
 
@@ -2711,20 +2832,36 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                 >
                   {branches
-                    .filter((b) =>
-                      b.id !== xferSourceBranchId &&
-                      !b.isWarehouse &&
-                      !b.isHeadquarters &&
-                      b.id !== 'WH001' &&
-                      !b.code.toUpperCase().startsWith('WH') &&
-                      !(b?.name || '').toLowerCase().includes('warehouse') &&
-                      !(b?.name || '').toLowerCase().includes('head office') &&
-                      !(b?.name || '').toLowerCase().includes('central')
-                    )
+                    .filter((b) => {
+                      const srcBranch = branches.find((s) => s.id === xferSourceBranchId || s.code === xferSourceBranchId);
+                      const warehouseOrigin = isWarehouseOrHeadOffice(srcBranch);
+                      return (
+                        b.id !== xferSourceBranchId &&
+                        !b.isWarehouse &&
+                        !b.isHeadquarters &&
+                        b.id !== 'WH001' &&
+                        !b.code.toUpperCase().startsWith('WH') &&
+                        !(b?.name || '').toLowerCase().includes('warehouse') &&
+                        !(b?.name || '').toLowerCase().includes('head office') &&
+                        !(b?.name || '').toLowerCase().includes('central') &&
+                        (!warehouseOrigin || b.allowWarehouseTransfer !== false)
+                      );
+                    })
                     .map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
                 </select>
+                {(() => {
+                  const srcBranch = branches.find((s) => s.id === xferSourceBranchId || s.code === xferSourceBranchId);
+                  if (isWarehouseOrHeadOffice(srcBranch)) {
+                    return (
+                      <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+                        Warehouse dispatch: destination limited to branches with warehouse-transfer receiving enabled.
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
 
@@ -3211,8 +3348,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5">Consumable Material</th>
                         <th className="px-2.5 py-1.5 text-center">Store Stock</th>
                         <th className="px-2.5 py-1.5 text-center">Issue Qty</th>
-                        <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
-                        <th className="px-2.5 py-1.5 text-right">Total Cost</th>
+                        <th className="px-2.5 py-1.5 text-right">Unit Cost (NPR)</th>
+                        <th className="px-2.5 py-1.5 text-right">Total Cost (NPR)</th>
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>
@@ -3465,7 +3602,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5 text-center">Sale Qty</th>
                         <th className="px-2.5 py-1.5 text-right">Unit Price (NPR)</th>
                         <th className="px-2.5 py-1.5 text-right">Discount (NPR)</th>
-                        <th className="px-2.5 py-1.5 text-right">Subtotal</th>
+                        <th className="px-2.5 py-1.5 text-right">Subtotal (NPR)</th>
                         <th className="px-2.5 py-1.5 text-center">Action</th>
                       </tr>
                     </thead>

@@ -234,7 +234,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   };
 
   // Permission Check: Stock Manager and Super Admin only
-  const isStockManager = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+  const isStockManager = isOperationAllowed('prod-edit', currentUser?.role);
 
   const openEditModal = (s: InventoryStock | undefined, p: Product, b: Branch, mode: 'stock' | 'reorder') => {
     if (!isStockManager) {

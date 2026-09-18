@@ -21,6 +21,7 @@ import {
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import { isOperationAllowed } from '../../utils/permissions';
 
 interface UsersManagementProps {
   currentUser: User | null;
@@ -33,6 +34,7 @@ interface UsersManagementProps {
 }
 
 export const UsersManagement: React.FC<UsersManagementProps> = ({
+  currentUser,
   users,
   branches,
   onCreateUser,
@@ -232,6 +234,18 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   };
 
   const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
+
+  if (!isOperationAllowed('admin-users', currentUser?.role)) {
+    return (
+      <div className={`p-10 rounded-3xl border text-center space-y-4 max-w-2xl mx-auto my-8 bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-300`}>
+        <Shield className="h-14 w-14 text-rose-500 mx-auto animate-bounce" />
+        <h2 className="text-xl font-bold font-serif">Access Denied</h2>
+        <p className="text-xs leading-relaxed max-w-md mx-auto opacity-90">
+          You do not have the <strong>User Management &amp; Role Assignment</strong> permission to access staff accounts. Contact your Super Admin to grant this permission.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

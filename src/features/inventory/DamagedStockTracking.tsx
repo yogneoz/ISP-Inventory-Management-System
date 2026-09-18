@@ -256,7 +256,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   // Permission checks
   const canDispose = canUserDisposeDamagedStock(currentUser);
-  const canAdjustDamageCount = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+  const canAdjustDamageCount = isOperationAllowed('branch-damage-mark', currentUser?.role);
 
   const openDamagedStockEdit = (s: InventoryStock, p: Product, b: Branch) => {
     if (!canAdjustDamageCount) {

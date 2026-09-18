@@ -368,10 +368,10 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                 <tr>
                   <th className="px-2.5 py-1.5">Product Name & SKU</th>
                   <th className="px-2.5 py-1.5 text-center">Category</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost Price</th>
-                  <th className="px-2.5 py-1.5 text-right">Selling Price</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Price (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-right">Selling Price (NPR)</th>
                   <th className="px-2.5 py-1.5 text-center">On Hand</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost Valuation</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Valuation (NPR)</th>
                   <th className="px-2.5 py-1.5 text-right">Retail Valuation</th>
                   <th className="px-2.5 py-1.5 text-right">Potential Margin</th>
                   <th className="px-2.5 py-1.5 text-center">Damaged Loss</th>
@@ -466,8 +466,8 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                   <th className="px-2.5 py-1.5">Category Name</th>
                   <th className="px-2.5 py-1.5 text-center">SKUs Count</th>
                   <th className="px-2.5 py-1.5 text-center">Total Units</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost Valuation</th>
-                  <th className="px-2.5 py-1.5 text-right">Retail Valuation</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Valuation (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-right">Retail Valuation (NPR)</th>
                   <th className="px-2.5 py-1.5 text-right">Potential Margin</th>
                   <th className="px-2.5 py-1.5 text-right">% Share of Total Valuation</th>
                 </tr>

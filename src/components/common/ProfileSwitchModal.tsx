@@ -17,7 +17,7 @@ import {
   Lock,
   Sparkles,
   ShieldAlert,
-  ArrowLeft,
+  RotateCcw,
 } from 'lucide-react';
 
 interface ProfileSwitchModalProps {
@@ -136,6 +136,41 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
             <X className="h-5 w-5" />
           </button>
 
+          {/* Switched Session Banner: shown directly above the active profile picture while
+              impersonating another profile. Reverse (anticlockwise) icon reflects switching
+              back to the original root login identity. */}
+          {rootUser && currentUser && rootUser.id !== currentUser.id && (
+            <div className="mb-5 rounded-2xl bg-amber-400/15 ring-1 ring-amber-300/40 px-4 py-3 flex items-center gap-3">
+              <div className="h-9 w-9 flex-shrink-0 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center">
+                <RotateCcw className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1 text-amber-50">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-300">
+                  Switched Session Active
+                </p>
+                <p className="text-xs text-indigo-100/90 truncate">
+                  Operating as <strong className="text-white">{currentUser.name}</strong>
+                  {' — switched from '}
+                  <strong className="text-white">{rootUser.name}</strong>
+                  <span className="opacity-70"> ({rootUser.role.replace('_', ' ')})</span>
+                </p>
+              </div>
+              {onSwitchBackToRoot && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onSwitchBackToRoot();
+                    onClose();
+                  }}
+                  className="flex-shrink-0 flex items-center gap-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-950 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Switch Back</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-4">
             <div className="relative">
               <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-2xl font-black font-serif shadow-lg border-2 border-white/20">
@@ -208,36 +243,6 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                   </p>
                 </div>
               </div>
-
-              {/* Active Switched Profile Banner & Switch Back Button */}
-              {rootUser && rootUser.id !== currentUser.id && (
-                <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 p-4 border border-amber-300 dark:border-amber-800/80 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-900 dark:text-amber-200">
-                      <p className="font-bold text-xs">Active Switched Session</p>
-                      <p className="mt-0.5 text-amber-800 dark:text-amber-300">
-                        You are currently operating as <strong>{currentUser.name}</strong> ({currentUser.role.replace('_', ' ')}).
-                        Your original root login identity is <strong>{rootUser.name}</strong> ({rootUser.role.replace('_', ' ')}).
-                      </p>
-                    </div>
-                  </div>
-
-                  {onSwitchBackToRoot && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await onSwitchBackToRoot();
-                        onClose();
-                      }}
-                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2 px-4 text-xs shadow-xs transition-colors cursor-pointer"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      <span>Switch Back to Root Account ({rootUser.name})</span>
-                    </button>
-                  )}
-                </div>
-              )}
 
               {/* Check if user has permission to view other users and switch */}
               {!canSwitchUser ? (

@@ -15,7 +15,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   currentUser,
 }) => {
   const { confirm: confirmDialog } = useDialog();
-  const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
+  const canEdit = isOperationAllowed('category-manage', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS branches (
     is_headquarters BOOLEAN DEFAULT FALSE,
     active BOOLEAN DEFAULT TRUE,
     allow_procurement BOOLEAN DEFAULT TRUE,
+    allow_warehouse_transfer BOOLEAN DEFAULT TRUE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

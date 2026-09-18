@@ -17,6 +17,7 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed, getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
 import {
   TrendingUp,
   AlertTriangle,
@@ -240,10 +241,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
     return sum + Number(computed.netBookValue ?? 0);
   }, 0);
-
-  // Format number
-  const formatNPR = (val?: number | null) =>
-    (val ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
   // Filter products for Special Hardware table — dynamic, driven by categories
   // where isSpecialTracked=true. Only serial / MAC / PON tracked products
@@ -516,7 +513,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="px-2.5 py-1.5">SKU / Code</th>
                   <th className="px-2.5 py-1.5">Category</th>
                   <th className="px-2.5 py-1.5 text-center">UOM</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Rate (NPR)</th>
                   <th className={`px-2.5 py-1.5 text-right font-extrabold text-rose-600 dark:text-rose-400`}>
                     Total Available Stock
                   </th>
@@ -789,11 +786,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="px-2.5 py-1.5">SKU / Code</th>
                   <th className="px-2.5 py-1.5">Type / Category</th>
                   <th className="px-2.5 py-1.5 text-center">UOM</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost Rate</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost Rate (NPR)</th>
                   <th className={`px-2.5 py-1.5 text-right font-extrabold text-indigo-600 dark:text-indigo-400`}>
                     Total Stock (All Branches)
                   </th>
-                  <th className="px-2.5 py-1.5 text-right">Total Valuation</th>
+                  <th className="px-2.5 py-1.5 text-right">Total Valuation (NPR)</th>
                   <th className="px-2.5 py-1.5 text-center">Status</th>
                   <th className="px-2.5 py-1.5 text-center w-28">Action</th>
                 </tr>

@@ -247,7 +247,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         totalAfterPeriodQtyChanges += l.quantityChanged;
       } else {
         // Log is WITHIN period
-        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
+        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || l.changeType === 'DAMAGE_REVERSED' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
           receivedQty += Math.abs(l.quantityChanged);
         } else if (l.changeType === 'DAMAGE') {
           damagedQty += Math.abs(l.quantityChanged);
@@ -657,7 +657,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <th className={`px-2.5 py-1.5 text-right border-r bg-sky-500/5 text-sky-600 dark:text-sky-400`}>Delivered Value</th>
                   <th className={`px-2.5 py-1.5 text-center bg-rose-500/5 text-rose-500 dark:text-rose-400`}>Damaged Qty</th>
                   <th className={`px-2.5 py-1.5 text-center border-l border-r bg-indigo-500/10 text-indigo-500 dark:text-indigo-400`}>Closing Qty</th>
-                  <th className={`px-2.5 py-1.5 text-right bg-indigo-500/10 text-indigo-500 dark:text-indigo-400`}>Closing Value</th>
+                  <th className={`px-2.5 py-1.5 text-right bg-indigo-500/10 text-indigo-500 dark:text-indigo-400`}>Closing Value (NPR)</th>
                 </tr>
               </thead>
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
@@ -821,6 +821,8 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                               ? `bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400`
                               : log.changeType === 'DAMAGE'
                               ? `bg-rose-500/10 border border-rose-500/20 text-rose-500 dark:text-rose-400`
+                              : log.changeType === 'DAMAGE_REVERSED'
+                              ? `bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 dark:text-emerald-400`
                               : log.changeType === 'CONSUMABLE_ISSUE'
                               ? `bg-amber-600/10 border border-amber-600/20 text-amber-600 dark:text-amber-400`
                               : `bg-sky-500/10 border border-sky-500/20 text-sky-500 dark:text-sky-400`

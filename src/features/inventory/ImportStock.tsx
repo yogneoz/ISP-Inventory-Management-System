@@ -346,7 +346,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
                 <tr>
                   <th className="px-2.5 py-1.5">SKU / Name</th>
                   <th className="px-2.5 py-1.5">Group & Category</th>
-                  <th className="px-2.5 py-1.5 text-right">Cost / Sell</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost / Sell (NPR)</th>
                   <th className="px-2.5 py-1.5 text-center">Initial Qty</th>
                   <th className="px-2.5 py-1.5">Status</th>
                 </tr>

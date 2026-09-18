@@ -118,7 +118,7 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       {
         id: 'wh-restrict-transfer',
         operationName: 'Warehouse Transfer Restriction Rule',
-        description: 'Enforce rule preventing warehouse from issuing direct inter-store transfers',
+        description: 'Issue inter-branch transfers from the central warehouse; destinations limited to branches with warehouse-transfer receiving enabled',
         permissions: DEFAULT_PERMISSIONS_MATRIX['wh-restrict-transfer'],
       },
       {
@@ -149,6 +149,18 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         operationName: 'Receive Inter-Branch Stock Transfer',
         description: 'Acknowledge received stock transfers sent from another branch store',
         permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-receive'],
+      },
+      {
+        id: 'branch-transfer-cancel-receive',
+        operationName: 'Cancel Received Branch Transfer',
+        description: 'Cancel or rollback an acknowledged inter-branch transfer delivery',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-cancel-receive'],
+      },
+      {
+        id: 'branch-transfer-request-cancel',
+        operationName: 'Request Transfer Dispatch Cancellation',
+        description: 'Submit cancellation requests for outbound in-transit transfers',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-request-cancel'],
       },
       {
         id: 'branch-pullout-dispatch',
@@ -205,9 +217,21 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'uom-manage',
-        operationName: 'Manage Units of Measure (UOM) & Categories',
-        description: 'Define product categories, subcategories, and measurement units',
+        operationName: 'Manage Units of Measure (UOM)',
+        description: 'Define units of measurement and unit conversion factors',
         permissions: DEFAULT_PERMISSIONS_MATRIX['uom-manage'],
+      },
+      {
+        id: 'category-manage',
+        operationName: 'Manage Categories & Subcategories',
+        description: 'Define product hierarchy, classification trees, and subcategories',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['category-manage'],
+      },
+      {
+        id: 'edit-device-serials',
+        operationName: 'Edit Device Serial Numbers (Serial/PON/MAC)',
+        description: 'Edit serial numbers, PON serials, and MAC addresses for customer devices with cascading updates to all source tables',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['edit-device-serials'],
       },
       {
         id: 'stock-import-export',
@@ -428,7 +452,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   };
 
   const handleSave = () => {
-    const matrix: Record<string, Record<UserRole, boolean>> = {};
+    const matrix: Record<string, Record<UserRole, boolean>> = { ...getPermissionsMatrix() };
     groups.forEach((g) => {
       g.operations.forEach((op) => {
         matrix[op.id] = op.permissions;
@@ -441,7 +465,13 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
 
   const handleReset = () => {
     savePermissionsMatrix(DEFAULT_PERMISSIONS_MATRIX);
-    setGroups(DEFAULT_GROUPS);
+    setGroups(DEFAULT_GROUPS.map((g) => ({
+      ...g,
+      operations: g.operations.map((op) => ({
+        ...op,
+        permissions: { ...DEFAULT_PERMISSIONS_MATRIX[op.id] },
+      })),
+    })));
     setSavedNotification(true);
     setTimeout(() => setSavedNotification(false), 3000);
   };

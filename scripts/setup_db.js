@@ -429,10 +429,11 @@ async function seedBranches(client) {
   // is_demo column is added by the server startup migration; ensure it here
   // too so a bare `npm run setup:pg` works on an empty database.
   await client.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE`);
+  await client.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS allow_warehouse_transfer BOOLEAN NOT NULL DEFAULT TRUE`);
   for (const b of DEFAULT_BRANCHES) {
     await client.query(
-      `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, TRUE) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, TRUE, TRUE) ON CONFLICT (id) DO NOTHING`,
       [b.id, b.code, b.name, b.location, b.phone, b.isHeadquarters]
     );
   }

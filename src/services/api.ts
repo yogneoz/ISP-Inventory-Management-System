@@ -625,6 +625,19 @@ export const api = {
     });
   },
 
+  // Reverse a DAMAGE stock operation: restores units to available stock and
+  // marks the damage record CANCELLED. Guarded to Super Admin / Inventory Manager.
+  async reverseStockOperation(
+    id: string,
+    reason?: string,
+    user?: User | null
+  ): Promise<{ message: string; operation: StockOperation }> {
+    return fetchJson(`/api/stock-operations/${id}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, user }),
+    });
+  },
+
   // Fiscal Years
   async getFiscalYears(): Promise<FiscalYear[]> {
     return fetchJson('/api/fiscal-years');
@@ -822,6 +835,24 @@ export const api = {
   }): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
     return fetchJson('/api/customer-devices/exchange', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateDeviceSerials(payload: {
+    id?: string;
+    sourceType?: string;
+    sourceId?: string;
+    oldDeviceSerial?: string;
+    oldPonSerial?: string;
+    oldMacAddress?: string;
+    deviceSerial: string;
+    ponSerial: string;
+    macAddress?: string;
+    branchId?: string;
+  }): Promise<any> {
+    return fetchJson('/api/inventory/serials', {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     });
   },

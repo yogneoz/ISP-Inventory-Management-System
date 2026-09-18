@@ -398,7 +398,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <th className="px-2.5 py-1.5">Branch</th>
                 <th className="px-2.5 py-1.5">Contact Details & Address</th>
                 <th className="px-2.5 py-1.5 text-center">Assigned Hardware</th>
-                <th className="px-2.5 py-1.5 text-right">Credit Limit</th>
+                <th className="px-2.5 py-1.5 text-right">Credit Limit (NPR)</th>
                 <th className="px-2.5 py-1.5 text-center">Status</th>
                 <th className="px-2.5 py-1.5 text-right">Actions</th>
               </tr>

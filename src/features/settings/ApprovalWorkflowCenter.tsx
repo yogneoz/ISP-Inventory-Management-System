@@ -32,7 +32,8 @@ interface ApprovalWorkflowCenterProps {
   approvalRequests: ApprovalRequest[];
   branches: Branch[];
   currentUser?: User | null;
-  dateMode: 'BS' | 'AD';  onProcessApproval: (
+  dateMode: 'BS' | 'AD';
+  onProcessApproval: (
     id: string,
     status: 'APPROVED' | 'REJECTED',
     rejectionReason?: string
@@ -45,7 +46,8 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   approvalRequests = [],
   branches = [],
   currentUser,
-  dateMode,  onProcessApproval,
+  dateMode,
+  onProcessApproval,
   onCancelApproval,
   onNavigateToStockAudit,
 }) => {
@@ -63,20 +65,12 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   const [isProcessingId, setIsProcessingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const canApprove =
-    isOperationAllowed('workflow-approval', currentUser?.role) ||
-    currentUser?.role === 'SUPER_ADMIN' ||
-    currentUser?.role === 'INVENTORY_MANAGER';
+  const canApprove = isOperationAllowed('workflow-approval', currentUser?.role);
 
-  // Branch Manager and Front Desk staff are not permitted to cancel approval requests.
-  const canCancelApprovalRequest = Boolean(
-    currentUser &&
-    currentUser.role !== 'BRANCH_MANAGER' &&
-    currentUser.role !== 'FRONT_DESK' &&
-    (currentUser.role === 'SUPER_ADMIN' ||
-      currentUser.role === 'INVENTORY_MANAGER' ||
-      isOperationAllowed('workflow-approval-cancel', currentUser.role))
-  );
+  // Cancellation of pending approval requests is driven by the matrix
+  // (`workflow-approval-cancel`). Branch Manager and Front Desk are excluded by
+  // the default matrix and can never receive this permission via the UI.
+  const canCancelApprovalRequest = isOperationAllowed('workflow-approval-cancel', currentUser?.role);
 
   const pendingCount = approvalRequests.filter((r) => r.status === 'PENDING').length;
   const approvedCount = approvalRequests.filter((r) => r.status === 'APPROVED').length;

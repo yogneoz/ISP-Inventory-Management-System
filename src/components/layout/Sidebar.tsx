@@ -72,6 +72,7 @@ export type NavTab =
   | 'fixed-assets'
   | 'customers'
   | 'customer-devices'
+  | 'complete-serial-inventory'
   | 'locations'
   | 'product-master'
   | 'opening-stock'
@@ -132,6 +133,7 @@ export const NAV_TABS: NavTab[] = [
   'fixed-assets',
   'customers',
   'customer-devices',
+  'complete-serial-inventory',
   'locations',
   'product-master',
   'opening-stock',
@@ -189,6 +191,12 @@ interface SidebarProps {
   inTransitShipmentCount: number;
   pendingApprovalCount?: number;
   onCloseMobile?: () => void;
+  /**
+   * Opional revision counter bumped whenever the permission matrix is
+   * saved/imported. Forces the Sidebar to recompute visible nav groups so
+   * granted/revoked permissions apply immediately without a reload.
+   */
+  permissionsVersion?: number;
 }
 
 interface NavChildDef {
@@ -220,29 +228,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   inTransitShipmentCount,
   pendingApprovalCount,
   onCloseMobile,
+  permissionsVersion,
 }) => {
   const { isDarkMode } = useDarkMode();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  const isFrontDesk = currentUser?.role === 'FRONT_DESK';
-  const isAccountant = currentUser?.role === 'ACCOUNTANT';
-  const isRestrictedRole = isFrontDesk;
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 
   // Build filtered navigation groups based on role permissions
   const groups: NavGroupDef[] = [];
 
   // 1. Overview & Analytics Group
-  const dashboardChildren = [
+  const dashboardChildren: NavChildDef[] = [
     { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
-    {
-      id: 'approvals' as NavTab,
-      label: 'Workflow Approval Center',
-      icon: ShieldCheck,
-      badge: pendingApprovalCount,
-      badgeColor: 'bg-amber-500 text-white',
-    },
-    { id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign },
+    ...(isOperationAllowed('workflow-approval', currentUser?.role) || isOperationAllowed('workflow-approval-cancel', currentUser?.role)
+      ? [
+          {
+            id: 'approvals' as NavTab,
+            label: 'Workflow Approval Center',
+            icon: ShieldCheck,
+            badge: pendingApprovalCount,
+            badgeColor: 'bg-amber-500 text-white',
+          },
+        ]
+      : []),
+    ...(isOperationAllowed('stock-valuation', currentUser?.role)
+      ? [{ id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign }]
+      : []),
     { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
+    ...(isOperationAllowed('prod-view', currentUser?.role)
+      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'All Serial Device Inventory', icon: Package, hasSeparatorAbove: true }]
+      : []),
   ];
   groups.push({
     id: 'dashboard',
@@ -278,12 +293,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Damaged Stock Matrix',
       icon: AlertTriangle,
     },
-    {
-      id: 'export-stock' as NavTab,
-      label: 'Export Stock Data & Reports',
-      icon: DownloadCloud,
-      hasSeparatorAbove: true,
-    },
+    ...(isOperationAllowed('stock-import-export', currentUser?.role)
+      ? [
+          {
+            id: 'export-stock' as NavTab,
+            label: 'Export Stock Data & Reports',
+            icon: DownloadCloud,
+            hasSeparatorAbove: true,
+          },
+        ]
+      : []),
   ];
   groups.push({
     id: 'inventory',
@@ -298,10 +317,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Each former in-page tab header is exposed as its own menu item;
   // clicking a menu renders only that page (in-page tab bars are hidden).
   const canCreatePoAtRole = isOperationAllowed('po-create', currentUser?.role);
+  const canCreateInvoiceAtRole = isOperationAllowed('inv-create', currentUser?.role);
   // Create pages stay together, then the register pages stay together.
   // Register pages include their own CSV export actions (no separate report menus).
   const procurementChildren: NavChildDef[] = [
-    ...(!isFrontDesk && canCreatePoAtRole
+    ...(canCreatePoAtRole
       ? [
           {
             id: 'create-po' as NavTab,
@@ -310,7 +330,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           },
         ]
       : []),
-    ...(!isFrontDesk
+    ...(canCreateInvoiceAtRole
       ? [
           {
             id: 'create-purchase' as NavTab,
@@ -344,68 +364,82 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
-  // 4. Warehouse Logistics Group (Exclusively for HQ / Warehouse / Admin)
-  const isWarehouseStaffOrAdmin =
-    isSuperAdmin ||
-    currentUser?.role === 'INVENTORY_MANAGER' ||
-    currentUser?.branchId === 'WH001' ||
-    !currentUser?.branchId ||
-    currentUser?.branchId === 'ALL';
-
-  if (isWarehouseStaffOrAdmin) {
-    const warehouseLogisticsChildren = [
-      { id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send },
-      {
-        id: 'receive-shipment' as NavTab,
-        label: 'Receive Inbound Stock & Pullouts',
-        icon: Inbox,
-        badge: inTransitShipmentCount,
-        badgeColor: 'bg-amber-500 text-white',
-      },
-      { id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History },
-    ];
+  // 4. Warehouse Logistics Group
+  const warehouseChildren: NavChildDef[] = [];
+  if (isOperationAllowed('shipment-create', currentUser?.role)) {
+    warehouseChildren.push({ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send });
+  }
+  if (isOperationAllowed('wh-receive-pullouts', currentUser?.role)) {
+    warehouseChildren.push({
+      id: 'receive-shipment' as NavTab,
+      label: 'Receive Inbound Stock & Pullouts',
+      icon: Inbox,
+      badge: inTransitShipmentCount,
+      badgeColor: 'bg-amber-500 text-white',
+    });
+  }
+  if (isOperationAllowed('shipment-history', currentUser?.role)) {
+    warehouseChildren.push({ id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History });
+  }
+  if (warehouseChildren.length > 0) {
     groups.push({
       id: 'logistics',
       title: 'Warehouse Logistics',
       shortLabel: 'Warehouse',
       icon: Truck,
       badgeCount: inTransitShipmentCount,
-      children: warehouseLogisticsChildren,
+      children: warehouseChildren,
     });
   }
 
   // 5. Branch Operations & Transfers Group
-  const branchOpsChildren = [
-    { id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight },
-    { id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff },
-    {
-      id: 'receive-branch-transfer' as NavTab,
-      label: 'Receive Branch Stock Transfer',
-      icon: Inbox,
-      badge: inTransitShipmentCount,
-      badgeColor: 'bg-amber-500 text-white',
-    },
-    { id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send },
-    ...(!isRestrictedRole && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
+  const branchOpsChildren: NavChildDef[] = [
+    ...(isOperationAllowed('branch-pullout-dispatch', currentUser?.role)
+      ? [{ id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight }]
+      : []),
+    ...(isOperationAllowed('branch-damage-mark', currentUser?.role)
+      ? [{ id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff }]
+      : []),
+    ...(isOperationAllowed('branch-transfer-receive', currentUser?.role)
+      ? [
+          {
+            id: 'receive-branch-transfer' as NavTab,
+            label: 'Receive Branch Stock Transfer',
+            icon: Inbox,
+            badge: inTransitShipmentCount,
+            badgeColor: 'bg-amber-500 text-white',
+          },
+        ]
+      : []),
+    ...(isOperationAllowed('branch-transfer-create', currentUser?.role)
+      ? [{ id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send }]
+      : []),
+    ...(isOperationAllowed('branch-asset-assign', currentUser?.role)
+      ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }]
+      : []),
     { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench },
-    { id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus },
+    ...(isOperationAllowed('stock-out', currentUser?.role)
+      ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus }]
+      : []),
     { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
     { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
   ];
-  groups.push({
-    id: 'stockops',
-    title: 'Branch Operations & Transfers',
-    shortLabel: 'Branch Ops',
-    icon: Layers,
-    children: [
-      ...branchOpsChildren,
-      { id: 'pullout-report' as NavTab, label: 'Warehouse Pullout Report', icon: ClipboardList, hasSeparatorAbove: true },
-      { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList },
-    ],
-  });
+  if (branchOpsChildren.length > 0) {
+    groups.push({
+      id: 'stockops',
+      title: 'Branch Operations & Transfers',
+      shortLabel: 'Branch Ops',
+      icon: Layers,
+      children: [
+        ...branchOpsChildren,
+        { id: 'pullout-report' as NavTab, label: 'Warehouse Pullout Report', icon: ClipboardList, hasSeparatorAbove: true },
+        { id: 'damage-report' as NavTab, label: 'Damaged Stock Report', icon: ClipboardList },
+      ],
+    });
+  }
 
   // 6. Fixed Assets Group
-  if (!isRestrictedRole) {
+  if (isOperationAllowed('assets-manage', currentUser?.role)) {
     groups.push({
       id: 'fixed-assets-group',
       title: 'Fixed Assets & Tax',
@@ -419,19 +453,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
 
   // 7. Inventory Setup Group
-  const isStockMasterAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
-  const inventorySetupChildren = [
-    { id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users },
+  const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
+  const canViewOpeningStock = isOperationAllowed('opening-stock-view', currentUser?.role);
+  const canImportExportStock = isOperationAllowed('stock-import-export', currentUser?.role);
+  const inventorySetupChildren: NavChildDef[] = [
+    ...(isOperationAllowed('customers-manage', currentUser?.role)
+      ? [{ id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users }]
+      : []),
     { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
-    { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
-    ...(isStockMasterAdmin || isAccountant
+    ...(canViewProducts
+      ? [{ id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package }]
+      : []),
+    ...(canViewOpeningStock
       ? [{ id: 'opening-stock' as NavTab, label: 'Fiscal Year Opening Register', icon: Scale }]
       : []),
-    ...(isStockMasterAdmin ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }] : []),
-    ...(isStockMasterAdmin ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }] : []),
-    ...(isStockMasterAdmin ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
-    ...(isStockMasterAdmin ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
-    ...(isStockMasterAdmin ? [{ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud }] : []),
+    ...(isOperationAllowed('category-manage', currentUser?.role)
+      ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }]
+      : []),
+    ...(isOperationAllowed('uom-manage', currentUser?.role)
+      ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }]
+      : []),
+    ...(isOperationAllowed('admin-branches', currentUser?.role)
+      ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }]
+      : []),
+    ...(isOperationAllowed('suppliers-manage', currentUser?.role)
+      ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }]
+      : []),
+    ...(canImportExportStock
+      ? [{ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud }]
+      : []),
   ];
   groups.push({
     id: 'inventory-setup',
@@ -442,28 +492,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   // 8. Administration Group
+  const adminChildren: NavChildDef[] = [];
   if (isSuperAdmin) {
+    adminChildren.push({ id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 });
+  }
+  if (isOperationAllowed('admin-fiscal', currentUser?.role)) {
+    adminChildren.push(
+      { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays },
+      { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays }
+    );
+  }
+  if (isSuperAdmin) {
+    adminChildren.push({ id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays });
+  }
+  if (isOperationAllowed('admin-users', currentUser?.role)) {
+    adminChildren.push({ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck });
+  }
+  if (isSuperAdmin) {
+    adminChildren.push({ id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus });
+  }
+  if (isOperationAllowed('fin-statements', currentUser?.role)) {
+    adminChildren.push({ id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale });
+  }
+  if (isOperationAllowed('inv-pay', currentUser?.role)) {
+    adminChildren.push({ id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet });
+  }
+  if (isOperationAllowed('opening-stock-view', currentUser?.role)) {
+    adminChildren.push({ id: 'vendor-opening-balances' as NavTab, label: 'Vendor Opening Balances', icon: Wallet });
+  }
+  if (isOperationAllowed('vat-register', currentUser?.role)) {
+    adminChildren.push({ id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt });
+  }
+  if (isSuperAdmin) {
+    adminChildren.push({ id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck });
+  }
+  if (isOperationAllowed('admin-audit', currentUser?.role)) {
+    adminChildren.push({ id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList });
+  }
+  if (isSuperAdmin) {
+    adminChildren.push(
+      { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw },
+      { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true }
+    );
+  }
+  if (adminChildren.length > 0) {
     groups.push({
       id: 'admin',
       title: 'Administration & Governance',
       shortLabel: 'Admin',
       icon: Settings,
-      children: [
-        { id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 },
-        { id: 'fiscal-year-management' as NavTab, label: 'Document Numbering Setup', icon: CalendarDays },
-        { id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays },
-        { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays },
-        { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
-        { id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus },
-        { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
-        { id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet },
-        { id: 'vendor-opening-balances' as NavTab, label: 'Vendor Opening Balances', icon: Wallet },
-        { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
-        { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },
-        { id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList },
-        { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw },
-        { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true },
-      ],
+      children: adminChildren,
     });
   }
 
@@ -498,7 +576,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     const parent = getParentGroupId(activeTab);
     setActiveGroup(parent);
-  }, [activeTab]);
+  }, [activeTab, permissionsVersion]);
 
   // Hide sub-menu panel if click is detected outside the sidebar area
   useEffect(() => {

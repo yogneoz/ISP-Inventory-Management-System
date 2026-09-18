@@ -109,11 +109,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   const allowedBranches = useMemo(() => getAllowedBranches(currentUser, branches), [currentUser, branches]);
 
   const isManagerOrAdmin = useMemo(() => {
-    return (
-      currentUser?.role === 'SUPER_ADMIN' ||
-      currentUser?.role === 'INVENTORY_MANAGER' ||
-      isOperationAllowed('workflow-approval', currentUser?.role)
-    );
+    return isOperationAllowed('workflow-approval', currentUser?.role);
   }, [currentUser]);
 
   // Determine initial branch strictly based on user login context
@@ -1517,11 +1513,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <tr>
                 <th className="px-2.5 py-1.5">SKU / Barcode</th>
                 <th className="px-2.5 py-1.5">Product Name & Category</th>
-                <th className="px-2.5 py-1.5 text-right">Unit Cost</th>
+                <th className="px-2.5 py-1.5 text-right">Unit Cost (NPR)</th>
                 <th className="px-2.5 py-1.5 text-center">Book System Qty</th>
                 <th className="px-2.5 py-1.5 text-center w-40">Physical Stock Count</th>
                 <th className="px-2.5 py-1.5 text-center">Variance</th>
-                <th className="px-2.5 py-1.5 text-right">Variance Value</th>
+                <th className="px-2.5 py-1.5 text-right">Variance Value (NPR)</th>
                 <th className="px-2.5 py-1.5 min-w-[220px]">Reason for Discrepancy</th>
               </tr>
             </thead>

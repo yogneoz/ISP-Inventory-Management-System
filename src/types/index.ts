@@ -75,6 +75,7 @@ export interface Branch {
   isHeadquarters: boolean;
   active: boolean;
   allowProcurement?: boolean;
+  allowWarehouseTransfer?: boolean;
   isWarehouse?: boolean;
 }
 
@@ -435,7 +436,7 @@ export interface StockOperation {
   dateAD: string;
   dateBS: string;
   fiscalYear: string;
-  status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED';
+  status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED' | 'CANCELLED';
   items?: (PulloutItem | ConsumableIssueItem | SaleItem)[];
   // Customer Product Sale fields
   customerId?: string;
@@ -447,6 +448,11 @@ export interface StockOperation {
   salvageRecoveryAmount?: number;
   netWriteOffLoss?: number;
   glAccountCode?: string;
+  // Damage record reversal (Super Admin & Inventory Manager only)
+  reversalReason?: string;
+  reversedBy?: string;
+  reversedAtAD?: string;
+  reversedAtBS?: string;
 }
 
 export interface DocumentNumberConfig {
@@ -551,7 +557,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;

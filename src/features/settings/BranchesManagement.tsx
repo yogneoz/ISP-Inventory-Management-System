@@ -33,6 +33,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   const [isHeadquarters, setIsHeadquarters] = useState(false);
   const [isWarehouse, setIsWarehouse] = useState(false);
   const [allowProcurement, setAllowProcurement] = useState(true);
+  const [allowWarehouseTransfer, setAllowWarehouseTransfer] = useState(true);
 
   const filtered = branches.filter(
     (b) =>
@@ -52,6 +53,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsHeadquarters(false);
     setIsWarehouse(false);
     setAllowProcurement(true);
+    setAllowWarehouseTransfer(true);
     setIsModalOpen(true);
   };
 
@@ -64,6 +66,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsHeadquarters(b.isHeadquarters);
     setIsWarehouse(!!b.isWarehouse || b.code.toUpperCase().startsWith('WH'));
     setAllowProcurement(b.allowProcurement !== false);
+    setAllowWarehouseTransfer(b.allowWarehouseTransfer !== false);
     setIsModalOpen(true);
   };
 
@@ -89,6 +92,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           isHeadquarters,
           isWarehouse,
           allowProcurement,
+          allowWarehouseTransfer,
         });
       }
     } else {
@@ -102,6 +106,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           isWarehouse,
           active: true,
           allowProcurement,
+          allowWarehouseTransfer,
         });
       }
     }
@@ -112,6 +117,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setPhone('');
     setIsHeadquarters(false);
     setAllowProcurement(true);
+    setAllowWarehouseTransfer(true);
     setEditingBranch(null);
     setIsModalOpen(false);
   };
@@ -220,6 +226,15 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                 ) : (
                   <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                     🚫 Procurement Disabled
+                  </span>
+                )}
+                {b.allowWarehouseTransfer !== false ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                    🏭 Warehouse Transfers Enabled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                    🚫 Warehouse Transfers Disabled
                   </span>
                 )}
               </div>
@@ -341,6 +356,19 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   />
                   <label htmlFor="procurement-check" className="font-semibold cursor-pointer">
                     Enable Procurement & Purchasing Permission
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="warehouse-transfer-check"
+                    checked={allowWarehouseTransfer}
+                    onChange={(e) => setAllowWarehouseTransfer(e.target.checked)}
+                    className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="warehouse-transfer-check" className="font-semibold cursor-pointer">
+                    Allow Warehouse Transfers to this Branch (warehouse receiving allow-list)
                   </label>
                 </div>
               </div>

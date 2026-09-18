@@ -35,6 +35,7 @@ import {
 } from './utils/sessionCache';
 import { Header } from './components/layout/Header';
 import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
+import { isOperationAllowed } from './utils/permissions';
 import { LoginModal } from './components/common/LoginModal';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -45,6 +46,7 @@ import { DamagedStockTracking } from './features/inventory/DamagedStockTracking'
 import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
 import { CustomersManagement } from './features/sales/CustomersManagement';
 import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
+import { AllSerialInventory } from './features/inventory/AllSerialInventory';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
 import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
 import { Shipments } from './features/procurement/Shipments';
@@ -138,6 +140,56 @@ export default function App() {
       localStorage.setItem('inventory_date_mode', next);
       return next;
     });
+  };
+
+  // Centralized navigation access control. Each nav tab requiring a permission
+  // is mapped to one or more matrix operations (`isOperationAllowed`). Tabs that
+  // are purely administrative and have no matrix operation remain Super-Admin only.
+  // This is defense-in-depth: the Sidebar also hides these tabs for unauthorized roles.
+  const TAB_PERMISSIONS: Record<string, string | string[]> = {
+    'create-po': 'po-create',
+    'create-purchase': 'inv-create',
+    'create-shipment': 'shipment-create',
+    'receive-shipment': 'wh-receive-pullouts',
+    'shipment-list': 'shipment-history',
+    pullout: 'branch-pullout-dispatch',
+    damage: 'branch-damage-mark',
+    'receive-branch-transfer': 'branch-transfer-receive',
+    'create-transfer': 'branch-transfer-create',
+    'assign-asset': 'branch-asset-assign',
+    'stock-out': 'stock-out',
+    'opening-stock': 'opening-stock-view',
+    'category-management': 'category-manage',
+    'uom-management': 'uom-manage',
+    'product-master': 'prod-view',
+    branches: 'admin-branches',
+    suppliers: 'suppliers-manage',
+    'import-stock': 'stock-import-export',
+    'export-stock': 'stock-import-export',
+    'stock-valuation': 'stock-valuation',
+    'fixed-assets': 'assets-manage',
+    'depreciation-register': 'assets-manage',
+    approvals: ['workflow-approval', 'workflow-approval-cancel'],
+    'workflow-approval': ['workflow-approval', 'workflow-approval-cancel'],
+    'financial-statements': 'fin-statements',
+    'vendor-ledger': 'inv-pay',
+    'vendor-opening-balances': 'opening-stock-view',
+    'vat-register': 'vat-register',
+    users: 'admin-users',
+    audit: 'admin-audit',
+    'fiscal-year-management': 'admin-fiscal',
+    'fiscal-year-closing': 'admin-fiscal',
+    'nepali-fiscal': 'admin-fiscal',
+    'bs-calendar': 'admin-fiscal',
+  };
+  const SUPER_ADMIN_ONLY_TABS = ['permissions', 'import-customers', 'data-recalculation', 'clear-demo-data'];
+
+  const canAccessTab = (tab: NavTab): boolean => {
+    if (SUPER_ADMIN_ONLY_TABS.includes(tab)) return currentUser?.role === 'SUPER_ADMIN';
+    const perm = TAB_PERMISSIONS[tab];
+    if (!perm) return true;
+    if (Array.isArray(perm)) return perm.some((op) => isOperationAllowed(op, currentUser?.role));
+    return isOperationAllowed(perm, currentUser?.role);
   };
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
@@ -421,13 +473,13 @@ export default function App() {
         // Keep or allow branch selection
       }
 
-      // Check for restricted tabs
-      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'data-recalculation', 'create-shipment', 'clear-demo-data'];
-      if (adminOnlyTabs.includes(activeTab) && currentUser.role !== 'SUPER_ADMIN') {
+      // Check for restricted tabs (permission matrix + super-admin-only tabs).
+      // Re-check on every tab change and after the matrix is edited/saved.
+      if (!canAccessTab(activeTab)) {
         setActiveTab('dashboard');
       }
     }
-  }, [currentUser]);
+  }, [currentUser, activeTab, permissionsVersion]);
 
   // Global Keyboard Shortcuts (Alt+H for Help, Alt+B for Barcode, Alt+S/Ctrl+K for Search, Alt+D for Date Mode)
   useEffect(() => {
@@ -683,7 +735,7 @@ export default function App() {
               productName: item.productName,
               deviceSerial: sPair.deviceSerial,
               ponSerial: sPair.ponSerial || '-',
-              macAddress: sPair.macAddress || '-',
+              macAddress: sPair.macAddress || '',
               status: 'IN_STOCK',
               issuedDateAD: inv.invoiceDateAD,
               issuedDateBS: inv.invoiceDateBS,
@@ -781,6 +833,13 @@ export default function App() {
 
   const handleReceiveOperation = async (id: string) => {
     await api.receiveStockOperation(id);
+    refreshAllData();
+  };
+
+  // Reverse a damage record (Super Admin / Inventory Manager only) — restores
+  // the units back to available stock and marks the record CANCELLED.
+  const handleReverseStockOperation = async (id: string, reason?: string) => {
+    await api.reverseStockOperation(id, reason, currentUser);
     refreshAllData();
   };
 
@@ -1095,6 +1154,7 @@ export default function App() {
               (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
             ).length}
             onCloseMobile={() => setIsSidebarOpen(false)}
+            permissionsVersion={permissionsVersion}
           />
         </div>
 
@@ -1377,6 +1437,20 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'complete-serial-inventory' && (
+                <AllSerialInventory
+                  currentUser={currentUser}
+                  customerDevices={customerDevices}
+                  purchaseInvoices={purchaseInvoices}
+                  shipments={shipments}
+                  stockOperations={stockOperations}
+                  fixedAssets={assets}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                />
+              )}
+
               {activeTab === 'locations' && (
                 <LocationsManagement
                   branches={branches}
@@ -1527,6 +1601,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1574,6 +1649,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1628,6 +1704,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1659,6 +1736,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1682,6 +1760,7 @@ export default function App() {
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
+                  onReverseOperation={handleReverseStockOperation}
                 />
               )}
 
@@ -1703,6 +1782,7 @@ export default function App() {
                   assets={assets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
+                  onReverseOperation={handleReverseStockOperation}
                 />
               )}
 
@@ -1733,6 +1813,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1764,6 +1845,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1795,6 +1877,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1826,6 +1909,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
