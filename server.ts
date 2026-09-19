@@ -27,16 +27,33 @@ import {
   LocationRecord,
   DocumentNumberConfig,
   DamageRecord,
+  SerialLog,
   VendorPayment,
   VendorPaymentMethod,
   VendorPaymentStatus,
 } from './src/types';
 import { calculateFixedAssetValues } from './src/utils/depreciation';
+import { DEFAULT_PERMISSIONS_MATRIX } from './src/utils/permissionMatrixData';
 
 dotenv.config();
 
 import { pgPool, realPoolInstance, setIsPgConnected, getIsPgConnected, ensurePostgresConnection } from './server/db';
 let isPgConnected = false;
+
+// In-memory permission matrix (populated at startup from PostgreSQL).
+let permissionMatrix: Record<string, Record<string, boolean>> = { ...DEFAULT_PERMISSIONS_MATRIX };
+
+const VALID_ROLES = new Set([
+  'SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK',
+  'ACCOUNTANT', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN', 'AUDITOR',
+]);
+
+function validateRole(role: unknown): string {
+  if (typeof role !== 'string' || !VALID_ROLES.has(role)) {
+    throw new Error(`Invalid role '${role}'. Must be one of: ${[...VALID_ROLES].join(', ')}.`);
+  }
+  return role;
+}
 
 const app = express();
 app.use(express.json());
@@ -263,6 +280,7 @@ let auditTrail: AuditLog[] = [];
 let transactionLogs: TransactionLog[] = [];
 let approvalRequests: ApprovalRequest[] = [];
 let damageRecords: DamageRecord[] = [];
+let serialLogs: SerialLog[] = [];
 let vendorPayments: VendorPayment[] = [];
 let vendorOpeningBalances: any[] = [];
 
@@ -493,6 +511,11 @@ let activeUser: User | null = null;
 
 const PASSWORD_HASH_PREFIX = 'scrypt$';
 const AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.AUTH_TOKEN_SECRET) {
+  console.warn(
+    '⚠️  AUTH_TOKEN_SECRET is not set — using an ephemeral in-memory secret. All login tokens will be invalidated on every server restart and multi-instance deployments will not work. Set a persistent AUTH_TOKEN_SECRET in your .env to avoid this.'
+  );
+}
 const AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 
 function hashPassword(password: string): string {
@@ -771,6 +794,7 @@ async function enforceBranchAccess(req: any, res: any, next: any) {
       ['/shipments', 'shipments', ['source_branch_id', 'destination_branch_id']],
       ['/stock-operations', 'stock_operations', ['branch_id', 'destination_warehouse_id']],
       ['/customer-devices', 'customer_device_records', ['branch_id']],
+      ['/serial-log', 'serial_log', ['branch_id']],
       ['/customers', 'customer_records', ['branch_id']],
       ['/approval-requests', 'approval_requests', ['branch_id']],
       ['/locations', 'locations', ['branch_id']],
@@ -787,6 +811,65 @@ async function enforceBranchAccess(req: any, res: any, next: any) {
     }
   }
   next();
+}
+
+/**
+ * Matrix-based operation permission middleware.
+ * Checks the user's role against the server-side permission matrix,
+ * then enforces branch-level procurement/warehouse-transfer flags.
+ * SUPER_ADMIN bypasses the matrix but is still bound by branch flags.
+ */
+function requirePermission(operationId: string) {
+  return async (req: any, res: any, next: any) => {
+    const user = req.user || getUserFromReq(req);
+    if (!user || !user.email) {
+      return res.status(401).json({ message: 'Unauthorized: Authentication required' });
+    }
+    const role = user.role;
+
+    // Branch-level procurement/warehouse-transfer restriction. Evaluate both
+    // the source and destination branches so a shipment/transfer dispatched
+    // FROM a restricted branch is blocked even if the destination is open.
+    const branchId = req.body?.branchId || req.body?.destinationBranchId || '';
+    const sourceBranchId = req.body?.sourceBranchId || '';
+    const relevantBranchIds = Array.from(new Set([branchId, sourceBranchId].filter(Boolean)));
+    const restrictedBranches = relevantBranchIds.map((id) => branches.find((b) => b.id === id)).filter(Boolean) as Array<typeof branches[number]>;
+    const allowProcurement = restrictedBranches.every((branch) => branch.allowProcurement !== false);
+    const allowWarehouseTransfer = restrictedBranches.every((branch) => branch.allowWarehouseTransfer !== false);
+
+    if (role === 'SUPER_ADMIN') {
+      if (
+        allowProcurement === false &&
+        (operationId === 'po-create' || operationId === 'po-receive' || operationId === 'inv-create' || operationId === 'inv-pay')
+      ) {
+        return res.status(403).json({ message: `Forbidden: procurement is disabled on branch '${branchId}'.` });
+      }
+      if (
+        allowWarehouseTransfer === false &&
+        (operationId === 'wh-restrict-transfer' || operationId === 'branch-transfer-create')
+      ) {
+        return res.status(403).json({ message: `Forbidden: warehouse transfer is restricted on branch '${branchId}'.` });
+      }
+      return next();
+    }
+
+    const opRow = permissionMatrix[operationId];
+    if (!opRow || !opRow[role]) {
+      return res.status(403).json({
+        message: `Forbidden: role '${role}' is not permitted for operation '${operationId}'.`,
+      });
+    }
+
+    if (allowProcurement === false && (operationId === 'po-create' || operationId === 'po-receive' || operationId === 'inv-create' || operationId === 'inv-pay')) {
+      return res.status(403).json({ message: `Forbidden: procurement is disabled on branch '${branchId}'.` });
+    }
+    if (allowWarehouseTransfer === false && (operationId === 'wh-restrict-transfer' || operationId === 'branch-transfer-create')) {
+      return res.status(403).json({ message: `Forbidden: warehouse transfer is restricted on branch '${branchId}'.` });
+    }
+
+    req.user = user;
+    next();
+  };
 }
 
 function logAuditEvent(
@@ -975,6 +1058,52 @@ function computeTradingFromOps(ops: any[], productsList: any[]) {
 }
 
 // ==========================================
+// PERMISSION MATRIX API (SUPER_ADMIN ONLY)
+// ==========================================
+app.get('/api/permissions', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN'), (_req, res) => {
+  return res.json({ matrix: permissionMatrix });
+});
+
+app.put('/api/permissions', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    const { matrix } = req.body as { matrix?: Record<string, Record<string, boolean>> };
+    if (!matrix || typeof matrix !== 'object') {
+      return res.status(400).json({ message: 'Invalid permission matrix payload.' });
+    }
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM permission_matrix');
+      const entries: Array<[string, string, boolean]> = [];
+      for (const [opId, roles] of Object.entries(matrix)) {
+        if (roles && typeof roles === 'object') {
+          for (const [role, allowed] of Object.entries(roles as Record<string, boolean>)) {
+            entries.push([opId, role, Boolean(allowed)]);
+          }
+        }
+      }
+      for (const [opId, role, allowed] of entries) {
+        await client.query(
+          'INSERT INTO permission_matrix (operation_id, role, allowed) VALUES ($1, $2, $3) ON CONFLICT (operation_id, role) DO UPDATE SET allowed = EXCLUDED.allowed',
+          [opId, role, allowed]
+        );
+      }
+      await client.query('COMMIT');
+      permissionMatrix = JSON.parse(JSON.stringify(matrix));
+      console.log(`✅ Permission matrix updated by ${(getUserFromReq(req)).email || 'unknown'}.`);
+      return res.json({ message: 'Permission matrix updated successfully.', operationCount: Object.keys(matrix).length });
+    } catch (txErr: any) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    return res.status(500).json({ message: `Unable to update permissions: ${err.message}` });
+  }
+});
+
+// ==========================================
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
 app.get('/api/bootstrap', async (req, res) => {
@@ -1038,9 +1167,11 @@ app.get('/api/bootstrap', async (req, res) => {
 
       const damageScope = scoped({ branchCol: 'branch_id', dateCol: 'damage_date_ad' });
       const vpScope = scoped({ branchCol: 'branch_id', dateCol: 'payment_date_ad' });
+      // Serial log is a persistent register (like fixed assets) — branch-scoped only, never FY-scoped.
+      const serialScope = scoped({ branchCol: 'branch_id' });
 
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes, vobRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes, vobRes, slRes
       ] = await Promise.all([
         pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
@@ -1070,6 +1201,7 @@ app.get('/api/bootstrap', async (req, res) => {
            WHERE fiscal_year_id = $1` + (bId ? ` AND branch_id = $2` : ''),
           bId ? [selectedFiscalYear.id, bId] : [selectedFiscalYear.id]
         ),
+        pgPool.query(`SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log${serialScope.where} ORDER BY created_at DESC`, serialScope.params),
       ]);
 
       let pgStock = sRes.rows;
@@ -1095,6 +1227,12 @@ app.get('/api/bootstrap', async (req, res) => {
       const pgAuditLogs = auditRes.rows;
       const pgTransactionLogs = txnRes.rows;
       const pgApprovalRequests = appRes.rows;
+      const pgSerialLogs = (slRes.rows || []).map((r: any) => {
+        let history: any[] = [];
+        try { history = typeof r.historyJson === 'string' ? JSON.parse(r.historyJson || '[]') : (r.historyJson || []); } catch { history = []; }
+        const { historyJson, ...rest } = r;
+        return { ...rest, history };
+      });
 
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
         const prod = pgProducts.find((p: any) => p.id === item.productId);
@@ -1161,6 +1299,7 @@ app.get('/api/bootstrap', async (req, res) => {
         companyProfile: compDbRes.rows[0] || companyProfile,
         damageRecords: dmgRes.rows,
         vendorPayments: vpRes.rows,
+        serialLogs: pgSerialLogs,
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
@@ -1171,6 +1310,7 @@ app.get('/api/bootstrap', async (req, res) => {
         },
         serverTime: new Date().toISOString(),
         dataVersion,
+        permissionsMatrix: permissionMatrix,
       });
     } catch (pgErr: any) {
       isPgConnected = false;
@@ -1240,6 +1380,7 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
       'stock_operations',
       'approval_requests',
       'customer_device_records',
+      'serial_log',
       'purchase_invoices',
       'shipments',
       'inventory_stock',
@@ -1628,7 +1769,7 @@ app.get('/api/uom', async (req, res) => {
   res.json(uomList);
 });
 
-app.post('/api/uom', async (req, res) => {
+app.post('/api/uom', requirePermission('uom-manage'), async (req, res) => {
   try {
     const newUom: UnitOfMeasure = {
       id: req.body.id || `uom-${Date.now()}`,
@@ -1661,7 +1802,7 @@ app.post('/api/uom', async (req, res) => {
   }
 });
 
-app.put('/api/uom/:id', async (req, res) => {
+app.put('/api/uom/:id', requirePermission('uom-manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = uomList.findIndex((u) => u.id === id);
@@ -1682,7 +1823,7 @@ app.put('/api/uom/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/uom/:id', async (req, res) => {
+app.delete('/api/uom/:id', requirePermission('uom-manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const uom = uomList.find((u) => u.id === id);
@@ -1919,7 +2060,7 @@ app.get('/api/branches', async (req, res) => {
   res.json(branches);
 });
 
-app.post('/api/branches', async (req, res) => {
+app.post('/api/branches', requirePermission('admin-branches'), async (req, res) => {
   try {
     const newBranch: Branch = {
       id: req.body.id || `br-${Date.now()}`,
@@ -1960,7 +2101,7 @@ app.post('/api/branches', async (req, res) => {
   }
 });
 
-app.put('/api/branches/:id', async (req, res) => {
+app.put('/api/branches/:id', requirePermission('admin-branches'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = branches.findIndex((b) => b.id === id);
@@ -1984,7 +2125,7 @@ app.put('/api/branches/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/branches/:id', async (req, res) => {
+app.delete('/api/branches/:id', requirePermission('admin-branches'), async (req, res) => {
   try {
     const { id } = req.params;
     const br = branches.find((b) => b.id === id);
@@ -2113,11 +2254,13 @@ app.get('/api/users', async (req, res) => {
   res.json(safeUsers);
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requirePermission('admin-users'), async (req, res) => {
   try {
+    const role = validateRole(req.body.role);
     const newUser = {
       id: req.body.id || `usr-${Date.now()}`,
       ...req.body,
+      role,
       password: hashPassword(String(req.body.password || 'password@123')),
     };
     const idx = users.findIndex((u) => u.id === newUser.id || u.email === newUser.email);
@@ -2156,7 +2299,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requirePermission('admin-users'), async (req, res) => {
   try {
     const { id } = req.params;
     let idx = users.findIndex((u) => u.id === id);
@@ -2166,9 +2309,12 @@ app.put('/api/users/:id', async (req, res) => {
       if (r.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     }
 
+    const existingRole = (users[idx] || {}).role || 'FRONT_DESK';
+    const role = req.body.role !== undefined ? validateRole(req.body.role) : existingRole;
     const updatedUser = {
       ...(users[idx] || {}),
       ...req.body,
+      role,
       id,
     };
     if (req.body.password) updatedUser.password = hashPassword(String(req.body.password));
@@ -2206,7 +2352,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requirePermission('admin-users'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = users.findIndex((u) => u.id === id);
@@ -2287,7 +2433,7 @@ app.get('/api/products', async (req, res) => {
   res.json(products);
 });
 
-app.post('/api/products', async (req, res) => {
+app.post('/api/products', requirePermission('prod-edit'), async (req, res) => {
   try {
     const newProd = {
       id: `prod-${Date.now()}`,
@@ -2372,7 +2518,7 @@ app.post('/api/products', async (req, res) => {
   }
 });
 
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', requirePermission('prod-edit'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = products.findIndex((p) => p.id === id);
@@ -2431,7 +2577,7 @@ app.put('/api/products/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', requirePermission('prod-edit'), async (req, res) => {
   try {
     const { id } = req.params;
     const prod = products.find((p) => p.id === id);
@@ -2464,7 +2610,7 @@ app.get('/api/categories', async (req, res) => {
   res.json(categories);
 });
 
-app.post('/api/categories', async (req, res) => {
+app.post('/api/categories', requirePermission('category-manage'), async (req, res) => {
   try {
     const newCat: Category = {
       id: req.body.id || `cat-${Date.now()}`,
@@ -2501,7 +2647,7 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
-app.put('/api/categories/:id', async (req, res) => {
+app.put('/api/categories/:id', requirePermission('category-manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = categories.findIndex((c) => c.id === id);
@@ -2530,7 +2676,7 @@ app.put('/api/categories/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/categories/:id', async (req, res) => {
+app.delete('/api/categories/:id', requirePermission('category-manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const cat = categories.find((c) => c.id === id);
@@ -3385,7 +3531,7 @@ app.get('/api/assets', async (req, res) => {
   })));
 });
 
-app.post('/api/assets', async (req, res) => {
+app.post('/api/assets', requirePermission('assets-manage'), async (req, res) => {
   try {
     const tagNum = req.body.tagNumber || req.body.assetTag || `AST-${Math.floor(1000 + Math.random() * 9000)}`;
     const newAsset = {
@@ -3519,7 +3665,7 @@ app.get('/api/purchase-orders', async (req, res) => {
   res.json(purchaseOrders);
 });
 
-app.post('/api/purchase-orders', async (req, res) => {
+app.post('/api/purchase-orders', requirePermission('po-create'), async (req, res) => {
   try {
     const items = req.body.items || [];
     const subtotalAmount = items.reduce((s: number, i: any) => s + (i.subtotal || (i.quantity * (i.unitPrice || 0))), 0);
@@ -3606,7 +3752,7 @@ app.post('/api/purchase-orders', async (req, res) => {
   }
 });
 
-app.put('/api/purchase-orders/:id', async (req, res) => {
+app.put('/api/purchase-orders/:id', requirePermission('po-create'), async (req, res) => {
   try {
     const { id } = req.params;
     const index = purchaseOrders.findIndex((p) => p.id === id);
@@ -3653,7 +3799,7 @@ app.put('/api/purchase-orders/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/purchase-orders/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER'), async (req, res) => {
+app.delete('/api/purchase-orders/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER'), requirePermission('po-delete'), async (req, res) => {
   try {
     const { id } = req.params;
     let po: any = purchaseOrders.find((entry) => entry.id === id);
@@ -3737,7 +3883,7 @@ app.get('/api/purchase-invoices', async (req, res) => {
   res.json(purchaseInvoices);
 });
 
-app.post('/api/purchase-invoices', async (req, res) => {
+app.post('/api/purchase-invoices', requirePermission('inv-create'), async (req, res) => {
   try {
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
@@ -3968,7 +4114,7 @@ app.delete('/api/purchase-invoices/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE
   }
 });
 
-app.post('/api/purchase-invoices/:id/pay', async (req, res) => {
+app.post('/api/purchase-invoices/:id/pay', requirePermission('inv-pay'), async (req, res) => {
   try {
     const { id } = req.params;
     const { amount } = req.body;
@@ -3996,7 +4142,7 @@ app.post('/api/purchase-invoices/:id/pay', async (req, res) => {
 });
 
 // POST /api/purchase-invoices/:id/reverse-payments — reverse all payments for a fully paid invoice
-app.post('/api/purchase-invoices/:id/reverse-payments', async (req, res) => {
+app.post('/api/purchase-invoices/:id/reverse-payments', requirePermission('inv-pay'), async (req, res) => {
   try {
     const { id } = req.params;
     const reason = String(req.body?.reason || '').trim();
@@ -4171,7 +4317,7 @@ app.get('/api/purchase-invoices/:id/payments', async (req, res) => {
 });
 
 // POST /api/vendor-payments — create a payment (sub-ledger entry)
-app.post('/api/vendor-payments', async (req, res) => {
+app.post('/api/vendor-payments', requirePermission('inv-pay'), async (req, res) => {
   try {
     const body = req.body || {};
     const amount = Number(body.amount);
@@ -4303,7 +4449,7 @@ app.post('/api/vendor-payments', async (req, res) => {
 });
 
 // POST /api/vendor-payments/:id/reverse — reverse a posted payment
-app.post('/api/vendor-payments/:id/reverse', async (req, res) => {
+app.post('/api/vendor-payments/:id/reverse', requirePermission('inv-pay'), async (req, res) => {
   try {
     const { id } = req.params;
     const reason = String(req.body?.reason || '').trim();
@@ -4596,7 +4742,7 @@ app.get('/api/shipments', async (req, res) => {
   res.json(shipments);
 });
 
-app.post('/api/shipments', async (req, res) => {
+app.post('/api/shipments', requirePermission('shipment-create'), async (req, res) => {
   try {
     const sourceBranch = branches.find((b) => b.id === req.body.sourceBranchId);
     const destBranch = branches.find((b) => b.id === req.body.destinationBranchId);
@@ -4724,7 +4870,7 @@ app.post('/api/shipments', async (req, res) => {
   }
 });
 
-app.post('/api/shipments/:id/receive', async (req, res) => {
+app.post('/api/shipments/:id/receive', requirePermission('wh-receive-pullouts'), async (req, res) => {
   try {
     const { id } = req.params;
     const { receivedItems, receivedByNotes } = req.body || {};
@@ -4877,7 +5023,22 @@ app.get('/api/stock-operations', async (req, res) => {
   res.json(stockOperations);
 });
 
-app.post('/api/stock-operations', async (req, res) => {
+/** Type-aware permission middleware for stock operations (maps operation type to matrix op). */
+function requireStockOperationPermission(req: any, res: any, next: any) {
+  const opType = req.body?.type || 'DAMAGE';
+  const opMap: Record<string, string> = {
+    'PULLOUT': 'branch-pullout-dispatch',
+    'STOCK_OUT': 'stock-out',
+    'DAMAGE': 'branch-damage-mark',
+    'DISPOSAL': 'stock-disposal-writeoff',
+    'CONSUMABLE_ISSUE': 'stock-out',
+    'MANUAL_ADJUSTMENT': 'stock-out',
+  };
+  const op = opMap[opType] || 'branch-pullout-dispatch';
+  return requirePermission(op)(req, res, next);
+}
+
+app.post('/api/stock-operations', requireStockOperationPermission, async (req, res) => {
   try {
     const opType = req.body.type || 'DAMAGE';
     const branchObj = branches.find((b) => b.id === req.body.branchId);
@@ -5184,7 +5345,7 @@ app.post('/api/stock-operations', async (req, res) => {
 // on the audit trail. Units are moved back from damaged_qty to available
 // quantity_on_hand at the original branch, damage_records rows are marked
 // CANCELLED, and the stock operation status flips to CANCELLED.
-app.post('/api/stock-operations/:id/reverse', async (req, res) => {
+app.post('/api/stock-operations/:id/reverse', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), requirePermission('branch-damage-mark'), async (req, res) => {
   try {
     const { id } = req.params;
     const reason = String(req.body.reason || '').trim();
@@ -5459,7 +5620,7 @@ app.put('/api/document-number-configs', async (req, res) => {
   res.json(docNumberConfigs);
 });
 
-app.post('/api/document-number-configs/generate-next', async (req, res) => {
+app.post('/api/document-number-configs/generate-next', requirePermission('admin-fiscal'), async (req, res) => {
   const { docTypeId, autoIncrement } = req.body;
   let config = docNumberConfigs.find((c) => c.id === docTypeId);
 
@@ -5504,7 +5665,7 @@ app.post('/api/document-number-configs/generate-next', async (req, res) => {
   res.json({ documentNumber: formattedDocNum, seqNum });
 });
 
-app.post('/api/document-number-configs/reset-counter', async (req, res) => {
+app.post('/api/document-number-configs/reset-counter', requirePermission('admin-fiscal'), async (req, res) => {
   const { docTypeId, newStartNumber } = req.body;
   const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
   const startNum = newStartNumber !== undefined ? Number(newStartNumber) : (idx !== -1 ? docNumberConfigs[idx].startingNumber : 1);
@@ -5548,7 +5709,7 @@ app.get('/api/fiscal-years', async (req, res) => {
 // Create a new fiscal year directly in Postgres. SUPER_ADMIN only. A new period
 // is never auto-activated: it starts open (is_closed = FALSE) and is normally
 // made the active view once it goes live.
-app.post('/api/fiscal-years', requireRole('SUPER_ADMIN'), async (req, res) => {
+app.post('/api/fiscal-years', requireRole('SUPER_ADMIN'), requirePermission('admin-fiscal'), async (req, res) => {
   const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
 
   if (![code, startDateAD, endDateAD, startDateBS, endDateBS].every((v) => typeof v === 'string' && v.trim())) {
@@ -5622,7 +5783,7 @@ app.post('/api/fiscal-years/:id/set-current', requireRole('SUPER_ADMIN'), async 
   res.json(fiscalYears);
 });
 
-app.put('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+app.put('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), requirePermission('admin-fiscal'), async (req, res) => {
   const { id } = req.params;
   const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
   const values = [code, startDateAD, endDateAD, startDateBS, endDateBS];
@@ -6390,7 +6551,7 @@ app.post(
   }
 );
 
-app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
+app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), requirePermission('admin-fiscal'), async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -7443,7 +7604,7 @@ app.get('/api/customer-devices', async (req, res) => {
   res.json(list);
 });
 
-app.post('/api/customer-devices', async (req, res) => {
+app.post('/api/customer-devices', requirePermission('customers-manage'), async (req, res) => {
   try {
     const newRecord: CustomerDeviceRecord = {
       id: req.body.id || `cust-${Date.now()}`,
@@ -7807,6 +7968,49 @@ async function handleUpdateSerials(req: any, res: any) {
             await client.query(`UPDATE stock_operations SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
           }
         }
+
+        // Sync serial_log (one row per serial): reject duplicate, rename existing.
+        const slToday = new Date().toISOString().slice(0, 10);
+        const slCorrection = {
+          status: 'SERIAL_CORRECTION', sourceType: 'SERIAL_CORRECTION',
+          sourceId: targetId || null, dateAD: slToday,
+          notes: `${oldDeviceSerial}→${normalizedDeviceSerial}`,
+        };
+        const parseHist = (v: any): any[] => {
+          if (Array.isArray(v)) return v;
+          if (typeof v === 'string') { try { const p = JSON.parse(v || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } }
+          return [];
+        };
+        const oldRowRes = await client.query(
+          `SELECT id, history_json, status, product_name, branch_id, customer_id, customer_name FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1)) LIMIT 1`,
+          [oldDeviceSerial]
+        );
+        const newRowRes = await client.query(
+          `SELECT id FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1)) LIMIT 1`,
+          [normalizedDeviceSerial]
+        );
+        const oldRow = oldRowRes.rows[0];
+        const duplicateRow = newRowRes.rows[0] && (!oldRow || newRowRes.rows[0].id !== oldRow.id) ? newRowRes.rows[0] : null;
+        if (duplicateRow) {
+          const dupErr: any = new Error(`Serial number "${normalizedDeviceSerial}" already exists. Cannot rename to a duplicate.`);
+          dupErr.status = 409;
+          throw dupErr;
+        }
+        if (oldRow) {
+          const history = [...parseHist(oldRow.history_json), slCorrection];
+          await client.query(
+            `UPDATE serial_log SET device_serial = $1, pon_serial = $2, mac_address = $3,
+              history_json = $4, updated_at = NOW() WHERE id = $5`,
+            [normalizedDeviceSerial, normalizedPonSerial, normalizedMacAddress, JSON.stringify(history), oldRow.id]
+          );
+        } else {
+          const slId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          await client.query(
+            `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_name, branch_id, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
+             VALUES ($1,$2,$3,$4,$5,$6,'IN_STOCK','SERIAL_CORRECTION',$7,$8,NOW(),NOW(),FALSE) ON CONFLICT DO NOTHING`,
+            [slId, normalizedDeviceSerial, normalizedPonSerial, normalizedMacAddress, null, matchedBranchId || null, targetId || null, JSON.stringify([slCorrection])]
+          );
+        }
       });
     }
 
@@ -7915,6 +8119,63 @@ async function handleUpdateSerials(req: any, res: any) {
       }
     });
 
+    // In-memory serial_log sync (one row per serial, reject duplicate).
+    {
+      const nowIso = new Date().toISOString();
+      const correctionEntry = {
+        status: 'SERIAL_CORRECTION', sourceType: 'SERIAL_CORRECTION',
+        sourceId: targetId || null, dateAD: nowIso.slice(0, 10),
+        notes: `${oldDeviceSerial}→${normalizedDeviceSerial}`,
+      };
+      const oldKey = String(oldDeviceSerial || '').trim().toLowerCase();
+      const newKey = String(normalizedDeviceSerial || '').trim().toLowerCase();
+      // Reject if a different row already holds the target serial
+      if (oldKey !== newKey) {
+        const clash = serialLogs.find((s) => String(s.deviceSerial || '').trim().toLowerCase() === newKey);
+        if (clash) {
+          // Already returned 409 from PG path; throw here for safety in non-PG mode
+          const dupErr: any = new Error(`Serial number "${normalizedDeviceSerial}" already exists.`);
+          dupErr.status = 409;
+          throw dupErr;
+        }
+      }
+      const kept: SerialLog[] = [];
+      let found = false;
+      for (const s of serialLogs) {
+        const k = String(s.deviceSerial || '').trim().toLowerCase();
+        if (k === oldKey && !found) {
+          found = true;
+          kept.push({
+            ...s,
+            deviceSerial: normalizedDeviceSerial,
+            ponSerial: normalizedPonSerial,
+            macAddress: normalizedMacAddress,
+            history: [...(s.history || []), correctionEntry],
+            updatedAt: nowIso,
+          });
+        } else {
+          kept.push(s);
+        }
+      }
+      if (!found) {
+        kept.unshift({
+          id: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          deviceSerial: normalizedDeviceSerial,
+          ponSerial: normalizedPonSerial,
+          macAddress: normalizedMacAddress,
+          productName: '',
+          branchId: matchedBranchId || '',
+          status: 'IN_STOCK',
+          sourceType: 'SERIAL_CORRECTION',
+          sourceId: targetId,
+          history: [correctionEntry],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+      }
+      serialLogs = kept;
+    }
+
     logAuditEvent(
       req,
       'EDIT_DEVICE_SERIALS',
@@ -7935,12 +8196,13 @@ async function handleUpdateSerials(req: any, res: any) {
     });
   } catch (err: any) {
     console.error('Error updating device serials:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const status = err.status || 500;
+    res.status(status).json({ message: err.message || `Database error: ${err.message}` });
   }
 }
 
-app.patch('/api/inventory/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
-app.patch('/api/customer-devices/:id/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
+app.patch('/api/inventory/serials', requirePermission('edit-device-serials'), handleUpdateSerials);
+app.patch('/api/customer-devices/:id/serials', requirePermission('edit-device-serials'), handleUpdateSerials);
 
 // Device Exchange & Replacement Handler
 app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res) => {
@@ -8109,7 +8371,7 @@ app.get('/api/customers', async (req, res) => {
   res.json(list);
 });
 
-app.post('/api/customers', async (req, res) => {
+app.post('/api/customers', requirePermission('customers-manage'), async (req, res) => {
   try {
     const body = req.body;
     const newRecord: CustomerRecord = {
@@ -8262,7 +8524,7 @@ app.post('/api/customers/bulk', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 
   }
 });
 
-app.put('/api/customers/:id', async (req, res) => {
+app.put('/api/customers/:id', requirePermission('customers-manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
@@ -8649,6 +8911,93 @@ app.post('/api/approval-requests/:id/cancel', async (req, res) => {
   } catch (err: any) {
     console.error('Error cancelling approval request:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Serial Log — consolidated serial device inventory (one row per unique serial)
+app.get('/api/serial-log', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'AUDITOR', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN'), async (req, res) => {
+  try {
+    const { branchId, status, query } = req.query;
+    const user = (req as any).user;
+    let sql = `SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log WHERE 1=1`;
+    const params: any[] = [];
+    let paramIdx = 0;
+    // Branch scoping: non-global users may only read their own branches.
+    if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'HEAD_OFFICE_ADMIN') {
+      const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+      const requestedBranchId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+      if (requestedBranchId && !allowed.has(requestedBranchId)) {
+        return res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+      }
+      if (allowed.size === 0) {
+        return res.json([]);
+      }
+      const scopedIds = requestedBranchId ? [requestedBranchId] : [...allowed];
+      const placeholders = scopedIds.map((_, i) => `$${params.length + i + 1}`).join(', ');
+      sql += ` AND branch_id IN (${placeholders})`;
+      params.push(...scopedIds);
+      paramIdx += scopedIds.length;
+    }
+    if (branchId && branchId !== 'ALL' && (user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN')) { params.push(branchId as string); paramIdx++; sql += ` AND branch_id = $${paramIdx}`; }
+    if (status && status !== 'ALL') { params.push(status as string); paramIdx++; sql += ` AND status = $${paramIdx}`; }
+    if (query && typeof query === 'string' && query.trim()) {
+      const like = `%${query.trim().toLowerCase()}%`;
+      params.push(like); paramIdx++;
+      sql += ` AND (LOWER(device_serial) LIKE $${paramIdx} OR LOWER(COALESCE(pon_serial, '')) LIKE $${paramIdx} OR LOWER(COALESCE(mac_address, '')) LIKE $${paramIdx} OR LOWER(product_name) LIKE $${paramIdx} OR LOWER(COALESCE(customer_name, '')) LIKE $${paramIdx})`;
+    }
+    sql += ` ORDER BY created_at DESC`;
+    const r = await pgPool.query(sql, params);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Error fetching serial log:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
+});
+
+app.post('/api/serial-log', requirePermission('edit-device-serials'), async (req, res) => {
+  try {
+    const { deviceSerial, ponSerial, macAddress, productId, productName, branchId, customerId, customerName, status, sourceType, sourceId, notes } = req.body;
+    const serial = String(deviceSerial || '').trim();
+    if (!serial) return res.status(400).json({ message: 'deviceSerial is required' });
+    const st = status || 'IN_STOCK';
+    const src = sourceType || 'PURCHASE';
+    const now = new Date().toISOString();
+    const historyEntry = { status: st, sourceType: src, sourceId: sourceId || null, dateAD: now.slice(0, 10), notes: notes || null };
+    // Upsert keyed on the unique lower(device_serial) index so one serial = one row.
+    const existing = await pgPool.query('SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))', [serial]);
+    let id: string;
+    let history: any[];
+    if (existing.rows.length > 0) {
+      id = existing.rows[0].id;
+      try { history = JSON.parse(existing.rows[0].history_json || '[]'); } catch { history = []; }
+      history.push(historyEntry);
+      await pgPool.query(
+        `UPDATE serial_log SET pon_serial = COALESCE($1, pon_serial), mac_address = COALESCE($2, mac_address),
+          product_id = COALESCE($3, product_id), product_name = COALESCE($4, product_name),
+          branch_id = COALESCE($5, branch_id),          customer_id = COALESCE($6, customer_id), customer_name = COALESCE($7, customer_name),
+          status = $8, source_type = $9, source_id = COALESCE($10, source_id),
+          history_json = $11, updated_at = $12 WHERE id = $13`,
+        [ponSerial || null, macAddress || null, productId || null, productName || null, branchId || null,
+          customerId || null, customerName || null, st, src, sourceId || null, JSON.stringify(history), now, id]
+      );
+    } else {
+      id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      history = [historyEntry];
+      await pgPool.query(
+        `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE)`,
+        [id, serial, ponSerial || null, macAddress || null, productId || null, productName || null, branchId || null, customerId || null, customerName || null, st, src, sourceId || null, JSON.stringify(history), now, now]
+      );
+    }
+    const entry: SerialLog = { id, deviceSerial: serial, ponSerial, macAddress, productId, productName, branchId, customerId, customerName, status: st, sourceType: src, sourceId, history, createdAt: now, updatedAt: now };
+    const idx = serialLogs.findIndex((s) => s.id === id);
+    if (idx >= 0) serialLogs[idx] = entry; else serialLogs.unshift(entry);
+    logAuditEvent(req, 'SERIAL_LOG_UPSERT', 'INVENTORY', `Serial ${serial} logged as ${st} (${src})`);
+    dataVersion++;
+    res.json({ success: true, id });
+  } catch (err: any) {
+    console.error('Error creating serial log entry:', err);
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -9333,6 +9682,26 @@ async function syncDatabaseAndIndexes() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 16b. Serial Log (one row per unique serial, consolidated view)
+      CREATE TABLE IF NOT EXISTS serial_log (
+        id VARCHAR(50) PRIMARY KEY,
+        device_serial VARCHAR(100) NOT NULL,
+        pon_serial VARCHAR(100),
+        mac_address VARCHAR(100),
+        product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+        product_name VARCHAR(255),
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        customer_id VARCHAR(50),
+        customer_name VARCHAR(200),
+        status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+        source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
+        source_id VARCHAR(50),
+        history_json TEXT DEFAULT '[]',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE
+      );
+
       -- 17. Approval Requests
       CREATE TABLE IF NOT EXISTS approval_requests (
         id VARCHAR(50) PRIMARY KEY,
@@ -9705,6 +10074,14 @@ async function syncDatabaseAndIndexes() {
       CREATE INDEX IF NOT EXISTS idx_vendor_payments_status ON vendor_payments(status);
       CREATE INDEX IF NOT EXISTS idx_vendor_payments_fiscal_year ON vendor_payments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_vendor_payments_demo ON vendor_payments(id) WHERE is_demo = TRUE;
+      -- 29. Permission Matrix (server-side authority for role-based operation gating)
+      CREATE TABLE IF NOT EXISTS permission_matrix (
+        operation_id VARCHAR(60) NOT NULL,
+        role VARCHAR(40) NOT NULL,
+        allowed BOOLEAN NOT NULL DEFAULT FALSE,
+        PRIMARY KEY (operation_id, role)
+      );
+      CREATE INDEX IF NOT EXISTS idx_permission_matrix_role ON permission_matrix(role);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -9815,16 +10192,30 @@ async function syncDatabaseAndIndexes() {
       UPDATE stock_operations SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE customer_device_records SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE issued_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
       UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE payment_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+
+      -- Serial Log ALTER TABLE additions
+      ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      CREATE INDEX IF NOT EXISTS idx_serial_log_demo ON serial_log(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_serial_log_device_serial ON serial_log((lower(trim(device_serial))));
+      CREATE INDEX IF NOT EXISTS idx_serial_log_branch ON serial_log(branch_id) WHERE branch_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_serial_log_status ON serial_log(status);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_device_serial ON serial_log ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
     `);
 
     isPgConnected = true;
     setIsPgConnected(true);
     await seedInitialPostgresData(client);
     await hydrateOperationalData(client);
+    await backfillSerialLog(client);
+    await loadPermissionMatrixFromDb(client);
     await hydrateBsCalendarFromDb(client);
 
     client.release();
-    console.log('✅ All 28 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
+    console.log('✅ All 29 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
     setIsPgConnected(false);
@@ -9913,15 +10304,31 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       );
     }
 
-    for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
+for (const cfg of INITIAL_DOCUMENT_NUMBER_CONFIGS) {
       await client.query(
         `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
-        [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
-      );
-    }
+         [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
+       );
+     }
 
-    // Hydrate all master data from PostgreSQL
+     // Seed the server-side permission matrix from the canonical defaults.
+     // Idempotent: only insert operations/roles that are missing so a restart
+     // never silently reverts matrix customizations made via the API.
+     const matrixEntries: Array<[string, string, boolean]> = [];
+     for (const [opId, roles] of Object.entries(DEFAULT_PERMISSIONS_MATRIX)) {
+       for (const [role, allowed] of Object.entries(roles)) {
+         matrixEntries.push([opId, role, allowed]);
+       }
+     }
+     for (const [opId, role, allowed] of matrixEntries) {
+       await client.query(
+         `INSERT INTO permission_matrix (operation_id, role, allowed) VALUES ($1, $2, $3) ON CONFLICT (operation_id, role) DO NOTHING`,
+         [opId, role, allowed]
+       );
+     }
+
+     // Hydrate all master data from PostgreSQL
     const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY code');
     if (bRes.rows.length > 0) branches = bRes.rows;
 
@@ -9954,6 +10361,20 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
   } catch (seedErr: any) {
     console.log('PostgreSQL initial seed note:', seedErr?.message || seedErr);
   }
+}
+
+// Load the server-side permission matrix into memory from PostgreSQL.
+async function loadPermissionMatrixFromDb(client: pg.PoolClient): Promise<void> {
+  const result = await client.query('SELECT operation_id, role, allowed FROM permission_matrix');
+  const matrix: Record<string, Record<string, boolean>> = {};
+  for (const row of result.rows) {
+    const opId = row.operation_id as string;
+    const role = row.role as string;
+    if (!matrix[opId]) matrix[opId] = {};
+    matrix[opId][role] = Boolean(row.allowed);
+  }
+  permissionMatrix = matrix;
+  console.log(`✅ Server-side permission matrix loaded: ${Object.keys(matrix).length} operations mapped.`);
 }
 
 // Re-hydrates the operational runtime caches directly from PostgreSQL so the
@@ -10028,6 +10449,16 @@ async function hydrateOperationalData(client: pg.PoolClient) {
       apply: (rows) => { vendorPayments = rows; },
     },
     {
+      name: 'serial_log',
+      query: 'SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log ORDER BY created_at DESC',
+      apply: (rows) => {
+        serialLogs = rows.map((r: any) => ({
+          ...r,
+          history: (() => { try { return typeof r.historyJson === 'string' ? JSON.parse(r.historyJson || '[]') : (r.historyJson || []); } catch { return []; } })(),
+        }));
+      },
+    },
+    {
       name: 'vendor_opening_balances',
       query: 'SELECT id, fiscal_year_id AS "fiscalYearId", supplier_id AS "supplierId", branch_id AS "branchId", opening_balance::float AS "openingBalance", source_type AS "sourceType", source_reference AS "sourceReference", posted_at::text AS "postedAt", posted_by AS "postedBy" FROM vendor_opening_balances',
       apply: (rows) => { vendorOpeningBalances = rows; },
@@ -10048,6 +10479,187 @@ async function hydrateOperationalData(client: pg.PoolClient) {
     `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops, ` +
     `${vendorPayments.length} vendor payments, ${vendorOpeningBalances.length} vendor opening balances.`
   );
+}
+
+// Serial-log backfill: converges every legacy serial source (purchase invoices,
+// shipments, stock operations, serial-tracked fixed assets, customer devices)
+// into ONE row per unique device_serial. Later/priority sources win; terminal
+// manual states (DAMAGED, CUSTOMER_ASSIGNED, RETURNED, POP_LOCATION_ASSIGNED)
+// are never downgraded by the backfill.
+async function backfillSerialLog(client: pg.PoolClient) {
+  try {
+    const asArray = (v: any): any[] => {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+      return [];
+    };
+    const keyOf = (s: any) => String(s || '').trim().toLowerCase();
+    const isoDate = (d: any) => { const s = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : new Date().toISOString().slice(0, 10); };
+
+    type Cand = {
+      deviceSerial: string; ponSerial?: string; macAddress?: string;
+      productId?: string; productName?: string; branchId?: string;
+      customerId?: string; customerName?: string;
+      status: string; sourceType: string; sourceId?: string; dateAD?: string;
+    };
+    const merged = new Map<string, Cand>();
+    const put = (c: Cand, force = false) => {
+      const k = keyOf(c.deviceSerial);
+      if (!k) return;
+      const prev = merged.get(k);
+      if (!prev) { merged.set(k, c); return; }
+      // DAMAGED always wins; otherwise later (higher-priority) sources win.
+      if (c.status === 'DAMAGED' || force || prev.status === 'IN_STOCK' || prev.status === 'IN_TRANSIT') {
+        merged.set(k, {
+          ...c,
+          ponSerial: c.ponSerial || prev.ponSerial,
+          macAddress: c.macAddress || prev.macAddress,
+          productId: c.productId || prev.productId,
+          productName: c.productName || prev.productName,
+          branchId: c.branchId || prev.branchId,
+        });
+      }
+    };
+
+    // 1. Purchase invoices → IN_STOCK
+    const piRes = await client.query('SELECT id, branch_id, invoice_date_ad, items FROM purchase_invoices');
+    for (const inv of piRes.rows) {
+      for (const item of asArray(inv.items)) {
+        for (const s of asArray(item.deviceSerials)) {
+          if (!keyOf(s.deviceSerial)) continue;
+          put({
+            deviceSerial: String(s.deviceSerial).trim(), ponSerial: s.ponSerial, macAddress: s.macAddress,
+            productId: item.productId, productName: item.productName || item.sku,
+            branchId: inv.branch_id, status: 'IN_STOCK', sourceType: 'PURCHASE',
+            sourceId: inv.id, dateAD: isoDate(inv.invoice_date_ad),
+          });
+        }
+      }
+    }
+
+    // 2. Shipments → IN_TRANSIT (dispatched) or IN_STOCK (received)
+    const shRes = await client.query('SELECT id, status, destination_branch_id, dispatch_date_ad, items FROM shipments');
+    for (const sh of shRes.rows) {
+      const inTransit = sh.status === 'DISPATCHED' || sh.status === 'IN_TRANSIT';
+      for (const item of asArray(sh.items)) {
+        const list = sh.status === 'RECEIVED' ? asArray(item.receivedSerials) : asArray(item.deviceSerials);
+        for (const s of list) {
+          if (!keyOf(s.deviceSerial)) continue;
+          put({
+            deviceSerial: String(s.deviceSerial).trim(), ponSerial: s.ponSerial, macAddress: s.macAddress,
+            productId: item.productId, productName: item.productName,
+            branchId: sh.destination_branch_id, status: inTransit ? 'IN_TRANSIT' : 'IN_STOCK',
+            sourceType: 'SHIPMENT', sourceId: sh.id, dateAD: isoDate(sh.dispatch_date_ad),
+          });
+        }
+      }
+    }
+
+    // 3. Stock operations → DAMAGED or IN_STOCK
+    const opRes = await client.query('SELECT id, type, branch_id, date_ad, items FROM stock_operations');
+    for (const op of opRes.rows) {
+      const damaged = op.type === 'DAMAGE' || op.type === 'DISPOSAL';
+      for (const item of asArray(op.items)) {
+        for (const s of asArray(item.deviceSerials)) {
+          if (!keyOf(s.deviceSerial)) continue;
+          put({
+            deviceSerial: String(s.deviceSerial).trim(), ponSerial: s.ponSerial, macAddress: s.macAddress,
+            productId: item.productId, productName: item.productName,
+            branchId: op.branch_id, status: damaged ? 'DAMAGED' : 'IN_STOCK',
+            sourceType: 'STOCK_OP', sourceId: op.id, dateAD: isoDate(op.date_ad),
+          });
+        }
+      }
+    }
+
+    // 4. Serial-tracked fixed assets → POP_LOCATION_ASSIGNED
+    const faRes = await client.query(
+      `SELECT fa.id, fa.tag_number, fa.name, fa.branch_id, fa.product_id, fa.placed_in_service_date_ad, fa.acquisition_date_ad
+       FROM fixed_assets fa LEFT JOIN products p ON p.id = fa.product_id
+       WHERE fa.status = 'ACTIVE' AND (p.requires_serial_tracking = TRUE OR p.tracking_type IS DISTINCT FROM 'QUANTITY_ONLY' OR fa.product_id IS NULL)`
+    );
+    for (const fa of faRes.rows) {
+      if (!keyOf(fa.tag_number)) continue;
+      put({
+        deviceSerial: String(fa.tag_number).trim(), ponSerial: String(fa.tag_number).trim(),
+        productId: fa.product_id, productName: fa.name, branchId: fa.branch_id,
+        status: 'POP_LOCATION_ASSIGNED', sourceType: 'FIXED_ASSET', sourceId: fa.id,
+        dateAD: isoDate(fa.placed_in_service_date_ad || fa.acquisition_date_ad),
+      }, true);
+    }
+
+    // 5. Customer devices → CUSTOMER_ASSIGNED (highest priority, wins over purchase/stock)
+    const cdRes = await client.query(
+      'SELECT id, customer_id, customer_name, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad FROM customer_device_records'
+    );
+    for (const d of cdRes.rows) {
+      if (!keyOf(d.device_serial)) continue;
+      let st = 'CUSTOMER_ASSIGNED';
+      if (d.status === 'ROUTER_COLLECTED' || d.status === 'DISCONNECTED' || d.status === 'IN_STOCK') st = 'IN_STOCK';
+      else if (d.status === 'DAMAGED' || d.status === 'DAMAGED_STOCK') st = 'DAMAGED';
+      put({
+        deviceSerial: String(d.device_serial).trim(), ponSerial: d.pon_serial, macAddress: d.mac_address,
+        productName: d.product_name, branchId: d.branch_id,
+        customerId: d.customer_id, customerName: d.customer_name,
+        status: st, sourceType: 'CUSTOMER_ASSIGN', sourceId: d.id, dateAD: isoDate(d.issued_date_ad),
+      }, true);
+    }
+
+    if (merged.size === 0) return;
+
+    const existingRes = await client.query('SELECT id, device_serial, status, history_json FROM serial_log');
+    const existing = new Map<string, any>();
+    for (const r of existingRes.rows) existing.set(keyOf(r.device_serial), r);
+
+    let inserted = 0, updated = 0;
+    for (const [, c] of merged) {
+      const k = keyOf(c.deviceSerial);
+      const row = existing.get(k);
+      const entry = { status: c.status, sourceType: c.sourceType, sourceId: c.sourceId || null, dateAD: c.dateAD, notes: 'Auto backfill' };
+      if (!row) {
+        const id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await client.query(
+          `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE) ON CONFLICT DO NOTHING`,
+          [id, c.deviceSerial, c.ponSerial || null, c.macAddress || null, c.productId || null, c.productName || null,
+            c.branchId || null, c.customerId || null, c.customerName || null, c.status, c.sourceType, c.sourceId || null,
+            JSON.stringify([entry]), `${c.dateAD}T00:00:00Z`, new Date().toISOString()]
+        );
+        inserted++;
+      } else if ((row.status === 'IN_STOCK' || row.status === 'IN_TRANSIT') && row.status !== c.status) {
+        // Upgrade transient states only — never downgrade manual/terminal states.
+        let history: any[] = [];
+        try { history = JSON.parse(row.history_json || '[]'); } catch { history = []; }
+        history.push(entry);
+        await client.query(
+          `UPDATE serial_log SET status = $1, customer_id = COALESCE($2, customer_id), customer_name = COALESCE($3, customer_name),
+            pon_serial = COALESCE($4, pon_serial), mac_address = COALESCE($5, mac_address),
+            product_name = COALESCE($6, product_name), branch_id = COALESCE($7, branch_id),
+            source_type = $8, source_id = COALESCE($9, source_id), history_json = $10, updated_at = NOW() WHERE id = $11`,
+          [c.status, c.customerId || null, c.customerName || null, c.ponSerial || null, c.macAddress || null,
+            c.productName || null, c.branchId || null, c.sourceType, c.sourceId || null, JSON.stringify(history), row.id]
+        );
+        updated++;
+      }
+    }
+
+    // Refresh the in-memory register so the API serves converged rows immediately.
+    const fresh = await client.query(
+      'SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log ORDER BY created_at DESC'
+    );
+    serialLogs = fresh.rows.map((r: any) => {
+      let history: any[] = [];
+      try { history = typeof r.historyJson === 'string' ? JSON.parse(r.historyJson || '[]') : (r.historyJson || []); } catch { history = []; }
+      const { historyJson, ...rest } = r;
+      return { ...rest, history };
+    });
+    if (inserted > 0 || updated > 0) {
+      console.log(`✅ Serial-log backfill converged ${merged.size} unique serials (${inserted} inserted, ${updated} upgraded).`);
+    }
+  } catch (e: any) {
+    console.warn('Serial-log backfill skipped:', e?.message || e);
+  }
 }
 
 

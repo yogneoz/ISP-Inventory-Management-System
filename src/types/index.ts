@@ -33,7 +33,11 @@ export type UserRole =
   | 'INVENTORY_MANAGER'
   | 'BRANCH_MANAGER'
   | 'FRONT_DESK'
-  | 'ACCOUNTANT';
+  | 'ACCOUNTANT'
+  | 'HEAD_OFFICE_ADMIN'
+  | 'PROCUREMENT_OFFICER'
+  | 'FIELD_TECHNICIAN'
+  | 'AUDITOR';
 
 export interface User {
   id: string;
@@ -231,6 +235,34 @@ export interface Asset {
   assignmentDateAD?: string;
   assignmentDateBS?: string;
   assignmentNotes?: string;
+}
+
+export interface SerialLog {
+  id: string;
+  deviceSerial: string;
+  ponSerial?: string;
+  macAddress?: string;
+  productId?: string;
+  productName: string;
+  branchId: string;
+  branchName?: string;
+  customerId?: string;
+  customerName?: string;
+  status: 'IN_STOCK' | 'IN_TRANSIT' | 'CUSTOMER_ASSIGNED' | 'POP_LOCATION_ASSIGNED' | 'DAMAGED' | 'RETURNED';
+  sourceType: 'PURCHASE' | 'CUSTOMER_ASSIGN' | 'RETURN' | 'DAMAGE' | 'SHIPMENT' | 'STOCK_OP' | 'FIXED_ASSET' | 'SERIAL_CORRECTION' | 'STATUS_CHANGE';
+  sourceId?: string;
+  history: SerialLogEntry[];
+  createdAt: string;
+  updatedAt?: string;
+  isDemo?: boolean;
+}
+
+export interface SerialLogEntry {
+  status: string;
+  sourceType: string;
+  sourceId?: string;
+  dateAD?: string;
+  notes?: string;
 }
 
 export interface POLineItem {
@@ -685,6 +717,7 @@ export interface BootstrapState {
   products: Product[];
   stock: InventoryStock[];
   assets: Asset[];
+  serialLogs: SerialLog[];
   customerDevices: CustomerDeviceRecord[];
   customers: CustomerRecord[];
   purchaseOrders: PurchaseOrder[];
@@ -714,5 +747,6 @@ export interface BootstrapState {
   };
   serverTime: string;
   dataVersion: number;
+  permissionsMatrix?: Record<string, Record<string, boolean>>;
 }
 

@@ -11,8 +11,13 @@
 #   6. Hands off to `node scripts/setup_db.js` which seeds master data and
 #      the demo dataset (is_demo = TRUE).
 #
-# Works on Linux (Debian/Ubuntu, RHEL/CentOS, Alpine), macOS (Homebrew) and
-# via a Docker container.
+# Works on Linux (Debian/Ubuntu, RHEL/CentOS, Alpine), macOS (Homebrew),
+# Windows (Git Bash) and via a Docker container.
+#
+# On a truly fresh server (no inventory_db / inventory_user yet) the script
+# bootstraps the role + database as a PostgreSQL superuser. Supply the
+# superuser password via PG_SUPERUSER_PASSWORD, or the script will prompt for
+# it interactively when run from a terminal.
 # ============================================================================
 set -u
 
@@ -20,6 +25,12 @@ DB_NAME="${POSTGRES_DB:-inventory_db}"
 DB_USER="${POSTGRES_USER:-inventory_user}"
 DB_PASS="${POSTGRES_PASSWORD:-securepassword}"
 DB_PORT="${POSTGRES_PORT:-5432}"
+# Superuser credentials are ONLY used to provision a brand-new server
+# (role + database). Set PG_SUPERUSER_PASSWORD when the server requires a
+# password for the superuser (the default on Windows and remote hosts);
+# otherwise the script falls back to the local `postgres` OS account.
+PG_SUPERUSER="${PG_SUPERUSER:-postgres}"
+PG_SUPERUSER_PASSWORD="${PG_SUPERUSER_PASSWORD:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCHEMA_FILE="${SCRIPT_DIR}/schema.sql"
 NODE_SETUP_SCRIPT="${SCRIPT_DIR}/setup_db.js"
@@ -59,18 +70,34 @@ run_psql_as_postgres() {
     PGPASSWORD="" su - postgres -c "psql -v ON_ERROR_STOP=1 -d $1 -c \"$2\""
 }
 
-# Executes a single SQL statement against DB $2 using the best available
-# authentication path. The statement is passed via -c (not a file) so both
-# the app-user and su-postgres paths work identically on a fresh host.
-exec_sql() {
-    local sql="$1" db="$2"
-    if run_psql_as_app "${db}" -c "${sql}" >/dev/null 2>&1; then
-        return 0
+# Connects as the PostgreSQL superuser. Precedence of auth methods:
+#   1. PG_SUPERUSER_PASSWORD env var (works on any host, incl. Windows)
+#   2. the local `postgres` OS account via `su` (Linux/macOS only)
+#   3. a passwordless (trust) local connection as PG_SUPERUSER
+# The statement must be passed via -c so the su path can carry it.
+run_psql_as_superuser() {
+    local db="$1" sql="$2"
+    if [ -n "${PG_SUPERUSER_PASSWORD}" ]; then
+        PGPASSWORD="${PG_SUPERUSER_PASSWORD}" psql -v ON_ERROR_STOP=1 \
+            -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${PG_SUPERUSER}" -d "${db}" -c "${sql}"
+    elif have_postgres_user; then
+        run_psql_as_postgres "${db}" "${sql}"
+    else
+        PGPASSWORD="" psql -v ON_ERROR_STOP=1 \
+            -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${PG_SUPERUSER}" -d "${db}" -c "${sql}"
     fi
-    if have_postgres_user && run_psql_as_postgres "${db}" "${sql}" >/dev/null 2>&1; then
-        return 0
+}
+
+# Can we connect to any maintenance database (postgres, else template1) as the
+# superuser? Prints the chosen database name.
+superuser_maintenance_db() {
+    if run_psql_as_superuser postgres "SELECT 1;" >/dev/null 2>&1; then
+        printf 'postgres'
+    elif run_psql_as_superuser template1 "SELECT 1;" >/dev/null 2>&1; then
+        printf 'template1'
+    else
+        printf ''
     fi
-    return 1
 }
 
 # Executes a SQL *file* against DB $2 with error output visible to the user.
@@ -78,6 +105,11 @@ exec_sql_file() {
     local file="$1" db="$2"
     if run_psql_as_app "${db}" -f "${file}" 2>&1; then
         return 0
+    fi
+    if [ -n "${PG_SUPERUSER_PASSWORD}" ]; then
+        PGPASSWORD="${PG_SUPERUSER_PASSWORD}" psql -v ON_ERROR_STOP=1 \
+            -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${PG_SUPERUSER}" -d "${db}" -f "${file}" 2>&1
+        return $?
     fi
     # Real file path survives the `su` boundary (unlike /dev/fd paths), so we
     # invoke su directly here.
@@ -94,6 +126,12 @@ query_result() {
         -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d "${db}" \
         -t -A -c "${sql}" 2>/dev/null; then
         return 0
+    fi
+    if [ -n "${PG_SUPERUSER_PASSWORD}" ]; then
+        PGPASSWORD="${PG_SUPERUSER_PASSWORD}" psql -v ON_ERROR_STOP=1 \
+            -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${PG_SUPERUSER}" -d "${db}" \
+            -t -A -c "${sql}" 2>/dev/null
+        return $?
     fi
     if have_postgres_user; then
         su - postgres -c "psql -v ON_ERROR_STOP=1 -d ${db} -t -A -c \"${sql}\"" 2>/dev/null && return 0
@@ -189,34 +227,84 @@ configure_database() {
         db_exists=$(PGPASSWORD="${DB_PASS}" psql -v ON_ERROR_STOP=1 \
             -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
             -t -A -c "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" 2>/dev/null || echo "0")
-        if [ "${db_exists}" != "1" ]; then
-            # The app user rarely has CREATEDB on a fresh install. Try as the
-            # app user first, then fall back to the postgres superuser.
-            if PGPASSWORD="${DB_PASS}" psql -v ON_ERROR_STOP=1 \
-                -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
-                -c "CREATE DATABASE ${DB_NAME};" >/dev/null 2>&1; then
-                log "Created database ${DB_NAME}."
-            elif have_postgres_user; then
-                if PGPASSWORD="" su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};'" >/dev/null 2>&1; then
-                    log "Created database ${DB_NAME} (as postgres)."
-                else
-                    warn "Could not create database ${DB_NAME} automatically - create it manually and re-run."
-                fi
-            else
-                warn "Could not create database ${DB_NAME} automatically - create it manually and re-run."
-            fi
-        else
+        if [ "${db_exists}" = "1" ]; then
             log "Database ${DB_NAME} exists."
+            return 0
         fi
-        return 0
+        # The app user rarely has CREATEDB on a fresh install. Try as the
+        # app user first, then fall through to a superuser below.
+        if PGPASSWORD="${DB_PASS}" psql -v ON_ERROR_STOP=1 \
+            -h "${PSQL_HOST:-localhost}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
+            -c "CREATE DATABASE ${DB_NAME};" >/dev/null 2>&1; then
+            log "Created database ${DB_NAME} (as ${DB_USER})."
+            return 0
+        fi
+        log "App user cannot create the database; checking for a superuser..."
+    else
+        # Fresh server: there is no app user yet, so the superuser must create
+        # both the role and the database.
+        log "No app user present; provisioning user + database via a superuser..."
     fi
 
-    log "Provisioning database user + database..."
-    exec_sql "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" postgres || \
-        warn "App user creation reported an error (it may already exist)."
-    exec_sql "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" postgres || \
-        warn "Database creation reported an error (it may already exist)."
-    exec_sql "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" postgres || true
+    # Fresh provision via a PostgreSQL superuser. This works on Windows too
+    # (PG_SUPERUSER_PASSWORD) and on Linux/macOS (`su - postgres`).
+    #
+    # If no superuser password is configured and we are on an interactive
+    # terminal (not an OS account + Linux/macOS), ask for it once.
+    if [ -z "${PG_SUPERUSER_PASSWORD}" ] && ! have_postgres_user && [ -t 0 ]; then
+        read -s -r -p "[setup] PostgreSQL superuser (${PG_SUPERUSER}) password: " PG_SUPERUSER_PASSWORD
+        printf '\n'
+    fi
+
+    local maint_db role_exists db_exists
+    maint_db=$(superuser_maintenance_db)
+    if [ -z "${maint_db}" ]; then
+        warn "No superuser connection available."
+        warn "Set PG_SUPERUSER_PASSWORD to the ${PG_SUPERUSER} superuser's password"
+        warn "and re-run (on Linux/macOS a local 'postgres' OS account also works)."
+        warn "  PowerShell: \$env:PG_SUPERUSER_PASSWORD='...'; npm run setup:pg"
+        warn "  Linux/macOS: PG_SUPERUSER_PASSWORD='...' npm run setup:pg"
+        return 1
+    fi
+
+    role_exists=$(run_psql_as_superuser "${maint_db}" \
+        "SELECT 1 FROM pg_roles WHERE rolname = '${DB_USER}'" 2>/dev/null | tr -d '[:space:]')
+    if [ "${role_exists}" != "1" ]; then
+        if run_psql_as_superuser "${maint_db}" \
+            "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" >/dev/null 2>&1; then
+            log "Created database role ${DB_USER}."
+        else
+            warn "Could not create role ${DB_USER} automatically - create it manually and re-run."
+            return 1
+        fi
+    else
+        log "Database role ${DB_USER} exists."
+        # Keep the stored password in sync with DB_PASS so app auth always works.
+        run_psql_as_superuser "${maint_db}" \
+            "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" >/dev/null 2>&1 || true
+    fi
+
+    # Grant CREATEDB so the app user can re-create its own database on a later
+    # bare re-run (e.g. after the DB is dropped) without needing the superuser.
+    run_psql_as_superuser "${maint_db}" \
+        "ALTER ROLE ${DB_USER} CREATEDB;" >/dev/null 2>&1 || true
+
+    db_exists=$(run_psql_as_superuser "${maint_db}" \
+        "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" 2>/dev/null | tr -d '[:space:]')
+    if [ "${db_exists}" != "1" ]; then
+        if run_psql_as_superuser "${maint_db}" \
+            "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" >/dev/null 2>&1; then
+            log "Created database ${DB_NAME} (owner ${DB_USER})."
+        else
+            warn "Could not create database ${DB_NAME} automatically - create it manually and re-run."
+            return 1
+        fi
+    fi
+
+    run_psql_as_superuser "${maint_db}" \
+        "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1 || true
+    log "Database ${DB_NAME} is ready (owner: ${DB_USER})."
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -255,6 +343,15 @@ run_schema_migration() {
         fail "Schema verification failed: categories.is_special_tracked missing. The applied schema may be outdated."
     fi
     log "Special hardware tracking schema verified (categories.is_special_tracked present)."
+
+    local serial_log_col
+    serial_log_col=$(query_result \
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'serial_log';" \
+        "${DB_NAME}") || true
+    if [ "${serial_log_col}" != "1" ]; then
+        fail "Schema verification failed: serial_log table missing. The applied schema may be outdated."
+    fi
+    log "Serial-log register schema verified (serial_log present)."
 }
 
 # ---------------------------------------------------------------------------
@@ -305,7 +402,9 @@ log "Step 2: Ensuring PostgreSQL is running..."
 ensure_postgres_running
 
 log "Step 3: Configuring database and user..."
-configure_database
+if ! configure_database; then
+    fail "Database configuration failed. See the messages above."
+fi
 
 log "Step 4: Applying schema..."
 run_schema_migration

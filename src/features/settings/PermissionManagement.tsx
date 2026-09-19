@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { UserRole, User } from '../../types';
+import { User } from '../../types';
+import { api } from '../../services/api';
 import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
@@ -26,7 +27,7 @@ interface PermissionOperation {
   id: string;
   operationName: string;
   description: string;
-  permissions: Record<UserRole, boolean>;
+  permissions: Record<string, boolean>;
 }
 
 interface PermissionGroup {
@@ -366,22 +367,27 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
   },
 ];
 
-const ROLES: { key: UserRole; title: string; badgeColor: string }[] = [
+const ROLES: { key: string; title: string; badgeColor: string }[] = [
   { key: 'SUPER_ADMIN', title: 'Super Admin', badgeColor: 'bg-blue-600 text-white dark:bg-blue-500' },
   { key: 'INVENTORY_MANAGER', title: 'Inventory Manager', badgeColor: 'bg-purple-600 text-white dark:bg-purple-500' },
   { key: 'BRANCH_MANAGER', title: 'Branch Manager', badgeColor: 'bg-indigo-600 text-white dark:bg-indigo-500' },
   { key: 'FRONT_DESK', title: 'Front Desk', badgeColor: 'bg-teal-600 text-white dark:bg-teal-500' },
   { key: 'ACCOUNTANT', title: 'Accountant', badgeColor: 'bg-amber-600 text-white dark:bg-amber-500' },
+  { key: 'HEAD_OFFICE_ADMIN', title: 'Head Office Admin', badgeColor: 'bg-cyan-600 text-white dark:bg-cyan-500' },
+  { key: 'PROCUREMENT_OFFICER', title: 'Procurement Officer', badgeColor: 'bg-rose-600 text-white dark:bg-rose-500' },
+  { key: 'FIELD_TECHNICIAN', title: 'Field Technician', badgeColor: 'bg-emerald-600 text-white dark:bg-emerald-500' },
+  { key: 'AUDITOR', title: 'Auditor', badgeColor: 'bg-violet-600 text-white dark:bg-violet-500' },
 ];
 
 interface PermissionManagementProps {
   currentUser?: User | null;
+  permissionsMatrix?: Record<string, Record<string, boolean>> | null;
 }
 
-export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser }) => {
+export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, permissionsMatrix }) => {
   const { isDarkMode } = useDarkMode();
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
-    const savedMatrix = getPermissionsMatrix();
+    const savedMatrix = permissionsMatrix || getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({
       ...group,
       operations: group.operations.map((op) => ({
@@ -394,9 +400,27 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('ALL');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [savedNotification, setSavedNotification] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+
+  // Re-sync the editor when the server-side matrix arrives from the bootstrap
+  // payload after mount (otherwise the initializer would never see it).
+  useEffect(() => {
+    if (!permissionsMatrix) return;
+    setGroups((prev) =>
+      prev.map((group) => ({
+        ...group,
+        operations: group.operations.map((op) => ({
+          ...op,
+          permissions: permissionsMatrix[op.id] || op.permissions,
+        })),
+      }))
+    );
+  }, [permissionsMatrix]);
 
   // Toggle individual operation permission
-  const togglePermission = (groupId: string, opId: string, role: UserRole) => {
+  const togglePermission = (groupId: string, opId: string, role: string) => {
     setGroups((prev) =>
       prev.map((group) => {
         if (group.id === groupId) {
@@ -422,7 +446,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   };
 
   // Toggle all operations in a group for a specific role
-  const toggleGroupRolePermissions = (groupId: string, role: UserRole) => {
+  const toggleGroupRolePermissions = (groupId: string, role: string) => {
     setGroups((prev) =>
       prev.map((group) => {
         if (group.id === groupId) {
@@ -452,28 +476,49 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   };
 
   const handleSave = () => {
-    const matrix: Record<string, Record<UserRole, boolean>> = { ...getPermissionsMatrix() };
+    if (!isSuperAdmin || isSaving) return;
+    const matrix: Record<string, Record<string, boolean>> = { ...getPermissionsMatrix() };
     groups.forEach((g) => {
       g.operations.forEach((op) => {
         matrix[op.id] = op.permissions;
       });
     });
     savePermissionsMatrix(matrix);
-    setSavedNotification(true);
-    setTimeout(() => setSavedNotification(false), 3000);
+    setIsSaving(true);
+    setSaveError('');
+    api.savePermissionsMatrix(matrix)
+      .then(() => {
+        setSavedNotification(true);
+        setTimeout(() => setSavedNotification(false), 3000);
+      })
+      .catch((err: any) => {
+        setSaveError(err?.message || 'Failed to save permissions to the server.');
+      })
+      .finally(() => setIsSaving(false));
   };
 
   const handleReset = () => {
-    savePermissionsMatrix(DEFAULT_PERMISSIONS_MATRIX);
-    setGroups(DEFAULT_GROUPS.map((g) => ({
-      ...g,
-      operations: g.operations.map((op) => ({
-        ...op,
-        permissions: { ...DEFAULT_PERMISSIONS_MATRIX[op.id] },
-      })),
-    })));
-    setSavedNotification(true);
-    setTimeout(() => setSavedNotification(false), 3000);
+    if (!isSuperAdmin || isSaving) return;
+    const matrix = DEFAULT_PERMISSIONS_MATRIX;
+    savePermissionsMatrix(matrix);
+    setIsSaving(true);
+    setSaveError('');
+    api.savePermissionsMatrix(matrix)
+      .then(() => {
+        setGroups(DEFAULT_GROUPS.map((g) => ({
+          ...g,
+          operations: g.operations.map((op) => ({
+            ...op,
+            permissions: { ...DEFAULT_PERMISSIONS_MATRIX[op.id] },
+          })),
+        })));
+        setSavedNotification(true);
+        setTimeout(() => setSavedNotification(false), 3000);
+      })
+      .catch((err: any) => {
+        setSaveError(err?.message || 'Failed to reset permissions on the server.');
+      })
+      .finally(() => setIsSaving(false));
   };
 
   // Filter groups and operations based on search & filter
@@ -512,20 +557,34 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
         <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleReset}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
+            disabled={!isSuperAdmin || isSaving}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed ${isSuperAdmin && !isSaving ? 'cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700' : ''}`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Defaults</span>
           </button>
+          {!isSuperAdmin && (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold self-center">
+              Only a Super Admin can save changes.
+            </span>
+          )}
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors"
+            disabled={!isSuperAdmin || isSaving}
+            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="h-4 w-4" />
-            <span>Save Permissions Matrix</span>
+            <span>{isSaving ? 'Saving…' : 'Save Permissions Matrix'}</span>
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs font-semibold flex items-center gap-2.5 shadow-xs">
+          <span className="flex-shrink-0">⚠</span>
+          <span>{saveError} Your local changes are shown but were not saved to the server.</span>
+        </div>
+      )}
 
       {savedNotification && (
         <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5 shadow-xs">

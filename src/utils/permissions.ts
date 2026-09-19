@@ -1,37 +1,42 @@
+export { DEFAULT_PERMISSIONS_MATRIX };
 import { UserRole, User, Branch, FiscalYear } from '../types';
+import { APP_ROLES, INVENTORY_OPERATIONS, DEFAULT_PERMISSIONS_MATRIX } from './permissionMatrixData';
 
-/**
- * Super admin and Stock Manager (INVENTORY_MANAGER) can see ALL branches.
- */
+let serverMatrixCache: Record<string, Record<string, boolean>> | null = null;
+
+export function setServerMatrix(matrix: Record<string, Record<string, boolean>> | null): void {
+  serverMatrixCache = matrix;
+}
+
+export function getServerMatrix(): Record<string, Record<string, boolean>> | null {
+  return serverMatrixCache;
+}
+
+export const CAN_SEE_ALL_BRANCHES_ROLES = new Set([
+  'SUPER_ADMIN',
+  'INVENTORY_MANAGER',
+  'HEAD_OFFICE_ADMIN',
+]);
+
 export const canUserSeeAllBranches = (user: User | null | undefined): boolean => {
   if (!user) return false;
-  const role = user.role;
-  return role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+  return CAN_SEE_ALL_BRANCHES_ROLES.has(user.role);
 };
 
-/**
- * Returns array of branch IDs that the user is allowed to access.
- */
 export const getAllowedBranchIds = (user: User | null | undefined, branches: Branch[]): string[] => {
   if (!user) return [];
   if (canUserSeeAllBranches(user)) {
     return branches.map((b) => b.id);
   }
-
   if (user.allowedBranchIds && user.allowedBranchIds.length > 0) {
     return user.allowedBranchIds;
   }
-
   if (user.branchId && user.branchId !== 'ALL') {
     return [user.branchId];
   }
-
   return branches.length > 0 ? [branches[0].id] : [];
 };
 
-/**
- * Filters branches list to only those allowed for the user.
- */
 export const getAllowedBranches = (user: User | null | undefined, branches: Branch[]): Branch[] => {
   if (!user) return [];
   if (canUserSeeAllBranches(user)) {
@@ -41,9 +46,6 @@ export const getAllowedBranches = (user: User | null | undefined, branches: Bran
   return branches.filter((b) => allowedIds.includes(b.id));
 };
 
-/**
- * Checks if a specific branch ID is allowed for the user.
- */
 export const isBranchAllowedForUser = (
   branchId: string,
   user: User | null | undefined,
@@ -56,76 +58,20 @@ export const isBranchAllowedForUser = (
   return allowedIds.includes(branchId);
 };
 
-export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean>> = {
-  // Procurement
-  'po-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'po-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'branch-procurement-control': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'inv-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
-  'inv-pay': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-  'po-delete': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'inv-delete': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-
-  // Warehouse
-  'shipment-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'wh-receive-pullouts': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'wh-restrict-transfer': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'shipment-history': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true },
-
-  // Branch operations
-  'branch-transfer-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'branch-transfer-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'branch-transfer-cancel-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'branch-transfer-request-cancel': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'branch-pullout-dispatch': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'branch-damage-mark': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'stock-disposal-writeoff': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'branch-asset-assign': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
-  'stock-out': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-
-  // Inventory master
-  // Inventory Master & Serial Management
-  'prod-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true },
-  'prod-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'uom-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'edit-device-serials': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'category-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'stock-import-export': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'opening-stock-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-  'opening-stock-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-
-  // Financials & Assets
-  'assets-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
-  'fin-statements': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-  'vat-register': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-  'stock-valuation': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
-
-  // Contacts
-  'suppliers-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
-  'customers-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true },
-
-  // Admin & Approvals
-  'auth-switch-user': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'workflow-approval': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'workflow-approval-cancel': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'admin-users': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'admin-branches': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
-  'admin-audit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-  'admin-fiscal': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
-};
-
-export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>> => {
+export const getPermissionsMatrix = (): Record<string, Record<string, boolean>> => {
+  if (serverMatrixCache) {
+    return serverMatrixCache;
+  }
   try {
     const stored = localStorage.getItem('inventory_permissions_matrix');
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Merge with DEFAULT_PERMISSIONS_MATRIX so newly added operations or missing keys are preserved
-      const merged: Record<string, Record<UserRole, boolean>> = { ...DEFAULT_PERMISSIONS_MATRIX };
+      const merged: Record<string, Record<string, boolean>> = { ...DEFAULT_PERMISSIONS_MATRIX };
       for (const [opId, roles] of Object.entries(parsed)) {
         if (roles && typeof roles === 'object') {
           merged[opId] = {
             ...(DEFAULT_PERMISSIONS_MATRIX[opId] || {}),
-            ...(roles as Record<UserRole, boolean>),
+            ...(roles as Record<string, boolean>),
           };
         }
       }
@@ -137,10 +83,9 @@ export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>
   return DEFAULT_PERMISSIONS_MATRIX;
 };
 
-export const savePermissionsMatrix = (matrix: Record<string, Record<UserRole, boolean>>) => {
+export const savePermissionsMatrix = (matrix: Record<string, Record<string, boolean>>): void => {
   try {
     localStorage.setItem('inventory_permissions_matrix', JSON.stringify(matrix));
-    // Dispatch custom event for real-time app update
     window.dispatchEvent(new Event('inventory_permissions_updated'));
   } catch (e) {
     console.error('Error saving permissions matrix', e);
@@ -155,7 +100,6 @@ export const isOperationAllowed = (
 ): boolean => {
   if (!userRole) return false;
 
-  // Check branch-level procurement restriction for procurement operations
   if (
     allowBranchProcurement === false &&
     (opId === 'po-create' || opId === 'po-receive' || opId === 'inv-create' || opId === 'inv-pay')
@@ -163,17 +107,11 @@ export const isOperationAllowed = (
     return false;
   }
 
-  // Warehouse transfer destination restriction: a destination branch configured
-  // with `allowWarehouseTransfer === false` cannot receive warehouse-origin
-  // transfers, regardless of the caller role.
   if (allowWarehouseTransfer === false && (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')) {
     return false;
   }
 
-  const roleKey = userRole as UserRole;
-
-  // Super admin bypasses matrix EXCEPT for branch-level restriction rules above
-  if (roleKey === 'SUPER_ADMIN') {
+  if (userRole === 'SUPER_ADMIN') {
     return true;
   }
 
@@ -181,59 +119,84 @@ export const isOperationAllowed = (
   const opMap = matrix[opId] || DEFAULT_PERMISSIONS_MATRIX[opId];
   if (!opMap) return false;
 
-  return Boolean(opMap[roleKey]);
+  return Boolean(opMap[userRole as string]);
 };
 
-/**
- * Checks if a user or the root user who initiated the session has switch user permission.
- */
+export function isOperationAllowedForRole(
+  opId: string,
+  role: string,
+  branchAllowProcurement?: boolean,
+  branchAllowWarehouseTransfer?: boolean
+): boolean {
+  if (!role) return false;
+
+  if (role === 'SUPER_ADMIN') {
+    if (
+      branchAllowProcurement === false &&
+      (opId === 'po-create' || opId === 'po-receive' || opId === 'inv-create' || opId === 'inv-pay')
+    ) {
+      return false;
+    }
+    if (
+      branchAllowWarehouseTransfer === false &&
+      (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  const matrix = getPermissionsMatrix();
+  const opMap = matrix[opId] || DEFAULT_PERMISSIONS_MATRIX[opId];
+  if (!opMap) return false;
+
+  const allowed = Boolean(opMap[role]);
+  if (!allowed) return false;
+
+  if (
+    branchAllowProcurement === false &&
+    (opId === 'po-create' || opId === 'po-receive' || opId === 'inv-create' || opId === 'inv-pay')
+  ) {
+    return false;
+  }
+  if (
+    branchAllowWarehouseTransfer === false &&
+    (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export const APP_ROLES_EXPORT = APP_ROLES;
+export const INVENTORY_OPERATIONS_EXPORT = INVENTORY_OPERATIONS;
+
 export const canUserSwitchProfiles = (
   user: User | null | undefined,
   rootUser: User | null | undefined = null
 ): boolean => {
-  // Check effective user (root user takes precedence if in a switched session)
   const effectiveUser = rootUser || user;
   if (!effectiveUser) return false;
-
-  // Explicit flag on user profile takes top precedence
   if (effectiveUser.canSwitchUser !== undefined) {
     return Boolean(effectiveUser.canSwitchUser);
   }
-
-  // Fallback to role-based permission
   return isOperationAllowed('auth-switch-user', effectiveUser.role);
 };
 
-/**
- * Checks if user is permitted to perform damaged stock disposal & financial write-off.
- * Driven entirely by the configurable permissions matrix (defaults to Super Admin & Inventory Manager).
- */
 export const canUserDisposeDamagedStock = (user: User | null | undefined): boolean => {
   if (!user) return false;
   return isOperationAllowed('stock-disposal-writeoff', user.role);
 };
 
-/**
- * Filters fiscal years to show only relevant ones:
- * - All closed (historical) fiscal years
- * - The current fiscal year (isCurrent = true)
- * - Any fiscal year whose date range includes today
- * - Hides future fiscal years that haven't started yet
- */
 export function filterFiscalYears(fiscalYears: FiscalYear[]): FiscalYear[] {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   return fiscalYears.filter((fy) => {
-    // Always show closed years (historical)
     if (fy.isClosed) return true;
-    // Show the current open year
     if (fy.isCurrent) return true;
-    // Show if we're currently within this fiscal year's date range
     if (fy.startDateAD && fy.endDateAD) {
       return todayStr >= fy.startDateAD && todayStr <= fy.endDateAD;
     }
-    // Hide future fiscal years that haven't started yet
     return false;
   });
 }
-

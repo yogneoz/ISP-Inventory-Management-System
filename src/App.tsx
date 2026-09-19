@@ -7,6 +7,7 @@ import {
   CompanyProfile,
   InventoryStock,
   Asset,
+  SerialLog,
   PurchaseOrder,
   PurchaseInvoice,
   Shipment,
@@ -46,7 +47,8 @@ import { DamagedStockTracking } from './features/inventory/DamagedStockTracking'
 import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
 import { CustomersManagement } from './features/sales/CustomersManagement';
 import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
-import { AllSerialInventory } from './features/inventory/AllSerialInventory';
+
+import { SerialLogRegister } from './features/inventory/SerialLogRegister';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
 import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
 import { Shipments } from './features/procurement/Shipments';
@@ -91,6 +93,7 @@ import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
+import { setServerMatrix } from './utils/permissions';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
 // AD range contains today's date (guards against multiple years being flagged
@@ -127,6 +130,7 @@ export default function App() {
   });
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
+  const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, boolean>> | null>(null);
   const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
     const saved = localStorage.getItem('inventory_date_mode');
     return saved === 'AD' ? 'AD' : 'BS';
@@ -246,6 +250,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [stock, setStock] = useState<InventoryStock[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [serialLogs, setSerialLogs] = useState<SerialLog[]>([]);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
@@ -290,6 +295,7 @@ export default function App() {
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
     if (data.assets) setAssets(data.assets);
+    if (data.serialLogs) setSerialLogs(data.serialLogs);
     if (data.customerDevices) setCustomerDevices(data.customerDevices);
     if (data.customers) setCustomers(data.customers);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
@@ -311,6 +317,10 @@ export default function App() {
       applyCurrencyConfig(data.companyProfile);
     }
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
+    if (data.permissionsMatrix) {
+      setServerMatrix(data.permissionsMatrix);
+      setPermissionsMatrix(data.permissionsMatrix);
+    }
   };
 
   // Apply the active currency configuration from the company profile so every
@@ -1438,16 +1448,12 @@ export default function App() {
               )}
 
               {activeTab === 'complete-serial-inventory' && (
-                <AllSerialInventory
-                  currentUser={currentUser}
-                  customerDevices={customerDevices}
-                  purchaseInvoices={purchaseInvoices}
-                  shipments={shipments}
-                  stockOperations={stockOperations}
-                  fixedAssets={assets}
-                  products={products}
+                <SerialLogRegister
+                  serialLogs={serialLogs}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  currentUser={currentUser}
+                  onRefreshData={refreshAllData}
                 />
               )}
 
@@ -1988,7 +1994,7 @@ export default function App() {
               )}
 
               {activeTab === 'permissions' && (
-                <PermissionManagement currentUser={currentUser} />
+                <PermissionManagement currentUser={currentUser} permissionsMatrix={permissionsMatrix} />
               )}
 
               {activeTab === 'company-setup' && (

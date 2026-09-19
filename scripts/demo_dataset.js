@@ -21,6 +21,8 @@ const EXCEL_ITEMS = [
   { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
   { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
   { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
+  { code: 'SWT001', group: 'FIXED ASSET', type: 'Network Switch', name: '24-PORT MANAGED NETWORK SWITCH', uom: 'Pcs', qty: 5, val: 85000 },
+  { code: 'UPS001', group: 'FIXED ASSET', type: 'UPS Unit', name: 'ONLINE UPS 3KVA', uom: 'Pcs', qty: 8, val: 45000 },
   { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
   { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
 ];
@@ -217,7 +219,7 @@ export function buildDemoDataset(branches) {
 
       return {
         id: `ast-${item.code.toLowerCase()}`,
-        tagNumber: `AST-${item.code}`,
+        tagNumber: `SN-${item.code}-${String(idx + 1).padStart(4, '0')}`,
         name: item.name,
         category: cat,
         branchId: assignedBranch,
@@ -237,6 +239,56 @@ export function buildDemoDataset(branches) {
         isDemo: true,
       };
     });
+
+  // Demo serial-log register rows — one row per unique serial. The first three
+  // mirror the fixed-asset tag serials above (SN-<itemcode>-NNNN); one extra
+  // IN_STOCK ONU row shows a serial-tracked product in the register.
+  // NOTE: this block intentionally lives AFTER demoAssetRegister is fully built
+  // so it never references the array while it is still being constructed.
+  const demoSerialLogs = [];
+  const fixedAssetsForSerials = demoAssetRegister.filter((a) =>
+    ['SN-CAR004-0001', 'SN-SWT001-0002', 'SN-UPS001-0003'].includes(a.tagNumber)
+  );
+  const SERIAL_LOG_MACS = ['HWTC-11AA22BB', 'HWTC-22BB33CC', 'HWTC-33CC44DD'];
+  fixedAssetsForSerials.forEach((asset, idx) => {
+    const statuses = ['IN_STOCK', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED'];
+    demoSerialLogs.push({
+      id: `sl-${asset.tagNumber.toLowerCase()}`,
+      deviceSerial: asset.tagNumber,
+      ponSerial: `PON-${asset.tagNumber}`,
+      macAddress: SERIAL_LOG_MACS[idx],
+      productId: asset.productId,
+      productName: asset.name,
+      branchId: asset.branchId,
+      customerId: idx === 1 ? 'CUS-10291' : undefined,
+      customerName: idx === 1 ? 'Example Customer 1' : undefined,
+      status: statuses[idx],
+      sourceType: idx === 1 ? 'CUSTOMER_ASSIGN' : 'FIXED_ASSET',
+      sourceId: asset.id,
+      history: [
+        { status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: '2024-04-15' },
+        ...(idx > 0 ? [{ status: statuses[idx], sourceType: 'CUSTOMER_ASSIGN', dateAD: '2025-06-01' }] : []),
+      ],
+      createdAt: '2024-04-15T10:00:00Z',
+      updatedAt: idx > 0 ? '2025-06-01T10:00:00Z' : undefined,
+      isDemo: true,
+    });
+  });
+  // Add one more in-stock serial for a serial-tracked product, not tied to a fixed asset.
+  demoSerialLogs.push({
+    id: 'sl-SN-ONU002-0004',
+    deviceSerial: 'SN-ONU002-0004',
+    ponSerial: 'PON-SN-ONU002-0004',
+    macAddress: 'HWTC-A1B2C3D4',
+    productId: 'prod-onu002',
+    productName: 'ONU ROUTER SINGLE BAND 2.4G XPON',
+    branchId: BRANCH2_ID,
+    status: 'IN_STOCK',
+    sourceType: 'PURCHASE',
+    history: [{ status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: '2026-07-20' }],
+    createdAt: '2026-07-20T10:00:00Z',
+    isDemo: true,
+  });
 
   // Demo purchase order (references the first demo supplier + a demo product).
   const demoPurchaseOrders = [
@@ -500,6 +552,7 @@ export function buildDemoDataset(branches) {
     products: demoProducts,
     inventoryStock: demoInventoryStock,
     assetRegister: demoAssetRegister,
+    serialLogs: demoSerialLogs,
     purchaseOrders: demoPurchaseOrders,
     purchaseInvoices: demoPurchaseInvoices,
     vendorPayments: demoVendorPayments,

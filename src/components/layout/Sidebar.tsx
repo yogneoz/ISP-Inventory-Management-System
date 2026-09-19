@@ -256,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       : []),
     { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
     ...(isOperationAllowed('prod-view', currentUser?.role)
-      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'All Serial Device Inventory', icon: Package, hasSeparatorAbove: true }]
+      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package, hasSeparatorAbove: true }]
       : []),
   ];
   groups.push({

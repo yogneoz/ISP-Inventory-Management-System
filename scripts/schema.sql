@@ -12,6 +12,9 @@
 --     document to the fiscal_years master table
 --   * bs_day_records.fiscal_year_id FK alongside the fiscal_year code column
 --   * Partial indexes for is_demo = TRUE rows and fiscal_year_id scoping
+--   * v3.2: serial_log register (17b) - one row per unique device serial with
+--     lifecycle history, enforced by uq_serial_log_device_serial. Demo rows are
+--     seeded by `npm run setup:pg` (scripts/setup_db.js -> scripts/demo_dataset.js).
 --
 -- AD (Gregorian) dates remain the source of truth for every date column,
 -- BS dates and fiscal years are derived server-side from bs_day_records.
@@ -528,6 +531,31 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
 );
 
 -- ==========================================
+-- 17b. Serial Log (one row per unique serial — consolidated register)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS serial_log (
+    id VARCHAR(50) PRIMARY KEY,
+    device_serial VARCHAR(100) NOT NULL,
+    pon_serial VARCHAR(100),
+    mac_address VARCHAR(100),
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    product_name VARCHAR(255),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    customer_id VARCHAR(50),
+    customer_name VARCHAR(200),
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+    source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
+    source_id VARCHAR(50),
+    history_json TEXT DEFAULT '[]',
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
 -- 18. Approval Requests Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS approval_requests (
@@ -929,6 +957,12 @@ CREATE INDEX IF NOT EXISTS idx_customer_device_records_demo ON customer_device_r
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_device_serial ON customer_device_records ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_pon_serial ON customer_device_records ((lower(trim(pon_serial)))) WHERE trim(pon_serial) <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_mac_address ON customer_device_records ((lower(trim(mac_address)))) WHERE mac_address IS NOT NULL AND trim(mac_address) <> '';
+
+-- Serial Log indexes (unique device_serial = one row per serial)
+CREATE INDEX IF NOT EXISTS idx_serial_log_branch ON serial_log(branch_id) WHERE branch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_serial_log_status ON serial_log(status);
+CREATE INDEX IF NOT EXISTS idx_serial_log_demo ON serial_log(id) WHERE is_demo = TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_device_serial ON serial_log ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
 
 -- Approval Requests indexes
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);

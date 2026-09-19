@@ -25,7 +25,21 @@ import {
   LocationRecord,
   DocumentNumberConfig,
   VendorPayment,
+  SerialLog,
 } from '../types';
+
+function safeParseHistory(v: unknown): SerialLog['history'] {
+  if (Array.isArray(v)) return v as SerialLog['history'];
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
@@ -857,6 +871,32 @@ export const api = {
     });
   },
 
+  // Serial Log Register (one row per unique serial)
+  async getSerialLogs(params?: { branchId?: string; status?: string; query?: string }): Promise<SerialLog[]> {
+    const search = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+    if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+    if (params?.query) search.append('query', params.query);
+    const queryString = search.toString() ? `?${search.toString()}` : '';
+    const rows = await fetchJson<any[]>(`/api/serial-log${queryString}`);
+    return (rows || []).map((r) => ({
+      ...r,
+      history: typeof r.history === 'string' ? safeParseHistory(r.history) : (r.historyJson ? safeParseHistory(r.historyJson) : (r.history || [])),
+    }));
+  },
+
+  async createSerialLogEntry(data: {
+    deviceSerial: string; ponSerial?: string; macAddress?: string;
+    productId?: string; productName?: string; branchId?: string;
+    customerId?: string; customerName?: string;
+    status?: string; sourceType?: string; sourceId?: string; notes?: string;
+  }): Promise<{ success: boolean; id: string }> {
+    return fetchJson('/api/serial-log', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Customer Master Database
   async getCustomers(branchId?: string, query?: string): Promise<CustomerRecord[]> {
     const params = new URLSearchParams();
@@ -1086,6 +1126,19 @@ export const api = {
     return fetchJson('/api/company-profile', {
       method: 'PUT',
       body: JSON.stringify(profile),
+    });
+  },
+
+  async getPermissionsMatrix(): Promise<Record<string, Record<string, boolean>>> {
+    return fetchJson('/api/permissions');
+  },
+
+  async savePermissionsMatrix(
+    matrix: Record<string, Record<string, boolean>>
+  ): Promise<void> {
+    return fetchJson('/api/permissions', {
+      method: 'PUT',
+      body: JSON.stringify({ matrix }),
     });
   },
 };

@@ -22,6 +22,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { isOperationAllowed } from '../../utils/permissions';
+import { APP_ROLES, APP_ROLE_LABELS } from '../../utils/permissionMatrixData';
 
 interface UsersManagementProps {
   currentUser: User | null;
@@ -51,10 +52,22 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<User['role']>('FRONT_DESK');
+  const [role, setRole] = useState<string>('FRONT_DESK');
   const defaultBranchId = branches.find((b) => b.isHeadquarters)?.id || branches[0]?.id || '';
   const [branchId, setBranchId] = useState(defaultBranchId);
   const [allowedBranchIds, setAllowedBranchIds] = useState<string[]>([defaultBranchId]);
+
+  // Auto-assign branch access based on role.
+  // SUPER_ADMIN and HEAD_OFFICE_ADMIN see all branches; INVENTORY_MANAGER sees all; others see primary + explicitly allowed.
+  useEffect(() => {
+    if (role === 'SUPER_ADMIN' || role === 'HEAD_OFFICE_ADMIN') {
+      setAllowedBranchIds(branches.map((b) => b.id));
+    } else if (role === 'INVENTORY_MANAGER') {
+      setAllowedBranchIds(branches.map((b) => b.id));
+    }
+    // For other roles, keep the primary branch + any previously allowed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
 
   useEffect(() => {
     if (branches.length > 0 && !branches.some((b) => b.id === branchId)) {
@@ -190,7 +203,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         await onUpdateUser(editingUser.id, {
           name,
           email,
-          role,
+          role: role as User['role'],
           branchId,
           allowedBranchIds,
           ...(password ? { password } : {}),
@@ -201,7 +214,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         await onCreateUser({
           name,
           email,
-          role,
+          role: role as User['role'],
           branchId,
           allowedBranchIds,
           password: password || 'password@123',
@@ -216,18 +229,26 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const getRoleBadge = (r: User['role']) => {
-    switch (r) {
+  const getRoleBadge = (_r: string) => {
+    switch (_r) {
       case 'SUPER_ADMIN':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-800';
       case 'INVENTORY_MANAGER':
         return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800';
+      case 'HEAD_OFFICE_ADMIN':
+        return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800';
       case 'BRANCH_MANAGER':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-800';
+      case 'PROCUREMENT_OFFICER':
+        return 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300 dark:border-rose-800';
       case 'FRONT_DESK':
         return 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border-teal-300 dark:border-teal-800';
+      case 'FIELD_TECHNICIAN':
+        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
       case 'ACCOUNTANT':
         return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-800';
+      case 'AUDITOR':
+        return 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300 border-violet-300 dark:border-violet-800';
       default:
         return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
     }
@@ -343,7 +364,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     <Building2 className="h-3.5 w-3.5" /> Branch Access:
                   </span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-right">
-                    {u.role === 'SUPER_ADMIN' || u.role === 'INVENTORY_MANAGER' ? (
+                    {u.role === 'SUPER_ADMIN' || u.role === 'INVENTORY_MANAGER' || u.role === 'HEAD_OFFICE_ADMIN' ? (
                       <span className="text-purple-600 dark:text-purple-400 font-bold">All Branches (Global Access)</span>
                     ) : u.allowedBranchIds && u.allowedBranchIds.length > 1 ? (
                       <span className={`text-indigo-600 dark:text-indigo-400 font-bold`}>
@@ -432,14 +453,14 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   <label className="block font-semibold mb-1">User Role *</label>
                   <select
                     value={role}
-                    onChange={(e) => setRole(e.target.value as any)}
+                    onChange={(e) => setRole(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
                   >
-                    <option value="SUPER_ADMIN">Super Admin (All Branches)</option>
-                    <option value="INVENTORY_MANAGER">Inventory Manager (All Branches)</option>
-                    <option value="BRANCH_MANAGER">Branch Manager</option>
-                    <option value="FRONT_DESK">Front Desk</option>
-                    <option value="ACCOUNTANT">Accountant</option>
+                    {APP_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {APP_ROLE_LABELS[r] || r}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -469,7 +490,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
               <div className="pt-2">
                 <label className="block font-semibold mb-1.5 flex items-center justify-between">
                   <span>Branch Data & Store Access Permissions</span>
-                  {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' ? (
+                  {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'HEAD_OFFICE_ADMIN' ? (
                     <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950 px-2 py-0.5 rounded">
                       Unrestricted Global Access
                     </span>
@@ -480,9 +501,9 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   )}
                 </label>
 
-                {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' ? (
+                {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' || role === 'HEAD_OFFICE_ADMIN' ? (
                   <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 text-[11px]">
-                    🔒 <strong>Super Admin & Stock Managers</strong> automatically have full operational and data visibility access across ALL branches in the company.
+                    🔒 <strong>Super Admin, Stock Manager & Head Office Admin</strong> automatically have full operational and data visibility access across ALL branches in the company.
                   </div>
                 ) : (
                   <div className="space-y-1.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 max-h-36 overflow-y-auto">
