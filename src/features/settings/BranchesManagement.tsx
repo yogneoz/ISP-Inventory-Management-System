@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Branch, User } from '../../types';
 import { Building2, Plus, Search, CheckCircle2, Phone, MapPin, Star, Edit, Trash2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface BranchesManagementProps {
   branches: Branch[];
@@ -9,7 +11,6 @@ interface BranchesManagementProps {
   onCreateBranch?: (branch: Omit<Branch, 'id'>) => Promise<void>;
   onUpdateBranch?: (id: string, branch: Partial<Branch>) => Promise<void>;
   onDeleteBranch?: (id: string) => Promise<void>;
-  isDarkMode?: boolean;
 }
 
 export const BranchesManagement: React.FC<BranchesManagementProps> = ({
@@ -18,8 +19,8 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   onCreateBranch,
   onUpdateBranch,
   onDeleteBranch,
-  isDarkMode = false,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const canManageBranches = isOperationAllowed('admin-branches', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,6 +33,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   const [isHeadquarters, setIsHeadquarters] = useState(false);
   const [isWarehouse, setIsWarehouse] = useState(false);
   const [allowProcurement, setAllowProcurement] = useState(true);
+  const [allowWarehouseTransfer, setAllowWarehouseTransfer] = useState(true);
 
   const filtered = branches.filter(
     (b) =>
@@ -39,6 +41,8 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
       (b?.code || '').toLowerCase().includes((search || '').toLowerCase()) ||
       (b?.location || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const branchPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingBranch(null);
@@ -49,6 +53,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsHeadquarters(false);
     setIsWarehouse(false);
     setAllowProcurement(true);
+    setAllowWarehouseTransfer(true);
     setIsModalOpen(true);
   };
 
@@ -61,11 +66,12 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setIsHeadquarters(b.isHeadquarters);
     setIsWarehouse(!!b.isWarehouse || b.code.toUpperCase().startsWith('WH'));
     setAllowProcurement(b.allowProcurement !== false);
+    setAllowWarehouseTransfer(b.allowWarehouseTransfer !== false);
     setIsModalOpen(true);
   };
 
   const handleDelete = async (b: Branch) => {
-    if (window.confirm(`Are you sure you want to delete branch "${b.name}" (${b.code})?`)) {
+    if (await confirmDialog(`Are you sure you want to delete branch "${b.name}" (${b.code})?`)) {
       if (onDeleteBranch) {
         await onDeleteBranch(b.id);
       }
@@ -86,6 +92,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           isHeadquarters,
           isWarehouse,
           allowProcurement,
+          allowWarehouseTransfer,
         });
       }
     } else {
@@ -99,6 +106,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           isWarehouse,
           active: true,
           allowProcurement,
+          allowWarehouseTransfer,
         });
       }
     }
@@ -109,30 +117,29 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setPhone('');
     setIsHeadquarters(false);
     setAllowProcurement(true);
+    setAllowWarehouseTransfer(true);
     setEditingBranch(null);
     setIsModalOpen(false);
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Building2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             <span>Branch Directory & Administration</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, update, or remove operational branches across Nepal with regional codes and location mapping.
           </p>
         </div>
         {canManageBranches && (
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add New Branch</span>
@@ -142,28 +149,24 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search branch by name, code, or location..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none ${
-              isDarkMode
-                ? 'border border-slate-800 bg-slate-900 text-white placeholder-slate-500'
-                : 'border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
       </div>
 
       {/* Branches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((b) => (
+        {branchPagination.pagedItems.map((b) => (
           <div
             key={b.id}
-            className={`p-5 rounded-2xl border transition-all ${cardBg} ${
+            className={`p-4 rounded-2xl border transition-all ${cardBg} ${
               b.isHeadquarters ? 'border-indigo-500/50 ring-1 ring-indigo-500/20' : ''
             }`}
           >
@@ -225,6 +228,15 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                     🚫 Procurement Disabled
                   </span>
                 )}
+                {b.allowWarehouseTransfer !== false ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                    🏭 Warehouse Transfers Enabled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                    🚫 Warehouse Transfers Disabled
+                  </span>
+                )}
               </div>
             </div>
 
@@ -237,14 +249,23 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           </div>
         ))}
       </div>
+      <TablePagination
+        page={branchPagination.page}
+        pageCount={branchPagination.pageCount}
+        totalItems={branchPagination.totalItems}
+        rangeStart={branchPagination.rangeStart}
+        rangeEnd={branchPagination.rangeEnd}
+        pageSize={branchPagination.pageSize}
+        onPageChange={branchPagination.setPage}
+        onPageSizeChange={branchPagination.setPageSize}
+        className="mt-1"
+      />
 
       {/* Modal Add / Edit Branch */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
               {editingBranch ? '✏️ Edit Branch Details' : '➕ Add New Branch'}
@@ -257,7 +278,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Pokhara Lakefront Branch"
+                  placeholder="e.g., Branch 1 (Head Office)"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -293,7 +314,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   required
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Lakeside Ward 6, Pokhara"
+                  placeholder="Example Street, Example City"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -335,6 +356,19 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   />
                   <label htmlFor="procurement-check" className="font-semibold cursor-pointer">
                     Enable Procurement & Purchasing Permission
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="warehouse-transfer-check"
+                    checked={allowWarehouseTransfer}
+                    onChange={(e) => setAllowWarehouseTransfer(e.target.checked)}
+                    className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="warehouse-transfer-check" className="font-semibold cursor-pointer">
+                    Allow Warehouse Transfers to this Branch (warehouse receiving allow-list)
                   </label>
                 </div>
               </div>

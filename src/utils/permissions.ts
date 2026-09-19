@@ -1,4 +1,4 @@
-import { UserRole, User, Branch } from '../types';
+import { UserRole, User, Branch, FiscalYear } from '../types';
 
 /**
  * Super admin and Stock Manager (INVENTORY_MANAGER) can see ALL branches.
@@ -69,7 +69,7 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
   // Warehouse
   'shipment-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
   'wh-receive-pullouts': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
-  'wh-restrict-transfer': { SUPER_ADMIN: true, INVENTORY_MANAGER: false, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
+  'wh-restrict-transfer': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
   'shipment-history': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true },
 
   // Branch operations
@@ -84,11 +84,15 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
   'stock-out': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
 
   // Inventory master
+  // Inventory Master & Serial Management
   'prod-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true },
   'prod-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
   'uom-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
+  'edit-device-serials': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
   'category-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
   'stock-import-export': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
+  'opening-stock-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: true },
+  'opening-stock-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
 
   // Financials & Assets
   'assets-manage': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
@@ -112,8 +116,21 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
 
 export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>> => {
   try {
-    const stored = localStorage.getItem('izone_permissions_matrix');
-    if (stored) return JSON.parse(stored);
+    const stored = localStorage.getItem('inventory_permissions_matrix');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Merge with DEFAULT_PERMISSIONS_MATRIX so newly added operations or missing keys are preserved
+      const merged: Record<string, Record<UserRole, boolean>> = { ...DEFAULT_PERMISSIONS_MATRIX };
+      for (const [opId, roles] of Object.entries(parsed)) {
+        if (roles && typeof roles === 'object') {
+          merged[opId] = {
+            ...(DEFAULT_PERMISSIONS_MATRIX[opId] || {}),
+            ...(roles as Record<UserRole, boolean>),
+          };
+        }
+      }
+      return merged;
+    }
   } catch (e) {
     console.error('Error reading permissions matrix from localStorage', e);
   }
@@ -122,9 +139,9 @@ export const getPermissionsMatrix = (): Record<string, Record<UserRole, boolean>
 
 export const savePermissionsMatrix = (matrix: Record<string, Record<UserRole, boolean>>) => {
   try {
-    localStorage.setItem('izone_permissions_matrix', JSON.stringify(matrix));
+    localStorage.setItem('inventory_permissions_matrix', JSON.stringify(matrix));
     // Dispatch custom event for real-time app update
-    window.dispatchEvent(new Event('izone_permissions_updated'));
+    window.dispatchEvent(new Event('inventory_permissions_updated'));
   } catch (e) {
     console.error('Error saving permissions matrix', e);
   }
@@ -133,7 +150,8 @@ export const savePermissionsMatrix = (matrix: Record<string, Record<UserRole, bo
 export const isOperationAllowed = (
   opId: string,
   userRole?: UserRole | string | null,
-  allowBranchProcurement?: boolean
+  allowBranchProcurement?: boolean,
+  allowWarehouseTransfer?: boolean
 ): boolean => {
   if (!userRole) return false;
 
@@ -145,18 +163,25 @@ export const isOperationAllowed = (
     return false;
   }
 
+  // Warehouse transfer destination restriction: a destination branch configured
+  // with `allowWarehouseTransfer === false` cannot receive warehouse-origin
+  // transfers, regardless of the caller role.
+  if (allowWarehouseTransfer === false && (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')) {
+    return false;
+  }
+
   const roleKey = userRole as UserRole;
 
-  // Super admin bypasses matrix EXCEPT for branch procurement restriction above
+  // Super admin bypasses matrix EXCEPT for branch-level restriction rules above
   if (roleKey === 'SUPER_ADMIN') {
     return true;
   }
 
   const matrix = getPermissionsMatrix();
-  const opMap = matrix[opId];
-  if (!opMap) return true; // Default allowed if not in matrix
+  const opMap = matrix[opId] || DEFAULT_PERMISSIONS_MATRIX[opId];
+  if (!opMap) return false;
 
-  return opMap[roleKey] !== false;
+  return Boolean(opMap[roleKey]);
 };
 
 /**
@@ -181,11 +206,34 @@ export const canUserSwitchProfiles = (
 
 /**
  * Checks if user is permitted to perform damaged stock disposal & financial write-off.
- * Only Super Admin and Inventory Manager can execute write-offs.
+ * Driven entirely by the configurable permissions matrix (defaults to Super Admin & Inventory Manager).
  */
 export const canUserDisposeDamagedStock = (user: User | null | undefined): boolean => {
   if (!user) return false;
-  if (user.role === 'SUPER_ADMIN' || user.role === 'INVENTORY_MANAGER') return true;
   return isOperationAllowed('stock-disposal-writeoff', user.role);
 };
+
+/**
+ * Filters fiscal years to show only relevant ones:
+ * - All closed (historical) fiscal years
+ * - The current fiscal year (isCurrent = true)
+ * - Any fiscal year whose date range includes today
+ * - Hides future fiscal years that haven't started yet
+ */
+export function filterFiscalYears(fiscalYears: FiscalYear[]): FiscalYear[] {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  return fiscalYears.filter((fy) => {
+    // Always show closed years (historical)
+    if (fy.isClosed) return true;
+    // Show the current open year
+    if (fy.isCurrent) return true;
+    // Show if we're currently within this fiscal year's date range
+    if (fy.startDateAD && fy.endDateAD) {
+      return todayStr >= fy.startDateAD && todayStr <= fy.endDateAD;
+    }
+    // Hide future fiscal years that haven't started yet
+    return false;
+  });
+}
 

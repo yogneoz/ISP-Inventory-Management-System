@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Category, InventoryStock, Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Package,
   Plus,
@@ -93,7 +94,6 @@ interface ProductManagementProps {
   onUpdateProduct: (id: string, prod: Partial<Product>) => Promise<void>;
   onDeleteProduct: (id: string) => Promise<void>;
   searchQuery: string;
-  isDarkMode?: boolean;
   mode?: 'product-master' | 'all-stock';
   dbCategories?: Category[];
 }
@@ -107,7 +107,6 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   onUpdateProduct,
   onDeleteProduct,
   searchQuery,
-  isDarkMode = false,
   mode = 'product-master',
   dbCategories = [],
 }) => {
@@ -415,25 +414,23 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
       {/* Header bar */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <Package className="h-5 w-5 text-indigo-500" />
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
+            <Package className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
             <span>{mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             {mode === 'product-master'
               ? 'Master SKU catalog specification: Product Code, Barcode, Fixed Asset Depreciation settings, Category, UoM, Pricing, VAT %, and Reorder levels.'
               : 'Live multi-branch inventory stock overview: on-hand balances, warehouse locations, and zero-stock filters.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="shrink-0 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={handleExportStockCSV}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
             title="Export full stock matrix with uniform BS date YYYY-MM-DD"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -444,11 +441,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           <button
             type="button"
             onClick={() => setIsBulkBarcodeModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
             title="Print All Item Barcodes formatted in A4 Sheet PDF Grid (Code 39 format)"
           >
-            <Printer className="h-4 w-4 text-indigo-500" />
-            <Barcode className="h-4 w-4 text-emerald-500" />
+            <Printer className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
+            <Barcode className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
             <span>Print All Barcodes (A4 PDF)</span>
           </button>
 
@@ -459,7 +456,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               <button
                 title="Create new product SKU"
                 onClick={openCreateModal}
-                className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
               >
                 <Plus className="h-4 w-4" />
                 <span>Add New Product SKU</span>
@@ -471,9 +468,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
       {/* Consumable Products vs Fixed Assets Guidance & Advisory Banner */}
       {showConsumablesBanner && (
-        <div className={`p-3.5 rounded-2xl border transition-all ${
-          isDarkMode ? 'bg-amber-950/20 border-amber-800/40 text-amber-200' : 'bg-amber-50/90 border-amber-200 text-amber-900'
-        }`}>
+        <div className={`p-3.5 rounded-2xl border transition-all bg-amber-50/90 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-800/40 dark:text-amber-200`}>
           <div className="flex items-start justify-between gap-3">
             <div className="flex gap-2.5">
               <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0">
@@ -492,15 +487,15 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   <strong>Are Splitters, Protection Sleeves, Couplers Fixed Assets? NO.</strong> Small field materials are high-turnover <strong>Consumable Items</strong>. Treating a 10-rupee sleeve or 200-rupee coupler as a Fixed Asset creates unnecessary asset registers and depreciation overhead.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2.5 text-[11px]">
-                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                  <div className={`p-2 rounded-lg border bg-white/80 border-amber-200/80 dark:bg-slate-900/80 dark:border-slate-800`}>
                     <span className="font-bold text-amber-600 dark:text-amber-400">🛠️ Consumable Item</span>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Splitters, Sleeves, Couplers, Patch Cords, Fast Connectors. Tracked by <strong>Quantity Only</strong>, issued to field technicians/jobs as direct operational expense.</p>
                   </div>
-                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                  <div className={`p-2 rounded-lg border bg-white/80 border-amber-200/80 dark:bg-slate-900/80 dark:border-slate-800`}>
                     <span className="font-bold text-sky-600 dark:text-sky-400">📦 Product Item</span>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">ONUs, Dual-Band Routers, CPEs, Equipment for resale or customer installation. Tracked by <strong>Serial/MAC/PON</strong>.</p>
                   </div>
-                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                  <div className={`p-2 rounded-lg border bg-white/80 border-amber-200/80 dark:bg-slate-900/80 dark:border-slate-800`}>
                     <span className="font-bold text-purple-600 dark:text-purple-400">🏢 Fixed Asset</span>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">OLT Mainframes, Splicer Machines, Servers, Generators, Vehicles. Capitalized, tagged (`AST-XXX`), and depreciated over useful life.</p>
                   </div>
@@ -523,21 +518,15 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       )}
 
       {/* Filter and Search controls */}
-      <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-2 p-2 rounded-xl border shadow-2xs ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
-        <div className="relative w-full md:w-80">
+      <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-2 p-2 rounded-xl border shadow-2xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             placeholder="Scan Barcode or Search Product Code (ADP001) / Name:"
-            className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-200 placeholder-slate-500'
-                : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 dark:placeholder-slate-500`}
           />
         </div>
 
@@ -563,15 +552,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           </button>
 
           <Filter className="h-3.5 w-3.5 text-slate-400 ml-1" />
-          <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Group:</span>
+          <span className={`text-[11px] font-semibold text-slate-500 dark:text-slate-400`}>Group:</span>
           <select
             value={filterProductGroup}
             onChange={(e) => setFilterProductGroup(e.target.value)}
-            className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-200'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
+            className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Groups</option>
             <option value="Product Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Product Item (Equipment/Resale)</option>
@@ -579,15 +564,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             <option value="Fixed Asset" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-indigo-400 font-semibold">Fixed Asset (Capital Assets)</option>
           </select>
 
-          <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Category:</span>
+          <span className={`text-[11px] font-semibold text-slate-500 dark:text-slate-400`}>Category:</span>
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-200'
-                : 'bg-slate-50 border-slate-200 text-slate-800'
-            }`}
+            className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
             <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories ({products.length})</option>
             {categories.map((cat) => (
@@ -600,14 +581,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       </div>
 
       {/* Products Table */}
-      <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-2xs ${
-              isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
+            <thead className={`sticky top-0 z-20 font-bold text-[10px] tracking-wider border-b shadow-2xs bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
               <tr>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Code / Barcode</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Details</th>
@@ -624,7 +601,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Actions</th>
               </tr>
             </thead>
-            <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
               {filteredProducts.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="p-6 text-center text-slate-500 text-xs">
@@ -636,9 +613,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   const qtyOnHand = getProductStockQty(p.id);
                   const grp = p.productGroup || 'Product Item';
                   return (
-                    <tr key={p.id} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                    }`}>
+                    <tr key={p.id} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="px-2.5 py-1.5">
                         <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
                           <span>{p.sku}</span>
@@ -649,9 +624,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         </div>
                       </td>
                       <td className="px-2.5 py-1.5">
-                        <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{p.name}</div>
+                        <div className={`font-bold text-xs text-slate-900 dark:text-white`}>{p.name}</div>
                         {p.description && (
-                          <div className={`text-[10px] line-clamp-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{p.description}</div>
+                          <div className={`text-[10px] line-clamp-1 text-slate-500 dark:text-slate-400`}>{p.description}</div>
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
@@ -685,11 +660,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
-                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium border ${
-                          isDarkMode
-                            ? 'bg-slate-900 text-slate-300 border-slate-800'
-                            : 'bg-slate-100 text-slate-700 border-slate-200'
-                        }`}>
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
                           {p.category}
                         </span>
                       </td>
@@ -719,12 +690,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                           {qtyOnHand} {p.unit}
                         </span>
                       </td>
-                      <td className={`px-2.5 py-1.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{p.unit}</td>
-                      <td className={`px-2.5 py-1.5 text-right font-mono font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                        रु {(p.costPrice ?? 0).toLocaleString('en-IN')}
+                      <td className={`px-2.5 py-1.5 font-medium text-slate-600 dark:text-slate-400`}>{p.unit}</td>
+                      <td className={`px-2.5 py-1.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300`}>
+                        {formatNPR(p.costPrice)}
                       </td>
-                      <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        रु {(p.sellingPrice ?? 0).toLocaleString('en-IN')}
+                      <td className={`px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 dark:text-white`}>
+                        {formatNPR(p.sellingPrice)}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className="rounded bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
@@ -748,7 +719,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                               <button
                                 onClick={() => openEditModal(p)}
                                 title="Edit Product Specification"
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </button>
@@ -775,15 +746,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       {/* Print Barcode Modal */}
       {printingProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
             <div id="barcode-print-area">
-              <div className={`p-4 border-b flex items-center justify-between ${
-                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-              } print:hidden`}>
+              <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
                 <div className="flex items-center gap-2">
-                  <Printer className="h-5 w-5 text-indigo-500" />
+                  <Printer className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                   <h3 className="font-bold text-sm">Print Product Code Barcode Label</h3>
                 </div>
                 <button
@@ -819,9 +786,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       max={100}
                       value={labelCopies}
                       onChange={(e) => setLabelCopies(Math.max(1, Math.min(100, Number(e.target.value))))}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none ${
-                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                     />
                   </div>
                   <div className="flex items-center pt-5">
@@ -863,7 +828,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                       {showPriceOnLabel && (
                         <div className="text-xs font-mono font-extrabold text-slate-900 mt-0.5">
-                          NPR {(printingProduct.sellingPrice ?? 0).toLocaleString('en-IN')}
+                          {formatNPR(printingProduct.sellingPrice)}
                         </div>
                       )}
                     </div>
@@ -871,15 +836,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
               </div>
 
-              <div className={`p-4 border-t flex items-center justify-between ${
-                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-              } print:hidden`}>
+              <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
                 <button
                   type="button"
                   onClick={() => setPrintingProduct(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'
-                  }`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -900,13 +861,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       {/* Product Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 bg-white border-slate-200 text-slate-700 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
+              <h3 className={`font-bold text-sm text-slate-900 dark:text-white`}>
                 {editingProduct ? 'Edit Product SKU Specification' : 'Create New Product SKU'}
               </h3>
               <button
@@ -946,15 +903,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     }}
                     placeholder="e.g. ADP001"
                     title={editingProduct ? 'Product SKU code is immutable once created' : 'Enter unique product SKU'}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
-                      editingProduct
-                        ? isDarkMode
-                          ? 'border-slate-800 bg-slate-950 text-slate-400 cursor-not-allowed opacity-80'
-                          : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80'
-                        : isDarkMode
-                        ? 'border-slate-700 bg-slate-900 text-slate-200'
-                        : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
                     <p className="text-[9px] text-slate-400 mt-0.5">
@@ -986,15 +935,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     }}
                     placeholder="e.g. ADP001"
                     title={editingProduct ? 'Barcode is linked to SKU and cannot be altered' : 'Enter barcode'}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
-                      editingProduct
-                        ? isDarkMode
-                          ? 'border-slate-800 bg-slate-950 text-slate-400 cursor-not-allowed opacity-80'
-                          : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80'
-                        : isDarkMode
-                        ? 'border-slate-700 bg-slate-900 text-slate-200'
-                        : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${editingProduct ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:cursor-not-allowed dark:opacity-80' : 'border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                   />
                   {editingProduct && (
                     <p className="text-[9px] text-slate-400 mt-0.5">
@@ -1014,9 +955,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. 0 DB ADAPTAR-FA or Dell Latitude Laptop"
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
@@ -1037,9 +976,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         setRequiresSerialTracking(false);
                       }
                     }}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   >
                     <option value="Product Item">Product Item (Equipment/Resale)</option>
                     <option value="Consumable Item">Consumable Item (Splitters, Sleeves, Couplers)</option>
@@ -1080,9 +1017,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         }
                       }}
                       placeholder="e.g. Fiber Drop Wire, Splitters..."
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                     />
                   ) : (
                     <select
@@ -1099,9 +1034,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                           }
                         }
                       }}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer ${
-                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                     >
                       {availableCategories.map((cat) => (
                         <option key={cat} value={cat}>
@@ -1122,9 +1055,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   <select
                     value={unit}
                     onChange={(e) => setUnit(e.target.value as any)}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   >
                     <option value="Pcs">Pcs (Pieces)</option>
                     <option value="Box">Box</option>
@@ -1138,9 +1069,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
               {/* Fixed Asset Depreciation Configuration Block */}
               {productGroup === 'Fixed Asset' && (
-                <div className={`p-3 rounded-xl border space-y-2.5 ${
-                  isDarkMode ? 'bg-purple-950/20 border-purple-800/40' : 'bg-purple-50/70 border-purple-200'
-                }`}>
+                <div className={`p-3 rounded-xl border space-y-2.5 bg-purple-50/70 border-purple-200 dark:bg-purple-950/20 dark:border-purple-800/40`}>
                   <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 text-xs font-bold">
                     <TrendingDown className="h-4 w-4" />
                     <span>Fixed Asset Depreciation Settings</span>
@@ -1154,9 +1083,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       <select
                         value={depreciationMethod}
                         onChange={(e) => setDepreciationMethod(e.target.value as any)}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 ${
-                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       >
                         <option value="STRAIGHT_LINE">Straight Line Method (SLM)</option>
                         <option value="DECLINING_BALANCE">Declining Balance Method</option>
@@ -1175,9 +1102,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         step={0.1}
                         value={depreciationRate}
                         onChange={(e) => setDepreciationRate(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
-                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
 
@@ -1191,9 +1116,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         max={50}
                         value={usefulLifeYears}
                         onChange={(e) => setUsefulLifeYears(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
-                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
 
@@ -1208,9 +1131,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         step={0.1}
                         value={salvageValuePercent}
                         onChange={(e) => setSalvageValuePercent(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
-                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
                   </div>
@@ -1228,9 +1149,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     min={0}
                     value={costPrice}
                     onChange={(e) => setCostPrice(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
                 <div>
@@ -1243,9 +1162,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     min={0}
                     value={sellingPrice}
                     onChange={(e) => setSellingPrice(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
                 <div>
@@ -1259,9 +1176,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     max={100}
                     value={taxRate}
                     onChange={(e) => setTaxRate(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
               </div>
@@ -1276,9 +1191,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   min={0}
                   value={minReorderLevel}
                   onChange={(e) => setMinReorderLevel(Math.max(0, Number(e.target.value)))}
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Accepts 0 for Fixed Asset type products or non-reorder items.
@@ -1286,9 +1199,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               </div>
 
               {/* Serial / MAC Tracking Mode Toggle */}
-              <div className={`p-3 rounded-xl border ${
-                isDarkMode ? 'border-indigo-900/40 bg-indigo-950/20' : 'border-indigo-200 bg-indigo-50/50'
-              }`}>
+              <div className={`p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20`}>
                 <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 mb-1 flex items-center gap-1.5">
                   <Barcode className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   <span>Item Serial / MAC / PON Tracking Mode</span>
@@ -1296,13 +1207,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <label
                     onClick={() => setRequiresSerialTracking(true)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                      requiresSerialTracking
-                        ? 'border-indigo-500 bg-indigo-600 text-white shadow-xs'
-                        : isDarkMode
-                        ? 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
+                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${requiresSerialTracking ? 'border-indigo-500 bg-indigo-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
                   >
                     <input
                       type="radio"
@@ -1322,13 +1227,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                   <label
                     onClick={() => setRequiresSerialTracking(false)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                      !requiresSerialTracking
-                        ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs'
-                        : isDarkMode
-                        ? 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
+                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${!requiresSerialTracking ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
                   >
                     <input
                       type="radio"
@@ -1357,23 +1256,15 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Optional details..."
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
-              <div className={`pt-3 border-t flex items-center justify-end gap-2 ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}>
+              <div className={`pt-3 border-t flex items-center justify-end gap-2 border-slate-200 dark:border-slate-800`}>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                    isDarkMode
-                      ? 'border-slate-700 text-slate-400 hover:bg-slate-800'
-                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>
@@ -1392,17 +1283,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       {/* Bulk A4 Barcode Printing Modal */}
       {isBulkBarcodeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-          }`}>
+          <div className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
             <div id="bulk-barcode-a4-area">
               {/* Modal Header */}
-              <div className={`p-4 border-b flex items-center justify-between ${
-                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-              } print:hidden`}>
+              <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
                 <div className="flex items-center gap-2">
-                  <Printer className="h-5 w-5 text-indigo-500" />
-                  <Barcode className="h-5 w-5 text-emerald-500" />
+                  <Printer className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
+                  <Barcode className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
                   <h3 className="font-bold text-sm">
                     Print Item Barcodes (A4 Sheet PDF Format — Code 39)
                   </h3>
@@ -1424,9 +1311,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <select
                       value={bulkScope}
                       onChange={(e) => setBulkScope(e.target.value as any)}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none ${
-                        isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                     >
                       <option value="FILTERED">Current Filtered List ({filteredProducts.length} items)</option>
                       <option value="ALL">Entire Product Catalog ({products.length} items)</option>
@@ -1439,9 +1324,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <select
                       value={bulkQtyMode}
                       onChange={(e) => setBulkQtyMode(e.target.value as any)}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none ${
-                        isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                     >
                       <option value="ONE_PER_SKU">1 Label per SKU (Catalog Sheet)</option>
                       <option value="STOCK_QTY">Match Inventory Stock Qty</option>
@@ -1454,9 +1337,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         max={50}
                         value={bulkCustomCopies}
                         onChange={(e) => setBulkCustomCopies(Math.max(1, Math.min(50, Number(e.target.value))))}
-                        className={`w-full mt-1 rounded-lg border px-2 py-1 font-mono text-xs ${
-                          isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                        }`}
+                        className={`w-full mt-1 rounded-lg border px-2 py-1 font-mono text-xs bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
                       />
                     )}
                   </div>
@@ -1466,9 +1347,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <select
                       value={bulkColumns}
                       onChange={(e) => setBulkColumns(Number(e.target.value))}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none ${
-                        isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                     >
                       <option value={3}>3 Columns (24 Labels / Page) — Standard</option>
                       <option value={4}>4 Columns (40 Labels / Page) — Compact</option>
@@ -1551,7 +1430,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                             <span className="font-bold text-indigo-700">{lbl.product.sku}</span>
                             {bulkShowPrice && (
                               <span className="font-extrabold text-slate-900">
-                                NPR {(lbl.product.sellingPrice ?? 0).toLocaleString('en-IN')}
+                                {formatNPR(lbl.product.sellingPrice)}
                               </span>
                             )}
                           </div>
@@ -1563,15 +1442,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               </div>
 
               {/* Modal Footer */}
-              <div className={`p-4 border-t flex items-center justify-between ${
-                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
-              } print:hidden`}>
+              <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
                 <button
                   type="button"
                   onClick={() => setIsBulkBarcodeModalOpen(false)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'
-                  }`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
                 >
                   Cancel
                 </button>

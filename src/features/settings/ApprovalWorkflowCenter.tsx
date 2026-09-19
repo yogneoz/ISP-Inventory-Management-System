@@ -25,13 +25,14 @@ import {
   Package,
   ClipboardCheck,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface ApprovalWorkflowCenterProps {
   approvalRequests: ApprovalRequest[];
   branches: Branch[];
   currentUser?: User | null;
   dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
   onProcessApproval: (
     id: string,
     status: 'APPROVED' | 'REJECTED',
@@ -46,11 +47,11 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   branches = [],
   currentUser,
   dateMode,
-  isDarkMode = false,
   onProcessApproval,
   onCancelApproval,
   onNavigateToStockAudit,
 }) => {
+  const { isDarkMode } = useDarkMode();
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_RECEIVE_TRANSFER' | 'STOCK_AUDIT_RECONCILIATION'>('ALL');
   const [filterBranchId, setFilterBranchId] = useState<string>('ALL');
@@ -64,20 +65,12 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   const [isProcessingId, setIsProcessingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const canApprove =
-    isOperationAllowed('workflow-approval', currentUser?.role) ||
-    currentUser?.role === 'SUPER_ADMIN' ||
-    currentUser?.role === 'INVENTORY_MANAGER';
+  const canApprove = isOperationAllowed('workflow-approval', currentUser?.role);
 
-  // Branch Manager and Front Desk staff are not permitted to cancel approval requests.
-  const canCancelApprovalRequest = Boolean(
-    currentUser &&
-    currentUser.role !== 'BRANCH_MANAGER' &&
-    currentUser.role !== 'FRONT_DESK' &&
-    (currentUser.role === 'SUPER_ADMIN' ||
-      currentUser.role === 'INVENTORY_MANAGER' ||
-      isOperationAllowed('workflow-approval-cancel', currentUser.role))
-  );
+  // Cancellation of pending approval requests is driven by the matrix
+  // (`workflow-approval-cancel`). Branch Manager and Front Desk are excluded by
+  // the default matrix and can never receive this permission via the UI.
+  const canCancelApprovalRequest = isOperationAllowed('workflow-approval-cancel', currentUser?.role);
 
   const pendingCount = approvalRequests.filter((r) => r.status === 'PENDING').length;
   const approvedCount = approvalRequests.filter((r) => r.status === 'APPROVED').length;
@@ -148,6 +141,8 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
     return matchesStatus && matchesType && matchesBranch && matchesQ;
   });
 
+  const requestsPagination = useClientPagination(filteredList, 15, [searchQuery, filterStatus, filterType, filterBranchId]);
+
   const handleApprove = (req: ApprovalRequest) => {
     if (!canApprove) {
       setToastMessage('Only Inventory Managers or Super Admins can authorize workflow approval requests.');
@@ -196,11 +191,9 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
     }
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-slate-900/80 border-slate-800 text-slate-100'
-    : 'bg-white border-slate-200/80 text-slate-900';
+  const cardBg = 'bg-white border-slate-200/80 text-slate-900 dark:bg-slate-900/80 dark:border-slate-800 dark:text-slate-100';
 
-  const subTextColor = isDarkMode ? 'text-slate-400' : 'text-slate-500';
+  const subTextColor = 'text-slate-500 dark:text-slate-400';
 
   return (
     <div className={`rounded-2xl border shadow-xs p-5 space-y-5 ${cardBg}`}>
@@ -263,19 +256,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div
           onClick={() => setFilterStatus('PENDING')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-            filterStatus === 'PENDING'
-              ? 'ring-2 ring-amber-500 bg-amber-500/10 border-amber-500/50'
-              : isDarkMode
-              ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-              : 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50'
-          }`}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'PENDING' ? 'ring-2 ring-amber-500 bg-amber-500/10 border-amber-500/50' : 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-amber-700 dark:text-amber-400">
             <span>Pending</span>
             <Clock className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-amber-900 dark:text-amber-200 mt-1">
+          <div className="text-xl font-black text-amber-900 dark:text-amber-200 mt-1">
             {pendingCount}
           </div>
           <p className="text-[10px] text-amber-700/80 dark:text-amber-400 mt-0.5">
@@ -285,19 +272,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
         <div
           onClick={() => setFilterStatus('APPROVED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-            filterStatus === 'APPROVED'
-              ? 'ring-2 ring-emerald-500 bg-emerald-500/10 border-emerald-500/50'
-              : isDarkMode
-              ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-              : 'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50'
-          }`}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'APPROVED' ? 'ring-2 ring-emerald-500 bg-emerald-500/10 border-emerald-500/50' : 'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-emerald-700 dark:text-emerald-400">
             <span>Approved</span>
             <CheckCircle2 className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
+          <div className="text-xl font-black text-emerald-900 dark:text-emerald-200 mt-1">
             {approvedCount}
           </div>
           <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
@@ -307,19 +288,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
         <div
           onClick={() => setFilterStatus('REJECTED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-            filterStatus === 'REJECTED'
-              ? 'ring-2 ring-rose-500 bg-rose-500/10 border-rose-500/50'
-              : isDarkMode
-              ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-              : 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50'
-          }`}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'REJECTED' ? 'ring-2 ring-rose-500 bg-rose-500/10 border-rose-500/50' : 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-400">
             <span>Rejected</span>
             <XCircle className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-rose-900 dark:text-rose-200 mt-1">
+          <div className="text-xl font-black text-rose-900 dark:text-rose-200 mt-1">
             {rejectedCount}
           </div>
           <p className="text-[10px] text-rose-700/80 dark:text-rose-400 mt-0.5">
@@ -329,19 +304,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
         <div
           onClick={() => setFilterStatus('CANCELLED')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-            filterStatus === 'CANCELLED'
-              ? 'ring-2 ring-slate-500 bg-slate-500/10 border-slate-500/50'
-              : isDarkMode
-              ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-              : 'bg-slate-100/70 border-slate-300 hover:bg-slate-200/60'
-          }`}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'CANCELLED' ? 'ring-2 ring-slate-500 bg-slate-500/10 border-slate-500/50' : 'bg-slate-100/70 border-slate-300 hover:bg-slate-200/60 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
             <span>Cancelled</span>
             <X className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+          <div className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">
             {cancelledCount}
           </div>
           <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5">
@@ -351,19 +320,13 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
         <div
           onClick={() => setFilterStatus('ALL')}
-          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-            filterStatus === 'ALL'
-              ? 'ring-2 ring-indigo-500 bg-indigo-500/10 border-indigo-500/50'
-              : isDarkMode
-              ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-              : 'bg-indigo-50/50 border-indigo-200/80 hover:bg-indigo-50'
-          }`}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${filterStatus === 'ALL' ? 'ring-2 ring-indigo-500 bg-indigo-500/10 border-indigo-500/50' : 'bg-indigo-50/50 border-indigo-200/80 hover:bg-indigo-50 dark:bg-slate-800/40 dark:border-slate-700 dark:hover:bg-slate-800'}`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-400">
             <span>Total</span>
             <Layers className="h-4 w-4" />
           </div>
-          <div className="text-2xl font-black text-indigo-900 dark:text-indigo-200 mt-1">
+          <div className="text-xl font-black text-indigo-900 dark:text-indigo-200 mt-1">
             {approvalRequests.length}
           </div>
           <p className="text-[10px] text-indigo-700/80 dark:text-indigo-400 mt-0.5">
@@ -379,64 +342,34 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           <span className="text-xs font-bold text-slate-500 shrink-0">Type:</span>
           <button
             onClick={() => setFilterType('ALL')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-              filterType === 'ALL'
-                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                : isDarkMode
-                ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${filterType === 'ALL' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700'}`}
           >
             All Workflows ({approvalRequests.length})
           </button>
           <button
             onClick={() => setFilterType('CANCEL_TRANSFER')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              filterType === 'CANCEL_TRANSFER'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : isDarkMode
-                ? 'bg-slate-800/80 text-rose-400 hover:bg-slate-700'
-                : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
-            }`}
+            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${filterType === 'CANCEL_TRANSFER' ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 dark:bg-slate-800/80 dark:text-rose-400 dark:hover:bg-slate-700'}`}
           >
             <RotateCcw className="h-3 w-3" />
             <span>Cancel In-Transit Transfers ({inTransitCancelCount})</span>
           </button>
           <button
             onClick={() => setFilterType('CANCEL_RECEIVE_TRANSFER')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              filterType === 'CANCEL_RECEIVE_TRANSFER'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : isDarkMode
-                ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700'
-                : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-            }`}
+            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${filterType === 'CANCEL_RECEIVE_TRANSFER' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-slate-800/80 dark:text-amber-400 dark:hover:bg-slate-700'}`}
           >
             <Truck className="h-3 w-3" />
             <span>Transfer Receipt Reversals ({transferCancelCount - inTransitCancelCount})</span>
           </button>
           <button
             onClick={() => setFilterType('STOCK_AUDIT_RECONCILIATION')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              filterType === 'STOCK_AUDIT_RECONCILIATION'
-                ? 'bg-purple-600 text-white shadow-xs'
-                : isDarkMode
-                ? 'bg-slate-800/80 text-purple-300 hover:bg-slate-700'
-                : 'bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100'
-            }`}
+            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${filterType === 'STOCK_AUDIT_RECONCILIATION' ? 'bg-purple-600 text-white shadow-xs' : 'bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 dark:bg-slate-800/80 dark:text-purple-300 dark:hover:bg-slate-700'}`}
           >
             <ClipboardCheck className="h-3 w-3" />
             <span>Stock Audit Reconciliations ({stockAuditCount})</span>
           </button>
           <button
             onClick={() => setFilterType('CUSTOMER_DEVICE_STATUS')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              filterType === 'CUSTOMER_DEVICE_STATUS'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isDarkMode
-                ? 'bg-slate-800/80 text-indigo-300 hover:bg-slate-700'
-                : 'bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100'
-            }`}
+            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${filterType === 'CUSTOMER_DEVICE_STATUS' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 dark:bg-slate-800/80 dark:text-indigo-300 dark:hover:bg-slate-700'}`}
           >
             <ShieldCheck className="h-3 w-3" />
             <span>CPE Status Authorizations ({cpeStatusCount})</span>
@@ -461,9 +394,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                       : st === 'CANCELLED'
                       ? 'bg-slate-700 text-white shadow-xs'
                       : 'bg-indigo-600 text-white shadow-xs'
-                    : isDarkMode
-                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                 }`}
               >
                 {st === 'ALL' ? 'All Requests' : st === 'CANCELLED' ? 'Request Cancelled' : st}
@@ -476,11 +407,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             <select
               value={filterBranchId}
               onChange={(e) => setFilterBranchId(e.target.value)}
-              className={`rounded-xl px-2.5 py-1.5 text-xs font-bold border cursor-pointer ${
-                isDarkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-200'
-                  : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}
+              className={`rounded-xl px-2.5 py-1.5 text-xs font-bold border cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
             >
               <option value="ALL">🏢 All Branches</option>
               {branches.map((b) => (
@@ -491,18 +418,14 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
             </select>
 
             {/* Search Box */}
-            <div className="relative flex-1 sm:w-64">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search serial, customer, transfer #..."
-                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                  isDarkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
-                    : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'
-                }`}
+                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:placeholder:text-slate-500`}
               />
             </div>
           </div>
@@ -513,14 +436,14 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
       <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className={isDarkMode ? 'bg-slate-800/80 text-slate-300' : 'bg-slate-100/80 text-slate-700'}>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Request # & Date</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Customer & Serial</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Status Transition</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Requester & Branch</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase">Reason / Justification</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase text-center">Status</th>
-              <th className="p-3 text-[11px] font-extrabold uppercase text-center">Actions</th>
+            <tr className="bg-slate-100/80 text-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Request # & Date</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Customer & Serial</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Status Transition</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Requester & Branch</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold">Reason / Justification</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold text-center">Status</th>
+              <th className="px-2.5 py-1.5 text-[11px] font-extrabold text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
@@ -537,7 +460,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredList.map((req) => {
+              requestsPagination.pagedItems.map((req) => {
                 const isPending = req.status === 'PENDING';
                 const isApproved = req.status === 'APPROVED';
                 const isRejected = req.status === 'REJECTED';
@@ -546,18 +469,10 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 return (
                   <tr
                     key={req.id}
-                    className={`transition-colors ${
-                      isPending
-                        ? isDarkMode
-                          ? 'bg-amber-950/20 hover:bg-amber-950/30'
-                          : 'bg-amber-50/40 hover:bg-amber-50/80'
-                        : isDarkMode
-                        ? 'hover:bg-slate-800/50'
-                        : 'hover:bg-slate-50'
-                    }`}
+                    className={`transition-colors ${isPending ? 'bg-amber-50/40 hover:bg-amber-50/80 dark:bg-amber-950/20 dark:hover:bg-amber-950/30' : 'hover:bg-slate-200 dark:hover:bg-slate-800/50'}`}
                   >
                     {/* Request # & Date */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       <div className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
                         {req.requestNumber}
                       </div>
@@ -567,7 +482,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Customer / Transfer & Serial */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       {req.type === 'STOCK_AUDIT_RECONCILIATION' ? (
                         <div>
                           <div className="flex items-center gap-1.5 font-extrabold text-purple-700 dark:text-purple-400">
@@ -630,7 +545,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Status Transition */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       {req.type === 'STOCK_AUDIT_RECONCILIATION' ? (
                         <div>
                           <div className="flex items-center gap-1.5 font-bold text-[10px]">
@@ -710,7 +625,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Requester & Branch */}
-                    <td className="p-3">
+                    <td className="p-2.5">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">
                         {req.requestedByName}
                       </div>
@@ -724,7 +639,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Reason */}
-                    <td className="p-3 max-w-xs">
+                    <td className="p-2.5 max-w-xs">
                       <p className="text-slate-600 dark:text-slate-300 text-[11px] line-clamp-2 leading-relaxed">
                         {req.reason}
                       </p>
@@ -736,7 +651,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Status Badge */}
-                    <td className="p-3 text-center">
+                    <td className="p-2.5 text-center">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
                           isPending
@@ -757,12 +672,12 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                     </td>
 
                     {/* Actions */}
-                    <td className="p-3 text-center">
+                    <td className="p-2.5 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         {/* Dedicated Action for Stock Audit Reconciliation */}
                         {req.type === 'STOCK_AUDIT_RECONCILIATION' && onNavigateToStockAudit && (
                           <button
-                            onClick={() => onNavigateToStockAudit(req.branchId || 'BR-KTM', req.id)}
+                            onClick={() => onNavigateToStockAudit(req.branchId || 'WH001', req.id)}
                             className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] shadow-xs flex items-center gap-1 cursor-pointer shrink-0"
                             title="Open Stock Count Table to Inspect Discrepancies & Reconcile"
                           >
@@ -812,7 +727,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
                         <button
                           onClick={() => setViewingReq(req)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[11px] cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[11px] cursor-pointer"
                         >
                           Details
                         </button>
@@ -825,6 +740,17 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
           </tbody>
         </table>
       </div>
+      <TablePagination
+        page={requestsPagination.page}
+        pageCount={requestsPagination.pageCount}
+        totalItems={requestsPagination.totalItems}
+        rangeStart={requestsPagination.rangeStart}
+        rangeEnd={requestsPagination.rangeEnd}
+        pageSize={requestsPagination.pageSize}
+        onPageChange={requestsPagination.setPage}
+        onPageSizeChange={requestsPagination.setPageSize}
+        className="mt-1"
+      />
 
       {/* Modal for Approval Confirmation */}
       {approvingReq && (
@@ -995,7 +921,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const bId = approvingReq.branchId || 'BR-KTM';
+                    const bId = approvingReq.branchId || 'WH001';
                     const reqId = approvingReq.id;
                     setApprovingReq(null);
                     onNavigateToStockAudit(bId, reqId);
@@ -1013,7 +939,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 type="button"
                 onClick={() => setApprovingReq(null)}
                 disabled={isProcessingId === approvingReq.id}
-                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1067,7 +993,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 <button
                   type="button"
                   onClick={() => setRejectingReq(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1099,7 +1025,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
               </div>
               <button
                 onClick={() => setViewingReq(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-slate-400 hover:text-slate-600"
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-slate-400 hover:text-slate-600"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1141,14 +1067,14 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                             <div key={idx} className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] flex items-center justify-between">
                               <div>
                                 <span className="font-bold text-slate-800 dark:text-slate-200">{item.productName}</span>
-                                <span className="text-slate-400 font-mono ml-1.5">({item.productSku})</span>
+                                <span className="text-slate-400 font-mono ml-1.5">({item.sku})</span>
                               </div>
                               <div className="text-right">
-                                <span className={`font-extrabold ${item.variance < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                  {item.variance > 0 ? `+${item.variance}` : item.variance} {item.unit}
+                                <span className={`font-extrabold ${item.varianceQty < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {item.varianceQty > 0 ? `+${item.varianceQty}` : item.varianceQty} {item.unit}
                                 </span>
                                 <span className="text-slate-400 ml-1">
-                                  (Sys: {item.systemStock} ➔ Act: {item.physicalCount})
+                                  (Sys: {item.bookQty} ➔ Act: {item.countedQty})
                                 </span>
                               </div>
                             </div>
@@ -1292,7 +1218,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                 {viewingReq.type === 'STOCK_AUDIT_RECONCILIATION' && onNavigateToStockAudit && (
                   <button
                     onClick={() => {
-                      const bId = viewingReq.branchId || 'BR-KTM';
+                      const bId = viewingReq.branchId || 'WH001';
                       const reqId = viewingReq.id;
                       setViewingReq(null);
                       onNavigateToStockAudit(bId, reqId);
@@ -1397,7 +1323,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                   type="button"
                   onClick={() => setCancellingReq(null)}
                   disabled={isProcessingId === cancellingReq.id}
-                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
                 >
                   Keep Request
                 </button>

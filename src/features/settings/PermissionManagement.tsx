@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, User } from '../../types';
 import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   ShieldCheck,
   Check,
   Save,
   RotateCcw,
-  Users,
   ShoppingBag,
   Warehouse,
   ArrowRightLeft,
@@ -118,7 +118,7 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       {
         id: 'wh-restrict-transfer',
         operationName: 'Warehouse Transfer Restriction Rule',
-        description: 'Enforce rule preventing warehouse from issuing direct inter-store transfers',
+        description: 'Issue inter-branch transfers from the central warehouse; destinations limited to branches with warehouse-transfer receiving enabled',
         permissions: DEFAULT_PERMISSIONS_MATRIX['wh-restrict-transfer'],
       },
       {
@@ -149,6 +149,18 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         operationName: 'Receive Inter-Branch Stock Transfer',
         description: 'Acknowledge received stock transfers sent from another branch store',
         permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-receive'],
+      },
+      {
+        id: 'branch-transfer-cancel-receive',
+        operationName: 'Cancel Received Branch Transfer',
+        description: 'Cancel or rollback an acknowledged inter-branch transfer delivery',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-cancel-receive'],
+      },
+      {
+        id: 'branch-transfer-request-cancel',
+        operationName: 'Request Transfer Dispatch Cancellation',
+        description: 'Submit cancellation requests for outbound in-transit transfers',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['branch-transfer-request-cancel'],
       },
       {
         id: 'branch-pullout-dispatch',
@@ -205,15 +217,39 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'uom-manage',
-        operationName: 'Manage Units of Measure (UOM) & Categories',
-        description: 'Define product categories, subcategories, and measurement units',
+        operationName: 'Manage Units of Measure (UOM)',
+        description: 'Define units of measurement and unit conversion factors',
         permissions: DEFAULT_PERMISSIONS_MATRIX['uom-manage'],
+      },
+      {
+        id: 'category-manage',
+        operationName: 'Manage Categories & Subcategories',
+        description: 'Define product hierarchy, classification trees, and subcategories',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['category-manage'],
+      },
+      {
+        id: 'edit-device-serials',
+        operationName: 'Edit Device Serial Numbers (Serial/PON/MAC)',
+        description: 'Edit serial numbers, PON serials, and MAC addresses for customer devices with cascading updates to all source tables',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['edit-device-serials'],
       },
       {
         id: 'stock-import-export',
         operationName: 'Import & Export Inventory Records',
         description: 'Bulk upload stock via CSV/Excel or export inventory valuation reports',
         permissions: DEFAULT_PERMISSIONS_MATRIX['stock-import-export'],
+      },
+      {
+        id: 'opening-stock-view',
+        operationName: 'View Fiscal Year Opening Register',
+        description: 'Inspect per-product, per-branch opening stock and per-supplier opening balance posted at fiscal year closing',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['opening-stock-view'],
+      },
+      {
+        id: 'opening-stock-edit',
+        operationName: 'Adjust Fiscal Year Opening Register',
+        description: 'Manually correct opening stock quantity, damaged quantity, unit cost, and vendor opening balances while the fiscal year remains open',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['opening-stock-edit'],
       },
     ],
   },
@@ -340,10 +376,10 @@ const ROLES: { key: UserRole; title: string; badgeColor: string }[] = [
 
 interface PermissionManagementProps {
   currentUser?: User | null;
-  isDarkMode?: boolean;
 }
 
-export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, isDarkMode }) => {
+export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser }) => {
+  const { isDarkMode } = useDarkMode();
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
     const savedMatrix = getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({
@@ -416,7 +452,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   };
 
   const handleSave = () => {
-    const matrix: Record<string, Record<UserRole, boolean>> = {};
+    const matrix: Record<string, Record<UserRole, boolean>> = { ...getPermissionsMatrix() };
     groups.forEach((g) => {
       g.operations.forEach((op) => {
         matrix[op.id] = op.permissions;
@@ -429,7 +465,13 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
 
   const handleReset = () => {
     savePermissionsMatrix(DEFAULT_PERMISSIONS_MATRIX);
-    setGroups(DEFAULT_GROUPS);
+    setGroups(DEFAULT_GROUPS.map((g) => ({
+      ...g,
+      operations: g.operations.map((op) => ({
+        ...op,
+        permissions: { ...DEFAULT_PERMISSIONS_MATRIX[op.id] },
+      })),
+    })));
     setSavedNotification(true);
     setTimeout(() => setSavedNotification(false), 3000);
   };
@@ -454,30 +496,30 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   const totalOpsCount = groups.reduce((acc, g) => acc + g.operations.length, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <ShieldCheck className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             <span>Group-Wise Operations & Role Permission Control</span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-1">
             Configure system privileges and operations enable/disable matrix grouped logically by department. Total operations: {totalOpsCount}
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="shrink-0 flex items-center gap-2.5">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-xs cursor-pointer transition-colors"
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs cursor-pointer transition-colors border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Defaults</span>
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors"
+            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors"
           >
             <Save className="h-4 w-4" />
             <span>Save Permissions Matrix</span>
@@ -493,8 +535,8 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       )}
 
       {/* Filter and Search Bar */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:w-80">
+      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -548,7 +590,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           return (
             <div
               key={role.key}
-              className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between"
+              className={`p-3.5 rounded-xl border shadow-xs flex items-center justify-between bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}
             >
               <div>
                 <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${role.badgeColor}`}>
@@ -567,9 +609,9 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       </div>
 
       {/* Group-Wise Permission Cards */}
-      <div className="space-y-6">
+      <div className="space-y-3">
         {filteredGroups.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
+          <div className={`p-8 text-center rounded-2xl border text-xs bg-white border-slate-200 text-slate-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400`}>
             No operations found matching your search filter "{searchQuery}".
           </div>
         ) : (
@@ -580,14 +622,14 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
             return (
               <div
                 key={group.id}
-                className={`rounded-2xl border ${group.borderColor} bg-white dark:bg-slate-900 shadow-xs overflow-hidden transition-all`}
+                className={`rounded-2xl border shadow-xs overflow-hidden transition-all ${group.borderColor} bg-white dark:bg-slate-900`}
               >
                 {/* Group Header */}
                 <div
                   className={`p-4 ${group.bgColor} border-b ${group.borderColor} flex flex-col md:flex-row md:items-center justify-between gap-3`}
                 >
                   <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleGroupCollapse(group.id)}>
-                    <div className={`p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-xs ${group.color}`}>
+                    <div className={`p-2.5 rounded-xl shadow-xs ${group.color} bg-white dark:bg-slate-800`}>
                       <GroupIcon className="h-5 w-5" />
                     </div>
                     <div>
@@ -625,13 +667,13 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                 {!isCollapsed && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="p-3.5 w-1/3">Operation & Description</th>
+                          <th className="px-2.5 py-1.5 w-1/3">Operation & Description</th>
                           {ROLES.map((role) => {
                             const allChecked = group.operations.every((op) => op.permissions[role.key]);
                             return (
-                              <th key={role.key} className="p-3.5 text-center">
+                              <th key={role.key} className="px-2.5 py-1.5 text-center">
                                 <div className="flex flex-col items-center gap-1">
                                   <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold ${role.badgeColor}`}>
                                     {role.title}
@@ -654,9 +696,9 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                         {group.operations.map((op) => (
                           <tr
                             key={op.id}
-                            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                            className="hover:bg-slate-100/80 dark:hover:bg-slate-800/40 transition-colors"
                           >
-                            <td className="p-3.5">
+                            <td className="p-2.5">
                               <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">
                                 {op.operationName}
                               </div>
@@ -667,8 +709,8 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                             {ROLES.map((role) => {
                               const isChecked = op.permissions[role.key];
                               return (
-                                <td key={role.key} className="p-3.5 text-center align-middle">
-                                  <label className="inline-flex items-center justify-center cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                <td key={role.key} className="p-2.5 text-center align-middle">
+                                  <label className="inline-flex items-center justify-center cursor-pointer p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
                                     <input
                                       type="checkbox"
                                       checked={isChecked}

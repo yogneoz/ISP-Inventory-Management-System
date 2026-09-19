@@ -27,7 +27,6 @@ interface ClearDemoDataViewProps {
   invoiceCount: number;
   onClearDemoData: () => Promise<void>;
   onNavigateDashboard: () => void;
-  isDarkMode?: boolean;
 }
 
 export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
@@ -41,7 +40,6 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   invoiceCount,
   onClearDemoData,
   onNavigateDashboard,
-  isDarkMode = false,
 }) => {
   const [confirmText, setConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
@@ -83,12 +81,17 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Clear Operational Demo & Dummy Data</h1>
             <p className="text-sm text-red-100 max-w-2xl leading-relaxed">
-              Purge sample products, inventory stock balances, fixed assets, customer device serials, purchase orders, and transaction logs to start fresh with a clean database environment.
+              Removes the sample dataset seeded by <span className="font-mono text-xs">npm run setup:pg</span> — the rows flagged with
+              <span className="font-mono text-xs"> is_demo = TRUE</span>, including the <strong>demo branches</strong> and <strong>demo user accounts</strong>
+              (e.g. <span className="font-mono text-xs">superadmin@example.com</span>). Your real products, stock balances, assets, device serials,
+              orders, branches, users, and transaction logs are never touched. The Nepali BS calendar reference data
+              (<span className="font-mono text-xs">bs_calendar_years</span> / <span className="font-mono text-xs">bs_day_records</span>) is always preserved.
+              Run <span className="font-mono text-xs">npm run setup:pg</span> any time to re-seed the demo dataset.
             </p>
           </div>
           <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20 text-center shrink-0">
             <Database className="h-8 w-8 mx-auto text-red-200 mb-1" />
-            <span className="text-xs text-red-100 uppercase font-medium">Sample Records</span>
+            <span className="text-xs text-red-100 uppercase font-medium">Records on File</span>
             <div className="text-2xl font-black">{totalOperationalRecords}</div>
           </div>
         </div>
@@ -103,27 +106,28 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             Demo Data Successfully Cleared!
           </h2>
           <p className="text-sm text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
-            All operational test records have been purged. Your database is now clean and ready for real enterprise data entry. Redirecting to Executive Dashboard...
+            All demo-flagged records (is_demo = TRUE) have been removed — including the demo branches and demo user accounts.
+            Your real business data is untouched and the Nepali BS calendar is preserved. Redirecting to Executive Dashboard...
           </p>
         </div>
       ) : (
         <>
           {/* Record Breakdown Card */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className={`rounded-2xl p-6 border shadow-sm space-y-4 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Boxes className="h-5 w-5 text-amber-500" />
-                <span>Operational Data to be Cleared</span>
+              <h2 className={`text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white`}>
+                <Boxes className={`h-5 w-5 text-amber-500 dark:text-amber-400`} />
+                <span>Operational Records on File</span>
               </h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Master Branches & Users Will Be Preserved
+                Only Demo-Flagged Rows (is_demo = TRUE) Will Be Removed
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Package className="h-4 w-4 text-indigo-500" />
+                  <Package className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
                   <span>Products Catalog</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{productCount}</div>
@@ -131,7 +135,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Boxes className="h-4 w-4 text-emerald-500" />
+                  <Boxes className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
                   <span>Inventory Stock</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{stockCount}</div>
@@ -139,7 +143,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Building className="h-4 w-4 text-blue-500" />
+                  <Building className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
                   <span>Fixed Assets</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{assetCount}</div>
@@ -147,7 +151,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Smartphone className="h-4 w-4 text-purple-500" />
+                  <Smartphone className={`h-4 w-4 text-purple-500 dark:text-purple-400`} />
                   <span>Customer Devices</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{deviceCount}</div>
@@ -155,7 +159,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Users className="h-4 w-4 text-amber-500" />
+                  <Users className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
                   <span>Customer Records</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{customerCount}</div>
@@ -171,8 +175,8 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 col-span-2">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  <Receipt className="h-4 w-4 text-rose-500" />
-                  <span>Purchase Invoices & Audit Logs</span>
+                  <Receipt className={`h-4 w-4 text-rose-500 dark:text-rose-400`} />
+                  <span>Invoices, Vendor Payments & Audit Logs</span>
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{invoiceCount}</div>
               </div>
@@ -185,13 +189,17 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <div className="space-y-1 text-sm text-amber-900 dark:text-amber-200">
               <h3 className="font-bold">Important Data Safety Guarantee</h3>
               <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                Executing this action will remove sample operational data only. Your <strong>Branch Configurations</strong>, <strong>User Accounts</strong>, and <strong>Nepali Fiscal Year Definitions</strong> will remain intact so you can immediately begin defining your own products and stock.
+                Executing this action removes <strong>only rows flagged as demo data</strong> (is_demo = TRUE). This <strong>includes the
+                demo branches and demo user accounts</strong> seeded by <span className="font-mono text-xs">npm run setup:pg</span> — they are
+                intentionally removed so you can add your real branches and users. Any <strong>real records you have entered</strong> are never
+                touched, and the <strong>Nepali BS calendar reference data</strong> (bs_calendar_years, bs_day_records) is always preserved.
+                To restore the demo dataset, run <span className="font-mono text-xs">npm run setup:pg</span> at any time.
               </p>
             </div>
           </div>
 
           {/* Confirmation Form */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+          <div className={`rounded-2xl p-6 border shadow-sm space-y-5 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Confirm Purge Action
             </h3>
@@ -219,7 +227,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
               <button
                 type="button"
                 onClick={onNavigateDashboard}
-                className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
               >
                 Cancel & Return
               </button>

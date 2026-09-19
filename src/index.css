@@ -1,5 +1,74 @@
 @import "tailwindcss";
 
+/* Enable Tailwind v4 dark mode triggered by the `.dark` class on a parent
+   element (typically <html>). Allows `dark:bg-slate-900` style utilities
+   to work alongside the existing `isDarkMode` ternary infrastructure
+   that we are migrating to class-based dark mode. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =====================================================================
+   RESPONSIVE DENSITY — compact / low-resolution display support
+   ---------------------------------------------------------------------
+   Tailwind v4 derives ALL numeric spacing utilities from the single
+   --spacing theme variable (utility value = calc(var(--spacing) * N)),
+   which covers p-*, px-*, py-*, m-*, mx-*, gap-*, space-y-*, and the
+   numeric height/width icon-element scales across the whole app.
+
+   Redefining --spacing per breakpoint compresses every card, toolbar,
+   table padding, grid gap and icon size app-wide in ONE place, while
+   FONT SIZES (the rem-based --text-* variables) are left untouched, so
+   body/table text stays fully readable on a 1366x768 laptop without
+   forcing the user to browser-zoom out to 80%.
+
+   Tiering:
+     <= 1536px  -> spacing at 90%  (gentle compression for laptops)
+     <= 1366px  -> spacing at 84% + slightly smaller display numerals
+                   (exact fit for common 1366x768 business laptops)
+   Larger monitors (1600px+) keep the original design 1:1.
+
+   Scoped to `screen` so print media (reports, barcode labels) is not
+   affected. Rules are outside Tailwind's @layer cascade, so they win
+   over the generated utilities at equal specificity.
+   ===================================================================== */
+@media screen and (max-width: 1536px) {
+  :root {
+    --spacing: 0.225rem; /* 90% of the default 0.25rem */
+  }
+}
+
+@media screen and (max-width: 1366px) {
+  /* Compact desktop profile for common 1366x768 business displays. This is
+     intentionally modest so text remains readable while the application
+     gains useful horizontal and vertical room. */
+  html {
+    font-size: 94%;
+  }
+
+  .responsive-sidebar-rail {
+    width: 64px;
+  }
+
+  .responsive-sidebar-panel {
+    left: 64px;
+    width: 16rem;
+  }
+
+  :root {
+    --spacing: 0.21rem; /* 84% of the default 0.25rem */
+  }
+  /* Keep large scorecard/stat numerals proportional to the compressed
+     cards (24px -> 20.8px, 20px -> 18.4px) while all smaller text
+     (text-base/text-sm/text-xs) stays at full, readable size. */
+  .text-2xl {
+    font-size: 1.3rem;
+    line-height: 1.7rem;
+  }
+  .text-xl {
+    font-size: 1.15rem;
+    line-height: 1.6rem;
+  }
+}
+
 @media print {
 	@page { margin: 0; }
 	body * { visibility: hidden !important; }
@@ -21,4 +90,77 @@
 	.printable-document input,
 	.printable-document select,
 	.printable-document textarea { display: none !important; }
+}
+
+/* =====================================================================
+   THEME-AWARE SLIM SCROLLBARS
+   ---------------------------------------------------------------------
+   A slim, modern scrollbar that adapts to light/dark mode via the `.dark`
+   class on <html>. Applies to the whole document and every scrollable area
+   in the app (including the `overflow-auto/y` panels and modal panels).
+
+   Design:
+     - 8px track with a fully transparent base so cards/layouts stay clean
+     - Rounded, slightly translucent thumb that darkens on hover
+     - Dark mode uses softer slate tones that match the app's dark palette
+     - Firefox gets a compact scrollbar-width + neutral colors
+     - The native (non-WebKit) scrollbar corner is hidden so dual-axis
+       panels do not render an empty square
+   ===================================================================== */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+}
+
+:root.dark {
+  scrollbar-color: rgb(71 85 105 / 0.7) transparent;
+}
+
+/* WebKit / Blink (Chrome, Edge, Brave, Safari desktop) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184 / 0.55); /* slate-400 @ 55% */
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.85); /* slate-500 solid-ish */
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:root.dark *::-webkit-scrollbar-thumb {
+  background: rgb(71 85 105 / 0.7); /* slate-600 @ 70% */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+:root.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.9); /* slate-500 */
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+:root.dark *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox global app scrollbar color (already set via scrollbar-color above). */
+::-webkit-scrollbar {
+  scrollbar-width: thin;
 }

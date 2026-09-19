@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Asset, Branch, User } from '../../types';
 import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
+import { calculateFixedAssetValues } from '../../utils/depreciation';
 import {
   Landmark,
   Plus,
@@ -18,15 +20,16 @@ import {
   Info,
   Download,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
 interface FixedAssetRegisterProps {
   assets: Asset[];
   branches: Branch[];
   selectedBranchId: string;
+  asOfDateAD?: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
   currentUser?: User | null;
-  isDarkMode?: boolean;
   onCreateAsset: (
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
   ) => Promise<void>;
@@ -37,10 +40,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   assets,
   branches,
   selectedBranchId,
+  asOfDateAD,
   dateMode,
   autoOpenModal = false,
   currentUser,
-  isDarkMode = false,
   onCreateAsset,
   onUpdateAssetStatus,
 }) => {
@@ -72,9 +75,17 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     return matchesBranch && matchesSearch;
   });
 
-  const totalCost = filteredAssets.reduce((sum, a) => sum + a.acquisitionCost, 0);
-  const totalAccumDep = filteredAssets.reduce((sum, a) => sum + a.accumulatedDepreciation, 0);
-  const totalNBV = filteredAssets.reduce((sum, a) => sum + a.netBookValue, 0);
+  const totalCost = filteredAssets.reduce((sum, a) => sum + Number(a.acquisitionCost ?? 0), 0);
+  const totalAccumDep = filteredAssets.reduce(
+    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).accumulatedDepreciation ?? 0),
+    0
+  );
+  const totalNBV = filteredAssets.reduce(
+    (sum, a) => sum + Number(calculateFixedAssetValues({ ...a, acquisitionDateAD: a.placedInServiceDateAD || a.acquisitionDateAD, asOfDateAD }).netBookValue ?? 0),
+    0
+  );
+
+  const assetsPagination = useClientPagination(filteredAssets, 15, [selectedBranchId, search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +100,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       branchId,
       acquisitionDateAD,
       acquisitionDateBS: bsObj.formattedBSShort,
+      purchaseInvoiceDateAD: acquisitionDateAD,
+      purchaseInvoiceDateBS: bsObj.formattedBSShort,
+      capitalizationDateAD: acquisitionDateAD,
+      placedInServiceDateAD: acquisitionDateAD,
       acquisitionCost: Number(acquisitionCost),
       depreciationMethod,
       depreciationRatePercent: Number(depreciationRatePercent),
@@ -101,7 +116,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const selectedBranchObj = branches.find((b) => b.id === selectedAssetDetail?.branchId);
 
   const handleExportCSV = () => {
-    exportToCSV('IZone_Fixed_Asset_Register', filteredAssets, [
+    exportToCSV('Inventory_Fixed_Asset_Register', filteredAssets, [
       { key: 'tagNumber', label: 'Tag Number' },
       { key: 'name', label: 'Asset Title' },
       { key: 'category', label: 'Category' },
@@ -118,24 +133,24 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header & Stats */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-            <Landmark className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+            <Landmark className={`h-5 w-5 text-blue-600 dark:text-blue-400`} />
             <span>Fixed Asset Register & Depreciation Ledger</span>
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
+          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
             Click any asset row to view branch allocation, physical location, and quantity details.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="shrink-0 flex items-center gap-3">
           <button
             onClick={handleExportCSV}
             title="Export Assets to CSV"
-            className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-xs transition-all cursor-pointer"
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
           >
             <Download className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -159,28 +174,28 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
       {/* Asset Valuation Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Gross Asset Cost</div>
-          <div className="text-lg font-mono font-bold text-slate-900 dark:text-white mt-1">
+        <div className={`rounded-2xl p-4 border shadow-xs bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+          <div className={`text-xs font-semibold text-slate-500 dark:text-slate-400`}>Gross Asset Cost</div>
+          <div className={`text-lg font-mono font-bold mt-1 text-slate-900 dark:text-white`}>
             {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
-        <div className="rounded-2xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Accumulated Depreciation</div>
-          <div className="text-lg font-mono font-bold text-rose-600 dark:text-rose-400 mt-1">
+        <div className={`rounded-2xl p-4 border shadow-xs bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+          <div className={`text-xs font-semibold text-slate-500 dark:text-slate-400`}>Accumulated Depreciation</div>
+          <div className={`text-lg font-mono font-bold text-rose-600 dark:text-rose-400 mt-1`}>
             {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
-        <div className="rounded-2xl bg-emerald-50/30 dark:bg-slate-900 p-4 border border-emerald-200 dark:border-slate-800 shadow-xs">
-          <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-400">Net Book Value (NBV)</div>
-          <div className="text-lg font-mono font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
+        <div className={`rounded-2xl p-4 border shadow-xs bg-emerald-50/30 border-emerald-200 dark:bg-slate-900 dark:border-slate-800`}>
+          <div className={`text-xs font-semibold text-emerald-800 dark:text-emerald-400`}>Net Book Value (NBV)</div>
+          <div className={`text-lg font-mono font-extrabold mt-1 text-emerald-700 dark:text-emerald-400`}>
             {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
 
       {/* Search control */}
-      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center max-w-md">
+      <div className={`p-3 rounded-2xl border shadow-xs flex items-center max-w-md bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
         <Search className="h-4 w-4 text-slate-400 mr-2" />
         <input
           type="text"
@@ -192,20 +207,21 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+      <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
+            <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="p-3.5">Tag #</th>
-                <th className="p-3.5">Asset Name</th>
-                <th className="p-3.5">Category</th>
-                <th className="p-3.5">Branch Used In</th>
-                <th className="p-3.5">Acquired Date</th>
-                <th className="p-3.5 text-right">Cost</th>
-                <th className="p-3.5 text-right">Method & Rate</th>
-                <th className="p-3.5 text-right">Net Book Value</th>
-                <th className="p-3.5 text-center">Status</th>
+                <th className="px-2.5 py-1.5">Tag #</th>
+                <th className="px-2.5 py-1.5">Asset Name</th>
+                <th className="px-2.5 py-1.5">Category</th>
+                <th className="px-2.5 py-1.5">Branch Used In</th>
+                <th className="px-2.5 py-1.5">Acquired Date</th>
+                <th className="px-2.5 py-1.5 text-right">Cost (NPR)</th>
+                <th className="px-2.5 py-1.5 text-right">Method & Rate</th>
+                <th className="px-2.5 py-1.5 text-right">Accum. Depr. (NPR)</th>
+                <th className="px-2.5 py-1.5 text-right">Net Book Value (NPR)</th>
+                <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -216,37 +232,38 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredAssets.map((asset) => {
+                assetsPagination.pagedItems.map((asset) => {
                   const branch = branches.find((b) => b.id === asset.branchId);
+                  const financials = calculateFixedAssetValues({ ...asset, acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD, asOfDateAD });
                   return (
                     <tr
                       key={asset.id}
                       onClick={() => setSelectedAssetDetail(asset)}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                      className="hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                     >
-                      <td className="p-3.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline">
+                      <td className={`p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400 group-hover:underline`}>
                         {asset.tagNumber}
                       </td>
-                      <td className="p-3.5 font-bold text-slate-900 dark:text-slate-100">{asset.name}</td>
-                      <td className="p-3.5">
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100">{asset.name}</td>
+                      <td className="p-2.5">
                         <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                           {asset.category}
                         </span>
                       </td>
-                      <td className="p-3.5 text-slate-800 dark:text-slate-200 font-semibold">{branch?.name || asset.branchId}</td>
-                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                      <td className="p-2.5 text-slate-800 dark:text-slate-200 font-semibold">{branch?.name || asset.branchId}</td>
+                      <td className="p-2.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {formatDualDate(asset.acquisitionDateAD, dateMode)}
                       </td>
-                      <td className="p-3.5 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
+                      <td className="p-2.5 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
                         {(asset.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3.5 text-right text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                      <td className="p-2.5 text-right text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SL' : 'RB'} @ {asset.depreciationRatePercent}%
                       </td>
-                      <td className="p-3.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                        {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <td className="p-2.5 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                        {(financials.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <select
                           value={asset.status}
                           onChange={(e) => onUpdateAssetStatus(asset.id, e.target.value as any)}
@@ -258,9 +275,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                           }`}
                         >
-                          <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-emerald-400 font-bold">ACTIVE</option>
-                          <option value="MAINTENANCE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 font-bold">MAINTENANCE</option>
-                          <option value="DISPOSED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-400 font-bold">DISPOSED</option>
+                          <option value="ACTIVE" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-emerald-400 font-bold`}>ACTIVE</option>
+                          <option value="MAINTENANCE" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 font-bold`}>MAINTENANCE</option>
+                          <option value="DISPOSED" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-400 font-bold`}>DISPOSED</option>
                         </select>
                       </td>
                     </tr>
@@ -270,15 +287,26 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={assetsPagination.page}
+          pageCount={assetsPagination.pageCount}
+          totalItems={assetsPagination.totalItems}
+          rangeStart={assetsPagination.rangeStart}
+          rangeEnd={assetsPagination.rangeEnd}
+          pageSize={assetsPagination.pageSize}
+          onPageChange={assetsPagination.setPage}
+          onPageSizeChange={assetsPagination.setPageSize}
+          className="mt-1"
+        />
       </div>
 
       {/* Asset Location & Quantity Details Modal */}
       {selectedAssetDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-4">
-              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
-                <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
+              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-slate-100`}>
+                <Info className={`h-4 w-4 text-blue-600 dark:text-blue-400`} />
                 <span>Fixed Asset Branch Allocation & Deployment Details</span>
               </h3>
               <button
@@ -290,7 +318,11 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             </div>
 
             <div className="p-5 space-y-4 text-xs">
-              <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900">
+              {(() => {
+                const financials = calculateFixedAssetValues({ ...selectedAssetDetail, acquisitionDateAD: selectedAssetDetail.placedInServiceDateAD || selectedAssetDetail.acquisitionDateAD, asOfDateAD });
+                return (
+                  <>
+                    <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900">
                 <span className="text-[10px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">
                   Asset Identification
                 </span>
@@ -305,7 +337,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
                   <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1">
-                    <Building className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <Building className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400`} />
                     Branch Used In
                   </span>
                   <div className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-1">
@@ -319,7 +351,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
                   <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1">
-                    <Layers className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <Layers className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400`} />
                     Quantity Deployed
                   </span>
                   <div className="text-base font-mono font-extrabold text-blue-700 dark:text-blue-400 mt-1">
@@ -334,12 +366,12 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Party Invoice / Purchase Date:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.acquisitionDateAD} ({selectedAssetDetail.acquisitionDateBS})</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.purchaseInvoiceDateAD || selectedAssetDetail.acquisitionDateAD} ({selectedAssetDetail.purchaseInvoiceDateBS || selectedAssetDetail.acquisitionDateBS})</span>
                 </div>
                 {selectedAssetDetail.invoiceNo && (
                   <div className="flex justify-between text-slate-600 dark:text-slate-400">
                     <span>Party Invoice Ref #:</span>
-                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{selectedAssetDetail.invoiceNo}</span>
+                    <span className={`font-mono font-bold text-indigo-600 dark:text-indigo-400`}>{selectedAssetDetail.invoiceNo}</span>
                   </div>
                 )}
                 {selectedAssetDetail.supplierName && (
@@ -349,16 +381,20 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   </div>
                 )}
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Placed in Service Date:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{selectedAssetDetail.placedInServiceDateAD || selectedAssetDetail.acquisitionDateAD}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Gross Acquisition Cost:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{(selectedAssetDetail.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
-                <div className="flex justify-between text-rose-600 dark:text-rose-400">
+                <div className={`flex justify-between text-rose-600 dark:text-rose-400`}>
                   <span>Accumulated Depreciation:</span>
-                  <span className="font-mono font-bold">{(selectedAssetDetail.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-bold">{(financials.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-bold border-t border-slate-200 dark:border-slate-800 pt-2">
                   <span>Current Net Book Value:</span>
-                  <span className="font-mono">{(selectedAssetDetail.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono">{(financials.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
@@ -371,6 +407,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   Close Window
                 </button>
               </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -379,9 +418,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       {/* Asset Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-8 text-slate-800 dark:text-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-4">
-              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 text-sm bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}>
+            <div className={`flex items-center justify-between border-b p-4 border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60`}>
+              <h3 className={`font-bold text-sm text-slate-900 dark:text-slate-100`}>
                 Register New Fixed Asset
               </h3>
               <button
@@ -403,7 +442,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     required
                     value={tagNumber}
                     onChange={(e) => setTagNumber(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 font-mono text-xs text-slate-900 dark:text-slate-100 font-bold"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-bold border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   />
                 </div>
                 <div>
@@ -413,13 +452,13 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value as any)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   >
-                    <option value="IT Equipment" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">IT Equipment</option>
-                    <option value="Furniture" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Furniture</option>
-                    <option value="Machinery" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Machinery</option>
-                    <option value="Vehicles" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Vehicles</option>
-                    <option value="Fixtures" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Fixtures</option>
+                    <option value="IT Equipment" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>IT Equipment</option>
+                    <option value="Furniture" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Furniture</option>
+                    <option value="Machinery" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Machinery</option>
+                    <option value="Vehicles" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Vehicles</option>
+                    <option value="Fixtures" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Fixtures</option>
                   </select>
                 </div>
               </div>
@@ -434,7 +473,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Cisco Optical Core Switch Catalyst 9300"
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs placeholder-slate-400 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500`}
                 />
               </div>
 
@@ -446,25 +485,22 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   <select
                     value={branchId}
                     onChange={(e) => setBranchId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   >
                     {branches.map((b) => (
-                      <option key={b.id} value={b.id} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+                      <option key={b.id} value={b.id} className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>
                         {b.name} ({b.code})
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Acquisition Date (AD)
-                  </label>
-                  <input
-                    type="date"
-                    required
+                  <DateField
+                    label="Acquisition Date"
+                    mode={dateMode}
                     value={acquisitionDateAD}
-                    onChange={(e) => setAcquisitionDateAD(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
+                    onChange={setAcquisitionDateAD}
+                    required
                   />
                 </div>
               </div>
@@ -480,7 +516,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     min={1}
                     value={acquisitionCost}
                     onChange={(e) => setAcquisitionCost(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono font-bold"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono font-bold border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   />
                 </div>
                 <div>
@@ -490,10 +526,10 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   <select
                     value={depreciationMethod}
                     onChange={(e) => setDepreciationMethod(e.target.value as any)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   >
-                    <option value="STRAIGHT_LINE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Straight Line</option>
-                    <option value="REDUCING_BALANCE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Reducing Balance</option>
+                    <option value="STRAIGHT_LINE" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Straight Line</option>
+                    <option value="REDUCING_BALANCE" className={`bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100`}>Reducing Balance</option>
                   </select>
                 </div>
                 <div>
@@ -507,7 +543,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                     max={100}
                     value={depreciationRatePercent}
                     onChange={(e) => setDepreciationRatePercent(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
                   />
                 </div>
               </div>
@@ -516,7 +552,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>

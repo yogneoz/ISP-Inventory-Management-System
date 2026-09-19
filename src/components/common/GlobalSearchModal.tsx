@@ -11,6 +11,7 @@ import {
   InventoryStock,
 } from '../../types';
 import { NavTab } from '../layout/Sidebar';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Search,
   Package,
@@ -41,7 +42,6 @@ interface GlobalSearchModalProps {
   stock: InventoryStock[];
   selectedBranchId: string;
   onSelectResult: (tab: NavTab, filterText?: string) => void;
-  isDarkMode?: boolean;
 }
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
@@ -60,7 +60,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   stock = [],
   selectedBranchId = 'ALL',
   onSelectResult,
-  isDarkMode = false,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -192,19 +191,13 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
       {/* Main Dialog Modal */}
       <div
-        className={`relative w-full max-w-3xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[85vh] z-10 transition-all ${
-          isDarkMode
-            ? 'bg-[#0f1218] border-slate-800 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className={`relative w-full max-w-3xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[85vh] z-10 transition-all bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-100`}
       >
         {/* Search Header Input Bar */}
         <div
-          className={`flex items-center gap-3 px-4 py-3.5 border-b ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-100 bg-slate-50/80'
-          }`}
+          className={`flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/50`}
         >
-          <Search className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+          <Search className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
           <input
             ref={inputRef}
             type="text"
@@ -216,18 +209,14 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className={`text-xs px-2 py-1 rounded-md transition-colors ${
-                isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
-              }`}
+              className={`text-xs px-2 py-1 rounded-md transition-colors bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
             >
               Clear
             </button>
           )}
           <button
             onClick={onClose}
-            className={`p-1.5 rounded-lg transition-colors ${
-              isDarkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-200 text-slate-500 hover:text-slate-800'
-            }`}
+            className={`p-1.5 rounded-lg transition-colors hover:bg-slate-200 text-slate-500 hover:text-slate-800 dark:hover:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200`}
           >
             <X className="h-5 w-5" />
           </button>
@@ -237,35 +226,35 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
         <div className="overflow-y-auto p-4 space-y-6 flex-1 custom-scrollbar">
           {!query ? (
             <div className="py-12 text-center">
-              <Search className={`h-12 w-12 mx-auto mb-3 opacity-30 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
-              <p className={`text-sm font-semibold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+              <Search className={`h-12 w-12 mx-auto mb-3 opacity-30 text-indigo-600 dark:text-indigo-400`} />
+              <p className={`text-sm font-semibold text-slate-700 dark:text-slate-300`}>
                 Global System Quick Search
               </p>
-              <p className={`text-xs mt-1 max-w-md mx-auto ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-xs mt-1 max-w-md mx-auto text-slate-400 dark:text-slate-500`}>
                 Search across all system databases instantly by entering item names, SKUs, barcode, purchase order numbers, invoice bills, serial numbers, customer details, or branch codes.
               </p>
               <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-[11px]">
-                <span className={`px-2.5 py-1 rounded-full border ${isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                <span className={`px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400`}>
                   e.g. "iPhone 15"
                 </span>
-                <span className={`px-2.5 py-1 rounded-full border ${isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                <span className={`px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400`}>
                   e.g. "PO-2082"
                 </span>
-                <span className={`px-2.5 py-1 rounded-full border ${isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                <span className={`px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400`}>
                   e.g. "INV-1092"
                 </span>
-                <span className={`px-2.5 py-1 rounded-full border ${isDarkMode ? 'border-slate-800 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
-                  e.g. "Chulachuli"
+                <span className={`px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400`}>
+                  e.g. "Branch 2"
                 </span>
               </div>
             </div>
           ) : totalResultsCount === 0 ? (
             <div className="py-12 text-center">
               <Package className="h-10 w-10 mx-auto mb-2 text-slate-400 opacity-40" />
-              <p className={`text-sm font-semibold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+              <p className={`text-sm font-semibold text-slate-700 dark:text-slate-300`}>
                 No matching records found
               </p>
-              <p className={`text-xs mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-xs mt-1 text-slate-400 dark:text-slate-500`}>
                 No products, invoices, orders, or records matched "{searchQuery}".
               </p>
             </div>
@@ -292,14 +281,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                         <div
                           key={p.id}
                           onClick={() => handleItemClick('all-stock', p.sku)}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                            isDarkMode
-                              ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-indigo-500/50'
-                              : 'bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300'
-                          }`}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-indigo-950/60 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>
+                            <div className={`p-2 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300`}>
                               <Package className="h-5 w-5" />
                             </div>
                             <div>
@@ -312,7 +297,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <div className="text-[11px] text-slate-400 flex items-center gap-3 mt-0.5">
                                 <span>Category: {p.category}</span>
                                 <span>•</span>
-                                <span>Price: NPR {(p.sellingPrice || 0).toLocaleString('en-IN')}</span>
+                                <span>Price: {formatNPR(p.sellingPrice)}</span>
                               </div>
                             </div>
                           </div>
@@ -355,14 +340,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={po.id}
                         onClick={() => handleItemClick('po-list', po.poNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-amber-500/50'
-                            : 'bg-white border-slate-200 hover:bg-amber-50/50 hover:border-amber-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-amber-50/50 hover:border-amber-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-amber-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-amber-950/60 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                          <div className={`p-2 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300`}>
                             <FileText className="h-5 w-5" />
                           </div>
                           <div>
@@ -371,7 +352,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <span className="text-slate-400 text-[11px] font-normal">• {po.supplierName}</span>
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Date: {po.orderDateBS} BS | Total: NPR {(po.totalAmount || 0).toLocaleString('en-IN')}
+                              Date: {po.orderDateBS} BS | Total: {formatNPR(po.totalAmount)}
                             </div>
                           </div>
                         </div>
@@ -413,14 +394,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={inv.id}
                         onClick={() => handleItemClick('purchase-list', inv.invoiceNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-emerald-500/50'
-                            : 'bg-white border-slate-200 hover:bg-emerald-50/50 hover:border-emerald-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-emerald-50/50 hover:border-emerald-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-emerald-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-emerald-950/60 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
+                          <div className={`p-2 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300`}>
                             <Receipt className="h-5 w-5" />
                           </div>
                           <div>
@@ -431,7 +408,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               )}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Supplier: {inv.supplierName} | Grand Total: NPR {(inv.grandTotal || 0).toLocaleString('en-IN')}
+                              Supplier: {inv.supplierName} | Grand Total: {formatNPR(inv.grandTotal)}
                             </div>
                           </div>
                         </div>
@@ -473,14 +450,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={sh.id}
                         onClick={() => handleItemClick('shipment-list', sh.trackingCode)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-purple-500/50'
-                            : 'bg-white border-slate-200 hover:bg-purple-50/50 hover:border-purple-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-purple-50/50 hover:border-purple-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-purple-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-purple-950/60 text-purple-300' : 'bg-purple-100 text-purple-700'}`}>
+                          <div className={`p-2 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300`}>
                             <Truck className="h-5 w-5" />
                           </div>
                           <div>
@@ -528,14 +501,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={ast.id}
                         onClick={() => handleItemClick('fixed-assets', ast.tagNumber)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-cyan-500/50'
-                            : 'bg-white border-slate-200 hover:bg-cyan-50/50 hover:border-cyan-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-cyan-50/50 hover:border-cyan-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-cyan-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-cyan-950/60 text-cyan-300' : 'bg-cyan-100 text-cyan-700'}`}>
+                          <div className={`p-2 rounded-lg bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300`}>
                             <Monitor className="h-5 w-5" />
                           </div>
                           <div>
@@ -544,7 +513,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <span className="font-mono text-[10px] text-cyan-400">({ast.tagNumber})</span>
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              Category: {ast.category} | Cost: NPR {(ast.acquisitionCost || 0).toLocaleString('en-IN')}
+                              Category: {ast.category} | Cost: {formatNPR(ast.acquisitionCost)}
                             </div>
                           </div>
                         </div>
@@ -578,14 +547,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={dev.id}
                         onClick={() => handleItemClick('customers', dev.customerCode)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-rose-500/50'
-                            : 'bg-white border-slate-200 hover:bg-rose-50/50 hover:border-rose-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-rose-50/50 hover:border-rose-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-rose-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-rose-950/60 text-rose-300' : 'bg-rose-100 text-rose-700'}`}>
+                          <div className={`p-2 rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300`}>
                             <Wrench className="h-5 w-5" />
                           </div>
                           <div>
@@ -628,14 +593,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={s.id}
                         onClick={() => handleItemClick('suppliers', s.name)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-teal-500/50'
-                            : 'bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-teal-50/50 hover:border-teal-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-teal-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-teal-950/60 text-teal-300' : 'bg-teal-100 text-teal-700'}`}>
+                          <div className={`p-2 rounded-lg bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300`}>
                             <Users className="h-5 w-5" />
                           </div>
                           <div>
@@ -670,14 +631,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                       <div
                         key={b.id}
                         onClick={() => handleItemClick('branches', b.name)}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                          isDarkMode
-                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-indigo-500/50'
-                            : 'bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300'
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer bg-white border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 dark:bg-slate-900/60 dark:border-slate-800/80 dark:hover:bg-slate-800/80 dark:hover:border-indigo-500/50`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-indigo-950/60 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>
+                          <div className={`p-2 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300`}>
                             <Building2 className="h-5 w-5" />
                           </div>
                           <div>
@@ -708,9 +665,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
         {/* Modal Footer */}
         <div
-          className={`px-4 py-2.5 border-t flex items-center justify-between text-xs ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/50 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-500'
-          }`}
+          className={`px-4 py-2.5 border-t flex items-center justify-between text-xs border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400`}
         >
           <div className="flex items-center gap-3">
             <span>

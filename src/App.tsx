@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User,
   Supplier,
@@ -19,8 +19,11 @@ import {
   CustomerRecord,
   ApprovalRequest,
   Category,
+  DamageRecord,
+  LocationRecord,
 } from './types';
-import { api, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
+import { seedBSYearCalendar } from './utils/nepaliCalendar';
 import {
   saveUserSession,
   loadUserSession,
@@ -28,9 +31,11 @@ import {
   saveRecentBootstrapCache,
   loadRecentBootstrapCache,
   clearRecentBootstrapCache,
+  BOOTSTRAP_CACHE_MAX_AGE_MS,
 } from './utils/sessionCache';
 import { Header } from './components/layout/Header';
-import { Sidebar, NavTab } from './components/layout/Sidebar';
+import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
+import { isOperationAllowed } from './utils/permissions';
 import { LoginModal } from './components/common/LoginModal';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -41,23 +46,23 @@ import { DamagedStockTracking } from './features/inventory/DamagedStockTracking'
 import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
 import { CustomersManagement } from './features/sales/CustomersManagement';
 import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
+import { AllSerialInventory } from './features/inventory/AllSerialInventory';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
 import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
 import { Shipments } from './features/procurement/Shipments';
 import { StockOperations } from './features/inventory/StockOperations';
 import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
 import { BsCalendarUtility } from './features/finance/BsCalendarUtility';
-import { FiscalYearManagement } from './features/finance/FiscalYearManagement';
+import { DocumentNumbering } from './features/finance/DocumentNumbering';
 import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagement';
 import { AuditTrailReports } from './features/finance/AuditTrailReports';
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
-const ACTIVE_TAB_STORAGE_KEY = 'izone_active_tab';
+const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
-import { ExportReports } from './features/finance/ExportReports';
 import { FinancialStatements } from './features/finance/FinancialStatements';
 import { VatRegister } from './features/finance/VatRegister';
 import { DepreciationRegister } from './features/finance/DepreciationRegister';
@@ -67,6 +72,9 @@ import { ApprovalWorkflowCenter } from './features/settings/ApprovalWorkflowCent
 import { StockMovementLedger } from './features/inventory/StockMovementLedger';
 import { PhysicalStockAudit } from './features/inventory/PhysicalStockAudit';
 import { FiscalYearClosingWizard } from './features/finance/FiscalYearClosingWizard';
+import { OpeningStockManager } from './features/finance/OpeningStockManager';
+import { VendorOpeningBalances } from './features/finance/VendorOpeningBalances';
+import { VendorLedger } from './features/finance/VendorLedger';
 import { WarrantyProducts } from './features/inventory/WarrantyProducts';
 import { CategoryManagement } from './features/inventory/CategoryManagement';
 import { UomManagement } from './features/inventory/UomManagement';
@@ -75,11 +83,33 @@ import { ImportStock } from './features/inventory/ImportStock';
 import { ExportStock } from './features/inventory/ExportStock';
 import { LocationsManagement } from './features/settings/LocationsManagement';
 import { ImportCustomers } from './features/sales/ImportCustomers';
+import { DataRecalculationMaintenance } from './features/settings/DataRecalculationMaintenance';
 import { HelpDocumentation } from './components/common/HelpDocumentation';
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
+import { setCurrencyConfig } from './utils/nprFormat';
+import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
+
+// Chooses the fiscal year to show by default: the year flagged current whose
+// AD range contains today's date (guards against multiple years being flagged
+// current), falling back to the first flagged-current year, then the first
+// available year. Switching fiscal years in the header filters data to that
+// fiscal year on refresh.
+function resolveDefaultFiscalYear(fiscalYears: FiscalYear[]): FiscalYear | undefined {
+  if (!fiscalYears.length) return undefined;
+  const currentCandidates = fiscalYears.filter((f) => f.isCurrent);
+  if (!currentCandidates.length) return fiscalYears[0];
+  const now = new Date();
+  const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const containsToday = (f: FiscalYear) => {
+    const start = String(f.startDateAD || '').slice(0, 10);
+    const end = String(f.endDateAD || '').slice(0, 10);
+    return Boolean(start && end && todayAD >= start && todayAD <= end);
+  };
+  return currentCandidates.find(containsToday) || currentCandidates[0];
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -92,15 +122,80 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    return savedTab && savedTab !== 'dashboard' ? (savedTab as NavTab) : 'dashboard';
+    // Only restore the saved tab if it is still a valid menu id (guards against removed/renamed tabs)
+    return savedTab && (NAV_TABS as string[]).includes(savedTab) ? (savedTab as NavTab) : 'dashboard';
   });
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
-  const [dateMode, setDateMode] = useState<'BS' | 'AD'>('BS');
+  const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
+    const saved = localStorage.getItem('inventory_date_mode');
+    return saved === 'AD' ? 'AD' : 'BS';
+  });
+
+  // Toggles the global date display between Bikram Sambat (BS) and AD.
+  // The choice is persisted so every client remembers the user's preference.
+  const handleToggleDateMode = () => {
+    setDateMode((prev) => {
+      const next = prev === 'BS' ? 'AD' : 'BS';
+      localStorage.setItem('inventory_date_mode', next);
+      return next;
+    });
+  };
+
+  // Centralized navigation access control. Each nav tab requiring a permission
+  // is mapped to one or more matrix operations (`isOperationAllowed`). Tabs that
+  // are purely administrative and have no matrix operation remain Super-Admin only.
+  // This is defense-in-depth: the Sidebar also hides these tabs for unauthorized roles.
+  const TAB_PERMISSIONS: Record<string, string | string[]> = {
+    'create-po': 'po-create',
+    'create-purchase': 'inv-create',
+    'create-shipment': 'shipment-create',
+    'receive-shipment': 'wh-receive-pullouts',
+    'shipment-list': 'shipment-history',
+    pullout: 'branch-pullout-dispatch',
+    damage: 'branch-damage-mark',
+    'receive-branch-transfer': 'branch-transfer-receive',
+    'create-transfer': 'branch-transfer-create',
+    'assign-asset': 'branch-asset-assign',
+    'stock-out': 'stock-out',
+    'opening-stock': 'opening-stock-view',
+    'category-management': 'category-manage',
+    'uom-management': 'uom-manage',
+    'product-master': 'prod-view',
+    branches: 'admin-branches',
+    suppliers: 'suppliers-manage',
+    'import-stock': 'stock-import-export',
+    'export-stock': 'stock-import-export',
+    'stock-valuation': 'stock-valuation',
+    'fixed-assets': 'assets-manage',
+    'depreciation-register': 'assets-manage',
+    approvals: ['workflow-approval', 'workflow-approval-cancel'],
+    'workflow-approval': ['workflow-approval', 'workflow-approval-cancel'],
+    'financial-statements': 'fin-statements',
+    'vendor-ledger': 'inv-pay',
+    'vendor-opening-balances': 'opening-stock-view',
+    'vat-register': 'vat-register',
+    users: 'admin-users',
+    audit: 'admin-audit',
+    'fiscal-year-management': 'admin-fiscal',
+    'fiscal-year-closing': 'admin-fiscal',
+    'nepali-fiscal': 'admin-fiscal',
+    'bs-calendar': 'admin-fiscal',
+  };
+  const SUPER_ADMIN_ONLY_TABS = ['permissions', 'import-customers', 'data-recalculation', 'clear-demo-data'];
+
+  const canAccessTab = (tab: NavTab): boolean => {
+    if (SUPER_ADMIN_ONLY_TABS.includes(tab)) return currentUser?.role === 'SUPER_ADMIN';
+    const perm = TAB_PERMISSIONS[tab];
+    if (!perm) return true;
+    if (Array.isArray(perm)) return perm.some((op) => isOperationAllowed(op, currentUser?.role));
+    return isOperationAllowed(perm, currentUser?.role);
+  };
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -110,6 +205,17 @@ export default function App() {
   useEffect(() => {
     setUserContext(currentUser);
   }, [currentUser]);
+
+  // Force logout when token expires (401 from any API call)
+  useEffect(() => {
+    const handleAuthExpired = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      console.warn('Session expired:', customEvent.detail?.message);
+      handleLogout();
+    };
+    window.addEventListener('inventory_auth_expired', handleAuthExpired);
+    return () => window.removeEventListener('inventory_auth_expired', handleAuthExpired);
+  }, []);
 
   useEffect(() => {
     setFiscalYearContext(selectedFiscalYearId || null);
@@ -123,23 +229,12 @@ export default function App() {
     const handlePermissionsUpdated = () => {
       setPermissionsVersion((v) => v + 1);
     };
-    window.addEventListener('izone_permissions_updated', handlePermissionsUpdated);
-    return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
+    window.addEventListener('inventory_permissions_updated', handlePermissionsUpdated);
+    return () => window.removeEventListener('inventory_permissions_updated', handlePermissionsUpdated);
   }, []);
 
-  // Theme State: default to light mode (false) as requested, with localStorage persistence
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('izone_theme');
-    return saved === 'dark';
-  });
-
-  const handleToggleTheme = () => {
-    setIsDarkMode((prev) => {
-      const next = !prev;
-      localStorage.setItem('izone_theme', next ? 'dark' : 'light');
-      return next;
-    });
-  };
+  // Theme: managed by DarkModeContext (adds/removes `dark` class on <html>)
+  const { isDarkMode, toggleTheme: handleToggleTheme } = useDarkMode();
 
   // App Data State
   const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
@@ -161,10 +256,13 @@ export default function App() {
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [transactionLogs, setTransactionLogs] = useState<TransactionLog[]>([]);
+  const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
+  const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary>({
     totalInventoryAssetValue: 0,
     totalFixedAssetValue: 0,
     totalAccountsPayable: 0,
+    totalSalesRevenue: 0,
     totalCostOfGoodsSold: 0,
     totalDamageLossValue: 0,
     totalVatInputTax: 0,
@@ -201,18 +299,49 @@ export default function App() {
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
     if (data.auditLogs) setAuditLogs(data.auditLogs);
     if (data.transactionLogs) setTransactionLogs(data.transactionLogs);
+    if (data.damageRecords) setDamageRecords(data.damageRecords);
+    if (data.locations) setLocations(data.locations);
     if (data.financialSummary) setFinancialSummary(data.financialSummary);
     if (data.suppliers) setSuppliers(data.suppliers);
     if (data.users) setUsers(data.users as User[]);
     if (data.approvalRequests) setApprovalRequests(data.approvalRequests);
     if (data.categories) setCategories(data.categories);
-    if (data.companyProfile) setCompanyProfile(data.companyProfile);
+    if (data.companyProfile) {
+      setCompanyProfile(data.companyProfile);
+      applyCurrencyConfig(data.companyProfile);
+    }
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
   };
 
-  // Instant pre-hydration from recent cache
+  // Apply the active currency configuration from the company profile so every
+  // formatMoney/formatNPR call site renders in the configured currency.
+  const applyCurrencyConfig = (profile: CompanyProfile) => {
+    setCurrencyConfig({
+      code: profile.currencyCode || profile.currencySymbol || 'NPR',
+      symbol: profile.currencySymbol || 'NPR',
+      locale: profile.currencyLocale || 'en-IN',
+      position: profile.currencyPosition || 'before',
+      decimals: profile.currencyDecimals ?? 2,
+    });
+  };
+
+  // Instant pre-hydration from recent cache (scoped per user+branch+FY, TTL-guarded)
+  const cacheScopeRef = useRef<{ userId?: string; branchId?: string; fiscalYearId?: string }>({
+    userId: currentUser?.id || rootUser?.id,
+    branchId: selectedBranchId,
+    fiscalYearId: selectedFiscalYearId || undefined,
+  });
+  const serverDataVersionRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
-    const cached = loadRecentBootstrapCache();
+    const cached = loadRecentBootstrapCache(cacheScopeRef.current, {
+      // Only trust snapshots saved within the last 2 minutes. Older snapshots
+      // are ignored so the UI never flashes stale operational data.
+      maxAgeMs: BOOTSTRAP_CACHE_MAX_AGE_MS,
+      // If the SSE stream already reported a server dataVersion newer than the
+      // cache's, do not hydrate from it.
+      mustHaveDataVersion: serverDataVersionRef.current,
+    });
     if (cached) {
       applyBootstrapData(cached);
       setLoading(false);
@@ -220,22 +349,48 @@ export default function App() {
   }, []);
 
   // Load state from API via atomic unified bootstrap (1 roundtrip)
+  // A monotonic sequence guard ensures that a stale, slow response (e.g. from a
+  // fiscal year or branch the user has already switched away from) can never
+  // overwrite the data of the freshly selected view.
+  const refreshSequenceRef = useRef(0);
   const refreshAllData = async () => {
+    const requestBranchId = selectedBranchId;
+    const requestFiscalYearId = selectedFiscalYearId;
+    const requestSeq = ++refreshSequenceRef.current;
     try {
-      const data = await api.getBootstrapState(selectedBranchId, selectedFiscalYearId || undefined);
+      const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
+      // Discard stale results if the user switched branch/fiscal year in the meantime
+      if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
         applyBootstrapData(data);
-        if (!selectedFiscalYearId && data.fiscalYears?.length) {
-          setSelectedFiscalYearId(data.fiscalYears.find((f: FiscalYear) => f.isCurrent)?.id || data.fiscalYears[0].id);
+        if (data.dataVersion) serverDataVersionRef.current = data.dataVersion;
+        if (!requestFiscalYearId && data.fiscalYears?.length) {
+          const defaultFy = resolveDefaultFiscalYear(data.fiscalYears);
+          if (defaultFy) setSelectedFiscalYearId(defaultFy.id);
         }
-        saveRecentBootstrapCache(data);
+        // Scope the cache snapshot to the exact user + branch + FY view so a
+        // switch of any of those never leaks another view's data.
+        cacheScopeRef.current = {
+          userId: currentUser?.id || rootUser?.id,
+          branchId: requestBranchId,
+          fiscalYearId: requestFiscalYearId || undefined,
+        };
+        saveRecentBootstrapCache(data, cacheScopeRef.current);
       }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
     } finally {
-      setLoading(false);
+      if (requestSeq === refreshSequenceRef.current) setLoading(false);
     }
   };
+
+  // Always expose the freshest refresh closure to stable listeners. The SSE sync
+  // stream below captures this ref, so background refreshes always use the
+  // currently selected branch/fiscal year instead of a stale captured value.
+  const refreshAllDataRef = useRef(refreshAllData);
+  useEffect(() => {
+    refreshAllDataRef.current = refreshAllData;
+  });
 
   const handleCreateApprovalRequest = async (
     requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
@@ -263,14 +418,43 @@ export default function App() {
     refreshAllData();
   }, [selectedBranchId, selectedFiscalYearId]);
 
+  // Bootstrap the client-side BS calendar from the server so every AD -> BS
+  // conversion in the UI is driven by the authoritative bs_calendar_years /
+  // bs_day_records tables. Seeds made in the BS Calendar Utility (Admin) are
+  // picked up on any client, even browsers with a fresh local storage.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const years = await api.getBsCalendarYears();
+        if (cancelled || !Array.isArray(years)) return;
+        for (const y of years) {
+          if (y && y.yearBS && Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12 && y.startAD) {
+            seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync BS calendar years from server:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Real-time synchronization stream: listen for background changes from any user/branch
   useEffect(() => {
     let debounceTimer: any = null;
     const unsubscribe = subscribeToSyncStream((event) => {
+      // Track the latest server dataVersion so the instant pre-hydration on
+      // the next page load can refuse an outdated cached snapshot.
+      if (event && typeof event.dataVersion === 'number') {
+        serverDataVersionRef.current = event.dataVersion;
+      }
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        refreshAllData();
+        refreshAllDataRef.current();
       }, 250);
     });
 
@@ -289,13 +473,13 @@ export default function App() {
         // Keep or allow branch selection
       }
 
-      // Check for restricted tabs
-      const adminOnlyTabs = ['branches', 'suppliers', 'users', 'permissions', 'audit', 'create-shipment', 'clear-demo-data'];
-      if (adminOnlyTabs.includes(activeTab) && currentUser.role !== 'SUPER_ADMIN') {
+      // Check for restricted tabs (permission matrix + super-admin-only tabs).
+      // Re-check on every tab change and after the matrix is edited/saved.
+      if (!canAccessTab(activeTab)) {
         setActiveTab('dashboard');
       }
     }
-  }, [currentUser]);
+  }, [currentUser, activeTab, permissionsVersion]);
 
   // Global Keyboard Shortcuts (Alt+H for Help, Alt+B for Barcode, Alt+S/Ctrl+K for Search, Alt+D for Date Mode)
   useEffect(() => {
@@ -303,32 +487,35 @@ export default function App() {
       const target = e.target as HTMLElement | null;
       const isEditingField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '');
       if (isEditingField) return;
+      // While inside the Fiscal Year Closing Wizard, global search & barcode
+      // overlays must not be able to open on top of it (focus-hijack guard).
+      const closingWizardActive = activeTab === 'fiscal-year-closing';
 
       // Alt + H -> In-App Help & Documentation Center
       if (e.altKey && (e?.key || '').toLowerCase() === 'h') {
         e.preventDefault();
         setActiveTab('help-documentation');
       }
-      // Alt + B -> Barcode Scanner
+      // Alt + B -> Barcode Scanner (suppressed while closing wizard is open)
       if (e.altKey && (e?.key || '').toLowerCase() === 'b') {
         e.preventDefault();
-        setIsBarcodeModalOpen((prev) => !prev);
+        if (!closingWizardActive) setIsBarcodeModalOpen((prev) => !prev);
       }
-      // Alt + S or Ctrl + K -> Global Search
+      // Alt + S or Ctrl + K -> Global Search (suppressed while closing wizard is open)
       if ((e.altKey && (e?.key || '').toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k')) {
         e.preventDefault();
-        setIsGlobalSearchOpen((prev) => !prev);
+        if (!closingWizardActive) setIsGlobalSearchOpen((prev) => !prev);
       }
       // Alt + D -> Date Mode Toggle (BS / AD)
       if (e.altKey && (e?.key || '').toLowerCase() === 'd') {
         e.preventDefault();
-        setDateMode((prev) => (prev === 'BS' ? 'AD' : 'BS'));
+        handleToggleDateMode();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeTab]);
 
   // Handle Branch Selection with restriction for branch users
   const handleSelectBranch = (bId: string) => {
@@ -342,15 +529,17 @@ export default function App() {
   // Auth actions
   const handleLogin = async (e: string, p: string) => {
     const res = await api.login(e, p);
+    setAuthToken(res.token);
     setCurrentUser(res.user);
     setRootUser(res.user);
-    saveUserSession(res.user, res.user);
+    saveUserSession(res.user, res.user, res.token);
     refreshAllData();
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setRootUser(null);
+    setAuthToken(null);
     setUserContext(null);
     clearUserSession();
     clearRecentBootstrapCache();
@@ -362,18 +551,54 @@ export default function App() {
     if (!rootUser && currentUser) {
       setRootUser(currentUser);
     }
-    const res = await api.switchProfile(targetUserId);
-    setCurrentUser(res.user);
-    saveUserSession(res.user, nextRoot);
-    await refreshAllData();
+    try {
+      const res = await api.switchProfile(targetUserId);
+      setAuthToken(res.token);
+      setCurrentUser(res.user);
+      saveUserSession(res.user, nextRoot, res.token);
+      await refreshAllData();
+    } catch (err: any) {
+      // Never fail silently. If the server session is gone (e.g. after a
+      // server restart) drop the stale local session so the user can log
+      // back in cleanly instead of being stuck on a dead profile.
+      const message = err?.message || 'Unknown error';
+      const isAuthError = /not authenticated|log in again|unauthorized|authentication required/i.test(message);
+      if (isAuthError) {
+        handleLogout();
+      } else {
+        console.error('Could not switch profile:', message);
+      }
+      throw err;
+    }
   };
 
   const handleSwitchBackToRoot = async () => {
     if (!rootUser) return;
-    const res = await api.switchProfile(rootUser.id);
-    setCurrentUser(res.user);
-    saveUserSession(res.user, rootUser);
-    await refreshAllData();
+    const rootName = rootUser.name;
+    try {
+      // Send the root email alongside the id: after a demo data reset the
+      // account may have been re-created with a new id, and the stale id
+      // stored in localStorage would otherwise fail to resolve server-side.
+      const res = await api.switchProfile(rootUser.id, { targetEmail: rootUser.email });
+      setAuthToken(res.token);
+      setCurrentUser(res.user);
+      // Re-sync the root profile from the server response (freshest data,
+      // including the current id) so future switch-backs are always valid.
+      setRootUser(res.user);
+      saveUserSession(res.user, res.user, res.token);
+      await refreshAllData();
+    } catch (err: any) {
+      // Only force a re-login when the server explicitly rejects the session
+      // (expired/stale token). For any other failure (e.g. the root profile
+      // was deleted or the DB is down) keep the user logged in on the current
+      // profile and surface the reason instead of stranding them.
+      const message = err?.message || 'Unknown error';
+      const isAuthError = /not authenticated|log in again|unauthorized|authentication required/i.test(message);
+      if (isAuthError) {
+        handleLogout();
+      }
+      alert(`Could not switch back to ${rootName}: ${message}`);
+    }
   };
 
   const handleUpdateProfile = async (data: Partial<User> & { newPassword?: string }) => {
@@ -458,8 +683,8 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleUpdateAssetStatus = async (id: string, status: Asset['status']) => {
-    await api.updateAssetStatus(id, status);
+  const handleUpdateAssetStatus = async (id: string, updates: Asset['status'] | Partial<Asset>) => {
+    await api.updateAssetStatus(id, updates);
     refreshAllData();
   };
 
@@ -476,11 +701,6 @@ export default function App() {
 
   const handleUpdatePO = async (poId: string, poData: Partial<PurchaseOrder>) => {
     await api.updatePurchaseOrder(poId, poData);
-    refreshAllData();
-  };
-
-  const handleReceivePO = async (poId: string) => {
-    await api.receivePurchaseOrder(poId);
     refreshAllData();
   };
 
@@ -515,7 +735,7 @@ export default function App() {
               productName: item.productName,
               deviceSerial: sPair.deviceSerial,
               ponSerial: sPair.ponSerial || '-',
-              macAddress: sPair.macAddress || '-',
+              macAddress: sPair.macAddress || '',
               status: 'IN_STOCK',
               issuedDateAD: inv.invoiceDateAD,
               issuedDateBS: inv.invoiceDateBS,
@@ -534,8 +754,52 @@ export default function App() {
     await refreshAllData();
   };
 
-  const handleRecordPayment = async (id: string, amount: number) => {
-    await api.recordInvoicePayment(id, amount);
+  const handleRecordPayment = async (
+    id: string,
+    amount: number,
+    paymentMethod?: string,
+    details?: {
+      bankName?: string;
+      bankBranch?: string;
+      accountNumber?: string;
+      chequeNumber?: string;
+      transactionReference?: string;
+      paymentDateAD?: string;
+    }
+  ) => {
+    await api.recordInvoicePayment(id, amount, paymentMethod);
+    // Also write the sub-ledger row (bank details, dated, full history) so the
+    // Vendor Ledger report and the invoice payment history stay authoritative.
+    try {
+      const linkedInv = purchaseInvoices.find((inv) => inv.id === id);
+      await api.createVendorPayment({
+        supplierId: linkedInv?.supplierId,
+        supplierName: linkedInv?.supplierName || '',
+        invoiceId: id,
+        invoiceNumber: linkedInv?.invoiceNumber,
+        amount,
+        paymentMethod: paymentMethod || 'CASH',
+        paymentDateAD: details?.paymentDateAD || new Date().toISOString().split('T')[0],
+        bankName: details?.bankName,
+        bankBranch: details?.bankBranch,
+        accountNumber: details?.accountNumber,
+        chequeNumber: details?.chequeNumber,
+        transactionReference: details?.transactionReference,
+      });
+    } catch (err: any) {
+      console.warn('Sub-ledger sync notice:', err?.message || err);
+    }
+    refreshAllData();
+  };
+
+  const handleReversePayment = async (paymentId: string, reason: string) => {
+    await api.reverseVendorPayment(paymentId, reason);
+    refreshAllData();
+  };
+
+  // Reverse all posted payments on a fully paid invoice (restores it to UNPAID)
+  const handleReverseInvoicePayments = async (invoiceId: string, reason: string) => {
+    await api.reverseInvoicePayments(invoiceId, reason);
     refreshAllData();
   };
 
@@ -572,24 +836,50 @@ export default function App() {
     refreshAllData();
   };
 
+  // Reverse a damage record (Super Admin / Inventory Manager only) — restores
+  // the units back to available stock and marks the record CANCELLED.
+  const handleReverseStockOperation = async (id: string, reason?: string) => {
+    await api.reverseStockOperation(id, reason, currentUser);
+    refreshAllData();
+  };
+
   // Fiscal Year Actions
   const handleSetCurrentFiscalYear = async (id: string) => {
     await api.setCurrentFiscalYear(id);
     refreshAllData();
   };
 
-  const handleUpdateFiscalYear = async (fiscalYear: FiscalYear) => {
-    await api.updateFiscalYear(fiscalYear);
-    refreshAllData();
+  const handleCreateFiscalYear = async (input: {
+    code: string;
+    startDateAD: string;
+    endDateAD: string;
+    startDateBS: string;
+    endDateBS: string;
+  }) => {
+    const created = await api.createFiscalYear(input);
+    await refreshAllData();
+    return created;
   };
 
-  const handleCloseFiscalYear = async (id: string) => {
-    await api.closeFiscalYear(id);
+  const handleDeleteFiscalYear = async (id: string) => {
+    const result = await api.deleteFiscalYear(id);
+    await refreshAllData();
+    return result;
+  };
+
+  const handleCloseFiscalYear = async (
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ) => {
+    await api.closeFiscalYear(id, credentials);
     await refreshAllData();
   };
 
-  const handleReopenFiscalYear = async (id: string) => {
-    await api.reopenFiscalYear(id);
+  const handleReopenFiscalYear = async (
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ) => {
+    await api.reopenFiscalYear(id, credentials);
     await refreshAllData();
   };
 
@@ -599,13 +889,14 @@ export default function App() {
     return result;
   };
 
-  const handleDeleteFiscalYear = async (id: string) => {
-    await api.deleteFiscalYear(id);
-    refreshAllData();
+  const handleRollForwardVendorOpenings = async (id: string) => {
+    const result = await api.rollForwardVendorOpenings(id);
+    await refreshAllData();
+    return result;
   };
 
   // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
-  const lowStockCount = products.filter((prod) => {
+  const lowStockProducts = products.filter((prod) => {
     const activeBr =
       selectedBranchId === 'ALL'
         ? branches
@@ -634,10 +925,20 @@ export default function App() {
     });
 
     return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
-  }).length;
+  });
+  const lowStockCount = lowStockProducts.length;
+
+  // Dismissed notification ids shared across the header badge, sidebar badges
+  // and the Notification Center panel, so clearing notifications in the panel
+  // also clears the matching badges/menus elsewhere in the app.
+  const dismissedSet = new Set(dismissedNotificationIds);
 
   const pendingPoCount = purchaseOrders.filter(
-    (po) => po.status === 'SENT' || po.status === 'APPROVED'
+    (po) => (po.status === 'SENT' || po.status === 'APPROVED') && !dismissedSet.has(`po-${po.id}`)
+  ).length;
+
+  const pendingBillCount = purchaseInvoices.filter(
+    (inv) => inv.paymentStatus !== 'PAID'
   ).length;
 
   const activeBranchContext =
@@ -660,11 +961,34 @@ export default function App() {
         (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
         (activeBranchContext === 'ALL' ||
           sh.destinationBranchId === activeBranchContext ||
-          sh.sourceBranchId === activeBranchContext)
+          sh.sourceBranchId === activeBranchContext) &&
+        !dismissedSet.has(`ship-${sh.id}`)
     ).length + pendingPulloutsCount;
 
+  const handleDismissNotification = (id: string) => {
+    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  };
+
+  const handleClearAllNotifications = () => {
+    // Collect every currently active notification id (same ids the
+    // Notification Center generates) and mark them all dismissed.
+    const activeIds: string[] = [
+      ...lowStockProducts.map((prod) => `lowstock-${prod.id}`),
+      ...approvalRequests
+        .filter((r) => r.status === 'PENDING')
+        .map((r) => `appr-${r.id}`),
+      ...shipments
+        .filter((sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED')
+        .map((sh) => `ship-${sh.id}`),
+      ...purchaseOrders
+        .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
+        .map((po) => `po-${po.id}`),
+    ];
+    setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...activeIds])));
+  };
+
   const activeFy =
-    fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
+    resolveDefaultFiscalYear(fiscalYears)?.code || financialSummary.currentFiscalYear;
 
   const handleGroupLowStockPO = () => {
     const activeBr =
@@ -716,18 +1040,17 @@ export default function App() {
   if (!currentUser) {
     return (
       <div
-        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
-          isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
-        }`}
+        className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
       >
         <LoginModal
           onLoginSuccess={handleLogin}
           branches={branches}
           onSetupSuperAdmin={async (data) => {
             const res = await api.setupSuperAdmin(data);
+            setAuthToken(res.token);
             setCurrentUser(res.user);
             setRootUser(res.user);
-            saveUserSession(res.user, res.user);
+            saveUserSession(res.user, res.user, res.token);
             refreshAllData();
           }}
         />
@@ -735,11 +1058,15 @@ export default function App() {
     );
   }
 
+  const selectedFiscalYear = fiscalYears.find((fiscalYear) => fiscalYear.id === selectedFiscalYearId);
+  const todayAD = new Date().toISOString().slice(0, 10);
+  const assetReportAsOfDateAD = selectedFiscalYear?.isCurrent
+    ? (todayAD < selectedFiscalYear.startDateAD ? selectedFiscalYear.startDateAD : todayAD)
+    : (selectedFiscalYear?.endDateAD || todayAD);
+
   return (
     <div
-      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 ${
-        isDarkMode ? 'bg-[#0a0c10] text-slate-300' : 'bg-[#f0f2f5] text-slate-800'
-      }`}
+      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
     >
       {/* Top App Header (Fixed at top) */}
       <Header
@@ -753,20 +1080,21 @@ export default function App() {
         selectedBranchId={selectedBranchId}
         onSelectBranch={handleSelectBranch}
         dateMode={dateMode}
-        onToggleDateMode={() => setDateMode(dateMode === 'BS' ? 'AD' : 'BS')}
+        onToggleDateMode={handleToggleDateMode}
         currentFiscalYear={activeFy}
         fiscalYears={fiscalYears}
         selectedFiscalYearId={selectedFiscalYearId}
         onSelectFiscalYear={setSelectedFiscalYearId}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
-        onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
+        onOpenSearchModal={
+          activeTab === 'fiscal-year-closing' ? undefined : () => setIsGlobalSearchOpen(true)
+        }
         onLogout={handleLogout}
         onSwitchUser={handleLogin}
         onRefreshData={refreshAllData}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        lowStockCount={lowStockCount}
-        isDarkMode={isDarkMode}
+        lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
         onToggleTheme={handleToggleTheme}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         isSidebarOpen={isSidebarOpen}
@@ -782,8 +1110,8 @@ export default function App() {
 
       {/* Direct PostgreSQL Database Setup Notification Banner */}
       <DatabaseSetupBanner
-        isDarkMode={isDarkMode}
         onRefresh={refreshAllData}
+        loading={loading}
         postgresConfig={{
           host: postgresStatus.host,
           port: postgresStatus.port,
@@ -795,7 +1123,7 @@ export default function App() {
       />
 
       {/* Main Workspace Layout */}
-      <div className="flex flex-1 overflow-hidden h-[calc(100vh-4rem)] relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Mobile Backdrop */}
         {isSidebarOpen && (
           <div
@@ -818,21 +1146,21 @@ export default function App() {
               setActiveTab(tab);
               setIsSidebarOpen(false); // Auto close sidebar on mobile selection
             }}
-            lowStockCount={lowStockCount}
+            lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
             pendingPoCount={pendingPoCount}
+            pendingBillCount={pendingBillCount}
             inTransitShipmentCount={inTransitShipmentCount}
-            pendingApprovalCount={approvalRequests.filter((r) => r.status === 'PENDING').length}
-            isDarkMode={isDarkMode}
+            pendingApprovalCount={approvalRequests.filter(
+              (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
+            ).length}
             onCloseMobile={() => setIsSidebarOpen(false)}
-            onSwitchUser={handleLogin}
+            permissionsVersion={permissionsVersion}
           />
         </div>
 
         {/* Main Content Viewport */}
         <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 ${
-            isDarkMode ? 'bg-[#0a0c10]' : 'bg-[#f8fafc]'
-          }`}
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
         >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-3">
@@ -854,15 +1182,16 @@ export default function App() {
                   shipments={shipments}
                   transactionLogs={transactionLogs}
                   financialSummary={financialSummary}
+                  categories={categories}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  asOfDateAD={assetReportAsOfDateAD}
                   approvalRequests={approvalRequests}
                   onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
                   onSelectBranch={handleSelectBranch}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -872,7 +1201,6 @@ export default function App() {
                   branches={branches}
                   currentUser={currentUser}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   onProcessApproval={handleProcessApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToStockAudit={(branchId) => {
@@ -894,7 +1222,6 @@ export default function App() {
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
-                  isDarkMode={isDarkMode}
                   mode="all-stock"
                   dbCategories={categories}
                 />
@@ -910,9 +1237,20 @@ export default function App() {
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
-                  isDarkMode={isDarkMode}
                   mode="product-master"
                   dbCategories={categories}
+                />
+              )}
+
+              {activeTab === 'opening-stock' && (
+                <OpeningStockManager
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  products={products}
+                  onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
                 />
               )}
 
@@ -920,25 +1258,21 @@ export default function App() {
                 <CategoryManagement
                   currentUser={currentUser}
                   products={products}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'uom-management' && (
                 <UomManagement
                   currentUser={currentUser}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'import-stock' && (
                 <ImportStock
-                  currentUser={currentUser}
                   branches={branches}
                   products={products}
                   onCreateProduct={handleCreateProduct}
                   onRefreshData={refreshAllData}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -951,7 +1285,6 @@ export default function App() {
                   customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -963,7 +1296,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -979,7 +1311,6 @@ export default function App() {
                   onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onNavigateTab={setActiveTab}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -989,11 +1320,11 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  damageRecords={damageRecords}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateOperation={handleCreateOperation}
                   onNavigateTab={setActiveTab}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1003,7 +1334,6 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1013,12 +1343,12 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  damageRecords={damageRecords}
                   stockOperations={stockOperations}
                   shipments={shipments}
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1030,7 +1360,6 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   approvalRequests={approvalRequests}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onReconcileStockAudit={async (payload) => {
@@ -1050,10 +1379,10 @@ export default function App() {
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
                   onCreateAsset={handleCreateAsset}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1080,7 +1409,6 @@ export default function App() {
                     setActiveTab(tab as any);
                     if (filter) setSearchQuery(filter);
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1106,14 +1434,26 @@ export default function App() {
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToMaster={() => setActiveTab('customers')}
-                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'complete-serial-inventory' && (
+                <AllSerialInventory
+                  currentUser={currentUser}
+                  customerDevices={customerDevices}
+                  purchaseInvoices={purchaseInvoices}
+                  shipments={shipments}
+                  stockOperations={stockOperations}
+                  fixedAssets={assets}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
                 />
               )}
 
               {activeTab === 'locations' && (
                 <LocationsManagement
                   branches={branches}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1124,7 +1464,6 @@ export default function App() {
                     await api.bulkImportCustomers(newCustomers);
                     await refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1140,14 +1479,12 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="create-po"
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onUpdatePO={handleUpdatePO}
-                  onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1163,14 +1500,12 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="po-list"
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onUpdatePO={handleUpdatePO}
-                  onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1186,11 +1521,12 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="create-purchase"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
                   onDeleteInvoice={handleDeleteInvoice}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1206,11 +1542,12 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={false}
+                  activeTab="purchase-list"
                   onCreateInvoice={handleCreateInvoice}
                   onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
                   onDeleteInvoice={handleDeleteInvoice}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1234,7 +1571,6 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1244,13 +1580,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="CREATE_TRANSFER"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1265,6 +1601,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1278,7 +1615,6 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   approvalRequests={approvalRequests}
-                  isDarkMode={isDarkMode}
                   dateMode={dateMode}
                   onReceiveOperation={handleReceiveOperation}
                   onReceiveShipment={handleReceiveShipment}
@@ -1292,13 +1628,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="RECEIVE_TRANSFER"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1313,6 +1649,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1337,7 +1674,6 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1347,13 +1683,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1368,6 +1704,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1378,13 +1715,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="DAMAGE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1399,6 +1736,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1409,19 +1747,20 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT_REPORT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
+                  onReverseOperation={handleReverseStockOperation}
                 />
               )}
 
@@ -1431,18 +1770,19 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="DAMAGE_REPORT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
+                  onReverseOperation={handleReverseStockOperation}
                 />
               )}
 
@@ -1452,13 +1792,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="STOCK_OUT"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1473,6 +1813,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1483,13 +1824,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="ASSIGN_ASSET"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1504,6 +1845,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1514,13 +1856,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="CONSUMABLE_ISSUE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1535,6 +1877,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1545,13 +1888,13 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  locations={locations}
                   customerDevices={customerDevices}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="DEVICE_EXCHANGE"
                   autoOpenModal={false}
-                  isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
@@ -1566,6 +1909,7 @@ export default function App() {
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1578,7 +1922,6 @@ export default function App() {
                   products={products}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1598,7 +1941,6 @@ export default function App() {
                     await api.deleteBranch(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1618,7 +1960,6 @@ export default function App() {
                     await api.deleteSupplier(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1643,12 +1984,11 @@ export default function App() {
                     await api.deleteUser(id);
                     refreshAllData();
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'permissions' && (
-                <PermissionManagement currentUser={currentUser} isDarkMode={isDarkMode} />
+                <PermissionManagement currentUser={currentUser} />
               )}
 
               {activeTab === 'company-setup' && (
@@ -1666,7 +2006,6 @@ export default function App() {
                     await refreshAllData();
                     return true;
                   }}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1685,7 +2024,6 @@ export default function App() {
                     await refreshAllData();
                   }}
                   onNavigateDashboard={() => setActiveTab('dashboard')}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1694,9 +2032,29 @@ export default function App() {
                   financialSummary={financialSummary}
                   assets={assets}
                   invoices={purchaseInvoices}
-                  purchaseOrders={purchaseOrders}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
+                  asOfDateAD={assetReportAsOfDateAD}
+                  companyProfile={companyProfile}
+                />
+              )}
+
+              {activeTab === 'vendor-ledger' && (
+                <VendorLedger
+                  suppliers={suppliers}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              )}
+
+              {activeTab === 'vendor-opening-balances' && (
+                <VendorOpeningBalances
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
                 />
               )}
 
@@ -1704,7 +2062,7 @@ export default function App() {
                 <VatRegister
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1713,8 +2071,9 @@ export default function App() {
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
+                  companyProfile={companyProfile}
                 />
               )}
 
@@ -1728,7 +2087,15 @@ export default function App() {
                   assets={assets}
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
+                  companyProfile={companyProfile}
+                />
+              )}
+
+              {activeTab === 'data-recalculation' && (
+                <DataRecalculationMaintenance
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  onRefreshData={refreshAllData}
                 />
               )}
 
@@ -1738,62 +2105,45 @@ export default function App() {
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
                   onCloseFiscalYear={handleCloseFiscalYear}
                   onReopenFiscalYear={handleReopenFiscalYear}
+                  onCreateFiscalYear={handleCreateFiscalYear}
+                  onDeleteFiscalYear={handleDeleteFiscalYear}
                   onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
+                  onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
                   dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                   financialSummary={financialSummary}
                   products={products}
                   stock={stock}
                   assets={assets}
                   purchaseInvoices={purchaseInvoices}
+                  purchaseOrders={purchaseOrders}
+                  shipments={shipments}
+                  approvalRequests={approvalRequests}
                   currentUser={currentUser}
                   onRefreshData={refreshAllData}
+                  companyProfile={companyProfile}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
+                  onNavigateTab={setActiveTab}
                 />
               )}
 
               {activeTab === 'bs-calendar' && (
                 <BsCalendarUtility
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'fiscal-year-management' && (
-                <FiscalYearManagement
-                  fiscalYears={fiscalYears}
-                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
-                  onUpdateFiscalYear={handleUpdateFiscalYear}
-                  onDeleteFiscalYear={handleDeleteFiscalYear}
-                  currentUser={currentUser}
-                  dateMode={dateMode}
-                  isDarkMode={isDarkMode}
-                />
+                <DocumentNumbering />
               )}
 
               {activeTab === 'nepali-fiscal' && (
                 <BsCalendarUtility
-                  isDarkMode={isDarkMode}
-                />
-              )}
-
-              {activeTab === 'export-reports' && (
-                <ExportReports
-                  currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
-                  invoices={purchaseInvoices}
-                  shipments={shipments}
-                  customerDevices={customerDevices}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  dateMode={dateMode}
-                  isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'help-documentation' && (
                 <HelpDocumentation
                   currentUser={currentUser}
-                  isDarkMode={isDarkMode}
                   onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
                   onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
                   onNavigateTab={(tab) => {
@@ -1817,6 +2167,7 @@ export default function App() {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         products={products}
+        companyProfile={companyProfile}
       />
 
       {/* Global Quick Search Modal */}
@@ -1842,7 +2193,6 @@ export default function App() {
           }
           setIsGlobalSearchOpen(false);
         }}
-        isDarkMode={isDarkMode}
       />
 
       {/* Realtime Notification & Action Center Modal */}
@@ -1856,11 +2206,13 @@ export default function App() {
         shipments={shipments}
         branches={branches}
         selectedBranchId={selectedBranchId}
-        isDarkMode={isDarkMode}
         onSelectTab={(tab) => {
-          setActiveTab(tab);
+          setActiveTab(tab as NavTab);
           setIsNotificationOpen(false);
         }}
+        dismissedIds={dismissedNotificationIds}
+        onDismiss={handleDismissNotification}
+        onClearAll={handleClearAllNotifications}
       />
 
       {/* User Profile Info & Profile Switching Modal */}
@@ -1875,7 +2227,6 @@ export default function App() {
         onSwitchProfile={handleSwitchProfile}
         onUpdateProfile={handleUpdateProfile}
         onLogout={handleLogout}
-        isDarkMode={isDarkMode}
       />
     </div>
   );

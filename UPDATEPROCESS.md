@@ -136,12 +136,12 @@ Open `package.json` and customize the project metadata:
 
 ```json
 {
-  "name": "izone-enterprise-erp",
+  "name": "inventory-management-system",
   "version": "1.0.0",
   "description": "Enterprise Multi-Branch Inventory Management System",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/izone-enterprise-erp.git"
+    "url": "git+https://github.com/your-org/inventory-management-system.git"
   },
   "author": "Your Company Name",
   "license": "MIT"
@@ -153,7 +153,7 @@ Open `metadata.json` and set your application title and description:
 
 ```json
 {
-  "name": "IZone Enterprise ERP",
+  "name": "Inventory Management System",
   "description": "Multi-Branch Inventory Management System, Hardware Serial Tracking, VAT Register & Fiscal Closing",
   "requestFramePermissions": [
     "camera"
@@ -170,7 +170,7 @@ After pushing the code to your GitHub organization:
 1. **Rename Repository**:
    - Go to your repository on GitHub: `https://github.com/your-username/aistudio-repository-template`
    - Navigate to **Settings -> General**.
-   - Under **Repository name**, change `aistudio-repository-template` to `izone-enterprise-erp` and click **Rename**.
+   - Under **Repository name**, change `aistudio-repository-template` to `inventory-management-system` and click **Rename**.
 
 2. **Update About & Topics (Tags)**:
    - On your GitHub repository homepage, click the **⚙️ (Gear Icon)** next to the **About** section on the right sidebar.
@@ -181,10 +181,10 @@ After pushing the code to your GitHub organization:
 
 3. **Update Remote Git Origin (on local or server)**:
    ```bash
-   git remote set-url origin https://github.com/your-username/izone-enterprise-erp.git
+   git remote set-url origin https://github.com/your-username/inventory-management-system.git
    git remote -v
    ```
 
 ---
 
-*Generated for IZone Enterprise ERP Production Operations*
+*Generated for Inventory Management System Production Operations*

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Supplier, User } from '../../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
@@ -9,7 +11,6 @@ interface SuppliersManagementProps {
   onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<void>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
   onDeleteSupplier?: (id: string) => Promise<void>;
-  isDarkMode?: boolean;
 }
 
 export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
@@ -18,8 +19,8 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   onCreateSupplier,
   onUpdateSupplier,
   onDeleteSupplier,
-  isDarkMode = false,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,6 +39,8 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
       s.panVatNumber.includes(search) ||
       (s?.address || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const suppliersPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingSupplier(null);
@@ -62,7 +65,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   };
 
   const handleDelete = async (s: Supplier) => {
-    if (window.confirm(`Are you sure you want to delete supplier "${s.name}"?`)) {
+    if (await confirmDialog(`Are you sure you want to delete supplier "${s.name}"?`)) {
       if (onDeleteSupplier) {
         await onDeleteSupplier(s.id);
       }
@@ -78,9 +81,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
         await onUpdateSupplier(editingSupplier.id, {
           name,
           contactPerson: contactPerson || 'General Sales',
-          phone: phone || '+977-1-4000000',
-          email: email || 'sales@supplier.com.np',
-          address: address || 'Kathmandu, Nepal',
+          phone: phone || '+977-01-0000000',
+          email: email || 'sales@supplier.example.com',
+          address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
         });
       }
@@ -89,9 +92,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
         await onCreateSupplier({
           name,
           contactPerson: contactPerson || 'General Sales',
-          phone: phone || '+977-1-4000000',
-          email: email || 'sales@supplier.com.np',
-          address: address || 'Kathmandu, Nepal',
+          phone: phone || '+977-01-0000000',
+          email: email || 'sales@supplier.example.com',
+          address: address || 'Example City, Nepal',
           panVatNumber: panVatNumber || '300000000',
         });
       }
@@ -107,26 +110,24 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Factory className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Factory className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
             <span>Supplier & Vendor Register</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, edit, or remove hardware suppliers, PAN/VAT details, contact persons, and ratings.
           </p>
         </div>
         {canManageSuppliers && (
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add New Supplier</span>
@@ -136,26 +137,22 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search supplier by name or PAN/VAT number..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none ${
-              isDarkMode
-                ? 'border border-slate-800 bg-slate-900 text-white placeholder-slate-500'
-                : 'border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
       </div>
 
       {/* Grid of Suppliers */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((s) => (
-          <div key={s.id} className={`p-5 rounded-2xl border transition-all ${cardBg}`}>
+        {suppliersPagination.pagedItems.map((s) => (
+          <div key={s.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">{s.name}</h3>
@@ -173,7 +170,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleOpenEditModal(s)}
                       title="Edit Supplier"
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                      className={`p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer`}
                     >
                       <Edit className="h-3.5 w-3.5" />
                     </button>
@@ -181,7 +178,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                       type="button"
                       onClick={() => handleDelete(s)}
                       title="Delete Supplier"
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                      className={`p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 transition-colors cursor-pointer`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -210,7 +207,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+              <span className={`text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1`}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Verified Vendor
               </span>
               <span className="text-slate-400 font-mono">ID: {s.id}</span>
@@ -218,14 +215,23 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
           </div>
         ))}
       </div>
+      <TablePagination
+        page={suppliersPagination.page}
+        pageCount={suppliersPagination.pageCount}
+        totalItems={suppliersPagination.totalItems}
+        rangeStart={suppliersPagination.rangeStart}
+        rangeEnd={suppliersPagination.rangeEnd}
+        pageSize={suppliersPagination.pageSize}
+        onPageChange={suppliersPagination.setPage}
+        onPageSizeChange={suppliersPagination.setPageSize}
+        className="mt-1"
+      />
 
       {/* Modal Add/Edit Supplier */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4">
               {editingSupplier ? '✏️ Edit Supplier Details' : '🏭 Register New Supplier'}
@@ -296,7 +302,7 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Tripureshwor, Kathmandu"
+                  placeholder="Example Street, Example City"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>

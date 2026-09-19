@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Product, InventoryStock } from '../../types';
 import { Search, Barcode, Plus, Package, AlertTriangle } from 'lucide-react';
+import { formatNPR } from '../../utils/nprFormat';
 
 interface ProductSearchBarProps {
   products: Product[];
@@ -94,7 +95,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsOpen(true)}
           placeholder={placeholder}
-          className="w-full rounded-xl border border-blue-200 bg-white pl-10 sm:pl-16 pr-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 font-medium shadow-xs focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className={`w-full rounded-xl border pl-10 sm:pl-16 pr-4 py-2.5 text-xs font-medium shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 border-blue-200 bg-white text-slate-900 placeholder-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-400 focus:border-blue-600`}
         />
         {query && (
           <button
@@ -112,9 +113,9 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
 
       {/* Autocomplete dropdown */}
       {isOpen && query.trim().length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl border border-blue-200 bg-white shadow-xl">
+        <div className={`absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl border shadow-xl border-blue-200 bg-white dark:border-slate-600 dark:bg-slate-800`}>
           {matchingProducts.length === 0 ? (
-            <div className="p-3 text-xs text-slate-500 text-center font-medium">
+            <div className={`p-3 text-xs text-center font-medium text-slate-500 dark:text-slate-400`}>
               No product found matching "{query}". Check SKU code or Barcode.
             </div>
           ) : (
@@ -139,40 +140,36 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
                   key={prod.id}
                   type="button"
                   onClick={() => handleSelect(prod)}
-                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50/80 flex items-center justify-between border-b border-slate-100 last:border-b-0 transition-colors cursor-pointer"
+                  className={`w-full text-left px-4 py-2.5 flex items-center justify-between border-b last:border-b-0 transition-colors cursor-pointer border-slate-100 hover:bg-blue-50/80 dark:border-slate-700 dark:hover:bg-slate-700`}
                 >
                   <div className="flex-1 pr-2">
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded text-[11px]">
+                    <div className={`text-xs font-bold flex items-center gap-2 flex-wrap text-slate-900 dark:text-white`}>
+                      <span className={`font-mono px-1.5 py-0.5 rounded text-[11px] text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/50`}>
                         {prod.sku}
                       </span>
                       <span>{prod.name}</span>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 flex items-center gap-3 mt-1 flex-wrap">
-                      <span>Barcode: <strong className="font-mono text-slate-700">{prod.barcode || '-'}</strong></span>
+                    <div className={`text-[11px] flex items-center gap-3 mt-1 flex-wrap text-slate-500 dark:text-slate-400`}>
+                      <span>Barcode: <strong className={`font-mono text-slate-700 dark:text-slate-300`}>{prod.barcode || '-'}</strong></span>
                       <span>Category: {prod.category || 'General'}</span>
                       <span>Unit: {prod.unit || 'pcs'}</span>
                     </div>
 
                     {showStockBadges && hasStockData && (
                       <div className="flex items-center gap-2 mt-1.5 text-[10px] flex-wrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
-                          qtyOnHand > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${qtyOnHand > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border dark:border-emerald-700' : 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600'}`}>
                           <Package className="h-3 w-3 text-emerald-600" />
                           <span>Usable: {qtyOnHand} {prod.unit || 'pcs'}</span>
                         </span>
 
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
-                          damagedQty > 0 ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${damagedQty > 0 ? 'bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/50 dark:text-amber-300 dark:border dark:border-amber-700' : 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border dark:border-slate-600'}`}>
                           <AlertTriangle className="h-3 w-3 text-amber-600" />
                           <span>Damaged: {damagedQty} {prod.unit || 'pcs'}</span>
                         </span>
 
                         {qtyOnHand === 0 && damagedQty === 0 && (
-                          <span className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          <span className={`font-bold px-1.5 py-0.5 rounded border text-rose-600 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-900/50 dark:border-rose-700`}>
                             Out of Stock at Selected Branch
                           </span>
                         )}
@@ -181,10 +178,10 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className="text-xs font-bold font-mono text-slate-900 block">
-                      रु {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className={`text-xs font-bold font-mono block text-slate-900 dark:text-white`}>
+                      {formatNPR(prod.costPrice)}
                     </span>
-                    <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 justify-end mt-1">
+                    <div className={`text-[10px] font-semibold flex items-center gap-1 justify-end mt-1 text-blue-600 dark:text-blue-400`}>
                       <Plus className="h-3 w-3" /> Select / Add
                     </div>
                   </div>

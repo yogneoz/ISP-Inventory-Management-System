@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, CompanyProfile, FiscalYear } from '../../types';
 import { convertADToBS } from '../../utils/nepaliCalendar';
-import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../../utils/permissions';
+import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
+import { NavTab } from './Sidebar';
 import { NotificationCenter } from '../common/NotificationCenter';
+import { FiscalYearSelect } from '../common/FiscalYearSelect';
+import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
   Building2,
   Calendar,
@@ -23,7 +26,6 @@ import {
   ArrowLeft,
   Settings,
   CheckCircle2,
-  HelpCircle,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -50,7 +52,6 @@ interface HeaderProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   lowStockCount: number;
-  isDarkMode: boolean;
   onToggleTheme: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
@@ -60,7 +61,7 @@ interface HeaderProps {
   approvalRequests?: ApprovalRequest[];
   purchaseOrders?: PurchaseOrder[];
   shipments?: Shipment[];
-  onSelectTab?: (tab: string) => void;
+  onSelectTab?: (tab: NavTab) => void;
   onOpenNotification?: () => void;
   onOpenProfileModal?: () => void;
 }
@@ -89,7 +90,6 @@ export const Header: React.FC<HeaderProps> = ({
   searchQuery,
   onSearchChange,
   lowStockCount,
-  isDarkMode,
   onToggleTheme,
   onToggleSidebar,
   isSidebarOpen = false,
@@ -103,6 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotification = () => {},
   onOpenProfileModal = () => {},
 }) => {
+  const { isDarkMode } = useDarkMode();
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -146,14 +147,15 @@ export const Header: React.FC<HeaderProps> = ({
 
   const totalNotificationBadge = lowStockCount + pendingApprovalsCount + inTransitShipmentsCount;
 
+  // True while the server session is impersonating another profile (rootUser is the real account)
+  const isSwitchedSession = !!(rootUser && currentUser && rootUser.id !== currentUser.id);
+
   return (
     <header
-      className={`sticky top-0 z-30 flex h-13 w-full items-center justify-between px-3 backdrop-blur-md shadow-sm transition-colors duration-200 ${
-        isDarkMode
-          ? 'border-b border-slate-800 bg-[#0a0c10]/95 text-slate-300'
-          : 'bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900'
-      }`}
+      className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-sm transition-colors duration-200 bg-gradient-to-r from-[#1a237e] via-[#151c65] to-[#0d47a1] text-white border-b border-indigo-900 dark:border-b dark:border-slate-800 dark:bg-none dark:bg-[#0a0c10]/95 dark:text-slate-300`}
     >
+      {/* Main header row */}
+      <div className="flex h-13 w-full items-center justify-between px-3">
       {/* Left: Brand logo & Branch Switcher */}
       <div className="flex items-center gap-2.5 sm:gap-3">
         {/* Mobile Hamburger Menu Toggle Button (hidden on non-mobile screens) */}
@@ -175,8 +177,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           type="button"
-          onClick={() => onSelectTab && onSelectTab('company-setup')}
-          title={`Company Setup Database: ${companyProfile?.name || 'IZONE DIGITAL NETWORK PVT. LTD.'} (PAN/VAT: ${companyProfile?.panVatNumber || '609823412'}) - Click to manage setup`}
+          onClick={() => onSelectTab && onSelectTab('dashboard')}
+          title={`${companyProfile?.name || 'Inventory'} - Open Executive Dashboard`}
           className="flex items-center gap-2 rounded-lg px-1.5 py-1 -ml-1 hover:bg-white/10 dark:hover:bg-slate-800/60 transition-all cursor-pointer group text-left"
         >
           {companyProfile?.logoUrl ? (
@@ -184,42 +186,29 @@ export const Header: React.FC<HeaderProps> = ({
               src={companyProfile.logoUrl}
               alt={companyProfile.name || 'Company Logo'}
               referrerPolicy="no-referrer"
-              className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/30 shadow-xs group-hover:scale-105 transition-transform"
+              className={`h-10 max-h-10 w-auto max-w-[160px] rounded-none object-contain p-0.5 group-hover:scale-105 transition-transform bg-white dark:bg-slate-800`}
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-500/20 font-serif font-bold text-sm tracking-tight border border-indigo-400/30 group-hover:scale-105 transition-transform">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-none font-serif font-bold text-base tracking-tight group-hover:scale-105 transition-transform bg-white text-indigo-700 dark:bg-slate-800 dark:text-indigo-300`}>
               {companyProfile?.name
                 ? companyProfile.name
                     .split(' ')
                     .filter(Boolean)
                     .slice(0, 2)
                     .map((w) => w[0].toUpperCase())
-                    .join('') || 'iZ'
-                : 'iZ'}
+                    .join('') || 'IN'
+                : 'IN'}
             </div>
           )}
 
-          <div className="hidden sm:flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[180px] md:max-w-[240px]">
-                {companyProfile?.name || 'IZone Inventory'}
-              </h1>
-              <span className="inline-flex items-center px-1 py-0.2 text-[8px] font-bold rounded bg-indigo-500/30 text-indigo-100 border border-indigo-300/40 group-hover:border-amber-300/60 group-hover:text-amber-200 transition-colors" title="Synced with PostgreSQL Database">
-                DB
-              </span>
-            </div>
-            {companyProfile?.tagline ? (
-              <span className="text-[9px] text-indigo-200/80 dark:text-slate-400 font-medium truncate max-w-[180px] md:max-w-[230px] mt-0.5">
-                {companyProfile.tagline}
-              </span>
-            ) : (
-              <span className="text-[9px] text-indigo-200/60 dark:text-slate-500 font-medium truncate max-w-[180px] mt-0.5">
-                Enterprise Setup Synced
-              </span>
-            )}
+          {/* Company name shown only below md (the sidebar carries the full brand on desktop) */}
+          <div className="hidden sm:block md:hidden">
+            <h1 className="font-serif font-bold text-white text-sm leading-none tracking-tight group-hover:text-amber-200 transition-colors truncate max-w-[150px]">
+              {companyProfile?.name || 'Inventory'}
+            </h1>
           </div>
         </button>
 
@@ -248,11 +237,7 @@ export const Header: React.FC<HeaderProps> = ({
                 id="branch-select"
                 value={selectedBranchId}
                 onChange={(e) => onSelectBranch(e.target.value)}
-                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'border border-slate-800 bg-[#0f1218] text-slate-300 focus:border-indigo-500'
-                    : 'border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs'
-                }`}
+                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300 dark:focus:border-indigo-500`}
               >
                 {canSeeAll ? (
                   <option value="ALL" className="bg-slate-900 text-white">
@@ -272,6 +257,25 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
             );
           })()}
+
+          {/* Fiscal-year scope (grouped with branch as view-scope controls, loaded from PostgreSQL) */}
+          <div
+            className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium border-white/30 bg-white/10 text-white backdrop-blur-xs dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300`}
+            title="Fiscal-year view"
+          >
+            <span className={`text-[9px] font-bold text-indigo-200 dark:text-slate-400`}>FY</span>
+            <FiscalYearSelect
+              fiscalYears={filterFiscalYears(fiscalYears)}
+              value={selectedFiscalYearId}
+              onChange={onSelectFiscalYear}
+              showFyPrefix={false}
+              pageSize={3}
+              title="Select fiscal-year view"
+              triggerClassName="max-w-28 text-white dark:text-slate-200"
+              panelClassName=""
+              align="left"
+            />
+          </div>
         </div>
       </div>
 
@@ -295,11 +299,7 @@ export const Header: React.FC<HeaderProps> = ({
               if (onOpenSearchModal) onOpenSearchModal();
             }}
             placeholder="Scan Barcode or Search Product Name / SKU:"
-            className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer ${
-              isDarkMode
-                ? 'border border-slate-800 bg-[#0f1218] text-slate-200 placeholder-slate-500 focus:bg-slate-900 focus:border-indigo-500'
-                : 'border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20'
-            }`}
+            className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20 dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-200 dark:placeholder-slate-500 dark:focus:bg-slate-900 dark:focus:border-indigo-500`}
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
             {onOpenBarcodeModal && (
@@ -329,11 +329,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenSearchModal}
             title="Global Quick Search (Ctrl+K)"
-            className={`lg:hidden p-1.5 rounded-lg transition-colors cursor-pointer ${
-              isDarkMode
-                ? 'text-slate-300 hover:bg-slate-800 text-indigo-300'
-                : 'text-white/90 hover:bg-white/20'
-            }`}
+            className={`lg:hidden p-1.5 rounded-lg transition-colors cursor-pointer text-white/90 hover:bg-white/20 dark:text-slate-300 dark:hover:bg-slate-800 dark:text-indigo-300`}
           >
             <Search className="h-4 w-4" />
           </button>
@@ -342,11 +338,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onToggleTheme}
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all cursor-pointer shadow-xs ${
-            isDarkMode
-              ? 'bg-slate-800 text-amber-300 border border-slate-700 hover:bg-slate-700'
-              : 'bg-white/20 text-white border border-white/30 hover:bg-white/30 backdrop-blur-xs'
-          }`}
+          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer border border-white/30 bg-white/10 text-white hover:bg-white/20 dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-300 dark:hover:bg-slate-800/60`}
         >
           {isDarkMode ? (
             <>
@@ -365,11 +357,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onToggleDateMode}
           title="Click to toggle between Bikram Sambat (BS) and Anno Domini (AD)"
-          className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-            isDarkMode
-              ? 'border border-slate-800 bg-[#0f1218] hover:bg-slate-800/60 text-slate-300'
-              : 'border border-white/30 bg-white/10 hover:bg-white/20 text-white'
-          }`}
+          className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors border border-white/30 bg-white/10 hover:bg-white/20 text-white dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:hover:bg-slate-800/60 dark:text-slate-300`}
         >
           <Calendar className="h-3.5 w-3.5 text-indigo-200" />
           <span className="font-mono">
@@ -380,47 +368,13 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </button>
 
-        {/* Fiscal-year view context, loaded from PostgreSQL */}
-        <label className="hidden sm:flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-950/40 px-2 py-1 text-[11px] font-semibold text-emerald-300">
-          <span className="text-[9px] text-emerald-400 font-normal">FY:</span>
-          <select value={selectedFiscalYearId} onChange={(e) => onSelectFiscalYear(e.target.value)} aria-label="Select fiscal-year view" className="max-w-28 bg-transparent font-semibold text-emerald-200 outline-none cursor-pointer">
-            {fiscalYears.map((fiscalYear) => <option key={fiscalYear.id} value={fiscalYear.id} className="bg-slate-900 text-white">{fiscalYear.code}{fiscalYear.isCurrent ? ' (Active)' : ''}</option>)}
-          </select>
-        </label>
-
-        {/* Barcode & Serial Scanner Button */}
-        {onOpenBarcodeModal && (
-          <button
-            onClick={onOpenBarcodeModal}
-            title="Scan Barcode / Print Asset Tag"
-            className="flex items-center gap-1 rounded-md border border-indigo-400/30 bg-indigo-900/40 hover:bg-indigo-800/60 px-2.5 py-1 text-[11px] font-medium text-indigo-200 transition-all cursor-pointer"
-          >
-            <QrCode className="h-3.5 w-3.5 text-indigo-300" />
-            <span className="hidden sm:inline">Tag</span>
-          </button>
-        )}
-
-        {/* Help Center Button */}
-        <button
-          onClick={() => onSelectTab('help-documentation')}
-          title="In-App Help Center & Manual (Alt+H)"
-          className="flex items-center gap-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/30 px-2 py-1 text-[11px] font-medium text-indigo-100 transition-all cursor-pointer"
-        >
-          <HelpCircle className="h-3.5 w-3.5 text-indigo-300" />
-          <span className="hidden md:inline">Help</span>
-        </button>
-
         {/* Refresh button */}
         <button
           onClick={onRefreshData}
           title="Refresh realtime stock and logs"
-          className={`p-1 rounded-lg transition-colors cursor-pointer ${
-            isDarkMode
-              ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800/60'
-              : 'text-white/80 hover:text-white hover:bg-white/20'
-          }`}
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-indigo-400 dark:hover:bg-slate-800/60`}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className="h-4 w-4" />
         </button>
 
         {/* Notifications badge */}
@@ -428,13 +382,9 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenNotification}
             title="Notifications & Reorder Alerts"
-            className={`p-1 rounded-lg transition-colors relative cursor-pointer ${
-              isDarkMode
-                ? 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/60'
-                : 'text-white/80 hover:text-white hover:bg-white/20'
-            }`}
+            className={`p-1.5 rounded-lg transition-colors relative cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-slate-800/60`}
           >
-            <Bell className="h-3.5 w-3.5" />
+            <Bell className="h-4 w-4" />
             {totalNotificationBadge > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
                 {totalNotificationBadge}
@@ -443,36 +393,24 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Switched Profile Active Indicator */}
-        {rootUser && currentUser && rootUser.id !== currentUser.id && (
-          <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/40 text-amber-200 px-2 py-1 rounded-xl text-[10px] font-bold">
-            <span className="hidden xl:inline">🔄 Switched from {rootUser.name.split(' ')[0]}</span>
-            {onSwitchBackToRoot && (
-              <button
-                onClick={onSwitchBackToRoot}
-                title={`Switch back to root account (${rootUser.name})`}
-                className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-1.5 py-0.5 rounded-md text-[9px] transition-colors cursor-pointer"
-              >
-                Switch Back
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Profile Chip & Switcher Dropdown Container */}
         {currentUser && (
           <div className="relative ml-1" ref={profileDropdownRef}>
             <button
               onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
               title="Click to expand switch user menu & profile options"
-              className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ${
-                isDarkMode
-                  ? 'bg-slate-800/90 text-white border-slate-700 hover:bg-slate-700 hover:border-slate-600'
-                  : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
-              }`}
+              className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs dark:bg-slate-800/90 dark:text-white dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:border-slate-600`}
             >
-              <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20 flex-shrink-0">
-                {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+              <div className="relative flex-shrink-0">
+                <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20">
+                  {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                </div>
+                {isSwitchedSession && (
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-400 border border-[#151c65] dark:border-slate-950"
+                    title="Switched session active - see the banner below the header"
+                  />
+                )}
               </div>
               <div className="hidden lg:flex flex-col text-left">
                 <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
@@ -586,6 +524,9 @@ export const Header: React.FC<HeaderProps> = ({
                                     try {
                                       await onSwitchProfile(u.id);
                                       setIsProfileDropdownOpen(false);
+                                    } catch (_e) {
+                                      // Error is already surfaced by the handler (alert);
+                                      // keep the dropdown open so the user can retry.
                                     } finally {
                                       setIsSwitchingId(null);
                                     }
@@ -594,7 +535,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer ${
                                   isCurrent
                                     ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-semibold'
-                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
                                 }`}
                               >
                                 <div className="flex items-center gap-2 min-w-0">
@@ -660,21 +601,14 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        {/* Logout */}
-        {currentUser ? (
-          <button
-            onClick={onLogout}
-            title="Logout"
-            className="p-1.5 text-white/80 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-colors cursor-pointer ml-0.5"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        ) : (
+        {/* Logged-out indicator (the login modal covers the app when unauthenticated) */}
+        {!currentUser && (
           <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 px-2 py-0.5 rounded-md">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>Out</span>
           </div>
         )}
+      </div>
       </div>
     </header>
   );

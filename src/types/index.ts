@@ -6,6 +6,7 @@ export interface CompanyProfile {
   address: string;
   city?: string;
   country?: string;
+  postalCode?: string;
   phone?: string;
   email?: string;
   website?: string;
@@ -13,7 +14,16 @@ export interface CompanyProfile {
   registrationNumber?: string;
   logoUrl?: string;
   logoPreset?: string;
+  /** Display symbol, e.g. 'Rs.', '$', '€', '₹', '£'. */
   currencySymbol?: string;
+  /** ISO 4217 currency code, e.g. 'NPR', 'USD', 'EUR', 'INR'. */
+  currencyCode?: string;
+  /** BCP-47 locale used for grouping/decimals, e.g. 'en-IN', 'en-US', 'de-DE'. */
+  currencyLocale?: string;
+  /** Whether the symbol is placed before or after the number. */
+  currencyPosition?: 'before' | 'after';
+  /** Decimal places used for precise money display. */
+  currencyDecimals?: number;
   defaultTaxRate?: number;
   notes?: string;
 }
@@ -35,6 +45,13 @@ export interface User {
   allowedBranchIds?: string[];
   avatarUrl?: string;
   canSwitchUser?: boolean;
+  // Session root marker (set only when this profile is an impersonated child
+  // of another account via profile switching). Lets a switched session switch
+  // back to the account that originally signed in.
+  rootId?: string;
+  rootEmail?: string;
+  rootCanSwitchUser?: boolean;
+  rootRole?: string;
 }
 
 export interface Supplier {
@@ -58,6 +75,7 @@ export interface Branch {
   isHeadquarters: boolean;
   active: boolean;
   allowProcurement?: boolean;
+  allowWarehouseTransfer?: boolean;
   isWarehouse?: boolean;
 }
 
@@ -91,6 +109,7 @@ export interface Category {
   name: string;
   code: string;
   description?: string;
+  isSpecialTracked?: boolean;
   productCount?: number;
 }
 
@@ -114,6 +133,72 @@ export interface InventoryStock {
   minReorderLevel?: number;
 }
 
+export type DamageReason = 'PHYSICAL_DAMAGE' | 'TRANSIT_DAMAGE' | 'STORAGE_DAMAGE' | 'EXPIRED' | 'RETURN_DAMAGE' | 'QUALITY_DEFECT' | 'OTHER';
+export type DamageStatus = 'IDENTIFIED' | 'UNDER_REVIEW' | 'DISPOSED' | 'WRITTEN_OFF' | 'RETURNED_TO_SUPPLIER' | 'CANCELLED';
+export type DisposalMethod = 'SCRAP_DESTRUCTION' | 'SALVAGE_E_WASTE' | 'VENDOR_RMA' | 'INSURANCE_CLAIM' | 'WRITE_OFF' | 'RETURN_TO_SUPPLIER' | 'AUCTION';
+
+export interface DamageRecord {
+  id: string;
+  damageReference: string;
+  productId: string;
+  branchId: string;
+  quantityDamaged: number;
+  unitCost: number;
+  totalCost: number;
+  damageDateAD: string;
+  damageDateBS: string;
+  damageReason: DamageReason;
+  status: DamageStatus;
+  disposalDateAD?: string | null;
+  disposalDateBS?: string | null;
+  disposalMethod?: DisposalMethod | null;
+  salvageValue?: number;
+  glAccountCode?: string;
+  writeOffLoss?: number;
+  approvedBy?: string;
+  notes?: string;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type VendorPaymentMethod = 'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
+export type VendorPaymentStatus = 'POSTED' | 'REVERSED' | 'VOIDED';
+
+export interface VendorPayment {
+  id: string;
+  paymentNumber: string;
+  supplierId: string;
+  supplierName: string;
+  branchId: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  paymentDateAD: string;
+  paymentDateBS: string;
+  amount: number;
+  paymentMethod: VendorPaymentMethod;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  chequeNumber?: string | null;
+  chequeDateAD?: string | null;
+  chequeDateBS?: string | null;
+  transactionReference?: string | null;
+  notes?: string | null;
+  status: VendorPaymentStatus;
+  reversalReason?: string | null;
+  reversedBy?: string | null;
+  reversedAtAD?: string | null;
+  originalPaymentId?: string | null;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+  createdBy: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Asset {
   id: string;
   tagNumber: string;
@@ -122,6 +207,10 @@ export interface Asset {
   branchId: string;
   acquisitionDateAD: string;
   acquisitionDateBS: string;
+  purchaseInvoiceDateAD?: string;
+  purchaseInvoiceDateBS?: string;
+  capitalizationDateAD?: string;
+  placedInServiceDateAD?: string;
   acquisitionCost: number;
   depreciationMethod: 'STRAIGHT_LINE' | 'REDUCING_BALANCE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
   depreciationRatePercent: number;
@@ -164,6 +253,7 @@ export interface POLineItem {
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
+  supplierId?: string;
   supplierName: string;
   branchId: string;
   orderDateAD: string;
@@ -229,6 +319,7 @@ export interface PurchaseInvoice {
   invoiceNumber: string;
   vendorBillNumber?: string;
   poReferenceId?: string;
+  supplierId?: string;
   supplierName: string;
   branchId: string;
   invoiceDateAD: string;
@@ -254,6 +345,7 @@ export interface ShipmentItem {
   productName: string;
   sku: string;
   quantitySent: number;
+  costPrice?: number; // Returned by the API (products.cost_price join)
   quantityReceived?: number;
   deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
   receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
@@ -305,6 +397,9 @@ export interface SaleItem {
   discount: number;
   totalValue: number;
   deviceSerials?: DeviceSerialPair[];
+  // Present on some stock-operation item payloads (e.g. pullout-style lines)
+  condition?: PulloutItem['condition'];
+  unitCost?: number;
 }
 
 export interface ConsumableIssueItem {
@@ -316,6 +411,9 @@ export interface ConsumableIssueItem {
   quantity: number;
   unitCost: number;
   totalValue: number;
+  // Present on some stock-operation item payloads (e.g. serialized consumable lines)
+  condition?: PulloutItem['condition'];
+  deviceSerials?: DeviceSerialPair[];
 }
 
 export interface StockOperation {
@@ -338,8 +436,8 @@ export interface StockOperation {
   dateAD: string;
   dateBS: string;
   fiscalYear: string;
-  status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED';
-  items?: PulloutItem[];
+  status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED' | 'CANCELLED';
+  items?: (PulloutItem | ConsumableIssueItem | SaleItem)[];
   // Customer Product Sale fields
   customerId?: string;
   customerName?: string;
@@ -350,6 +448,11 @@ export interface StockOperation {
   salvageRecoveryAmount?: number;
   netWriteOffLoss?: number;
   glAccountCode?: string;
+  // Damage record reversal (Super Admin & Inventory Manager only)
+  reversalReason?: string;
+  reversedBy?: string;
+  reversedAtAD?: string;
+  reversedAtBS?: string;
 }
 
 export interface DocumentNumberConfig {
@@ -373,6 +476,66 @@ export interface FiscalYear {
   endDateBS: string;
   isCurrent: boolean;
   isClosed: boolean;
+  isDemo?: boolean;
+}
+
+export interface FiscalYearOpeningStockRow {
+  id: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  branchId: string;
+  branchName: string;
+  quantityOnHand: number;
+  damagedQty: number;
+  unitCost: number;
+  sourceType: string; // 'FISCAL_CLOSE' | 'MANUAL_ADJUSTMENT'
+  sourceReference: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+  /** Current live quantity in inventory_stock (reference only, not editable here). */
+  liveQty: number;
+  liveDamagedQty: number;
+}
+
+export interface FiscalYearOpeningStockResponse {
+  fiscalYear: FiscalYear;
+  rows: FiscalYearOpeningStockRow[];
+  stats: {
+    totalRows: number;
+    manualAdjustments: number;
+    zeroQtyRows: number;
+    totalUnits: number;
+    totalValue: number;
+  };
+}
+
+/** Fiscal-year vendor opening balance (Vendor Ledger roll-forward). */
+export interface VendorOpeningBalanceRow {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  supplierCode: string;
+  branchId: string;
+  branchName: string;
+  /** Signed: positive = payable (debit) owed to supplier, negative = advance/credit. */
+  openingBalance: number;
+  sourceType: string; // 'FISCAL_CLOSE' | 'MANUAL_ADJUSTMENT'
+  sourceReference: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+}
+
+export interface VendorOpeningBalanceResponse {
+  fiscalYear: FiscalYear;
+  rows: VendorOpeningBalanceRow[];
+  stats: {
+    totalRows: number;
+    manualAdjustments: number;
+    zeroRows: number;
+    totalDebitOpening: number;
+    totalCreditOpening: number;
+  };
 }
 
 export interface AuditLog {
@@ -394,7 +557,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;
@@ -408,10 +571,14 @@ export interface FinancialSummary {
   totalInventoryAssetValue: number;
   totalFixedAssetValue: number;
   totalAccountsPayable: number;
+  /** Net sales revenue from customer product sales (Branch Operations → Sell Product). */
+  totalSalesRevenue?: number;
   totalCostOfGoodsSold: number;
   totalDamageLossValue: number;
   totalVatInputTax: number;
   currentFiscalYear: string;
+  /** Set when the summary was requested for a specific fiscal year. */
+  fiscalYearId?: string | null;
 }
 
 export interface LocationRecord {
@@ -455,7 +622,7 @@ export interface ApprovalRequest {
   requestNumber: string; // e.g. APR-2083-101
   type: 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_IN_TRANSIT_TRANSFER' | 'STOCK_ADJUSTMENT' | 'STOCK_AUDIT_RECONCILIATION' | 'PURCHASE_OVERRIDE' | 'CANCEL_RECEIVE_TRANSFER' | string;
   targetId: string; // e.g. CustomerDeviceRecord.id, Shipment.id, or Audit Batch Ref
-  customerName: string; // e.g. Customer Name, Transfer Tracking Code, or "Physical Stock Audit - Kathmandu"
+  customerName: string; // e.g. Customer Name, Transfer Tracking Code, or "Physical Stock Audit - WH001"
   customerCode?: string;
   deviceSerial: string; // e.g. Device Serial, Transfer Tracking Code, or Audit Ref No
   ponSerial?: string;
@@ -535,6 +702,7 @@ export interface BootstrapState {
   uom?: UnitOfMeasure[];
   locations?: LocationRecord[];
   companyProfile?: CompanyProfile;
+  damageRecords?: DamageRecord[];
   postgresDatabaseStatus?: {
     isConnected: boolean;
     host: string;

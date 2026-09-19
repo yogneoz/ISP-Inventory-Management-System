@@ -1,14 +1,15 @@
 {
-  "name": "izone-enterprise-erp",
+  "name": "inventory-management-system",
   "private": true,
   "version": "1.0.0",
   "description": "Enterprise Multi-Branch Inventory Management System, Device Tracking, VAT & Fiscal Closing",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "tsx watch server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
+    "integrity:check": "node scripts/integrity_check.mjs",
     "setup:pg": "node scripts/setup_db.js",
     "setup:postgres": "bash scripts/setup_postgres.sh",
     "lint": "tsc --noEmit"
@@ -30,6 +31,8 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.21.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",

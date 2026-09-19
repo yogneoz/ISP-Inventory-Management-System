@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { FiscalYear } from '../../types';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
 import {
   convertADToBS,
   convertBSToAD,
   getNepaliFiscalYear,
   getBsCalendarData,
   parseAndSeedBSInput,
+  parseBSSeedYears,
   seedBSYearCalendar,
   BSYearData,
   BSDayRecord,
@@ -49,14 +51,13 @@ interface NepaliFiscalManagementProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
   dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
 }
 
 export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   fiscalYears,
   onSetCurrentFiscalYear,
-  isDarkMode = false,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
@@ -137,15 +138,16 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     setEditError('');
 
     try {
-      // 1. Local storage & memory update
-      seedBSYearCalendar(editingYearData.yearBS, editDaysInMonths, editStartAD);
-
-      // 2. PostgreSQL DB update
-      await api.seedBsCalendarYear(editingYearData.yearBS, editDaysInMonths, editStartAD);
+      // Update the BS year config and regenerate day records in PostgreSQL
+      const updateRes = await api.updateBsCalendarYear(editingYearData.yearBS, {
+        daysInMonths: editDaysInMonths,
+        startAD: editStartAD,
+        recalculateNextStartAD: true,
+      });
 
       setSeedStatus({
         type: 'success',
-        message: `Successfully updated 12-month array and Start AD date for BS Year ${editingYearData.yearBS} in PostgreSQL database!`,
+        message: updateRes.message || `Successfully updated BS Year ${editingYearData.yearBS} and regenerated its day records in PostgreSQL!`,
       });
 
       setEditingYearData(null);
@@ -196,13 +198,14 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     e.preventDefault();
     if (!seedInput.trim()) return;
 
-    const match = seedInput.match(/(\d{4})\s*:\s*\[([\d\s,]+)\]/);
-    if (match) {
-      const yearBS = parseInt(match[1], 10);
-      if (seedOnlyIfNew && calendarData[yearBS]) {
+    const parsedYears = parseBSSeedYears(seedInput).years;
+
+    if (seedOnlyIfNew && parsedYears.length > 0) {
+      const allExist = parsedYears.every((y) => calendarData[y.yearBS]);
+      if (allExist) {
         setSeedStatus({
           type: 'success',
-          message: `BS Year ${yearBS} already exists in calendar database. Skipped seeding because 'Seed only if new' is enabled. (Use 'Edit Array' below to modify existing years).`,
+          message: `All ${parsedYears.length} BS year(s) (${parsedYears.map((y) => y.yearBS).join(', ')}) already exist in calendar database. Skipped duplicate seeding. (Use 'Edit Array' below to modify existing years).`,
         });
         return;
       }
@@ -210,18 +213,30 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
     const res = parseAndSeedBSInput(seedInput);
     if (res.success) {
-      if (match) {
-        const yearBS = parseInt(match[1], 10);
-        const days = match[2].split(',').map((s) => parseInt(s.trim(), 10));
-        if (days.length === 12) {
+      let seedPgSynced = true;
+
+      // Batch-sync all detected years to PostgreSQL in one request
+      if (parsedYears.length > 0) {
+        const bulkYears = parsedYears
+          .map((s) => ({ yearBS: s.yearBS, daysInMonths: s.daysInMonths, customStartAD: s.startAD }))
+          .filter((s) => Array.isArray(s.daysInMonths) && s.daysInMonths.length === 12);
+        if (bulkYears.length > 0) {
           try {
-            await api.seedBsCalendarYear(yearBS, days, undefined, seedOnlyIfNew);
+            const bulkRes = await api.seedBsCalendarYearsBulk(bulkYears, seedOnlyIfNew);
+            if (bulkRes && bulkRes.pgSynced === false) seedPgSynced = false;
           } catch (err: any) {
-            console.warn('PostgreSQL Seed Warning:', err.message);
+            console.warn('PostgreSQL Bulk Seed Warning:', err.message);
+            seedPgSynced = false;
           }
         }
       }
-      setSeedStatus({ type: 'success', message: `${res.message} (Synced 365 daily records to PostgreSQL bs_day_records table)` });
+
+      setSeedStatus({
+        type: 'success',
+        message: seedPgSynced
+          ? `${res.message} (Synced to PostgreSQL bs_day_records table)`
+          : `${res.message} (In-memory only — PostgreSQL unreachable; re-sync when the database is back)`,
+      });
       await refreshCalendarData();
     } else {
       setSeedStatus({ type: 'error', message: res.message });
@@ -239,14 +254,19 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
     try {
       seedBSYearCalendar(yearBS, monthDays);
+      let seedPgSynced = true;
       try {
-        await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        const seedRes = await api.seedBsCalendarYear(yearBS, monthDays, undefined, seedOnlyIfNew);
+        if (seedRes && seedRes.pgSynced === false) seedPgSynced = false;
       } catch (e: any) {
         console.warn('PostgreSQL quick seed notice:', e.message);
+        seedPgSynced = false;
       }
       setSeedStatus({
         type: 'success',
-        message: `Successfully seeded new BS Year ${yearBS} and generated 365 daily records in PostgreSQL bs_day_records table!`,
+        message: seedPgSynced
+          ? `Successfully seeded new BS Year ${yearBS} and generated 365 daily records in PostgreSQL bs_day_records table!`
+          : `Seeded new BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.`,
       });
       await refreshCalendarData();
     } catch (err: any) {
@@ -390,10 +410,10 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
     setSqlSyncSuccess(null);
   };
 
-  const handleResetDefaults = () => {
-    if (confirm('Reset bsCalendarData to default initial reference tables?')) {
+  const handleResetDefaults = async () => {
+    if (await confirmDialog('Reset bsCalendarData to default initial reference tables?')) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('izone_bs_calendar_data');
+        localStorage.removeItem('inventory_bs_calendar_data');
       }
       refreshCalendarData();
       setSeedStatus({
@@ -410,28 +430,22 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   const sortedYears = (Object.values(calendarData) as BSYearData[]).sort((a, b) => a.yearBS - b.yearBS);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <CalendarDays className="h-5 w-5 text-indigo-500" />
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
+            <CalendarDays className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
             <span>Nepali Bikram Sambat Calendar & Fiscal Year Management</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Full Day-by-Day PostgreSQL/Lookup Database Engine & Fiscal Year Configuration (<code className={isDarkMode ? 'text-indigo-300 font-mono font-bold' : 'text-indigo-600 font-mono font-bold'}>YYYY-YY</code> format).
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
+            Full Day-by-Day PostgreSQL/Lookup Database Engine & Fiscal Year Configuration (<code className="text-indigo-600 font-mono font-bold dark:text-indigo-300 dark:font-mono dark:font-bold">YYYY-YY</code> format).
           </p>
         </div>
 
         <button
           onClick={handleResetDefaults}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit ${
-            isDarkMode
-              ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
-          }`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-200 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
         >
           <RotateCcw className="h-3.5 w-3.5 text-slate-400" />
           <span>Reset Calendar Defaults</span>
@@ -439,75 +453,47 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       </div>
 
       {/* Database Bounds Limiter Banner */}
-      <div className={`rounded-2xl border p-4 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-        isDarkMode
-          ? 'bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border-indigo-800/60'
-          : 'bg-indigo-50/70 border-indigo-200/80'
-      }`}>
+      <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 bg-indigo-50/70 border-indigo-200/80 dark:bg-gradient-to-r dark:from-indigo-950/80 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-800/60`}>
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl border ${
-            isDarkMode ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-indigo-100 text-indigo-700 border-indigo-200'
-          }`}>
+          <div className={`p-2.5 rounded-xl border bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30`}>
             <Database className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <span className={`text-xs font-bold text-slate-900 dark:text-white`}>
                 Nepali Calendar Database Bounds:
               </span>
-              <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-bold ${
-                isDarkMode ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-              }`}>
+              <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-bold bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-500/30`}>
                 {(bounds.totalDaysMapped ?? 0).toLocaleString()} Days Pre-Mapped
               </span>
             </div>
-            <p className={`text-xs font-mono mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+            <p className={`text-xs font-mono mt-0.5 text-slate-700 dark:text-slate-300`}>
               AD Range: <span className="text-amber-600 dark:text-amber-300 font-bold">{bounds.minAD}</span> to <span className="text-amber-600 dark:text-amber-300 font-bold">{bounds.maxAD}</span> | BS Range: <span className="text-indigo-600 dark:text-indigo-300 font-bold">{bounds.minBS}</span> to <span className="text-indigo-600 dark:text-indigo-300 font-bold">{bounds.maxBS}</span>
             </p>
           </div>
         </div>
 
-        <div className={`flex items-center gap-2 font-mono text-xs px-3 py-2 rounded-xl border ${
-          isDarkMode
-            ? 'text-slate-400 bg-slate-950/60 border-slate-800'
-            : 'text-slate-700 bg-white border-slate-200 shadow-2xs'
-        }`}>
-          <Layers className="h-4 w-4 text-indigo-500" />
+        <div className={`flex items-center gap-2 font-mono text-xs px-3 py-2 rounded-xl border text-slate-700 bg-white border-slate-200 shadow-2xs dark:text-slate-400 dark:bg-slate-950/60 dark:border-slate-800`}>
+          <Layers className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
           <span>{bounds.mappedYearsCount} Mapped BS Years ({bounds.mappedYears.join(', ')})</span>
         </div>
       </div>
 
       {/* Fiscal Year Lock Cards Grid */}
       <div>
-        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-          <Lock className="h-4 w-4 text-amber-500" />
-          <span>Nepali Fiscal Year Accounting Periods (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>YYYY-YY</code> Legitimate Standard)</span>
+        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
+          <Lock className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
+          <span>Nepali Fiscal Year Accounting Periods (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">YYYY-YY</code> Legitimate Standard)</span>
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {fiscalYears.map((fy) => (
             <div
               key={fy.id}
-              className={`rounded-2xl p-4 border transition-all ${
-                fy.isCurrent
-                  ? isDarkMode
-                    ? 'bg-gradient-to-br from-indigo-950 via-[#0f1218] to-slate-900 text-white border-indigo-500/60 shadow-xl'
-                    : 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-sm'
-                  : isDarkMode
-                    ? 'bg-[#0f1218] border-slate-800 text-slate-300 hover:border-slate-700'
-                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 shadow-2xs'
-              }`}
+              className={`rounded-2xl p-4 border transition-all ${fy.isCurrent ? 'bg-indigo-50/90 border-indigo-300 text-slate-900 shadow-sm dark:bg-gradient-to-br dark:from-indigo-950 dark:via-[#0f1218] dark:to-slate-900 dark:text-white dark:border-indigo-500/60 dark:shadow-xl' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700'}`}
             >
               <div className="flex items-center justify-between mb-2">
                 <span
-                  className={`text-xs font-bold font-mono px-2.5 py-0.5 rounded-full border ${
-                    fy.isCurrent
-                      ? isDarkMode
-                        ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30'
-                        : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                      : isDarkMode
-                        ? 'bg-slate-900 text-slate-400 border-slate-800'
-                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                  }`}
+                  className={`text-xs font-bold font-mono px-2.5 py-0.5 rounded-full border ${fy.isCurrent ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-400 dark:border-emerald-500/30' : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800'}`}
                 >
                   FY {fy.code}
                 </span>
@@ -527,20 +513,20 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               </div>
 
               <div className="space-y-1.5 text-[11px]">
-                <div className={`flex justify-between border-b pb-1 ${isDarkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>BS Period:</span>
-                  <span className={`font-mono font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <div className={`flex justify-between border-b pb-1 border-slate-200 dark:border-slate-800/80`}>
+                  <span className="text-slate-500 dark:text-slate-400">BS Period:</span>
+                  <span className={`font-mono font-semibold text-slate-900 dark:text-white`}>
                     {fy.startDateBS} to {fy.endDateBS}
                   </span>
                 </div>
-                <div className={`flex justify-between border-b pb-1 ${isDarkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>AD Period:</span>
-                  <span className={`font-mono font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                <div className={`flex justify-between border-b pb-1 border-slate-200 dark:border-slate-800/80`}>
+                  <span className="text-slate-500 dark:text-slate-400">AD Period:</span>
+                  <span className={`font-mono font-medium text-slate-700 dark:text-slate-300`}>
                     {fy.startDateAD} to {fy.endDateAD}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className={isDarkMode ? 'text-slate-400' : 'text-slate-500'}>Status:</span>
+                  <span className="text-slate-500 dark:text-slate-400">Status:</span>
                   <span className="font-bold flex items-center gap-1">
                     {fy.isClosed ? (
                       <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -558,31 +544,23 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       </div>
 
       {/* FEATURE 1: Month Array Seeder & Database Regenerator */}
-      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-indigo-900/50' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+      <div className={`rounded-2xl border p-6 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-indigo-900/50`}>
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-slate-200 dark:border-slate-800`}>
           <div className="flex items-center gap-2.5">
-            <div className={`p-2 rounded-xl border ${
-              isDarkMode ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border-indigo-200'
-            }`}>
+            <div className={`p-2 rounded-xl border bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20`}>
               <Database className="h-5 w-5" />
             </div>
             <div>
-              <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                 Seed BS Month Array & Expand Day-by-Day Database Table
               </h3>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Input 12-month array (e.g. <code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>2082: [31, 31, 32, ...]</code>) to automatically build full day records.
+              <p className={`text-xs text-slate-500 dark:text-slate-400`}>
+                Input 12-month array (e.g. <code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">2082: [31, 31, 32, ...]</code>) to automatically build full day records.
               </p>
             </div>
           </div>
 
-          <span className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border font-bold ${
-            isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-          }`}>
+          <span className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border font-bold bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}>
             {bounds.mappedYearsCount} Years ({bounds.totalDaysMapped} Daily Records)
           </span>
         </div>
@@ -590,12 +568,10 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
         {/* Input Form */}
         <form onSubmit={handleSeedSubmit} className="space-y-3">
           <div>
-            <label className={`block text-xs font-semibold mb-1 flex items-center justify-between ${
-              isDarkMode ? 'text-slate-300' : 'text-slate-700'
-            }`}>
+            <label className={`block text-xs font-semibold mb-1 flex items-center justify-between text-slate-700 dark:text-slate-300`}>
               <span>Enter BS Year & 12 Month Days Array:</span>
-              <span className={`text-[11px] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                Format: <code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>YYYY: [31, 31, 32, ...]</code>
+              <span className={`text-[11px] text-slate-400 dark:text-slate-500`}>
+                Format: <code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">YYYY: [31, 31, 32, ...]</code>
               </span>
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -604,16 +580,10 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 value={seedInput}
                 onChange={(e) => setSeedInput(e.target.value)}
                 placeholder="2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"
-                className={`flex-1 rounded-xl border p-3 text-xs font-mono focus:border-indigo-500 outline-none ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-700 text-amber-300 placeholder-slate-500'
-                    : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
-                }`}
+                className={`flex-1 rounded-xl border p-3 text-xs font-mono focus:border-indigo-500 outline-none bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-300 dark:placeholder-slate-500`}
               />
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer select-none ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
+                <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer select-none bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}>
                   <input
                     type="checkbox"
                     checked={seedOnlyIfNew}
@@ -636,8 +606,8 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
           {/* Quick Preset Buttons */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className={`text-[11px] font-bold flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              <Zap className="h-3 w-3 text-amber-500" />
+            <span className={`text-[11px] font-bold flex items-center gap-1 text-slate-500 dark:text-slate-400`}>
+              <Zap className={`h-3 w-3 text-amber-500 dark:text-amber-400`} />
               <span>Quick Seed Presets:</span>
             </span>
 
@@ -655,11 +625,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                       : [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]
                   )
                 }
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
               >
                 + Seed {y} BS
               </button>
@@ -670,20 +636,12 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
         {/* Feedback Alert */}
         {seedStatus.message && (
           <div
-            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-              seedStatus.type === 'success'
-                ? isDarkMode
-                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : isDarkMode
-                  ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-                  : 'bg-rose-50 border-rose-200 text-rose-800'
-            }`}
+            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${seedStatus.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:border-emerald-500/40 dark:text-emerald-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300'}`}
           >
             {seedStatus.type === 'success' ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              <CheckCircle2 className={`h-4 w-4 flex-shrink-0 text-emerald-500 dark:text-emerald-400`} />
             ) : (
-              <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+              <AlertCircle className={`h-4 w-4 flex-shrink-0 text-rose-500 dark:text-rose-400`} />
             )}
             <span>{seedStatus.message}</span>
           </div>
@@ -713,44 +671,32 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
         });
 
         return (
-          <div className={`rounded-2xl border p-5 shadow-xl space-y-4 ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-          }`}>
-            <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 ${
-              isDarkMode ? 'border-slate-800' : 'border-slate-200'
-            }`}>
+          <div className={`rounded-2xl border p-5 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
+            <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 border-slate-200 dark:border-slate-800`}>
               <div className="flex items-center gap-2.5">
-                <div className={`p-2 rounded-xl border ${
-                  isDarkMode ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-200'
-                }`}>
-                  <Sliders className="h-5 w-5" />
+                <div className={`p-2 rounded-xl border bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20`}>
+                  <Sliders className={`h-5 w-5 text-amber-600 dark:text-amber-400`} />
                 </div>
                 <div>
-                  <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
                     Existing BS Calendar Years & Month Days Array Manager
                   </h3>
-                  <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Filter and update 12-month day count arrays (<code className={isDarkMode ? 'text-amber-300 font-mono' : 'text-amber-700 font-mono'}>[Baisakh..Chaitra]</code>) and Baisakh 1 AD start dates in PostgreSQL database.
+                  <p className={`text-xs text-slate-500 dark:text-slate-400`}>
+                    Filter and update 12-month day count arrays (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">[Baisakh..Chaitra]</code>) and Baisakh 1 AD start dates in PostgreSQL database.
                   </p>
                 </div>
               </div>
 
               {/* FILTER CONTROLS */}
               <div className="flex flex-wrap items-center gap-2">
-                <div className={`flex items-center p-1 rounded-xl border ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
-                }`}>
+                <div className={`flex items-center p-1 rounded-xl border bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
                   <button
                     type="button"
                     onClick={() => {
                       setManagerFilterMode('recent');
                       setYearSearchTerm('');
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      managerFilterMode === 'recent'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${managerFilterMode === 'recent' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
                   >
                     Recent Year ({recentYearObj?.yearBS || '2082'} BS)
                   </button>
@@ -761,11 +707,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                       setManagerFilterMode('all');
                       setYearSearchTerm('');
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      managerFilterMode === 'all'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${managerFilterMode === 'all' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
                   >
                     All Years ({sortedYears.length})
                   </button>
@@ -779,11 +721,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                       }
                       setYearSearchTerm('');
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      managerFilterMode === 'specific'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${managerFilterMode === 'specific' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
                   >
                     Specific Year
                   </button>
@@ -794,9 +732,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                   <select
                     value={selectedSpecificYear || (recentYearObj?.yearBS ?? 2082)}
                     onChange={(e) => setSelectedSpecificYear(parseInt(e.target.value, 10))}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold outline-none cursor-pointer ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-amber-400' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold outline-none cursor-pointer bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-400`}
                   >
                     {sortedYears.map((y) => (
                       <option key={y.yearBS} value={y.yearBS}>
@@ -807,42 +743,32 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 )}
 
                 {/* Quick Search */}
-                <div className="relative">
-                  <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${
-                    isDarkMode ? 'text-slate-500' : 'text-slate-400'
-                  }`} />
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0">
+                  <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-slate-500`} />
                   <input
                     type="text"
                     placeholder="Search BS year..."
                     value={yearSearchTerm}
                     onChange={(e) => setYearSearchTerm(e.target.value)}
-                    className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs font-mono outline-none w-36 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-indigo-500' : 'bg-white border-slate-200 text-slate-900 focus:border-indigo-500'
-                    }`}
+                    className={`pl-8 pr-3 py-1.5 rounded-xl border text-xs font-mono outline-none w-36 bg-white border-slate-200 text-slate-900 focus:border-indigo-500 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:focus:border-indigo-500`}
                   />
                 </div>
               </div>
             </div>
 
             {/* List Table of Displayed BS Years */}
-            <div className={`overflow-x-auto rounded-xl border ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'
-            }`}>
+            <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40`}>
               <table className="w-full text-left text-xs font-mono">
-                <thead className={`font-bold border-b ${
-                  isDarkMode ? 'bg-slate-900 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                }`}>
+                <thead className={`font-bold border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800`}>
                   <tr>
-                    <th className="p-3">BS Year</th>
-                    <th className="p-3">Baisakh 1 AD Date</th>
-                    <th className="p-3">Total Days</th>
-                    <th className="p-3">12 Month Days Array [Baisakh → Chaitra]</th>
-                    <th className="p-3 text-right">Actions</th>
+                    <th className="px-2.5 py-1.5">BS Year</th>
+                    <th className="px-2.5 py-1.5">Baisakh 1 AD Date</th>
+                    <th className="px-2.5 py-1.5">Total Days</th>
+                    <th className="px-2.5 py-1.5">12 Month Days Array [Baisakh → Chaitra]</th>
+                    <th className="px-2.5 py-1.5 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${
-                  isDarkMode ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'
-                }`}>
+                <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800 dark:text-slate-300`}>
                   {displayedManagerYears.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-6 text-center text-slate-400">
@@ -854,44 +780,32 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                       const totalDays = y.daysInMonths.reduce((a, b) => a + b, 0);
                       const isRecent = recentYearObj && y.yearBS === recentYearObj.yearBS;
                       return (
-                        <tr key={y.yearBS} className={`transition-colors ${
-                          isRecent
-                            ? isDarkMode ? 'bg-amber-950/20 hover:bg-amber-950/30' : 'bg-amber-50/60 hover:bg-amber-50'
-                            : isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
-                        }`}>
-                          <td className="p-3 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
+                        <tr key={y.yearBS} className={`transition-colors ${isRecent ? 'bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-950/20 dark:hover:bg-amber-950/30' : 'hover:bg-white dark:hover:bg-slate-800/50'}`}>
+                          <td className={`p-2.5 font-bold text-sm whitespace-nowrap text-amber-500 dark:text-amber-400`}>
                             <div className="flex items-center gap-1.5">
                               <span>{y.yearBS} BS</span>
                               {isRecent && (
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-sans font-extrabold border ${
-                                  isDarkMode ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-amber-100 text-amber-800 border-amber-200'
-                                }`}>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-sans font-extrabold border bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800`}>
                                   Recent
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="p-3 font-semibold whitespace-nowrap">
+                          <td className="p-2.5 font-semibold whitespace-nowrap">
                             {y.startAD}
                           </td>
-                          <td className="p-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                              totalDays === 365
-                                ? isDarkMode ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                : isDarkMode ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}>
+                          <td className="p-2.5 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${totalDays === 365 ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800' : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'}`}>
                               {totalDays} Days
                             </span>
                           </td>
-                          <td className="p-3">
+                          <td className="p-2.5">
                             <div className="flex items-center gap-1 flex-wrap">
                               {y.daysInMonths.map((d, idx) => (
                                 <span
                                   key={idx}
                                   title={`${NEPALI_MONTHS_EN[idx]} (${NEPALI_MONTHS_NP[idx]}): ${d} days`}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
-                                    isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-800'
-                                  }`}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border bg-white border-slate-200 text-slate-800 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-300`}
                                 >
                                   <span className="text-slate-400 mr-0.5">{idx + 1}:</span>
                                   <span className="font-bold">{d}</span>
@@ -899,7 +813,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                               ))}
                             </div>
                           </td>
-                          <td className="p-3 text-right whitespace-nowrap">
+                          <td className="p-2.5 text-right whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => openEditYearModal(y)}
@@ -923,12 +837,10 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       {/* EDIT BS YEAR MONTH ARRAY MODAL */}
       {editingYearData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className={`w-full max-w-2xl rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-2xl rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
-                <Sliders className="h-5 w-5 text-indigo-500" />
+                <Sliders className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
                 <h3 className="text-base font-bold">
                   Update BS Year {editingYearData.yearBS} Month Array & Start Date
                 </h3>
@@ -943,10 +855,8 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             </div>
 
             {editError && (
-              <div className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-                isDarkMode ? 'bg-rose-950/80 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
-              }`}>
-                <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+              <div className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/80 dark:border-rose-500/40 dark:text-rose-300`}>
+                <AlertCircle className={`h-4 w-4 flex-shrink-0 text-rose-500 dark:text-rose-400`} />
                 <span>{editError}</span>
               </div>
             )}
@@ -959,9 +869,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                     type="text"
                     disabled
                     value={`${editingYearData.yearBS} BS`}
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold ${
-                      isDarkMode ? 'bg-slate-950 border-slate-800 text-amber-400' : 'bg-slate-100 border-slate-300 text-slate-700'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:text-amber-400`}
                   />
                 </div>
 
@@ -974,9 +882,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                     required
                     value={editStartAD}
                     onChange={(e) => setEditStartAD(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono focus:border-indigo-500 outline-none ${
-                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-xl border p-2.5 text-xs font-mono focus:border-indigo-500 outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-950 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
               </div>
@@ -999,9 +905,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                   {NEPALI_MONTHS_EN.map((mName, idx) => (
                     <div
                       key={mName}
-                      className={`p-2 rounded-xl border space-y-1 ${
-                        isDarkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className={`p-2 rounded-xl border space-y-1 bg-slate-50 border-slate-200 dark:bg-slate-950/80 dark:border-slate-800`}
                     >
                       <label className="block text-[11px] font-semibold truncate">
                         {idx + 1}. {mName} <span className="text-slate-400 font-normal">({NEPALI_MONTHS_NP[idx]})</span>
@@ -1013,9 +917,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                         required
                         value={editDaysInMonths[idx] ?? 30}
                         onChange={(e) => handleMonthDaysChange(idx, parseInt(e.target.value, 10) || 0)}
-                        className={`w-full rounded-lg border p-1.5 text-xs font-mono font-bold text-center outline-none focus:border-indigo-500 ${
-                          isDarkMode ? 'bg-slate-900 border-slate-700 text-amber-300' : 'bg-white border-slate-300 text-slate-900'
-                        }`}
+                        className={`w-full rounded-lg border p-1.5 text-xs font-mono font-bold text-center outline-none focus:border-indigo-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-amber-300`}
                       />
                     </div>
                   ))}
@@ -1026,9 +928,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingYearData(null)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  }`}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
                 >
                   Cancel
                 </button>
@@ -1047,28 +947,22 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
       )}
 
       {/* UNIFIED FEATURE CARD: Nepali Calendar Conversion, Bounds Checker & Day Table Suite */}
-      <div className={`rounded-2xl border p-4 sm:p-5 shadow-xl space-y-4 ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-      }`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 shadow-xl space-y-4 bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
         {/* Card Header */}
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 ${
-          isDarkMode ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-slate-200 dark:border-slate-800`}>
           <div className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <CalendarDays className={`h-5 w-5 flex-shrink-0 text-amber-500 dark:text-amber-400`} />
             <div>
-              <h3 className={`font-bold text-sm sm:text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                Nepali Calendar & BS Date Conversion Suite (<code className={isDarkMode ? 'text-amber-300 font-mono text-xs' : 'text-amber-700 font-mono text-xs'}>BSDayRecord</code>)
+              <h3 className={`font-bold text-sm sm:text-base text-slate-900 dark:text-white`}>
+                Nepali Calendar & BS Date Conversion Suite (<code className="text-amber-700 font-mono text-xs dark:text-amber-300 dark:font-mono dark:text-xs">BSDayRecord</code>)
               </h3>
-              <p className={`text-[11px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-[11px] text-slate-500 dark:text-slate-400`}>
                 Targeted range converter, SQL table sync, single-date lookup with bounds checker, and live day-record table inspector.
               </p>
             </div>
           </div>
 
-          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border font-bold self-start sm:self-auto ${
-            isDarkMode ? 'bg-amber-950/80 text-amber-300 border-amber-800/80' : 'bg-amber-50 text-amber-800 border-amber-200'
-          }`}>
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border font-bold self-start sm:self-auto bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-800/80`}>
             PostgreSQL Sync Active
           </span>
         </div>
@@ -1076,44 +970,34 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
         {/* Compact Date Tools Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
           {/* Tool 1: Targeted Date Range Conversion */}
-          <div className={`lg:col-span-7 p-3.5 rounded-xl border space-y-3 ${
-            isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
-          }`}>
-            <div className={`flex items-center gap-1.5 text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-              <Zap className="h-3.5 w-3.5 text-amber-500" />
+          <div className={`lg:col-span-7 p-3.5 rounded-xl border space-y-3 bg-slate-50/80 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
+            <div className={`flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200`}>
+              <Zap className={`h-3.5 w-3.5 text-amber-500 dark:text-amber-400`} />
               <span>Targeted Date Range Conversion (AD → BS)</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
               <div>
-                <label className={`block text-[11px] font-semibold mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                <label className={`block text-[11px] font-semibold mb-1 text-slate-600 dark:text-slate-400`}>
                   Start Date (AD)
                 </label>
                 <input
                   type="date"
                   value={rangeStartDateAD}
                   onChange={(e) => setRangeStartDateAD(e.target.value)}
-                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 ${
-                    isDarkMode
-                      ? 'bg-slate-900 border-slate-700 text-slate-200'
-                      : 'bg-white border-slate-300 text-slate-800'
-                  }`}
+                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 />
               </div>
 
               <div>
-                <label className={`block text-[11px] font-semibold mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                <label className={`block text-[11px] font-semibold mb-1 text-slate-600 dark:text-slate-400`}>
                   End Date (AD)
                 </label>
                 <input
                   type="date"
                   value={rangeEndDateAD}
                   onChange={(e) => setRangeEndDateAD(e.target.value)}
-                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 ${
-                    isDarkMode
-                      ? 'bg-slate-900 border-slate-700 text-slate-200'
-                      : 'bg-white border-slate-300 text-slate-800'
-                  }`}
+                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 />
               </div>
 
@@ -1131,28 +1015,18 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
           </div>
 
           {/* Tool 2: Single Date Lookup & Bounds Checker */}
-          <div className={`lg:col-span-5 p-3.5 rounded-xl border space-y-2.5 ${
-            isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
-          }`}>
+          <div className={`lg:col-span-5 p-3.5 rounded-xl border space-y-2.5 bg-slate-50/80 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
             <div className="flex items-center justify-between">
-              <div className={`flex items-center gap-1.5 text-xs font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                <CalendarIcon className="h-3.5 w-3.5 text-indigo-500" />
+              <div className={`flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200`}>
+                <CalendarIcon className={`h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400`} />
                 <span>Single Date Lookup & Bounds Checker</span>
               </div>
               {boundsCheck.inBounds ? (
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${
-                  isDarkMode
-                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800/80'
-                    : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                }`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800/80`}>
                   <ShieldCheck className="h-3 w-3" /> In Bounds
                 </span>
               ) : (
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${
-                  isDarkMode
-                    ? 'bg-rose-950 text-rose-300 border-rose-800/80'
-                    : 'bg-rose-100 text-rose-800 border-rose-200'
-                }`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800/80`}>
                   <ShieldAlert className="h-3 w-3" /> Out of Bounds
                 </span>
               )}
@@ -1160,27 +1034,19 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
               <div>
-                <label className={`block text-[11px] font-semibold mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                <label className={`block text-[11px] font-semibold mb-1 text-slate-600 dark:text-slate-400`}>
                   Single AD Date
                 </label>
                 <input
                   type="date"
                   value={testDateAD}
                   onChange={(e) => setTestDateAD(e.target.value)}
-                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 ${
-                    isDarkMode
-                      ? 'bg-slate-900 border-slate-700 text-slate-200'
-                      : 'bg-white border-slate-300 text-slate-800'
-                  }`}
+                  className={`w-full rounded-lg border p-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
                 />
               </div>
 
-              <div className={`p-2 rounded-lg border font-mono text-[11px] ${
-                isDarkMode
-                  ? 'bg-slate-950/80 border-slate-800'
-                  : 'bg-white border-slate-200 shadow-2xs'
-              }`}>
-                <div className={`text-[10px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Calculated BS Result:</div>
+              <div className={`p-2 rounded-lg border font-mono text-[11px] bg-white border-slate-200 shadow-2xs dark:bg-slate-950/80 dark:border-slate-800`}>
+                <div className={`text-[10px] text-slate-500 dark:text-slate-400`}>Calculated BS Result:</div>
                 <div className="font-bold text-indigo-600 dark:text-indigo-300 truncate">
                   {lookedUpDayRecord.bsDay} {lookedUpDayRecord.bsMonthName} {lookedUpDayRecord.bsYear} BS
                 </div>
@@ -1194,20 +1060,14 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
         {/* Status Alerts & Missing Year Handler */}
         {rangeConversionStatus.type === 'missing_year' && (
-          <div className={`p-3 rounded-xl border text-xs space-y-2.5 ${
-            isDarkMode
-              ? 'bg-amber-950/50 border-amber-500/40 text-amber-200'
-              : 'bg-amber-50 border-amber-200 text-amber-800'
-          }`}>
+          <div className={`p-3 rounded-xl border text-xs space-y-2.5 bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/50 dark:border-amber-500/40 dark:text-amber-200`}>
             <div className="flex items-center gap-2 font-semibold">
-              <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <AlertCircle className={`h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400`} />
               <span>{rangeConversionStatus.message}</span>
             </div>
 
-            <div className={`p-2.5 rounded-lg border space-y-2 ${
-              isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-amber-200'
-            }`}>
-              <span className={`font-bold block text-[11px] ${isDarkMode ? 'text-slate-300' : 'text-slate-800'}`}>
+            <div className={`p-2.5 rounded-lg border space-y-2 bg-white border-amber-200 dark:bg-slate-900/80 dark:border-slate-800`}>
+              <span className={`font-bold block text-[11px] text-slate-800 dark:text-slate-300`}>
                 Quick Seed Missing BS Year Array(s):
               </span>
               <div className="flex flex-wrap gap-2">
@@ -1231,26 +1091,16 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
         )}
 
         {rangeConversionStatus.type === 'error' && (
-          <div className={`p-2.5 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-            isDarkMode
-              ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}>
-            <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+          <div className={`p-2.5 rounded-xl border text-xs font-medium flex items-center gap-2 bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300`}>
+            <AlertCircle className={`h-4 w-4 flex-shrink-0 text-rose-500 dark:text-rose-400`} />
             <span>{rangeConversionStatus.message}</span>
           </div>
         )}
 
         {rangeConversionStatus.type === 'success' && (
-          <div className={`space-y-3 p-3.5 rounded-xl border ${
-            isDarkMode
-              ? 'bg-emerald-950/20 border-emerald-500/30'
-              : 'bg-emerald-50/60 border-emerald-200'
-          }`}>
+          <div className={`space-y-3 p-3.5 rounded-xl border bg-emerald-50/60 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-500/30`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className={`flex items-center gap-2 text-xs font-semibold ${
-                isDarkMode ? 'text-emerald-300' : 'text-emerald-800'
-              }`}>
+              <div className={`flex items-center gap-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300`}>
                 <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
                 <span>{rangeConversionStatus.message}</span>
               </div>
@@ -1260,11 +1110,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 <button
                   type="button"
                   onClick={handleCancelConversion}
-                  className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg font-semibold text-xs border transition-all cursor-pointer whitespace-nowrap ${
-                    isDarkMode
-                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
-                  }`}
+                  className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg font-semibold text-xs border transition-all cursor-pointer whitespace-nowrap bg-white hover:bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
                 >
                   <X className="h-3.5 w-3.5 text-slate-400" />
                   <span>Cancel Conversion</span>
@@ -1285,31 +1131,21 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             </div>
 
             {/* Preview Summary Statistics */}
-            <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-2 border-t ${
-              isDarkMode ? 'border-emerald-500/20 text-slate-300' : 'border-emerald-200 text-slate-700'
-            }`}>
-              <div className={`p-2 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-              }`}>
-                <span className={`text-[10px] block ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Total Converted Days</span>
+            <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono pt-2 border-t border-emerald-200 text-slate-700 dark:border-emerald-500/20 dark:text-slate-300`}>
+              <div className={`p-2 rounded-lg border bg-white border-slate-200 shadow-2xs dark:bg-slate-900/60 dark:border-slate-800`}>
+                <span className={`text-[10px] block text-slate-500 dark:text-slate-400`}>Total Converted Days</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs sm:text-sm">{rangeConversionStatus.records.length} Days</span>
               </div>
-              <div className={`p-2 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-              }`}>
-                <span className={`text-[10px] block ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Start BS Date</span>
+              <div className={`p-2 rounded-lg border bg-white border-slate-200 shadow-2xs dark:bg-slate-900/60 dark:border-slate-800`}>
+                <span className={`text-[10px] block text-slate-500 dark:text-slate-400`}>Start BS Date</span>
                 <span className="text-indigo-600 dark:text-indigo-300 font-bold">{rangeConversionStatus.records[0]?.bsDate} BS</span>
               </div>
-              <div className={`p-2 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-              }`}>
-                <span className={`text-[10px] block ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>End BS Date</span>
+              <div className={`p-2 rounded-lg border bg-white border-slate-200 shadow-2xs dark:bg-slate-900/60 dark:border-slate-800`}>
+                <span className={`text-[10px] block text-slate-500 dark:text-slate-400`}>End BS Date</span>
                 <span className="text-indigo-600 dark:text-indigo-300 font-bold">{rangeConversionStatus.records[rangeConversionStatus.records.length - 1]?.bsDate} BS</span>
               </div>
-              <div className={`p-2 rounded-lg border ${
-                isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-2xs'
-              }`}>
-                <span className={`text-[10px] block ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Saturdays / Weekends</span>
+              <div className={`p-2 rounded-lg border bg-white border-slate-200 shadow-2xs dark:bg-slate-900/60 dark:border-slate-800`}>
+                <span className={`text-[10px] block text-slate-500 dark:text-slate-400`}>Saturdays / Weekends</span>
                 <span className="text-rose-600 dark:text-rose-400 font-bold">{rangeConversionStatus.records.filter(r => r.isWeekend).length} Days</span>
               </div>
             </div>
@@ -1317,64 +1153,42 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
             {/* SQL Sync Success Result */}
             {sqlSyncSuccess && (
               <div
-                className={`p-2.5 rounded-lg border text-xs font-medium flex items-center gap-2 ${
-                  sqlSyncSuccess.success
-                    ? isDarkMode
-                      ? 'bg-emerald-900/50 border-emerald-400/50 text-emerald-200'
-                      : 'bg-emerald-100 border-emerald-300 text-emerald-800'
-                    : isDarkMode
-                      ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-                      : 'bg-rose-100 border-rose-300 text-rose-800'
-                }`}
+                className={`p-2.5 rounded-lg border text-xs font-medium flex items-center gap-2 ${sqlSyncSuccess.success ? 'bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-900/50 dark:border-emerald-400/50 dark:text-emerald-200' : 'bg-rose-100 border-rose-300 text-rose-800 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-300'}`}
               >
                 {sqlSyncSuccess.success ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle2 className={`h-4 w-4 flex-shrink-0 text-emerald-500 dark:text-emerald-400`} />
                 ) : (
-                  <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+                  <AlertCircle className={`h-4 w-4 flex-shrink-0 text-rose-500 dark:text-rose-400`} />
                 )}
                 <span>{sqlSyncSuccess.message}</span>
               </div>
             )}
 
             {/* Spilled-over Day-by-Day Database Table Inspector (BSDayRecord) */}
-            <div className={`pt-2.5 border-t space-y-2.5 ${
-              isDarkMode ? 'border-emerald-500/20' : 'border-emerald-200'
-            }`}>
+            <div className={`pt-2.5 border-t space-y-2.5 border-emerald-200 dark:border-emerald-500/20`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className={`flex items-center gap-1.5 text-xs font-bold ${
-                  isDarkMode ? 'text-slate-200' : 'text-slate-800'
-                }`}>
-                  <Database className="h-3.5 w-3.5 text-amber-500" />
+                <div className={`flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200`}>
+                  <Database className={`h-3.5 w-3.5 text-amber-500 dark:text-amber-400`} />
                   <span>
-                    Converted Day-by-Day Table Records (<code className={isDarkMode ? 'text-amber-300 font-mono text-[11px]' : 'text-amber-700 font-mono text-[11px]'}>BSDayRecord</code>)
+                    Converted Day-by-Day Table Records (<code className="text-amber-700 font-mono text-[11px] dark:text-amber-300 dark:font-mono dark:text-[11px]">BSDayRecord</code>)
                   </span>
                 </div>
 
-                <div className="relative w-full sm:w-56">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-56">
                   <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2" />
                   <input
                     type="text"
                     value={rangeSearchQuery}
                     onChange={(e) => setRangeSearchQuery(e.target.value)}
                     placeholder="Search AD/BS Date, Month..."
-                    className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs outline-none focus:border-amber-500 font-mono ${
-                      isDarkMode
-                        ? 'bg-slate-900/90 border-slate-800 text-slate-200 placeholder-slate-500'
-                        : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400'
-                    }`}
+                    className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs outline-none focus:border-amber-500 font-mono bg-white border-slate-300 text-slate-800 placeholder-slate-400 dark:bg-slate-900/90 dark:border-slate-800 dark:text-slate-200 dark:placeholder-slate-500`}
                   />
                 </div>
               </div>
 
-              <div className={`overflow-x-auto rounded-xl border max-h-72 overflow-y-auto ${
-                isDarkMode ? 'border-slate-800/80 bg-[#0f1218]' : 'border-slate-200 bg-white'
-              }`}>
+              <div className={`overflow-x-auto rounded-xl border max-h-72 overflow-y-auto border-slate-200 bg-white dark:border-slate-800/80 dark:bg-[#0f1218]`}>
                 <table className="w-full text-left text-[11px] font-mono">
-                  <thead className={`sticky top-0 z-10 font-bold border-b backdrop-blur-md ${
-                    isDarkMode
-                      ? 'bg-slate-900/95 text-slate-300 border-slate-800'
-                      : 'bg-slate-100 text-slate-700 border-slate-200'
-                  }`}>
+                  <thead className={`sticky top-0 z-10 font-bold border-b backdrop-blur-md bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/95 dark:text-slate-300 dark:border-slate-800`}>
                     <tr>
                       <th className="p-2">AD Date</th>
                       <th className="p-2">BS Date</th>
@@ -1385,9 +1199,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                       <th className="p-2">Day Type</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${
-                    isDarkMode ? 'divide-slate-800/80 text-slate-300' : 'divide-slate-200 text-slate-700'
-                  }`}>
+                  <tbody className={`divide-y divide-slate-200 text-slate-700 dark:divide-slate-800/80 dark:text-slate-300`}>
                     {rangeConversionStatus.records
                       .filter((rec) => {
                         if (!rangeSearchQuery.trim()) return true;
@@ -1401,40 +1213,28 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                         );
                       })
                       .map((rec) => (
-                        <tr key={rec.adDate} className={`transition-colors ${
-                          isDarkMode ? 'hover:bg-slate-900/50' : 'hover:bg-slate-50'
-                        }`}>
-                          <td className={`p-2 font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>{rec.adDate}</td>
+                        <tr key={rec.adDate} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-900/50`}>
+                          <td className={`p-2 font-semibold text-slate-900 dark:text-slate-200`}>{rec.adDate}</td>
                           <td className="p-2 font-bold text-amber-600 dark:text-amber-300">{rec.bsDate} BS</td>
-                          <td className={`p-2 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                          <td className={`p-2 text-slate-700 dark:text-slate-300`}>
                             {rec.bsMonthName} ({rec.bsMonthNameNp})
                           </td>
-                          <td className={`p-2 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                          <td className={`p-2 text-slate-700 dark:text-slate-300`}>
                             {rec.dayOfWeekName} ({rec.dayOfWeekNameNp})
                           </td>
                           <td className="p-2">
-                            <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] border ${
-                              isDarkMode
-                                ? 'bg-indigo-950 text-indigo-300 border-indigo-800'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                            }`}>
+                            <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] border bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}>
                               FY {rec.fiscalYear}
                             </span>
                           </td>
                           <td className="p-2">
-                            <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
-                              isDarkMode ? 'bg-slate-800 text-amber-300' : 'bg-slate-100 text-amber-800'
-                            }`}>
+                            <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] bg-slate-100 text-amber-800 dark:bg-slate-800 dark:text-amber-300`}>
                               {rec.quarter}
                             </span>
                           </td>
                           <td className="p-2">
                             {rec.isWeekend ? (
-                              <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] border ${
-                                isDarkMode
-                                  ? 'bg-rose-950 text-rose-300 border-rose-800'
-                                  : 'bg-rose-50 text-rose-700 border-rose-200'
-                              }`}>
+                              <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] border bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800`}>
                                 Saturday Weekend
                               </span>
                             ) : (

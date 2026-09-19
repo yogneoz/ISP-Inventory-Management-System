@@ -4,5 +4,7 @@ dist/
 coverage/
 .DS_Store
 *.log
+temp_po.txt
+tsc_all.txt
 .env*
 !.env.example

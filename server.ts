@@ -26,7 +26,12 @@ import {
   UnitOfMeasure,
   LocationRecord,
   DocumentNumberConfig,
+  DamageRecord,
+  VendorPayment,
+  VendorPaymentMethod,
+  VendorPaymentStatus,
 } from './src/types';
+import { calculateFixedAssetValues } from './src/utils/depreciation';
 
 dotenv.config();
 
@@ -59,6 +64,8 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', requirePostgres);
 app.use('/api', enforceFiscalYearWriteAccess);
+app.use('/api', enforceOperationalPermissions);
+app.use('/api', enforceBranchAccess);
 
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
@@ -74,24 +81,30 @@ let locationRecords: LocationRecord[] = [];
 let branches: Branch[] = [];
 let fiscalYears: FiscalYear[] = [];
 
+// EXAMPLE/DUMMY company profile (is_demo-labelled data). Replace via the
+// Company Setup screen once real company details are available.
 const INITIAL_COMPANY_PROFILE: CompanyProfile = {
   id: 'COMP-001',
-  name: 'IZONE DIGITAL NETWORK PVT. LTD.',
-  legalName: 'iZone Digital Network Private Limited',
-  tagline: 'High Speed Fiber & Enterprise Communication System',
-  address: 'Urlabari-07, Morang, Koshi Province, Nepal',
-  city: 'Urlabari',
+  name: 'Inventory Management System',
+  legalName: 'Inventory Management System (Demo)',
+  tagline: 'Multi-Branch Inventory Management',
+  address: 'Kathmandu, Nepal',
+  city: 'Kathmandu',
   country: 'Nepal',
-  phone: '+977-021-540123 / 9800000000',
-  email: 'info@izone.com.np',
-  website: 'https://izone.com.np',
-  panVatNumber: '609823412',
-  registrationNumber: 'REG-2075-88412',
+  phone: '',
+  email: '',
+  website: '',
+  panVatNumber: '',
+  registrationNumber: '',
   logoUrl: '',
   logoPreset: 'telecom',
-  currencySymbol: 'Rs.',
+  currencySymbol: 'NPR',
+  currencyCode: 'NPR',
+  currencyLocale: 'en-IN',
+  currencyPosition: 'before',
+  currencyDecimals: 2,
   defaultTaxRate: 13,
-  notes: 'Head Office & Central Procurement Warehouse System',
+  notes: 'Default company profile — configure real details in Company Setup.',
 };
 
 let companyProfile: CompanyProfile = { ...INITIAL_COMPANY_PROFILE };
@@ -115,6 +128,11 @@ const INITIAL_DOCUMENT_NUMBER_CONFIGS: DocumentNumberConfig[] = [
   { id: 'JV', documentType: 'Journal Voucher', prefix: 'JV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for manual general ledger transactions and depreciation entries.' },
   { id: 'PV', documentType: 'Payment Disbursement Voucher', prefix: 'PV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for supplier bill payments, operational expenses, and bank disbursements.' },
   { id: 'RV', documentType: 'Cash & Bank Receipt Voucher', prefix: 'RV-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for customer payments, advance collections, and bank deposits.' },
+  // Cash & Bank Payment / Receipt Document Numbering
+  { id: 'CP', documentType: 'Cash Payment', prefix: 'CP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1002, resetEveryFiscalYear: true, notes: 'Used for cash payment disbursements to suppliers and vendors. (Starts after demo CP-2081-1001.)' },
+  { id: 'CR', documentType: 'Cash Receive', prefix: 'CR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for cash receipts received from customers.' },
+  { id: 'BP', documentType: 'Bank Payment', prefix: 'BP-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1003, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque payment disbursements to suppliers. (Starts after demo BP-2081-1001/1002.)' },
+  { id: 'BR', documentType: 'Bank Receive', prefix: 'BR-2081-', suffix: '', minDigits: 4, startingNumber: 1001, nextNumber: 1001, resetEveryFiscalYear: true, notes: 'Used for bank transfer and cheque receipts received from customers.' },
 ];
 
 let docNumberConfigs: DocumentNumberConfig[] = JSON.parse(JSON.stringify(INITIAL_DOCUMENT_NUMBER_CONFIGS));
@@ -128,41 +146,39 @@ const INITIAL_MASTER_UOM: UnitOfMeasure[] = [
   { id: 'uom-5', name: 'Sets', symbol: 'Set', type: 'Count', isBaseUnit: true },
 ];
 
+// EXAMPLE/DUMMY locations (is_demo = TRUE). No real site data.
 const INITIAL_MASTER_LOCATIONS: LocationRecord[] = [
   {
     id: 'LOC-1001',
-    name: 'Main Server Room - HQ',
+    name: 'Example Location 1',
     type: 'POP_SERVER_ROOM',
     branchId: 'WH001',
-    address: 'Urlabari Central Station',
-    coordinates: { latitude: 26.6664, longitude: 87.625 },
-    contactPerson: 'Shrestha Admin',
-    contactPhone: '9800000000',
-    notes: 'Primary POP hub for Urlabari Region',
-    activeAssetsCount: 12,
+    address: 'Example Street, Example City, Nepal',
+    coordinates: { latitude: 0, longitude: 0 },
+    contactPerson: 'Example Contact 1',
+    contactPhone: '9800000001',
+    notes: 'Dummy location for testing (example data).',
+    activeAssetsCount: 0,
+  },
+  {
+    id: 'LOC-1002',
+    name: 'Example Location 2',
+    type: 'POP_SERVER_ROOM',
+    branchId: 'BRH01',
+    address: 'Example Avenue, Example City, Nepal',
+    coordinates: { latitude: 0, longitude: 0 },
+    contactPerson: 'Example Contact 2',
+    contactPhone: '9800000002',
+    notes: 'Dummy location for testing (example data).',
+    activeAssetsCount: 0,
   },
 ];
 
+// EXAMPLE/DUMMY branch master (is_demo = TRUE). No real branch data —
+// mirrors scripts/setup_db.js DEFAULT_BRANCHES.
 const INITIAL_MASTER_BRANCHES: Branch[] = [
-  { id: 'WH001', code: 'WH001', name: 'Head Office', location: 'Urlabari', phone: '9800000000', isHeadquarters: true, active: true },
-  { id: 'BRC01', code: 'BRC01', name: 'Biratchowk', location: 'Biratchowk', phone: '9800000001', isHeadquarters: false, active: true },
-  { id: 'BTM01', code: 'BTM01', name: 'Birtamode', location: 'Birtamode', phone: '9800000002', isHeadquarters: false, active: true },
-  { id: 'CHU01', code: 'CHU01', name: 'Chulachuli', location: 'Chulachuli', phone: '9800000003', isHeadquarters: false, active: true },
-  { id: 'DHU01', code: 'DHU01', name: 'Dudhe', location: 'Dudhe', phone: '9800000004', isHeadquarters: false, active: true },
-  { id: 'INR01', code: 'INR01', name: 'Inaruwa', location: 'Inaruwa', phone: '9800000005', isHeadquarters: false, active: true },
-  { id: 'ITH01', code: 'ITH01', name: 'Itahari', location: 'Itahari', phone: '9800000006', isHeadquarters: false, active: true },
-  { id: 'JTR01', code: 'JTR01', name: 'Jitpur', location: 'Jitpur', phone: '9800000007', isHeadquarters: false, active: true },
-  { id: 'HLE01', code: 'HLE01', name: 'Hile', location: 'Hile', phone: '9800000008', isHeadquarters: false, active: true },
-  { id: 'LTG01', code: 'LTG01', name: 'Letang', location: 'Letang', phone: '9800000009', isHeadquarters: false, active: true },
-  { id: 'MDL01', code: 'MDL01', name: 'Madhumalla', location: 'Madhumalla', phone: '9800000010', isHeadquarters: false, active: true },
-  { id: 'PTH01', code: 'PTH01', name: 'Pathari', location: 'Pathari', phone: '9800000011', isHeadquarters: false, active: true },
-  { id: 'PDM01', code: 'PDM01', name: 'Phidim', location: 'Phidim', phone: '9800000012', isHeadquarters: false, active: true },
-  { id: 'RJB01', code: 'RJB01', name: 'Rajbiraj', location: 'Rajbiraj', phone: '9800000013', isHeadquarters: false, active: true },
-  { id: 'RML01', code: 'RML01', name: 'Ramailo', location: 'Ramailo', phone: '9800000014', isHeadquarters: false, active: true },
-  { id: 'RTW01', code: 'RTW01', name: 'Ratuwamai', location: 'Ratuwamai', phone: '9800000015', isHeadquarters: false, active: true },
-  { id: 'SHV01', code: 'SHV01', name: 'Shivasatakshi', location: 'Shivasatakshi', phone: '9800000016', isHeadquarters: false, active: true },
-  { id: 'TND01', code: 'TND01', name: 'Tandi', location: 'Tandi', phone: '9800000017', isHeadquarters: false, active: true },
-  { id: 'URL01', code: 'URL01', name: 'Urlabari', location: 'Urlabari', phone: '9800000018', isHeadquarters: false, active: true },
+  { id: 'WH001', code: 'WH001', name: 'Branch 1 (Head Office)', location: 'Example Location 1', phone: '9800000000', isHeadquarters: true, active: true },
+  { id: 'BRH01', code: 'BRH01', name: 'Branch 2', location: 'Example Location 2', phone: '9800000001', isHeadquarters: false, active: true },
 ];
 
 const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
@@ -172,62 +188,64 @@ const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
   { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isCurrent: false, isClosed: false },
 ];
 
+// EXAMPLE/DUMMY suppliers (is_demo = TRUE). No real supplier data.
+// Ids match scripts/demo_dataset.js DEMO_SUPPLIERS (demo-sup-*) so the seed
+// rows are the SAME suppliers referenced by demo invoices/payments/POs.
 const INITIAL_MASTER_SUPPLIERS: Supplier[] = [
   {
-    id: 'sup-1',
+    id: 'demo-sup-1',
     supplierCode: 'SUP-1001',
-    name: 'Apex Trade & Telecom Supplies Pvt. Ltd.',
-    contactPerson: 'Ramesh Adhikari',
-    phone: '+977-1-4265890',
-    email: 'orders@apextelecom.com.np',
-    address: 'Putalisadak, Kathmandu, Nepal',
-    panVatNumber: '300129841',
+    name: 'Example Supplier 1',
+    contactPerson: 'Example Contact 1',
+    phone: '+977-01-0000001',
+    email: 'sales1@example.com',
+    address: 'Example Street, Example City, Nepal',
+    panVatNumber: '100000001',
     rating: 4.8,
   },
   {
-    id: 'sup-2',
+    id: 'demo-sup-2',
     supplierCode: 'SUP-1002',
-    name: 'Himalayan Tech Distributors Pvt. Ltd.',
-    contactPerson: 'Sanjay Thapa',
-    phone: '+977-1-4412390',
-    email: 'sales@himalayantech.com.np',
-    address: 'New Road, Kathmandu, Nepal',
-    panVatNumber: '302918273',
+    name: 'Example Supplier 2',
+    contactPerson: 'Example Contact 2',
+    phone: '+977-01-0000002',
+    email: 'sales2@example.com',
+    address: 'Example Avenue, Example City, Nepal',
+    panVatNumber: '200000002',
     rating: 4.7,
   },
   {
-    id: 'sup-3',
+    id: 'demo-sup-3',
     supplierCode: 'SUP-1003',
-    name: 'Nepal Optical & Fiber Optics Importers',
-    contactPerson: 'Binod Shrestha',
-    phone: '+977-1-4432100',
-    email: 'info@nepaloptical.com.np',
-    address: 'Morang, Koshi Province, Nepal',
-    panVatNumber: '601239845',
+    name: 'Example Supplier 3',
+    contactPerson: 'Example Contact 3',
+    phone: '+977-01-0000003',
+    email: 'sales3@example.com',
+    address: 'Example Road, Example City, Nepal',
+    panVatNumber: '300000003',
     rating: 4.9,
   },
-  {
-    id: 'sup-4',
-    supplierCode: 'SUP-1004',
-    name: 'IZone Cablenet Hardware Suppliers',
-    contactPerson: 'Prakash Karki',
-    phone: '+977-021-540200',
-    email: 'procurement@izonehardware.com.np',
-    address: 'Urlabari, Morang, Nepal',
-    panVatNumber: '602819384',
-    rating: 5.0,
-  },
-  {
-    id: 'sup-5',
-    supplierCode: 'SUP-1005',
-    name: 'Broadlink Fiber Importers Pvt. Ltd.',
-    contactPerson: 'Deepak Sharma',
-    phone: '+977-1-4109823',
-    email: 'imports@broadlinkfiber.com.np',
-    address: 'Biratnagar, Koshi Province, Nepal',
-    panVatNumber: '301829304',
-    rating: 4.6,
-  },
+];
+
+// EXAMPLE/DUMMY user accounts (is_demo = TRUE) so the application is fully
+// testable out of the box after a fresh setup. Shared demo password: Demo@123
+// (documented in README.md). Real users created in the app are unaffected
+// (seeded with ON CONFLICT (email) DO NOTHING).
+const EXAMPLE_USER_PASSWORD = 'Demo@123';
+const INITIAL_EXAMPLE_USERS: Array<{
+  id: string;
+  email: string;
+  name: string;
+  role: User['role'];
+  branchId: string;
+  canSwitchUser: boolean;
+}> = [
+  { id: 'usr-ex-superadmin', email: 'superadmin@example.com', name: 'Super Admin', role: 'SUPER_ADMIN', branchId: 'WH001', canSwitchUser: true },
+  { id: 'usr-ex-branch1', email: 'branch1@example.com', name: 'Branch 1 Manager', role: 'BRANCH_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-branch2', email: 'branch2@example.com', name: 'Branch 2 Manager', role: 'BRANCH_MANAGER', branchId: 'BRH01', canSwitchUser: false },
+  { id: 'usr-ex-inventory1', email: 'inventory1@example.com', name: 'Inventory Manager 1', role: 'INVENTORY_MANAGER', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-accountant1', email: 'accountant1@example.com', name: 'Accountant 1', role: 'ACCOUNTANT', branchId: 'WH001', canSwitchUser: false },
+  { id: 'usr-ex-frontdesk1', email: 'frontdesk1@example.com', name: 'Front Desk 1', role: 'FRONT_DESK', branchId: 'BRH01', canSwitchUser: false },
 ];
 
 // Operational arrays initialized empty by default
@@ -244,6 +262,9 @@ let stockOperations: StockOperation[] = [];
 let auditTrail: AuditLog[] = [];
 let transactionLogs: TransactionLog[] = [];
 let approvalRequests: ApprovalRequest[] = [];
+let damageRecords: DamageRecord[] = [];
+let vendorPayments: VendorPayment[] = [];
+let vendorOpeningBalances: any[] = [];
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -294,233 +315,185 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
   return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
 }
 
-// Optional Helper to generate sample demo dataset when explicitly requested (e.g., SEED_DUMMY_DATA=true)
-function generateDemoDataset() {
-  const EXCEL_ITEMS = [
-    { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
-    { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
-    { code: 'SLV001', group: 'CONSUMABLE ITEM', type: 'Sleeves', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', uom: 'Box', qty: 100, val: 250 },
-    { code: 'CPL001', group: 'CONSUMABLE ITEM', type: 'Coupler', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', uom: 'Pcs', qty: 200, val: 35 },
-    { code: 'FCN001', group: 'CONSUMABLE ITEM', type: 'Fast Connector', name: 'Fast Connector SC/UPC Fiber Optical', uom: 'Pcs', qty: 150, val: 45 },
-    { code: 'PTC001', group: 'CONSUMABLE ITEM', type: 'Patch Cord', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', uom: 'Pcs', qty: 80, val: 180 },
-    { code: 'ADP001', group: 'CONSUMABLE ITEM', type: 'Adaptor', name: '0 DB ADAPTAR SC/APC', uom: 'Pcs', qty: 100, val: 25 },
-    { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
-    { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
-    { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
-    { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
-    { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
-  ];
+// ---------------------------------------------------------------------------
+// STRICT PER-BRANCH DAILY DOCUMENT NUMBERING (audit-safe)
+// ---------------------------------------------------------------------------
+// Produces the canonical, branch-scoped, daily-reset document number used by
+// every operational document in the system:
+//
+//   {DOC_TYPE}-{BRANCH_CODE}-{YYYYMMDD}{NNNN}
+//   e.g. PO-BRC01-202609150001   (4-digit counter, rolls to 5 digits at 9999)
+//   e.g. ST-BRH01-2026091510002  (branch transfers / shipments)
+//
+// The counter is a database row in `document_sequence_daily` keyed by
+// (branch, doc_type, date). Issuing is atomic:
+//   INSERT ... ON CONFLICT (branch_id, doc_type, date_ad)
+//   DO UPDATE SET next_number = document_sequence_daily.next_number + 1
+//   RETURNING next_number
+// so two concurrent users (or server restarts) can never receive the same
+// number. Because the key includes the calendar date, the counter resets to 1
+// automatically each day with no fiscal-year reset and no reuse across days.
+//
+// When PostgreSQL is unreachable we fall back to the in-memory legacy
+// generator ONLY so a DB outage never blocks creating documents; once the DB
+// returns the real sequences resume.
+const DOC_TYPE_CODE_MAP: Record<string, string> = {
+  'PO': 'PO',
+  'PURCHASE_ORDER': 'PO',
+  'PURCHASE_INVOICE': 'PI',
+  'INV': 'PI',
+  'PI': 'PI',
+  'BILL': 'PI',
+  'TRF': 'ST',
+  'TRANSFER': 'ST',
+  'SHIPMENT': 'ST',
+  'ST': 'ST',
+  'SALE': 'SALE',
+  'STOCK_OUT': 'SALE',
+  'INVOICE': 'INV',
+  'SALES_INVOICE': 'INV',
+  'CON': 'CON',
+  'CONSUMABLE_ISSUE': 'CON',
+  'DMG': 'DMG',
+  'DAMAGE': 'DMG',
+  'DSP': 'DSP',
+  'DISPOSAL': 'DSP',
+  'PLT': 'PLT',
+  'PULLOUT': 'PLT',
+  'SA': 'SA',
+  'STOCK_ADJUSTMENT': 'SA',
+  'GRN': 'GRN',
+  'DN': 'DN',
+  'QUO': 'QUO',
+  'CN': 'CN',
+  'EXC': 'EXC',
+  'WC': 'WC',
+  'FAA': 'FAA',
+  'FAR': 'FAR',
+  'JV': 'JV',
+  'PV': 'PV',
+  'RV': 'RV',
+  'CP': 'CP',
+  'CR': 'CR',
+  'BP': 'BP',
+  'BR': 'BR',
+  'DC': 'DC',
+};
 
-  const NON_SERIALIZED_CATEGORIES = [
-    'Drop Cable', 'Cat6 Cable', 'Fiber', 'Dac Cable', 'Patch Cord',
-    'Fast Connector', 'Coupler', 'Splitter', 'Distribution Box',
-    'Av Jack', 'Binding Wire', 'Adaptor', 'Sleeves', 'Tiffin Bod', 'Cassettte'
-  ];
-
-  const demoSuppliers: Supplier[] = [
-    {
-      id: 'sup-1',
-      name: 'Himalayan Tech Distributors Pvt. Ltd.',
-      contactPerson: 'Ramesh Adhikari',
-      phone: '+977-1-4265890',
-      email: 'orders@himalayantech.com.np',
-      address: 'Putalisadak, Kathmandu',
-      panVatNumber: '302918273',
-      rating: 4.8,
-    },
-    {
-      id: 'sup-2',
-      name: 'Nepal Optical & Fiber Optics Importers',
-      contactPerson: 'Sunita Sharma',
-      phone: '+977-1-5541209',
-      email: 'sales@nepaloptics.com.np',
-      address: 'Patan Industrial Estate, Lalitpur',
-      panVatNumber: '601239845',
-      rating: 4.6,
-    },
-    {
-      id: 'sup-3',
-      name: 'Apex Networking Hardware Traders',
-      contactPerson: 'Binod Shrestha',
-      phone: '+977-1-4432100',
-      email: 'info@apexnet.com.np',
-      address: 'New Road, Kathmandu',
-      panVatNumber: '300129841',
-      rating: 4.9,
-    },
-  ];
-
-  const demoProducts: Product[] = EXCEL_ITEMS.map((item, idx) => {
-    const isConsumableOrCable =
-      item.group === 'CONSUMABLE ITEM' ||
-      NON_SERIALIZED_CATEGORIES.includes(item.type) ||
-      ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
-      item.name.includes('CABLE') ||
-      item.name.includes('WIRE') ||
-      item.name.includes('CONNECTOR') ||
-      item.name.includes('SPLITTER') ||
-      item.name.includes('SLEEVE') ||
-      item.name.includes('COUPLER') ||
-      item.name.includes('ADAPTAR');
-
-    const requiresSerialTracking = !isConsumableOrCable && item.group !== 'CONSUMABLE ITEM';
-
-    let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
-    if (item.group === 'FIXED ASSET') {
-      productGroup = 'Fixed Asset';
-    } else if (isConsumableOrCable) {
-      productGroup = 'Consumable Item';
-    }
-
-    return {
-      id: `prod-${item.code.toLowerCase()}`,
-      sku: item.code,
-      barcode: `890${String(100000000 + idx).slice(1)}`,
-      name: item.name,
-      category: item.type,
-      productGroup,
-      unit: item.uom,
-      costPrice: item.val > 0 ? item.val : 1500,
-      sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
-      taxRate: 13,
-      minReorderLevel: productGroup === 'Consumable Item' ? 20 : (productGroup === 'Fixed Asset' ? 0 : 5),
-      requiresSerialTracking,
-      trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
-      description: `[${productGroup}] ${item.type} - ${item.name}`,
-      ...(productGroup === 'Fixed Asset'
-        ? {
-            depreciationMethod: 'STRAIGHT_LINE' as const,
-            depreciationRate: 15,
-            usefulLifeYears: 5,
-            salvageValuePercent: 10,
-          }
-        : {}),
-    };
-  });
-
-  const demoInventoryStock: InventoryStock[] = [];
-  let seededDamagedCount = 0;
-
-  demoProducts.forEach((p, index) => {
-    branches.forEach((branch, bIdx) => {
-      const isConsumable = p.productGroup === 'Consumable Item';
-      const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
-      const qty = baseQty;
-
-      let damagedQty = 0;
-      if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
-        damagedQty = 1;
-        seededDamagedCount++;
-      }
-
-      const branchMinReorder = branch.isHeadquarters
-        ? p.minReorderLevel * 2
-        : (bIdx % 3 === 0 ? p.minReorderLevel : Math.max(1, Math.floor(p.minReorderLevel / 2)));
-
-      demoInventoryStock.push({
-        id: `stk-${branch.id.toLowerCase()}-${p.id}`,
-        productId: p.id,
-        branchId: branch.id,
-        quantityOnHand: qty,
-        damagedQty: damagedQty,
-        reservedQty: 0,
-        incomingQty: 0,
-        minReorderLevel: branchMinReorder,
-        lastUpdated: new Date().toISOString(),
-      });
-    });
-  });
-
-  const demoAssetRegister: Asset[] = EXCEL_ITEMS
-    .filter((item) => item.group === 'FIXED ASSET')
-    .map((item, idx) => {
-      let cat: Asset['category'] = 'IT Equipment';
-      if (item.type === 'Furniture') cat = 'Furniture';
-      else if (item.type === 'Air Conditioner' || item.type === 'Tiffin Bod') cat = 'Fixtures';
-      else if (item.type === 'Fiber Fusion Splicer' || item.type === 'Cutter' || item.type === 'Ladder') cat = 'Machinery';
-
-      const cost = item.val > 0 ? item.val * 1000 : 25000;
-      const accum = Math.round(cost * 0.15);
-      const assignedBranch = branches[idx % branches.length].id;
-
-      return {
-        id: `ast-${item.code.toLowerCase()}`,
-        tagNumber: `AST-${item.code}`,
-        name: item.name,
-        category: cat,
-        branchId: assignedBranch,
-        acquisitionDateAD: '2024-04-15',
-        acquisitionDateBS: '2081-01-03 BS',
-        acquisitionCost: cost,
-        depreciationMethod: 'STRAIGHT_LINE',
-        depreciationRatePercent: 15,
-        accumulatedDepreciation: accum,
-        netBookValue: cost - accum,
-        status: 'ACTIVE',
-      };
-    });
-
-  const demoPurchaseOrders: PurchaseOrder[] = [
-    {
-      id: 'po-101',
-      poNumber: 'PO-2083-001',
-      supplierName: 'Himalayan Tech Distributors Pvt. Ltd.',
-      branchId: 'WH001',
-      orderDateAD: '2026-07-20',
-      orderDateBS: '2083-04-05 BS',
-      expectedDeliveryDateAD: '2026-08-05',
-      status: 'SENT',
-      items: [
-        {
-          id: 'poi-1',
-          productId: 'prod-onu001',
-          productName: 'ONU ROUTER 2.4G',
-          sku: 'ONU001',
-          quantity: 50,
-          unitPrice: 2500,
-          taxRate: 13,
-          subtotal: 125000,
-          taxAmount: 16250,
-          total: 141250,
-        },
-      ],
-      subtotalAmount: 125000,
-      taxAmount: 16250,
-      totalAmount: 141250,
-      notes: 'Sample purchase order.',
-    },
-  ];
-
-  const demoPurchaseInvoices: PurchaseInvoice[] = [];
-  const demoShipments: Shipment[] = [];
-  const demoStockOperations: StockOperation[] = [];
-  const demoAuditTrail: AuditLog[] = [];
-  const demoTransactionLogs: TransactionLog[] = [];
-  const demoCustomerMasterRecords: CustomerRecord[] = [];
-  const demoCustomerDeviceRecords: CustomerDeviceRecord[] = [];
-  const demoApprovalRequests: ApprovalRequest[] = [];
-
-  return {
-    suppliers: demoSuppliers,
-    products: demoProducts,
-    inventoryStock: demoInventoryStock,
-    assetRegister: demoAssetRegister,
-    purchaseOrders: demoPurchaseOrders,
-    purchaseInvoices: demoPurchaseInvoices,
-    shipments: demoShipments,
-    stockOperations: demoStockOperations,
-    auditTrail: demoAuditTrail,
-    transactionLogs: demoTransactionLogs,
-    customerMasterRecords: demoCustomerMasterRecords,
-    customerDeviceRecords: demoCustomerDeviceRecords,
-    approvalRequests: demoApprovalRequests,
-  };
+function normalizeDocTypeCode(docType: string): string {
+  return DOC_TYPE_CODE_MAP[docType.toUpperCase()] || docType.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
+
+// Formats a raw sequence with a flexible width: 4 digits normally, widening
+// automatically once the counter exceeds 9999 (e.g. 10000 → "10000").
+function padSequence(seqNum: number): string {
+  return String(seqNum).padStart(4, '0');
+}
+
+/**
+ * Issues the next document number for a branch + document type on the given
+ * calendar day. When `client` is provided (inside an existing transaction) the
+ * counter claim joins that transaction; otherwise a one-off connection is used.
+ */
+async function issueNextDocNumber(
+  branchIdOrCode: string,
+  docType: string,
+  dateAd?: string,
+  client?: any
+): Promise<string> {
+  const br = branches.find((b) => b.id === branchIdOrCode || b.code === branchIdOrCode);
+  const branchCode = br?.code || branchIdOrCode || 'WH001';
+  const branchId = br?.id || branchIdOrCode || 'WH001';
+  // The admin-editable "doctype prefix" from document_number_configs is the
+  // single source of the issued code (e.g. prefix "PO" -> "PO-BRC01-202609150001").
+  // Only the leading letters/digits of the saved prefix are used, so legacy
+  // values like "PO-2081-" still resolve to "PO". Unconfigured doc types
+  // fall back to the built-in code map.
+  const cfg = docNumberConfigs.find((c) => c.id === docType);
+  const configuredPrefix = String(cfg?.prefix || '').trim();
+  const opCode = configuredPrefix
+    ? (configuredPrefix.match(/^[A-Z0-9]+/i)?.[0] || normalizeDocTypeCode(docType)).toUpperCase()
+    : normalizeDocTypeCode(docType);
+  const day = (dateAd || new Date().toISOString().split('T')[0]).slice(0, 10);
+
+  if (!isPgConnected) {
+    // DB is down — mirror the exact same format using the in-memory daily map
+    // so callers never see a different shape (still per-branch + per-day).
+    const dateStr = day.replace(/-/g, '');
+    const seqKey = `${branchCode}:${opCode}:${dateStr}`;
+    if (!transactionSequenceMap[seqKey] || transactionSequenceMap[seqKey].lastDateStr !== dateStr) {
+      transactionSequenceMap[seqKey] = { lastDateStr: dateStr, count: 1 };
+    } else {
+      transactionSequenceMap[seqKey].count += 1;
+    }
+    return `${opCode}-${branchCode}-${dateStr}${String(transactionSequenceMap[seqKey].count).padStart(4, '0')}`;
+  }
+
+  try {
+    const pool = client || pgPool;
+    const result = await pool.query(
+      `INSERT INTO document_sequence_daily (branch_id, doc_type, date_ad, next_number)
+       VALUES ($1, $2, $3, 1)
+       ON CONFLICT (branch_id, doc_type, date_ad)
+       DO UPDATE SET
+         next_number = document_sequence_daily.next_number + 1,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING next_number;`,
+      [branchId, opCode, day]
+    );
+    const issuedSeq = Number(result.rows[0]?.next_number);
+    const seqStr = padSequence(issuedSeq);
+    return `${opCode}-${branchCode}-${day.replace(/-/g, '')}${seqStr}`;
+  } catch (e: any) {
+    console.warn('issueNextDocNumber DB fallback:', e?.message);
+    const dateStr = day.replace(/-/g, '');
+    const seqKey = `${branchCode}:${opCode}:${dateStr}`;
+    if (!transactionSequenceMap[seqKey] || transactionSequenceMap[seqKey].lastDateStr !== dateStr) {
+      transactionSequenceMap[seqKey] = { lastDateStr: dateStr, count: 1 };
+    } else {
+      transactionSequenceMap[seqKey].count += 1;
+    }
+    return `${opCode}-${branchCode}-${dateStr}${String(transactionSequenceMap[seqKey].count).padStart(4, '0')}`;
+  }
+}
+
+// Document Numbering System helper (server-side)
+// Resolves the next voucher number from the document_number_configs master
+// (same sequences shown in Fiscal Year Management > Document Numbering
+// Initial Setup). Falls back to the legacy branch-based generator only when
+// the requested doc type has not been configured yet.
+function generateNextDocNumberForServer(docTypeId: string): string {
+  const config = docNumberConfigs.find((c) => c.id === docTypeId);
+  if (!config) {
+    return generateStandardTransactionId('WH001', docTypeId);
+  }
+  const seqNum = config.nextNumber;
+  const paddedNum = String(seqNum).padStart(config.minDigits || 4, '0');
+  const docNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
+
+  // Increment the in-memory sequence and persist to PostgreSQL best-effort
+  // (async) so concurrent requests still see a monotonically increasing number.
+  const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+  if (idx !== -1) docNumberConfigs[idx].nextNumber = seqNum + 1;
+  if (isPgConnected) {
+    pgPool
+      .query(
+        `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+        [seqNum + 1, docTypeId]
+      )
+      .catch((e: any) => console.warn('PostgreSQL increment document_number_config notice:', e?.message));
+  }
+
+  return docNum;
+}
+
 
 // Active user session mirror; authentication always reads PostgreSQL.
 let activeUser: User | null = null;
 
 const PASSWORD_HASH_PREFIX = 'scrypt$';
+const AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+const AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -549,36 +522,65 @@ function verifyPassword(password: string, storedPassword: string): { valid: bool
   }
 }
 
-// Extract triggering user details from request headers or body or activeUser
-function getUserFromReq(req: any) {
-  const email =
-    (req.headers['x-user-email'] as string) ||
-    req.body?.userEmail ||
-    req.body?.user?.email ||
-    req.body?.currentUser?.email ||
-    activeUser?.email ||
-    '';
-  const name =
-    (req.headers['x-user-name'] as string) ||
-    req.body?.userName ||
-    req.body?.user?.name ||
-    req.body?.currentUser?.name ||
-    activeUser?.name ||
-    '';
-  const role =
-    (req.headers['x-user-role'] as string) ||
-    req.body?.userRole ||
-    req.body?.user?.role ||
-    activeUser?.role ||
-    '';
-  const branchId =
-    (req.headers['x-user-branch'] as string) ||
-    req.body?.branchId ||
-    req.body?.user?.branchId ||
-    activeUser?.branchId ||
-    '';
+/**
+ * Issue a signed HMAC token for the given user.
+ *
+ * `sessionRoot` captures the profile that originally signed in (e.g. Super
+ * Admin) when a privileged account impersonates another profile. The root
+ * marker fields stamped into the token let the impersonated session verify
+ * it may switch *back* to the root account, even though the active profile
+ * itself has no switch permission. A null/self `sessionRoot` means the token
+ * has no root marker (a fresh login or a collapsed switch-back session).
+ */
+function issueAuthToken(user: User, sessionRoot?: Partial<User> | null): string {
+  const root = sessionRoot && sessionRoot.id && sessionRoot.id !== user.id ? sessionRoot : null;
+  const payload = Buffer.from(JSON.stringify({
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    branchId: user.branchId || '',
+    allowedBranchIds: user.allowedBranchIds || [],
+    canSwitchUser: Boolean(user.canSwitchUser),
+    rootId: root?.id || '',
+    rootEmail: root?.email || '',
+    rootCanSwitchUser: Boolean(root?.canSwitchUser),
+    rootRole: root?.role || '',
+    exp: Math.floor(Date.now() / 1000) + AUTH_TOKEN_TTL_SECONDS,
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', AUTH_TOKEN_SECRET).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
 
-  return { email, name, role, branchId };
+function getUserFromReq(req: any): Partial<User> {
+  return req.user || {};
+}
+
+function verifyAuthToken(token: string): Partial<User> | null {
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac('sha256', AUTH_TOKEN_SECRET).update(payload).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!parsed.sub || !parsed.email || !parsed.exp || parsed.exp <= Math.floor(Date.now() / 1000)) return null;
+    return {
+      id: parsed.sub,
+      email: parsed.email,
+      name: parsed.name || '',
+      role: parsed.role,
+      branchId: parsed.branchId || '',
+      allowedBranchIds: Array.isArray(parsed.allowedBranchIds) ? parsed.allowedBranchIds : [],
+      canSwitchUser: Boolean(parsed.canSwitchUser),
+      rootId: parsed.rootId || '',
+      rootEmail: parsed.rootEmail || '',
+      rootCanSwitchUser: Boolean(parsed.rootCanSwitchUser),
+      rootRole: parsed.rootRole || '',
+    };
+  } catch (_err) {
+    return null;
+  }
 }
 
 /**
@@ -625,7 +627,9 @@ async function withTransaction<T>(
  * Resolves authenticated user details from headers/session and attaches to request
  */
 function authenticateUser(req: any, _res: any, next: any) {
-  req.user = getUserFromReq(req);
+  const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  req.user = token ? verifyAuthToken(token) : null;
   next();
 }
 
@@ -677,7 +681,7 @@ async function enforceFiscalYearWriteAccess(req: any, res: any, next: any) {
  * Authentication Enforcer Middleware
  */
 function requireAuth(req: any, res: any, next: any) {
-  const user = req.user || getUserFromReq(req);
+  const user = req.user;
   if (!user || !user.email) {
     return res.status(401).json({ message: 'Unauthorized: Authentication required to access endpoint' });
   }
@@ -704,6 +708,87 @@ function requireRole(...allowedRoles: string[]) {
   };
 }
 
+function enforceOperationalPermissions(req: any, res: any, next: any) {
+  if (req.method === 'GET' || req.path.startsWith('/auth/') || req.path.startsWith('/sync/')) return next();
+  const rules: Array<[string, string[]]> = [
+    ['/admin/', ['SUPER_ADMIN']],
+    ['/branches', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
+    ['/users', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
+    ['/company-profile', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
+    ['/document-number-configs', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
+    ['/bs-calendar/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN']],
+    ['/suppliers', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'PROCUREMENT_OFFICER']],
+    ['/products', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
+    ['/categories', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
+    ['/uom', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
+    ['/locations', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER']],
+    ['/stock/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'AUDITOR']],
+    ['/assets', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT']],
+    ['/purchase-invoices', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
+    ['/vendor-payments', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
+    ['/vendors/', ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'ACCOUNTANT', 'PROCUREMENT_OFFICER']],
+  ];
+  const rule = rules.find(([prefix]) => req.path === prefix.slice(0, -1) || req.path.startsWith(prefix));
+  if (rule && !rule[1].includes(req.user?.role)) {
+    return res.status(403).json({ message: `Forbidden: role '${req.user?.role || 'unknown'}' cannot perform this operation.` });
+  }
+  next();
+}
+
+async function enforceBranchAccess(req: any, res: any, next: any) {
+  const user = req.user;
+  if (!user || user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN') return next();
+  if (req.path === '/bootstrap') {
+    const requestedBootstrapBranch = req.query?.branchId;
+    if (typeof requestedBootstrapBranch !== 'string' || requestedBootstrapBranch === 'ALL' || requestedBootstrapBranch !== user.branchId) {
+      return res.status(403).json({ message: 'Forbidden: bootstrap must be scoped to the authenticated user branch.' });
+    }
+  }
+  const branchScopedReadPaths = ['/stock', '/assets', '/purchase-orders', '/purchase-invoices', '/vendor-payments', '/shipments', '/stock-operations', '/customer-devices', '/customers', '/approval-requests', '/locations'];
+  if (req.method === 'GET' && branchScopedReadPaths.some((path) => req.path === path || req.path.startsWith(`${path}/`))) {
+    if (req.query?.branchId !== user.branchId && !(user.allowedBranchIds || []).includes(req.query?.branchId)) {
+      return res.status(403).json({ message: 'Forbidden: branch-scoped reads require an authorized branch filter.' });
+    }
+  }
+  const requested = new Set<string>();
+  for (const value of [req.query?.branchId, req.body?.branchId, req.body?.sourceBranchId, req.body?.destinationBranchId]) {
+    if (typeof value === 'string' && value && value !== 'ALL') requested.add(value);
+  }
+  const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])]);
+  if ([...requested].some((branchId) => !allowed.has(branchId))) {
+    return res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+  }
+  if (requested.size === 0 && (req.query?.branchId === 'ALL' || req.body?.branchId === 'ALL')) {
+    return res.status(403).json({ message: 'Forbidden: branch users cannot access all branches.' });
+  }
+  if (isPgConnected && req.params?.id) {
+    const resourceTables: Array<[string, string, string[]]> = [
+      ['/stock', 'inventory_stock', ['branch_id']],
+      ['/assets', 'fixed_assets', ['branch_id']],
+      ['/purchase-orders', 'purchase_orders', ['branch_id']],
+      ['/purchase-invoices', 'purchase_invoices', ['branch_id']],
+      ['/vendor-payments', 'vendor_payments', ['branch_id']],
+      ['/shipments', 'shipments', ['source_branch_id', 'destination_branch_id']],
+      ['/stock-operations', 'stock_operations', ['branch_id', 'destination_warehouse_id']],
+      ['/customer-devices', 'customer_device_records', ['branch_id']],
+      ['/customers', 'customer_records', ['branch_id']],
+      ['/approval-requests', 'approval_requests', ['branch_id']],
+      ['/locations', 'locations', ['branch_id']],
+    ];
+    const resource = resourceTables.find(([prefix]) => req.path === `${prefix}/${req.params.id}` || req.path.startsWith(`${prefix}/${req.params.id}/`));
+    if (resource) {
+      const columns = resource[2].join(', ');
+      const lookup = resource[1] === 'shipments' ? 'id = $1 OR tracking_code = $1' : 'id = $1';
+      const result = await pgPool.query(`SELECT ${columns} FROM ${resource[1]} WHERE ${lookup} LIMIT 1`, [req.params.id]);
+      const row = result.rows[0];
+      if (row && !resource[2].some((column) => allowed.has(row[column]))) {
+        return res.status(403).json({ message: 'Forbidden: this record belongs to another branch.' });
+      }
+    }
+  }
+  next();
+}
+
 function logAuditEvent(
   req: any,
   action: string,
@@ -714,8 +799,8 @@ function logAuditEvent(
   const u = getUserFromReq(req);
   const auditItem: AuditLog = {
     id: `aud-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-    userEmail: u.email,
-    userName: u.name,
+    userEmail: u.email || '',
+    userName: u.name || '',
     action,
     module: module as AuditLog['module'],
     details,
@@ -747,7 +832,9 @@ function logAuditEvent(
         auditItem.module,
         auditItem.details,
         auditItem.timestampBS,
-        auditItem.branchId,
+        // 'ALL' is the app-wide "all branches" sentinel, not a real branch id —
+        // store NULL so the branch_id FK is never violated.
+        auditItem.branchId && auditItem.branchId !== 'ALL' ? auditItem.branchId : null,
       ]
     )
     .catch(() => {});
@@ -805,6 +892,88 @@ app.get('/api/sync/version', (req, res) => {
   res.json({ dataVersion, timestamp: new Date().toISOString() });
 });
 
+// Normalizes a database date value (pg Date object, ISO datetime string, or
+// 'YYYY-MM-DD' text) into a 'YYYY-MM-DD' calendar string so it can be safely
+// compared against fiscal-year boundary dates. Returns '' when the value
+// cannot be interpreted as a date.
+function toCalendarDate(value: any): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  }
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+// Resolves the active fiscal year for default views: prefers a year flagged
+// current whose AD range contains today's date (guards against multiple rows
+// being flagged is_current), falling back to the first flagged-current year.
+function pickCurrentFiscalYear(years: any[]): any | undefined {
+  if (!years || years.length === 0) return undefined;
+  const currentYears = years.filter((fy: any) => fy && fy.isCurrent);
+  if (currentYears.length === 0) return undefined;
+  const todayAD = toCalendarDate(new Date());
+  const containsToday = (fy: any) => {
+    const start = toCalendarDate(fy.startDateAD);
+    const end = toCalendarDate(fy.endDateAD);
+    return Boolean(start && end && todayAD >= start && todayAD <= end);
+  };
+  return currentYears.find(containsToday) || currentYears[0];
+}
+
+// Returns the fiscal-year code (e.g. '2083-84') whose AD range contains the
+// given date, or '' when no fiscal year covers it. Used to stamp records with
+// the correct fiscal year at write time instead of a stale hard-coded default.
+function getFiscalYearCodeForDate(dateValue: any): string {
+  const dateStr = toCalendarDate(dateValue);
+  if (!dateStr) return '';
+  for (const fiscalYear of fiscalYears) {
+    const start = toCalendarDate(fiscalYear.startDateAD);
+    const end = toCalendarDate(fiscalYear.endDateAD);
+    if (start && end && dateStr >= start && dateStr <= end) return fiscalYear.code;
+  }
+  return '';
+}
+
+// ==========================================
+// TRADING SUMMARY HELPERS (Sales Revenue + Cost of Goods Sold)
+// ==========================================
+// A "customer sale" is a stock_operations row of type STOCK_OUT that carries
+// priced line items in its items JSONB (created by the Product Sale form in
+// Branch Operations). Asset-issue stock-outs (items JSONB = []) reclassify
+// inventory into Fixed Assets — they are NOT sales and are excluded here.
+//
+// Revenue and COGS are both derived from the same underlying sale lines so
+// the two figures always share one source and reconcile with the balance
+// sheet's "Merchandise Inventory (At Valuation)" (cost × quantity-on-hand).
+function computeTradingFromOps(ops: any[], productsList: any[]) {
+  let totalSalesRevenue = 0;
+  let totalCostOfGoodsSold = 0;
+  for (const op of ops || []) {
+    if (op.type !== 'STOCK_OUT') continue;
+    const lines = Array.isArray(op.items) ? op.items : [];
+    for (const it of lines) {
+      // Asset-issue stock-outs carry no priced lines; skip them.
+      if (it.totalValue === undefined && it.sellingPrice === undefined) continue;
+      const qty = Number(it.quantity) || 0;
+      const revenue = Number(it.totalValue) || Math.max(
+        0,
+        qty * (Number(it.sellingPrice) || 0) - (Number(it.discount) || 0)
+      );
+      if (revenue > 0) totalSalesRevenue += revenue;
+      if (qty > 0) {
+        const prod = (productsList || []).find((p: any) => p.id === it.productId);
+        // Prefer the cost captured on the sale line; fall back to the current
+        // product cost so COGS matches the merchandise valuation basis.
+        const unitCost = Number(it.unitCost) || (prod ? Number(prod.costPrice) : 0);
+        totalCostOfGoodsSold += qty * unitCost;
+      }
+    }
+  }
+  return { totalSalesRevenue, totalCostOfGoodsSold };
+}
+
 // ==========================================
 // UNIFIED BATCH BOOTSTRAP ENDPOINT (1-ROUNDTRIP SYNC)
 // ==========================================
@@ -815,38 +984,93 @@ app.get('/api/bootstrap', async (req, res) => {
 
   if (isPgConnected) {
     try {
+      // Resolve the fiscal-year scope first so every operational table can be
+      // filtered in SQL (branch + fiscal-year AD date range) instead of
+      // fetching all rows and filtering them in JavaScript.
+      const fyRes = await pgPool.query('SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo" FROM fiscal_years ORDER BY start_date_ad DESC');
+      const pgFiscalYears = fyRes.rows;
+      // Default view: the active fiscal year, so the app always shows records
+      // from the current fiscal year. An explicit fiscalYearId query param
+      // overrides this and filters the data to that fiscal year.
+      const selectedFiscalYear = fId
+        ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId)
+        : pickCurrentFiscalYear(pgFiscalYears);
+      const fyStartAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.startDateAD) : '';
+      const fyEndAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.endDateAD) : '';
+      const hasFyScope = Boolean(fyStartAD && fyEndAD);
+
+      // Builds a WHERE clause + params for one bootstrap query: optional
+      // branch filter (single column, or an OR pair for shipments) and the
+      // fiscal-year AD date range on the table's primary date column.
+      const scoped = (opts: { branchCol?: string; branchOrCols?: [string, string]; dateCol?: string } = {}) => {
+        const conds: string[] = [];
+        const params: any[] = [];
+        if (bId && opts.branchCol) {
+          params.push(bId);
+          conds.push(`${opts.branchCol} = $${params.length}`);
+        }
+        if (bId && opts.branchOrCols) {
+          params.push(bId, bId);
+          conds.push(`(${opts.branchOrCols[0]} = $${params.length - 1} OR ${opts.branchOrCols[1]} = $${params.length})`);
+        }
+        if (hasFyScope && opts.dateCol) {
+          params.push(fyStartAD, fyEndAD);
+          conds.push(`${opts.dateCol} >= $${params.length - 1}`);
+          conds.push(`${opts.dateCol} <= $${params.length}`);
+        }
+        return { where: conds.length ? ` WHERE ${conds.join(' AND ')}` : '', params };
+      };
+
+      const stockScope = scoped({ branchCol: 'branch_id' });
+      // Fixed assets are long-term assets that persist across all fiscal years — do NOT
+      // filter by acquisition_date_ad / fiscal year scope; only filter by branch.
+      const assetScope = scoped({ branchCol: 'branch_id' });
+      const deviceScope = scoped({ branchCol: 'branch_id', dateCol: 'issued_date_ad' });
+      const customerScope = scoped({ branchCol: 'branch_id' });
+      const poScope = scoped({ branchCol: 'branch_id', dateCol: 'order_date_ad' });
+      const piScope = scoped({ branchCol: 'branch_id', dateCol: 'invoice_date_ad' });
+      const shipmentScope = scoped({ branchOrCols: ['source_branch_id', 'destination_branch_id'], dateCol: 'dispatch_date_ad' });
+      const opScope = scoped({ branchCol: 'branch_id', dateCol: 'date_ad' });
+      const auditScope = scoped({ dateCol: 'timestamp_ad' });
+      const txnScope = scoped({ dateCol: 'timestamp_ad' });
+      const approvalScope = scoped({ branchCol: 'branch_id', dateCol: 'requested_at_ad' });
+      const locationScope = scoped({ branchCol: 'branch_id' });
+
+      const damageScope = scoped({ branchCol: 'branch_id', dateCol: 'damage_date_ad' });
+      const vpScope = scoped({ branchCol: 'branch_id', dateCol: 'payment_date_ad' });
+
       const [
-        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, fyRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes
+        bRes, pRes, sRes, aRes, dRes, cRes, poRes, piRes, shRes, opRes, auditRes, txnRes, supRes, uRes, appRes, catRes, uomRes, locRes, compDbRes, dmgRes, vpRes, vobRes
       ] = await Promise.all([
-        pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches'),
+        pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches'),
         pgPool.query('SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products'),
-        pgPool.query('SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo" FROM fixed_assets' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments' + (bId ? ' WHERE source_branch_id = $1 OR destination_branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years'),
-        pgPool.query('SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC LIMIT 200'),
-        pgPool.query('SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC LIMIT 300'),
+        pgPool.query(`SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock${stockScope.where}`, stockScope.params),
+        pgPool.query(`SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId" FROM fixed_assets${assetScope.where}`, assetScope.params),
+        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records${deviceScope.where}`, deviceScope.params),
+        pgPool.query(`SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records${customerScope.where}`, customerScope.params),
+        pgPool.query(`SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders${poScope.where}`, poScope.params),
+        pgPool.query(`SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices${piScope.where}`, piScope.params),
+        pgPool.query(`SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments${shipmentScope.where}`, shipmentScope.params),
+        pgPool.query(`SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations${opScope.where}`, opScope.params),
+        pgPool.query(`SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs${auditScope.where} ORDER BY timestamp_ad DESC LIMIT 200`, auditScope.params),
+        pgPool.query(`SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs${txnScope.where} ORDER BY timestamp_ad DESC`, txnScope.params),
         pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers'),
         pgPool.query('SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users'),
-        pgPool.query('SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAd", requested_at_bs AS "requestedAtBs" FROM approval_requests' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC'),
+        pgPool.query(`SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS", fiscal_year_id AS "fiscalYearId" FROM approval_requests${approvalScope.where}`, approvalScope.params),
+        pgPool.query('SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'),
         pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC'),
-        pgPool.query('SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations' + (bId ? ' WHERE branch_id = $1' : ''), bId ? [bId] : []),
-        pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
+        pgPool.query(`SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations${locationScope.where}`, locationScope.params),
+        pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1'),
+        pgPool.query(`SELECT id, damage_reference AS "damageReference", product_id AS "productId", branch_id AS "branchId", quantity_damaged AS "quantityDamaged", unit_cost AS "unitCost", total_cost AS "totalCost", damage_date_ad AS "damageDateAD", damage_date_bs AS "damageDateBS", damage_reason AS "damageReason", status, disposal_date_ad AS "disposalDateAD", disposal_date_bs AS "disposalDateBS", disposal_method AS "disposalMethod", salvage_value AS "salvageValue", gl_account_code AS "glAccountCode", write_off_loss AS "writeOffLoss", approved_by AS "approvedBy", notes, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM damage_records${damageScope.where} ORDER BY damage_date_ad DESC`, damageScope.params),
+        pgPool.query(`SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments${vpScope.where} ORDER BY payment_date_ad DESC, created_at DESC`, vpScope.params),
+        // Vendor Opening Balances (for correct Accounts Payable = opening + invoices − payments)
+        pgPool.query(
+          `SELECT COALESCE(SUM(opening_balance), 0)::float AS "totalOpeningBalance"
+           FROM vendor_opening_balances
+           WHERE fiscal_year_id = $1` + (bId ? ` AND branch_id = $2` : ''),
+          bId ? [selectedFiscalYear.id, bId] : [selectedFiscalYear.id]
+        ),
       ]);
-
-      const pgFiscalYears = fyRes.rows;
-      const selectedFiscalYear = fId ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId) : undefined;
-      const isWithinSelectedFiscalYear = (record: any, dateField: string) => {
-        if (!selectedFiscalYear) return true;
-        const dateValue = String(record[dateField] || '').slice(0, 10);
-        return Boolean(dateValue && dateValue >= selectedFiscalYear.startDateAD && dateValue <= selectedFiscalYear.endDateAD);
-      };
 
       let pgStock = sRes.rows;
       if (selectedFiscalYear && !selectedFiscalYear.isCurrent) {
@@ -859,16 +1083,18 @@ app.get('/api/bootstrap', async (req, res) => {
         );
         pgStock = openingStockResult.rows;
       }
+      // Fiscal-year and branch scoping is applied in the SQL queries above
+      // (see scoped()), so no JavaScript date filtering is needed here.
       const pgProducts = pRes.rows;
-      const pgAssets = aRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'acquisitionDateAd'));
-      const pgCustomerDevices = dRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'issuedDateAd'));
-      const pgPurchaseOrders = poRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'orderDateAD'));
-      const pgInvoices = piRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'invoiceDateAD'));
-      const pgShipments = shRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'dispatchDateAd'));
-      const pgOps = opRes.rows.filter((row: any) => !selectedFiscalYear || row.fiscalYear === selectedFiscalYear.code || isWithinSelectedFiscalYear(row, 'dateAd'));
-      const pgAuditLogs = auditRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
-      const pgTransactionLogs = txnRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'timestampAD'));
-      const pgApprovalRequests = appRes.rows.filter((row: any) => isWithinSelectedFiscalYear(row, 'requestedAtAd'));
+      const pgAssets = aRes.rows;
+      const pgCustomerDevices = dRes.rows;
+      const pgPurchaseOrders = poRes.rows;
+      const pgInvoices = piRes.rows;
+      const pgShipments = shRes.rows;
+      const pgOps = opRes.rows;
+      const pgAuditLogs = auditRes.rows;
+      const pgTransactionLogs = txnRes.rows;
+      const pgApprovalRequests = appRes.rows;
 
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
         const prod = pgProducts.find((p: any) => p.id === item.productId);
@@ -876,19 +1102,35 @@ app.get('/api/bootstrap', async (req, res) => {
       }, 0);
 
       const totalFixedAssetValue = pgAssets.reduce((sum: number, a: any) => sum + Number(a.netBookValue || 0), 0);
-      const totalAccountsPayable = pgInvoices.reduce(
-        (sum: number, inv: any) => sum + Math.max(0, Number(inv.grandTotal || 0) - Number(inv.amountPaid || 0)),
+      // Accounts Payable: opening balance (carry-forward from Vendor Opening Balances)
+      // + current-period unpaid invoices − posted vendor payments.  This matches
+      // the Vendor Ledger closing-balance formula so all three modules reconcile.
+      const vendorOpeningBalTotal = Number(vobRes.rows[0]?.totalOpeningBalance || 0);
+      // Sum full invoice grand totals, NOT (grandTotal − amountPaid): payments
+      // are already subtracted once below via the posted vendor payments, so
+      // subtracting amount_paid here too would double-count them.
+      const currentPeriodInvoiceTotal = pgInvoices.reduce(
+        (sum: number, inv: any) => sum + Number(inv.grandTotal || 0),
         0
       );
+      const postedPayments = (vpRes.rows || [])
+        .filter((p: any) => p.status === 'POSTED')
+        .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+      const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments;
       const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
       const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
-      const currentFy = pgFiscalYears.find((f: any) => f.isCurrent)?.code || '2082/83';
+      const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
 
+      // Trading summary — sales revenue + COGS derived from the same priced
+      // STOCK_OUT sale lines so Revenue − COGS = Gross Surplus reconciles to
+      // the inventory-at-cost balance sheet.
+      const tradingSummary = computeTradingFromOps(pgOps, pgProducts);
       const financialSummary = {
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        totalSalesRevenue: tradingSummary.totalSalesRevenue,
+        totalCostOfGoodsSold: tradingSummary.totalCostOfGoodsSold,
         totalDamageLossValue,
         totalVatInputTax,
         currentFiscalYear: currentFy,
@@ -917,6 +1159,8 @@ app.get('/api/bootstrap', async (req, res) => {
         uom: uomRes.rows,
         locations: locRes.rows,
         companyProfile: compDbRes.rows[0] || companyProfile,
+        damageRecords: dmgRes.rows,
+        vendorPayments: vpRes.rows,
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
@@ -982,44 +1226,44 @@ app.get('/api/db/status', async (req, res) => {
 // ==========================================
 
 // Clear Demo/Dummy Data Endpoint
+// Removes ONLY rows marked is_demo = TRUE (the dataset created by
+// `npm run setup:pg`). Real business data (is_demo = FALSE), users,
+// branches and fiscal years are never touched.
 app.post('/api/admin/clear-demo-data', async (req, res) => {
   try {
-    if (isPgConnected) {
-      await pgPool.query(`
-        TRUNCATE TABLE 
-          approval_requests,
-          customer_device_records,
-          customer_records,
-          purchase_invoices,
-          purchase_orders,
-          shipments,
-          stock_operations,
-          inventory_stock,
-          fixed_assets,
-          products,
-          categories,
-          suppliers,
-          audit_logs,
-          transaction_logs
-        CASCADE;
-      `);
+    // Child/detail tables first so their is_demo rows are counted before
+    // parent rows are removed (FK cascades would otherwise hide them).
+    const demoTables = [
+      'transaction_logs',
+      'audit_logs',
+      'vendor_payments',
+      'stock_operations',
+      'approval_requests',
+      'customer_device_records',
+      'purchase_invoices',
+      'shipments',
+      'inventory_stock',
+      'fixed_assets',
+      'purchase_orders',
+      'customer_records',
+      'products',
+      'categories',
+      'suppliers',
+      'fiscal_years',
+    ];
+    const removed: Record<string, number> = {};
+    for (const table of demoTables) {
+      const result = await pgPool.query(`DELETE FROM ${table} WHERE is_demo = TRUE`);
+      removed[table] = result.rowCount || 0;
     }
 
-    // Operational tables to clear
-    products.length = 0;
-    inventoryStock.length = 0;
-    assetRegister.length = 0;
-    customerDeviceRecords.length = 0;
-    customerMasterRecords.length = 0;
-    purchaseOrders.length = 0;
-    purchaseInvoices.length = 0;
-    shipments.length = 0;
-    stockOperations.length = 0;
-    auditTrail.length = 0;
-    transactionLogs.length = 0;
-    approvalRequests.length = 0;
-    suppliers.length = 0;
-    // Operational data is cleared in PostgreSQL while users, branches, and fiscal years remain intact.
+    // Re-hydrate the runtime caches so memory matches the database again.
+    const client = await pgPool.connect();
+    try {
+      await hydrateOperationalData(client);
+    } finally {
+      client.release();
+    }
 
     dataVersion++;
     sseClients.forEach((client) => {
@@ -1028,8 +1272,11 @@ app.post('/api/admin/clear-demo-data', async (req, res) => {
       } catch (_e) {}
     });
 
+    const totalRemoved = Object.values(removed).reduce((a, b) => a + b, 0);
     return res.json({
-      message: 'All demo and dummy operational data cleared successfully. Master users, branches, and fiscal years are intact.',
+      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, and branches are intact.`,
+      removedRows: removed,
+      totalRemoved,
       userCount: users.length,
       superAdminCount: users.filter((u) => u.role === 'SUPER_ADMIN').length,
     });
@@ -1075,6 +1322,10 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
 
   if (isPgConnected) {
     try {
+      const existingAdmin = await pgPool.query("SELECT 1 FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1");
+      if (existingAdmin.rowCount) {
+        return res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
+      }
       const dbCheck = await pgPool.query(
         `SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"
          FROM users
@@ -1145,7 +1396,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
       logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Super Admin account initialized/updated: ${name} (${cleanEmail})`);
 
       const { password: _, ...userWithoutPass } = savedUser;
-      return res.status(201).json({ user: userWithoutPass, token: `session-token-${savedUser.id}` });
+      return res.status(201).json({ user: userWithoutPass, token: issueAuthToken(savedUser) });
     } catch (err: any) {
       console.error('Error setting up Super Admin in DB:', err);
       return res.status(503).json({
@@ -1154,7 +1405,10 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
     }
   }
 
-  const existingUser = users.find((u) => u.email.toLowerCase() === cleanEmail || u.role === 'SUPER_ADMIN');
+  if (users.some((u) => u.role === 'SUPER_ADMIN')) {
+    return res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
+  }
+  const existingUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
   const localUser: User = {
     id: existingUser?.id || targetId,
     email: cleanEmail,
@@ -1169,7 +1423,7 @@ app.post('/api/auth/setup-superadmin', async (req, res) => {
   else users.unshift(localUser);
   activeUser = localUser;
   const { password: _, ...localUserWithoutPass } = localUser;
-  return res.status(201).json({ user: localUserWithoutPass, token: `session-token-${localUser.id}` });
+  return res.status(201).json({ user: localUserWithoutPass, token: issueAuthToken(localUser) });
 });
 
 app.post('/api/auth/forgot-password', (req, res) => {
@@ -1186,8 +1440,8 @@ app.post('/api/auth/forgot-password', (req, res) => {
   res.json({
     success: true,
     userName: user.name,
-    adminEmail: adminUser?.email || 'superadmin@izone.net.np',
-    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@izone.net.np'}) or ask your Manager to reset your password in User & Staff Management.`,
+    adminEmail: adminUser?.email || 'superadmin@example.com',
+    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@example.com'}) or ask your Manager to reset your password in User & Staff Management.`,
   });
 });
 
@@ -1213,7 +1467,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
       activeUser = dbUser;
       const { password: _, ...userWithoutPass } = dbUser;
-      return res.json({ user: userWithoutPass, token: `session-token-${dbUser.id}` });
+      return res.json({ user: userWithoutPass, token: issueAuthToken(dbUser) });
     }
 
     const localUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
@@ -1224,7 +1478,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (passwordCheck.upgradedHash) localUser.password = passwordCheck.upgradedHash;
     activeUser = localUser;
     const { password: _, ...userWithoutPass } = localUser;
-    return res.json({ user: userWithoutPass, token: `session-token-${localUser.id}` });
+    return res.json({ user: userWithoutPass, token: issueAuthToken(localUser) });
   } catch (err: any) {
     console.error('PostgreSQL login query failed:', err?.message || err);
     return res.status(503).json({
@@ -1234,23 +1488,90 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  if (!activeUser) {
+  const authenticatedUser = (req as any).user;
+  if (!authenticatedUser) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
-  const { password: _, ...userWithoutPass } = activeUser;
-  res.json(userWithoutPass);
+  res.json(authenticatedUser);
 });
 
 // Profile Switching Endpoint
-app.post('/api/auth/switch-profile', (req, res) => {
+app.post('/api/auth/switch-profile', async (req, res) => {
+  // A valid signed session and explicit switch permission are required.
+  // After a server restart the browser may still hold a stale local session;
+  // rejecting here forces a clean re-login instead of a broken switch.
+  const activeProfile = (req as any).user;
+  if (!activeProfile) {
+    return res.status(401).json({ message: 'Not authenticated. Log in again to switch profiles.' });
+  }
+
+  // Authorization gate:
+  //  - A profile that itself has switch permission may switch (canSwitchUser).
+  //  - A profile that is SUPER_ADMIN may always switch.
+  //  - An impersonated profile may switch *back* to its root (the account that
+  //    initiated the session) when the root granted switching or is SUPER_ADMIN.
+  const isActiveSuperAdmin = activeProfile.role === 'SUPER_ADMIN';
+  const rootAllowed =
+    Boolean(activeProfile.rootId) &&
+    (Boolean(activeProfile.rootCanSwitchUser) || activeProfile.rootRole === 'SUPER_ADMIN');
+  if (!activeProfile.canSwitchUser && !isActiveSuperAdmin && !rootAllowed) {
+    return res.status(403).json({ message: 'Profile switching is not enabled for this account.' });
+  }
+
   const { targetUserId } = req.body;
-  const user = users.find((u) => u.id === targetUserId || u.email === targetUserId);
+  const targetEmail = typeof req.body?.targetEmail === 'string' ? req.body.targetEmail.trim() : '';
+  let user: any = null;
+
+  // PostgreSQL is the source of truth for user profiles. The in-memory user
+  // list can be stale (users created/edited after boot, or a data reset),
+  // which previously caused "Target user profile not found" on switch.
+  // The frontend sends the target email alongside the id so a re-created
+  // account (new id after a demo data reset) can still be resolved.
+  if (isPgConnected && (targetUserId || targetEmail)) {
+    try {
+      const dbRes = await pgPool.query(
+        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($2) LIMIT 1',
+        [String(targetUserId || ''), String(targetEmail || '')]
+      );
+      user = dbRes.rows[0] || null;
+    } catch (err: any) {
+      console.error('PostgreSQL switch-profile lookup failed:', err?.message || err);
+    }
+  }
+
+  // Fallback to the in-memory mirror when PostgreSQL is unavailable.
+  if (!user) {
+    user =
+      users.find((u) => u.id === targetUserId || u.email === targetUserId || u.email.toLowerCase() === targetEmail.toLowerCase()) || null;
+  }
+
   if (!user) {
     return res.status(404).json({ message: 'Target user profile not found.' });
   }
 
-  const previousUser = activeUser;
+  // Keep the in-memory user list in sync with the database row.
+  const memIdx = users.findIndex((u) => u.id === user.id);
+  if (memIdx >= 0) users[memIdx] = { ...users[memIdx], ...user };
+  else users.push(user);
+
+  const previousUser = activeProfile;
   activeUser = user;
+
+  // Resolve the session root marker for the next token:
+  //  - Switching back to the root collapses the marker to null (fresh root session).
+  //  - Otherwise carry the existing root marker forward (preserves the chain).
+  const rootId = previousUser?.rootId || '';
+  const rootEmail = previousUser?.rootEmail || '';
+  const targetIsRoot =
+    Boolean(rootId) &&
+    (user.id === rootId || (rootEmail && user.email?.toLowerCase() === rootEmail.toLowerCase()));
+  const sessionRoot = targetIsRoot
+    ? null
+    : rootId
+      ? { id: rootId, email: rootEmail, canSwitchUser: previousUser?.rootCanSwitchUser, role: previousUser?.rootRole }
+      : previousUser?.id && previousUser.id !== user.id
+        ? { id: previousUser.id, email: previousUser.email, canSwitchUser: previousUser.canSwitchUser, role: previousUser.role }
+        : null;
 
   auditTrail.unshift({
     id: `aud-${Date.now()}`,
@@ -1264,12 +1585,12 @@ app.post('/api/auth/switch-profile', (req, res) => {
   });
 
   const { password: _, ...userWithoutPass } = user;
-  res.json({ user: userWithoutPass, token: `session-token-${user.id}` });
+  res.json({ user: userWithoutPass, token: issueAuthToken(user, sessionRoot) });
 });
 
 // Profile Update Endpoint
 app.put('/api/auth/profile', (req, res) => {
-  const authenticatedUser = activeUser;
+  const authenticatedUser = (req as any).user;
   if (!authenticatedUser) {
     return res.status(401).json({ message: 'Not authenticated' });
   }
@@ -1403,9 +1724,9 @@ app.post('/api/locations', async (req, res) => {
       id: req.body.id || `LOC-${Math.floor(1000 + Math.random() * 9000)}`,
       name: req.body.name || 'New Location',
       type: req.body.type || 'POP_SERVER_ROOM',
-      branchId: req.body.branchId || 'BR-KTM',
+      branchId: req.body.branchId || 'WH001',
       address: req.body.address || '',
-      coordinates: req.body.coordinates || { latitude: 27.7172, longitude: 85.324 },
+      coordinates: req.body.coordinates || { latitude: 0, longitude: 0 },
       contactPerson: req.body.contactPerson || '',
       contactPhone: req.body.contactPhone || '',
       notes: req.body.notes || '',
@@ -1506,7 +1827,7 @@ app.delete('/api/locations/:id', async (req, res) => {
 app.get('/api/company-profile', async (req, res) => {
   if (isPgConnected) {
     try {
-      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
       if (r.rows.length > 0) {
         companyProfile = r.rows[0];
         return res.json(r.rows[0]);
@@ -1525,8 +1846,8 @@ app.put('/api/company-profile', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP)
+        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            legal_name = EXCLUDED.legal_name,
@@ -1534,6 +1855,7 @@ app.put('/api/company-profile', async (req, res) => {
            address = EXCLUDED.address,
            city = EXCLUDED.city,
            country = EXCLUDED.country,
+           postal_code = EXCLUDED.postal_code,
            phone = EXCLUDED.phone,
            email = EXCLUDED.email,
            website = EXCLUDED.website,
@@ -1542,6 +1864,10 @@ app.put('/api/company-profile', async (req, res) => {
            logo_url = EXCLUDED.logo_url,
            logo_preset = EXCLUDED.logo_preset,
            currency_symbol = EXCLUDED.currency_symbol,
+           currency_code = EXCLUDED.currency_code,
+           currency_locale = EXCLUDED.currency_locale,
+           currency_position = EXCLUDED.currency_position,
+           currency_decimals = EXCLUDED.currency_decimals,
            default_tax_rate = EXCLUDED.default_tax_rate,
            notes = EXCLUDED.notes,
            updated_at = CURRENT_TIMESTAMP;`,
@@ -1553,6 +1879,7 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.address,
           companyProfile.city || '',
           companyProfile.country || '',
+          companyProfile.postalCode || '',
           companyProfile.phone || '',
           companyProfile.email || '',
           companyProfile.website || '',
@@ -1560,7 +1887,11 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.registrationNumber || '',
           companyProfile.logoUrl || '',
           companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'Rs.',
+          companyProfile.currencySymbol || 'NPR',
+          companyProfile.currencyCode || 'NPR',
+          companyProfile.currencyLocale || 'en-IN',
+          companyProfile.currencyPosition || 'before',
+          companyProfile.currencyDecimals ?? 2,
           companyProfile.defaultTaxRate ?? 13,
           companyProfile.notes || '',
         ]
@@ -1579,7 +1910,7 @@ app.put('/api/company-profile', async (req, res) => {
 app.get('/api/branches', async (req, res) => {
   if (isPgConnected) {
     try {
-      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY name ASC');
+      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY name ASC');
       return res.json(r.rows);
     } catch (err) {
       console.error('Error querying branches from DB:', err);
@@ -1599,6 +1930,7 @@ app.post('/api/branches', async (req, res) => {
       isHeadquarters: Boolean(req.body.isHeadquarters),
       active: req.body.active !== false,
       allowProcurement: req.body.allowProcurement !== false,
+      allowWarehouseTransfer: req.body.allowWarehouseTransfer !== false,
     };
     const idx = branches.findIndex((b) => b.id === newBranch.id);
     if (idx >= 0) branches[idx] = newBranch;
@@ -1606,8 +1938,8 @@ app.post('/api/branches', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
            code = EXCLUDED.code,
            name = EXCLUDED.name,
@@ -1615,8 +1947,9 @@ app.post('/api/branches', async (req, res) => {
            phone = EXCLUDED.phone,
            is_headquarters = EXCLUDED.is_headquarters,
            active = EXCLUDED.active,
-           allow_procurement = EXCLUDED.allow_procurement;`,
-        [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement]
+           allow_procurement = EXCLUDED.allow_procurement,
+           allow_warehouse_transfer = EXCLUDED.allow_warehouse_transfer;`,
+        [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement, newBranch.allowWarehouseTransfer]
       );
     }
     logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
@@ -1638,9 +1971,9 @@ app.put('/api/branches/:id', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `UPDATE branches SET
-           code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7
-         WHERE id = $8;`,
-        [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, id]
+           code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7, allow_warehouse_transfer = $8
+         WHERE id = $9;`,
+        [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false, id]
       );
     }
     logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
@@ -2120,7 +2453,9 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   if (isPgConnected) {
     try {
-      const { rows } = await pgPool.query('SELECT id, name, code, description FROM categories ORDER BY name ASC');
+      const { rows } = await pgPool.query(
+        'SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'
+      );
       return res.json(rows);
     } catch (err: any) {
       console.warn('Database note on GET /api/categories:', err?.message || err);
@@ -2136,6 +2471,7 @@ app.post('/api/categories', async (req, res) => {
       name: req.body.name || 'New Category',
       code: req.body.code || `CAT-${Date.now().toString().slice(-4)}`,
       description: req.body.description || '',
+      isSpecialTracked: Boolean(req.body.isSpecialTracked),
     };
     const existingIdx = categories.findIndex((c) => c.id === newCat.id || c.name.toLowerCase() === newCat.name.toLowerCase());
     if (existingIdx !== -1) {
@@ -2146,16 +2482,18 @@ app.post('/api/categories', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO categories (id, name, code, description)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO categories (id, name, code, description, is_special_tracked)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            code = EXCLUDED.code,
-           description = EXCLUDED.description;`,
-        [newCat.id, newCat.name, newCat.code, newCat.description]
+           description = EXCLUDED.description,
+           is_special_tracked = EXCLUDED.is_special_tracked;`,
+        [newCat.id, newCat.name, newCat.code, newCat.description, newCat.isSpecialTracked]
       );
     }
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
+    broadcastChange({ type: 'CATEGORY_CREATED', entity: 'categories' });
     res.status(201).json(newCat);
   } catch (err: any) {
     console.error('Error creating category:', err);
@@ -2174,11 +2512,17 @@ app.put('/api/categories/:id', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `UPDATE categories SET name = $1, code = $2, description = $3 WHERE id = $4;`,
-        [updated.name, updated.code, updated.description, id]
+        `UPDATE categories
+         SET name = $1,
+             code = $2,
+             description = $3,
+             is_special_tracked = $4
+         WHERE id = $5;`,
+        [updated.name, updated.code, updated.description || '', Boolean(updated.isSpecialTracked), id]
       );
     }
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
+    broadcastChange({ type: 'CATEGORY_UPDATED', entity: 'categories' });
     res.json(updated);
   } catch (err: any) {
     console.error('Error updating category:', err);
@@ -2196,6 +2540,7 @@ app.delete('/api/categories/:id', async (req, res) => {
       await pgPool.query('DELETE FROM categories WHERE id = $1;', [id]);
     }
     logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
+    broadcastChange({ type: 'CATEGORY_DELETED', entity: 'categories' });
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting category:', err);
@@ -2227,10 +2572,301 @@ app.get('/api/stock', async (req, res) => {
   res.json(inventoryStock);
 });
 
+// Administrative repair actions. These update derived values only; source
+// documents and transaction history remain unchanged.
+app.post('/api/admin/recalculate/fixed-assets', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    const asOfDateAD = new Date().toISOString().slice(0, 10);
+    let assetsToUpdate = assetRegister;
+    if (isPgConnected) {
+      const result = await pgPool.query(
+        `SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId",
+          acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS",
+          purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS",
+          capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD",
+                acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod",
+                depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation",
+                net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo"
+         FROM fixed_assets`);
+      assetsToUpdate = result.rows as Asset[];
+    }
+
+    for (const asset of assetsToUpdate) {
+      const values = calculateFixedAssetValues({ ...asset, asOfDateAD });
+      asset.accumulatedDepreciation = values.accumulatedDepreciation;
+      asset.netBookValue = values.netBookValue;
+      if (isPgConnected) {
+        await pgPool.query(
+          `UPDATE fixed_assets
+           SET accumulated_depreciation = $1, net_book_value = $2, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [values.accumulatedDepreciation, values.netBookValue, asset.id]
+        );
+      }
+    }
+    logAuditEvent(req, 'RECALCULATE_FIXED_ASSETS', 'SYSTEM', `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.`);
+    res.json({ updated: assetsToUpdate.length, message: `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.` });
+  } catch (error: any) {
+    console.error('Error recalculating fixed assets:', error);
+    res.status(500).json({ message: `Unable to recalculate fixed assets: ${error.message}` });
+  }
+});
+
+app.post('/api/admin/recalculate/live-stock', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    const latestByStock = new Map<string, { quantityAfter: number; timestampAD: string }>();
+    transactionLogs
+      .filter((log) => log.changeType !== 'DAMAGE')
+      .forEach((log) => {
+        const key = `${log.productId}:${log.branchId}`;
+        const previous = latestByStock.get(key);
+        if (!previous || String(log.timestampAD) > previous.timestampAD) {
+          latestByStock.set(key, { quantityAfter: Number(log.quantityAfter) || 0, timestampAD: String(log.timestampAD) });
+        }
+      });
+
+    let updated = 0;
+    if (isPgConnected) {
+      const result = await pgPool.query(
+        `WITH latest AS (
+           SELECT DISTINCT ON (product_id, branch_id) product_id, branch_id, GREATEST(quantity_after, 0) AS quantity_after
+           FROM transaction_logs
+           WHERE change_type <> 'DAMAGE'
+           ORDER BY product_id, branch_id, timestamp_ad DESC, id DESC
+         )
+         UPDATE inventory_stock s
+         SET quantity_on_hand = latest.quantity_after, last_updated = CURRENT_TIMESTAMP
+         FROM latest
+         WHERE s.product_id = latest.product_id AND s.branch_id = latest.branch_id
+         RETURNING s.id`);
+      updated = result.rowCount || 0;
+    } else {
+      inventoryStock.forEach((stock) => {
+        const latest = latestByStock.get(`${stock.productId}:${stock.branchId}`);
+        if (latest) {
+          stock.quantityOnHand = Math.max(0, latest.quantityAfter);
+          stock.lastUpdated = new Date().toISOString();
+          updated += 1;
+        }
+      });
+    }
+    logAuditEvent(req, 'RECALCULATE_LIVE_STOCK', 'SYSTEM', `Recalculated ${updated} live stock balance(s) from the latest non-damage transaction.`);
+    res.json({ updated, message: `Recalculated ${updated} live stock balance(s) from transaction history.` });
+  } catch (error: any) {
+    console.error('Error recalculating live stock:', error);
+    res.status(500).json({ message: `Unable to recalculate live stock: ${error.message}` });
+  }
+});
+
+// Regenerates the derived bs_day_records lookup table from the authoritative
+// bs_calendar_years configuration. This is an idempotent repair/maintenance
+// operation: it rebuilds every AD->BS day record from the stored start dates
+// and month-length arrays, so drifted, missing, or stale day rows are restored
+// to match the configuration. Source calendar config is never rewritten.
+app.post('/api/admin/recalculate/bs-day-records', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    let pgSynced = false;
+    let regeneratedRecords = 0;
+    let sourceYears = inMemoryBsCalendarYears;
+
+    if (isPgConnected) {
+      const cfgRes = await pgPool.query(
+        'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC'
+      );
+      if (cfgRes.rows.length > 0) sourceYears = cfgRes.rows;
+
+      await withTransaction(async (client) => {
+        // Delete stale rows for every configured year, then rebuild from config.
+        const yearList = sourceYears.map((y: any) => Number(y.yearBS));
+        await client.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [yearList]);
+
+        let count = 0;
+        for (const y of sourceYears) {
+          const yearBS = Number(y.yearBS);
+          const daysInMonths = Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12
+            ? y.daysInMonths
+            : y.daysInMonths;
+          const records = buildBsDayRecordsForYear(yearBS, daysInMonths, String(y.startAD));
+          for (const rec of records) {
+            await client.query(
+              `INSERT INTO bs_day_records (
+                 ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+                 bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend, fiscal_year_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       (SELECT fy.id FROM fiscal_years fy
+                        WHERE fy.start_date_ad <= $1::date AND fy.end_date_ad >= $1::date
+                        ORDER BY fy.start_date_ad DESC LIMIT 1))
+               ON CONFLICT (ad_date) DO UPDATE SET
+                 bs_date = EXCLUDED.bs_date,
+                 bs_year = EXCLUDED.bs_year,
+                 bs_month = EXCLUDED.bs_month,
+                 bs_month_name = EXCLUDED.bs_month_name,
+                 bs_month_name_np = EXCLUDED.bs_month_name_np,
+                 bs_day = EXCLUDED.bs_day,
+                 day_of_week_name = EXCLUDED.day_of_week_name,
+                 day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+                 fiscal_year = EXCLUDED.fiscal_year,
+                 quarter = EXCLUDED.quarter,
+                 is_weekend = EXCLUDED.is_weekend,
+                 fiscal_year_id = EXCLUDED.fiscal_year_id;`,
+              [
+                rec.adDate,
+                rec.bsDate,
+                rec.bsYear,
+                rec.bsMonth,
+                rec.bsMonthName,
+                rec.bsMonthNameNp,
+                rec.bsDay,
+                rec.dayOfWeekName,
+                rec.dayOfWeekNameNp,
+                rec.fiscalYear,
+                rec.quarter,
+                rec.isWeekend,
+              ]
+            );
+          }
+          count += records.length;
+        }
+        regeneratedRecords = count;
+      });
+      pgSynced = true;
+    }
+
+    // Refresh the in-memory fallback cache with the same config.
+    const memMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+    for (const m of inMemoryBsCalendarYears) memMap.set(m.yearBS, m);
+    inMemoryBsCalendarYears = Array.from(memMap.values()).sort((a, b) => a.yearBS - b.yearBS);
+    generateInMemoryBsDayRecords();
+    if (regeneratedRecords === 0) {
+      regeneratedRecords = inMemoryBsDayRecords.length;
+    }
+
+    logAuditEvent(req, 'RECALCULATE_BS_DAY_RECORDS', 'SYSTEM', `Regenerated ${regeneratedRecords} BS day-by-day lookup record(s) from configured calendar years.`);
+    res.json({
+      success: true,
+      pgSynced,
+      years: sourceYears.length,
+      regeneratedRecords,
+      message: pgSynced
+        ? `Rebuilt ${regeneratedRecords} BS day-by-day lookup record(s) across ${sourceYears.length} configured year(s) from the calendar configuration.`
+        : `Rebuilt ${regeneratedRecords} BS day-by-day lookup record(s) in the in-memory calendar only — PostgreSQL was unreachable.`,
+    });
+  } catch (error: any) {
+    console.error('Error rebuilding BS day records:', error);
+    res.status(500).json({ message: `Unable to rebuild BS day records: ${error.message}` });
+  }
+});
+
+// Re-derives the fiscal_year_id foreign key on every dated transactional table
+// from its own AD date column. This is a non-destructive repair: it only fills
+// NULL / stale references (rows already pointing at a matching period are left
+// untouched) by looking the date up in fiscal_years. No document is modified.
+app.post('/api/admin/repair/fiscal-year-links', requireRole('SUPER_ADMIN'), async (req, res) => {
+  try {
+    if (!isPgConnected) {
+      return res.status(503).json({ message: 'PostgreSQL is required for fiscal-year link repair.' });
+    }
+
+    const reparse: Array<{ table: string; column: string; dateColumn: string; dateType: 'date' | 'timestamptz' | 'timestamp'; keyColumn: string }> = [
+      { table: 'fixed_assets', column: 'fiscal_year_id', dateColumn: 'acquisition_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'damage_records', column: 'fiscal_year_id', dateColumn: 'damage_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'purchase_orders', column: 'fiscal_year_id', dateColumn: 'order_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'purchase_invoices', column: 'fiscal_year_id', dateColumn: 'invoice_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'shipments', column: 'fiscal_year_id', dateColumn: 'dispatch_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'stock_operations', column: 'fiscal_year_id', dateColumn: 'date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'customer_device_records', column: 'fiscal_year_id', dateColumn: 'issued_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'approval_requests', column: 'fiscal_year_id', dateColumn: 'requested_at_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'vendor_payments', column: 'fiscal_year_id', dateColumn: 'payment_date_ad', dateType: 'date', keyColumn: 'id' },
+      { table: 'audit_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
+      { table: 'transaction_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
+      { table: 'bs_day_records', column: 'fiscal_year_id', dateColumn: 'ad_date', dateType: 'date', keyColumn: 'ad_date' },
+    ];
+
+    const results: Record<string, number> = {};
+    let totalFixed = 0;
+
+    await withTransaction(async (client) => {
+      for (const entry of reparse) {
+        // Only attempt when the column exists (older schemas may not have it).
+        const colCheck = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+          [entry.table, entry.column]
+        );
+        if (colCheck.rowCount === 0) {
+          results[entry.table] = 0;
+          continue;
+        }
+
+        const tableName = `"${entry.table}"`;
+        const keyColumn = entry.keyColumn;
+        const dateExpr = entry.dateType === 'date'
+          ? entry.dateColumn
+          : `(${entry.dateColumn})::date`;
+
+        // Fix NULL references and stale references in one pass: every row whose
+        // current fiscal_year_id does not actually contain its own date is
+        // re-linked to the fiscal year that does contain it (latest matching
+        // period wins; the schema forbids overlapping periods anyway). Rows
+        // whose date is not inside any fiscal period are left untouched.
+        const result = await client.query(
+          `WITH wrong AS (
+             SELECT t2.${keyColumn} AS row_key
+             FROM ${tableName} t2
+             WHERE t2.fiscal_year_id IS NULL
+                OR NOT EXISTS (
+                     SELECT 1 FROM fiscal_years cur
+                     WHERE cur.id = t2.fiscal_year_id
+                       AND cur.start_date_ad <= ${dateExpr}
+                       AND cur.end_date_ad >= ${dateExpr}
+                   )
+           ),
+           matched AS (
+             SELECT w.row_key, fy.id AS fy_id
+             FROM wrong w
+             JOIN ${tableName} t3 ON t3.${keyColumn} = w.row_key
+             JOIN fiscal_years fy
+               ON fy.start_date_ad <= ${dateExpr} AND fy.end_date_ad >= ${dateExpr}
+           )
+           UPDATE ${tableName} t
+           SET fiscal_year_id = m.fy_id
+           FROM matched m
+           WHERE t.${keyColumn} = m.row_key
+             AND t.fiscal_year_id IS DISTINCT FROM m.fy_id`
+        );
+        results[entry.table] = result.rowCount || 0;
+        totalFixed += results[entry.table];
+      }
+    });
+
+    logAuditEvent(
+      req,
+      'REPAIR_FISCAL_YEAR_LINKS',
+      'FISCAL_YEAR',
+      `Repaired fiscal-year links: ${totalFixed} row(s) re-linked across ${Object.values(results).filter((n) => n > 0).length} table(s).`
+    );
+    res.json({
+      success: true,
+      totalFixed,
+      perTable: results,
+      message: `Repaired ${totalFixed} fiscal-year link(s) across the database.`,
+    });
+  } catch (error: any) {
+    console.error('Error repairing fiscal-year links:', error);
+    res.status(500).json({ message: `Unable to repair fiscal-year links: ${error.message}` });
+  }
+});
+
 app.patch('/api/stock/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body;
+    for (const [field, value] of Object.entries({ quantityOnHand, minReorderLevel, damagedQty })) {
+      if (value !== undefined && (!Number.isInteger(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ message: `${field} must be a non-negative integer.` });
+      }
+    }
     let stk = inventoryStock.find((s) => s.id === id);
 
     if (isPgConnected && !stk) {
@@ -2307,7 +2943,86 @@ app.patch('/api/stock/:id', async (req, res) => {
           [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
         );
       }
-    } else if (quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
+    }
+
+    // Manual damage adjustments (PATCH /api/stock/:id with a damagedQty
+    // delta) also create/update a damage_records lifecycle entry so the
+    // damage register stays in sync with the stock level.
+    if (damagedQty !== undefined && Number(damagedQty) !== oldDamaged) {
+      const affectedQty = isDamageChange && Number(damagedQty) > oldDamaged
+        ? Number(damagedQty) - oldDamaged
+        : oldDamaged - Number(damagedQty);
+      const absAffected = Math.abs(affectedQty || 0);
+      if (absAffected > 0) {
+        const todayAD = new Date().toISOString().split('T')[0];
+        const damageRef = `DMR-ADJ-${stk.id}-${Date.now()}`;
+        const damageRecordId = `dmr-adj-${stk.id}-${Date.now()}`;
+        const knownReason = (reason || 'Damaged stock balance verification').toUpperCase();
+        const damageReason = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER'].find((r) => knownReason.includes(r)) || 'OTHER';
+        try {
+          if (isPgConnected) {
+            await pgPool.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $11, $12, FALSE, $13)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                damageRecordId,
+                damageRef,
+                stk.productId,
+                stk.branchId,
+                absAffected,
+                prod?.costPrice || 0,
+                (prod?.costPrice || 0) * absAffected,
+                todayAD,
+                '2083-04-16 BS',
+                damageReason,
+                getUserFromReq(req).name || 'Stock Manager',
+                reason || 'Damaged stock balance verification',
+                getUserFromReq(req).email || 'system',
+              ]
+            );
+          }
+          const existingIdx = damageRecords.findIndex((dr) => dr.id === damageRecordId || dr.damageReference === damageRef);
+          if (existingIdx >= 0) {
+            damageRecords[existingIdx] = {
+              ...damageRecords[existingIdx],
+              quantityDamaged: absAffected,
+              status: 'IDENTIFIED',
+              damageReason: damageReason as DamageRecord['damageReason'],
+            };
+          } else {
+            damageRecords.unshift({
+              id: damageRecordId,
+              damageReference: damageRef,
+              productId: stk.productId,
+              branchId: stk.branchId,
+              quantityDamaged: absAffected,
+              unitCost: prod?.costPrice || 0,
+              totalCost: (prod?.costPrice || 0) * absAffected,
+              damageDateAD: todayAD,
+              damageDateBS: '2083-04-16 BS',
+              damageReason: damageReason as DamageRecord['damageReason'],
+              status: 'IDENTIFIED',
+              salvageValue: 0,
+              glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
+              writeOffLoss: 0,
+              approvedBy: getUserFromReq(req).name || 'Stock Manager',
+              notes: reason || 'Damaged stock balance verification',
+              isDemo: false,
+              createdBy: getUserFromReq(req).email || 'system',
+            } as DamageRecord);
+          }
+        } catch (drErr: any) {
+          console.warn('Damage record sync notice:', drErr?.message || drErr);
+        }
+      }
+    }
+
+    if (!isDamageChange && quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
       const newTxn: TransactionLog = {
         id: `txn-${Date.now()}`,
         transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -2334,7 +3049,6 @@ app.patch('/api/stock/:id', async (req, res) => {
         );
       }
     }
-    res.json(stk);
   } catch (err: any) {
     console.error('Error updating stock level:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
@@ -2345,6 +3059,9 @@ app.patch('/api/stock/:id/reorder-level', async (req, res) => {
   try {
     const { id } = req.params;
     const { minReorderLevel, productId, branchId } = req.body;
+    if (!Number.isInteger(Number(minReorderLevel)) || Number(minReorderLevel) < 0) {
+      return res.status(400).json({ message: 'Reorder level must be a non-negative integer.' });
+    }
     let stk = inventoryStock.find((s) => s.id === id);
 
     if (!stk && (productId || req.body.productId) && (branchId || req.body.branchId)) {
@@ -2564,6 +3281,36 @@ app.post('/api/stock/reconcile-audit', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_A
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
             [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
           );
+
+          // Physical audit reconciliation also records the damage lifecycle:
+          // a negative shortage for a product that already has damaged stock is
+          // reflected in the damage register so it shows up in the ledger.
+          if (delta < 0 && Number(item.damagedQty ?? stk.damagedQty ?? 0) > 0) {
+            const damageQtyRec = Number(item.damagedQty ?? stk.damagedQty ?? 0);
+            await client.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OTHER', 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $10, $11, FALSE, $12)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                `dmr-audit-${auditRefNumber || 'AUD'}-${item.productId}`,
+                `AUDIT-${auditRefNumber || Date.now()}-${item.productId}`,
+                item.productId,
+                branchId,
+                Math.min(damageQtyRec, Math.abs(delta)),
+                unitCost || prod?.costPrice || 0,
+                (unitCost || prod?.costPrice || 0) * Math.min(damageQtyRec, Math.abs(delta)),
+                new Date().toISOString().split('T')[0],
+                '2083-04-22 BS',
+                auditorName || userEmail || 'AUDITOR',
+                notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
+                userEmail || 'system',
+              ]
+            );
+          }
         }
       });
     } else {
@@ -2608,20 +3355,34 @@ app.get('/api/assets', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAd", acquisition_date_bs AS "acquisitionDateBs", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
+        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
       const r = await pgPool.query(q, params);
-      return res.json(r.rows);
+      return res.json(r.rows.map((asset: any) => ({
+        ...asset,
+        ...calculateFixedAssetValues({
+          ...asset,
+          acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD,
+          asOfDateAD: new Date().toISOString().slice(0, 10),
+        }),
+      })));
     } catch (err) {
       console.error('Error fetching assets from DB:', err);
     }
   }
-  if (branchId && branchId !== 'ALL') {
-    return res.json(assetRegister.filter((a) => a.branchId === branchId));
-  }
-  res.json(assetRegister);
+  const filtered = branchId && branchId !== 'ALL'
+    ? assetRegister.filter((a) => a.branchId === branchId)
+    : assetRegister;
+  return res.json(filtered.map((asset) => ({
+    ...asset,
+    ...calculateFixedAssetValues({
+      ...asset,
+      acquisitionDateAD: asset.placedInServiceDateAD || asset.acquisitionDateAD,
+      asOfDateAD: new Date().toISOString().slice(0, 10),
+    }),
+  })));
 });
 
 app.post('/api/assets', async (req, res) => {
@@ -2633,19 +3394,38 @@ app.post('/api/assets', async (req, res) => {
       name: req.body.name || 'Fixed Asset',
       category: req.body.category || 'Equipment',
       branchId: req.body.branchId || 'WH001',
-      acquisitionDateAd: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      acquisitionDateBs: req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      purchaseInvoiceDateAD: req.body.purchaseInvoiceDateAD || req.body.purchaseInvoiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      purchaseInvoiceDateBS: req.body.purchaseInvoiceDateBS || req.body.purchaseInvoiceDateBs || req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      capitalizationDateAD: req.body.capitalizationDateAD || req.body.capitalizationDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
+      placedInServiceDateAD: req.body.placedInServiceDateAD || req.body.placedInServiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
       acquisitionCost: Number(req.body.acquisitionCost) || 0,
       depreciationMethod: req.body.depreciationMethod || 'STRAIGHT_LINE',
       depreciationRatePercent: Number(req.body.depreciationRatePercent || req.body.depreciationRate) || 15,
-      accumulatedDepreciation: Number(req.body.accumulatedDepreciation) || 0,
-      netBookValue: Number(req.body.netBookValue ?? req.body.acquisitionCost) || 0,
+      accumulatedDepreciation: 0,
+      netBookValue: 0,
       status: req.body.status || 'ACTIVE',
       supplierName: req.body.supplierName || '',
       invoiceNo: req.body.invoiceNo || '',
       purchaseInvoiceId: req.body.purchaseInvoiceId || null,
       productId: req.body.productId || null,
     };
+
+    const linkedInvoice = newAsset.purchaseInvoiceId
+      ? purchaseInvoices.find((invoice) => invoice.id === newAsset.purchaseInvoiceId)
+      : undefined;
+    if (linkedInvoice && !req.body.purchaseInvoiceDateAD && !req.body.purchaseInvoiceDateAd) {
+      newAsset.purchaseInvoiceDateAD = linkedInvoice.invoiceDateAD;
+      newAsset.purchaseInvoiceDateBS = linkedInvoice.invoiceDateBS;
+    }
+
+    const computedValues = calculateFixedAssetValues({
+      ...newAsset,
+      acquisitionDateAD: newAsset.acquisitionDateAD,
+    });
+    newAsset.accumulatedDepreciation = computedValues.accumulatedDepreciation;
+    newAsset.netBookValue = computedValues.netBookValue;
     const idx = assetRegister.findIndex((a) => a.id === newAsset.id);
     if (idx >= 0) assetRegister[idx] = newAsset as any;
     else assetRegister.unshift(newAsset as any);
@@ -2653,13 +3433,17 @@ app.post('/api/assets', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO fixed_assets (
-           id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+           id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, placed_in_service_date_ad, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          ON CONFLICT (id) DO UPDATE SET
            tag_number = EXCLUDED.tag_number,
            name = EXCLUDED.name,
            category = EXCLUDED.category,
            branch_id = EXCLUDED.branch_id,
+          purchase_invoice_date_ad = EXCLUDED.purchase_invoice_date_ad,
+          purchase_invoice_date_bs = EXCLUDED.purchase_invoice_date_bs,
+          capitalization_date_ad = EXCLUDED.capitalization_date_ad,
+          placed_in_service_date_ad = EXCLUDED.placed_in_service_date_ad,
            acquisition_cost = EXCLUDED.acquisition_cost,
            net_book_value = EXCLUDED.net_book_value,
            status = EXCLUDED.status;`,
@@ -2669,8 +3453,12 @@ app.post('/api/assets', async (req, res) => {
           newAsset.name,
           newAsset.category,
           newAsset.branchId,
-          newAsset.acquisitionDateAd,
-          newAsset.acquisitionDateBs,
+          newAsset.acquisitionDateAD,
+          newAsset.acquisitionDateBS,
+          newAsset.purchaseInvoiceDateAD,
+          newAsset.purchaseInvoiceDateBS,
+          newAsset.capitalizationDateAD,
+          newAsset.placedInServiceDateAD,
           newAsset.acquisitionCost,
           newAsset.depreciationMethod,
           newAsset.depreciationRatePercent,
@@ -2715,7 +3503,7 @@ app.get('/api/purchase-orders', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
+        'SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -2738,13 +3526,17 @@ app.post('/api/purchase-orders', async (req, res) => {
     const taxAmount = items.reduce((s: number, i: any) => s + (i.taxAmount || 0), 0);
     const totalAmount = subtotalAmount + taxAmount;
 
+    const poBranchId = req.body.branchId || 'WH001';
+    const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0];
+    const poNumber = req.body.poNumber || (await issueNextDocNumber(poBranchId, 'PO', poOrderDate));
+
     const newPO = {
       id: req.body.id || `po-${Date.now()}`,
-      poNumber: req.body.poNumber || generateStandardTransactionId(req.body.branchId || 'WH001', 'PO'),
+      poNumber,
       subtotalAmount,
       taxAmount,
       totalAmount,
-      orderDateAd: req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0],
+      orderDateAd: poOrderDate,
       orderDateBs: req.body.orderDateBS || req.body.orderDateBs || '2083-04-10 BS',
       ...req.body,
     };
@@ -2756,8 +3548,8 @@ app.post('/api/purchase-orders', async (req, res) => {
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO purchase_orders (
-           id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            subtotal_amount = EXCLUDED.subtotal_amount,
@@ -2768,6 +3560,7 @@ app.post('/api/purchase-orders', async (req, res) => {
         [
           newPO.id,
           newPO.poNumber,
+          newPO.supplierId || null,
           newPO.supplierName || 'Vendor',
           newPO.branchId || 'WH001',
           newPO.orderDateAd,
@@ -2922,71 +3715,13 @@ app.patch('/api/purchase-orders/:id/status', async (req, res) => {
   }
 });
 
-app.post('/api/purchase-orders/:id/receive', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'PROCUREMENT_OFFICER'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    let po = purchaseOrders.find((p) => p.id === id);
-
-    if (isPgConnected) {
-      const r = await pgPool.query('SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1', [id]);
-      if (r.rows.length > 0) po = r.rows[0];
-    }
-    if (!po) return res.status(404).json({ message: 'PO not found' });
-
-    po.status = 'RECEIVED';
-
-    if (isPgConnected) {
-      await withTransaction(async (client) => {
-        await client.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', ['RECEIVED', id]);
-
-        const items = typeof po.items === 'string' ? JSON.parse(po.items) : (po.items || []);
-        for (const item of items) {
-          await client.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
-             VALUES ($1, $2, $3, $4, 0)
-             ON CONFLICT (product_id, branch_id) DO UPDATE SET
-               incoming_qty = GREATEST(0, inventory_stock.incoming_qty - $4),
-               quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-               last_updated = CURRENT_TIMESTAMP;`,
-            [`stk-${po.branchId.toLowerCase()}-${item.productId}`, item.productId, po.branchId, Number(item.quantity) || 0]
-          );
-
-          const txnId = `txn-${Date.now()}-${item.productId}`;
-          const txnNum = `TXN-${Math.floor(10000 + Math.random() * 90000)}`;
-          await client.query(
-            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_bs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11)`,
-            [txnId, txnNum, item.productId, item.sku || '', item.productName || '', po.branchId, 'INBOUND_PO', Number(item.quantity) || 0, item.unitPrice || 0, po.poNumber, '2083-04-16 BS']
-          );
-        }
-      });
-    }
-
-    if (po.items && Array.isArray(po.items)) {
-      po.items.forEach((item: any) => {
-        let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === po.branchId);
-        if (stk) {
-          stk.incomingQty = Math.max(0, (stk.incomingQty || 0) - item.quantity);
-          stk.quantityOnHand += item.quantity;
-          stk.lastUpdated = new Date().toISOString();
-        }
-      });
-    }
-    logAuditEvent(req, 'RECEIVE_PURCHASE_ORDER', 'PROCUREMENT', `Received goods for Purchase Order #${po.poNumber}`);
-    res.json(po);
-  } catch (err: any) {
-    console.error('Error receiving PO:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
-  }
-});
-
 // Purchase Invoices
 app.get('/api/purchase-invoices', async (req, res) => {
   const { branchId } = req.query;
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices' +
+        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items FROM purchase_invoices' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3005,14 +3740,20 @@ app.get('/api/purchase-invoices', async (req, res) => {
 app.post('/api/purchase-invoices', async (req, res) => {
   try {
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
+    const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
+    const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'PI', invDate));
     const newInv = {
       id: req.body.id || `inv-${Date.now()}`,
-      invoiceNumber: req.body.invoiceNumber || generateStandardTransactionId(targetBranchId, 'PI'),
-      invoiceDateAD: req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0],
+      invoiceNumber,
+      invoiceDateAD: invDate,
       invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || '2083-04-10 BS',
       ...req.body,
     };
     const items = req.body.items || req.body.lines || [];
+    // Guard: the vendor bill date (stored as dueDateAD) can never be after the purchase date
+    if (newInv.dueDateAD && newInv.invoiceDateAD && newInv.dueDateAD > newInv.invoiceDateAD) {
+      return res.status(400).json({ message: 'Vendor bill date cannot be after the purchase date.' });
+    }
     const poReference = newInv.poReferenceId || req.body.poId;
     if (poReference) {
       let linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
@@ -3045,23 +3786,42 @@ app.post('/api/purchase-invoices', async (req, res) => {
       if (invoiceItems.size !== poItems.size) return res.status(400).json({ message: 'Purchase Order and vendor bill products must match exactly.' });
     }
 
+    let invoiceAlreadyExists = purchaseInvoices.some((invoice) => invoice.id === newInv.id || invoice.invoiceNumber === newInv.invoiceNumber);
+    if (isPgConnected && !invoiceAlreadyExists) {
+      const existing = await pgPool.query(
+        'SELECT 1 FROM purchase_invoices WHERE id = $1 OR invoice_number = $2 LIMIT 1',
+        [newInv.id, newInv.invoiceNumber]
+      );
+      invoiceAlreadyExists = existing.rowCount === 1;
+    }
     const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
     if (idx >= 0) purchaseInvoices[idx] = newInv;
     else purchaseInvoices.unshift(newInv);
 
+    // Resolve supplierId from the selected supplier name for the sub-ledger FK
+    const supplierId = req.body.supplierId || undefined;
+    const supLookup = suppliers.find(
+      (s) => s.id === supplierId || s.name.toLowerCase() === (newInv.supplierName || '').toLowerCase()
+    );
+    const resolvedSupplierId = supplierId || supLookup?.id || null;
+
     if (isPgConnected) {
       await pgPool.query(
         `INSERT INTO purchase_invoices (
-           id, invoice_number, po_reference_id, vendor_bill_number, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+           id, invoice_number, po_reference_id, vendor_bill_number, supplier_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          ON CONFLICT (id) DO UPDATE SET
            payment_status = EXCLUDED.payment_status,
-           amount_paid = EXCLUDED.amount_paid;`,
+           payment_method = EXCLUDED.payment_method,
+           amount_paid = EXCLUDED.amount_paid,
+           notes = EXCLUDED.notes,
+           items = EXCLUDED.items;`,
         [
           newInv.id,
           newInv.invoiceNumber,
           newInv.poReferenceId || newInv.poId || null,
           newInv.vendorBillNumber || null,
+          resolvedSupplierId,
           newInv.supplierName || 'Vendor',
           targetBranchId,
           newInv.invoiceDateAD,
@@ -3073,12 +3833,14 @@ app.post('/api/purchase-invoices', async (req, res) => {
           Number(newInv.nonTaxableAmount) || 0,
           Number(newInv.grandTotal) || 0,
           newInv.paymentStatus || 'UNPAID',
+          newInv.paymentMethod || 'CREDIT',
           Number(newInv.amountPaid) || 0,
+          newInv.notes || '',
           JSON.stringify(items),
         ]
       );
 
-      for (const item of items) {
+      if (!invoiceAlreadyExists) for (const item of items) {
         const qtyToAdd = Number(item.quantity) || 0;
         await pgPool.query(
           `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, min_reorder_level)
@@ -3090,9 +3852,9 @@ app.post('/api/purchase-invoices', async (req, res) => {
         );
 
         await pgPool.query(
-          `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_bs)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11)`,
-          [`txn-${Date.now()}-${item.productId}`, `TXN-${Math.floor(10000 + Math.random() * 90000)}`, item.productId, item.sku || '', item.productName || 'Product', targetBranchId, 'PURCHASE_INVOICE', qtyToAdd, Number(item.unitPrice) || 0, newInv.invoiceNumber, '2083-04-16 BS']
+          `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`,
+          [`txn-${Date.now()}-${item.productId}`, `TXN-${Math.floor(10000 + Math.random() * 90000)}`, item.productId, item.sku || '', item.productName || 'Product', targetBranchId, 'PURCHASE_INVOICE', qtyToAdd, Number(item.unitPrice) || 0, newInv.invoiceNumber, newInv.invoiceDateAD || new Date().toISOString(), newInv.invoiceDateBS || '2083-04-16 BS']
         );
       }
 
@@ -3102,7 +3864,12 @@ app.post('/api/purchase-invoices', async (req, res) => {
       }
     }
 
-    items.forEach((item: any) => {
+    // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory mirror for non-DB mode; DB mode is updated above)
+    const billPoRef = newInv.poReferenceId || req.body.poId;
+    const billLinkedPO = purchaseOrders.find((p) => p.id === billPoRef || p.poNumber === billPoRef);
+    if (billLinkedPO) billLinkedPO.status = 'RECEIVED';
+
+    if (!invoiceAlreadyExists) items.forEach((item: any) => {
       let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
       if (!stk) {
         stk = {
@@ -3134,7 +3901,7 @@ app.delete('/api/purchase-invoices/:id', requireRole('SUPER_ADMIN', 'HEAD_OFFICE
     const { id } = req.params;
     let invoice: any = purchaseInvoices.find((entry) => entry.id === id);
     if (isPgConnected && !invoice) {
-      const result = await pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", items FROM purchase_invoices WHERE id = $1', [id]);
+      const result = await pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", notes, items FROM purchase_invoices WHERE id = $1', [id]);
       invoice = result.rows[0];
     }
     if (!invoice) return res.status(404).json({ message: 'Purchase Invoice not found' });
@@ -3228,12 +3995,598 @@ app.post('/api/purchase-invoices/:id/pay', async (req, res) => {
   }
 });
 
+// POST /api/purchase-invoices/:id/reverse-payments — reverse all payments for a fully paid invoice
+app.post('/api/purchase-invoices/:id/reverse-payments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required.' });
+    }
+
+    const inv = purchaseInvoices.find((i) => i.id === id);
+    if (!inv) {
+      return res.status(404).json({ message: 'Purchase invoice not found.' });
+    }
+    // A reversal is only meaningful once the bill is fully settled. Compute
+    // from amounts (rather than trusting paymentStatus) so invoices with a
+    // stale PARTIAL flag but a full amountPaid are still recognized.
+    const grandTotal = Number(inv.grandTotal) || 0;
+    const amountPaid = Number(inv.amountPaid) || 0;
+    if (grandTotal <= 0 || amountPaid < grandTotal) {
+      return res.status(409).json({ message: `Invoice #${inv.invoiceNumber} is not fully paid (status: ${inv.paymentStatus}, amount paid: ${amountPaid.toLocaleString()}).` });
+    }
+
+    // Find all POSTED payments for this invoice
+    const paymentsToReverse = vendorPayments.filter((p) => p.invoiceId === id && p.status === 'POSTED');
+    if (paymentsToReverse.length === 0) {
+      return res.status(409).json({ message: `No posted payments found for invoice #${inv.invoiceNumber}.` });
+    }
+    // Capture the settled total BEFORE resetting it so the audit trail and
+    // response can report the actual reversed amount.
+    const reversedTotal = paymentsToReverse.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Reverse all payments for this invoice
+        for (const payment of paymentsToReverse) {
+          await client.query(
+            `UPDATE vendor_payments SET
+               status = 'REVERSED',
+               reversal_reason = $1,
+               reversed_by = $2,
+               reversed_at_ad = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [reason, getUserFromReq(req).email || 'system', payment.id]
+          );
+        }
+        // Reset the invoice amount_paid and payment_status
+        await client.query(
+          `UPDATE purchase_invoices SET
+             amount_paid = 0,
+             payment_status = 'UNPAID'
+           WHERE id = $1`,
+          [id]
+        );
+      });
+    }
+
+    // Update in-memory state
+    for (const payment of paymentsToReverse) {
+      payment.status = 'REVERSED';
+      payment.reversalReason = reason;
+      payment.reversedBy = getUserFromReq(req).email || 'system';
+      payment.reversedAtAD = new Date().toISOString();
+    }
+    inv.amountPaid = 0;
+    inv.paymentStatus = 'UNPAID';
+
+    logAuditEvent(
+      req,
+      'REVERSE_INVOICE_PAYMENTS',
+      'PROCUREMENT',
+      `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber} (${reason})`,
+      inv.branchId
+    );
+    broadcastChange({ type: 'INVOICE_PAYMENTS_REVERSED', entity: 'purchase-invoices', branchId: inv.branchId });
+    res.json({
+      success: true,
+      message: `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber}.`,
+      reversedCount: paymentsToReverse.length,
+      reversedTotal,
+      invoiceId: inv.id,
+    });
+  } catch (err: any) {
+    console.error('Error reversing invoice payments:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// ==========================================
+// VENDOR PAYMENTS SUB-LEDGER
+// ==========================================
+
+const VENDOR_PAYMENT_SELECT = `
+  SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId",
+         supplier_name AS "supplierName", branch_id AS "branchId",
+         invoice_id AS "invoiceId", invoice_number AS "invoiceNumber",
+         payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS",
+         amount, payment_method AS "paymentMethod",
+         bank_name AS "bankName", bank_branch AS "bankBranch",
+         account_number AS "accountNumber", cheque_number AS "chequeNumber",
+         cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS",
+         transaction_reference AS "transactionReference", notes, status,
+         reversal_reason AS "reversalReason", reversed_by AS "reversedBy",
+         reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId",
+         fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo",
+         created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"
+  FROM vendor_payments`;
+
+// GET /api/vendor-payments?supplierId=&invoiceId=&branchId=&status=&fromAd=&toAd=&fiscalYearId=
+app.get('/api/vendor-payments', async (req, res) => {
+  const { supplierId, invoiceId, branchId, status, fromAd, toAd, fiscalYearId } = req.query;
+  if (isPgConnected) {
+    try {
+      const conds: string[] = [];
+      const params: any[] = [];
+      const push = (sql: string, value: any) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.push(value);
+          conds.push(`${sql} = $${params.length}`);
+        }
+      };
+      push('supplier_id', supplierId);
+      push('invoice_id', invoiceId);
+      push('branch_id', branchId && branchId !== 'ALL' ? branchId : undefined);
+      push('status', status);
+      push('fiscal_year_id', fiscalYearId);
+      if (fromAd) {
+        params.push(String(fromAd).split('T')[0]);
+        conds.push(`payment_date_ad >= $${params.length}`);
+      }
+      if (toAd) {
+        params.push(String(toAd).split('T')[0]);
+        conds.push(`payment_date_ad <= $${params.length}`);
+      }
+      const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+      const r = await pgPool.query(`${VENDOR_PAYMENT_SELECT}${where} ORDER BY payment_date_ad DESC, created_at DESC`, params);
+      return res.json(r.rows);
+    } catch (err: any) {
+      console.error('Error fetching vendor payments from DB:', err);
+    }
+  }
+  let list = vendorPayments;
+  if (supplierId) list = list.filter((p) => p.supplierId === String(supplierId));
+  if (invoiceId) list = list.filter((p) => p.invoiceId === String(invoiceId));
+  if (branchId && branchId !== 'ALL') list = list.filter((p) => p.branchId === String(branchId));
+  if (status) list = list.filter((p) => p.status === String(status));
+  if (fiscalYearId) list = list.filter((p) => p.fiscalYearId === String(fiscalYearId));
+  if (fromAd) {
+    const from = String(fromAd).split('T')[0];
+    list = list.filter((p) => String(p.paymentDateAD || '').split('T')[0] >= from);
+  }
+  if (toAd) {
+    const to = String(toAd).split('T')[0];
+    list = list.filter((p) => String(p.paymentDateAD || '').split('T')[0] <= to);
+  }
+  res.json(list);
+});
+
+// GET /api/purchase-invoices/:id/payments — payment history for one invoice
+app.get('/api/purchase-invoices/:id/payments', async (req, res) => {
+  const { id } = req.params;
+  if (isPgConnected) {
+    try {
+      const r = await pgPool.query(
+        `${VENDOR_PAYMENT_SELECT} WHERE invoice_id = $1 ORDER BY payment_date_ad DESC, created_at DESC`,
+        [id]
+      );
+      return res.json(r.rows);
+    } catch (err: any) {
+      console.error('Error fetching invoice payments from DB:', err);
+    }
+  }
+  res.json(vendorPayments.filter((p) => p.invoiceId === id));
+});
+
+// POST /api/vendor-payments — create a payment (sub-ledger entry)
+app.post('/api/vendor-payments', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: 'Payment amount must be greater than 0.' });
+    }
+
+    // Resolve the invoice first so supplier + branch can be inherited from it.
+    let linkedInvoice: any = body.invoiceId
+      ? purchaseInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
+      : undefined;
+    if (!linkedInvoice && body.invoiceId && isPgConnected) {
+      const invRes = await pgPool.query(
+        `SELECT id, invoice_number AS "invoiceNumber", supplier_name AS "supplierName",
+                branch_id AS "branchId",
+                invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS",
+                grand_total AS "grandTotal", amount_paid AS "amountPaid"
+         FROM purchase_invoices WHERE id = $1 OR invoice_number = $1 LIMIT 1`,
+        [body.invoiceId]
+      );
+      linkedInvoice = invRes.rows[0];
+    }
+
+    // Resolve supplier: explicit supplierId, else supplierName, else from invoice.
+    let supplierId: string | undefined = body.supplierId || undefined;
+    let supplierName = body.supplierName || linkedInvoice?.supplierName || '';
+    if (!supplierId && supplierName) {
+      const matched = suppliers.find((s) =>
+        s.name.toLowerCase() === String(supplierName).toLowerCase()
+      ) || suppliers.find((s) =>
+        String(supplierName).toLowerCase().includes(s.name.toLowerCase())
+      );
+      if (matched) supplierId = matched.id;
+    }
+    if (!supplierId && body.supplierName) {
+      supplierId = providerSupplierIdFromName(String(body.supplierName));
+    }
+    if (!supplierId && supplierName) {
+      supplierId = providerSupplierIdFromName(supplierName);
+    }
+    if (!supplierName && supplierId) {
+      const sup = suppliers.find((s) => s.id === supplierId);
+      supplierName = sup?.name || '';
+    }
+    if (!supplierName) {
+      return res.status(400).json({ message: 'Supplier is required to record a vendor payment.' });
+    }
+
+    const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req).branchId || branches[0]?.id || 'WH001';
+    const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    let paymentDateBS = body.paymentDateBS || linkedInvoice?.invoiceDateBS || '';
+    try {
+      const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
+      if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
+    } catch (_e) {}
+    if (!paymentDateBS) paymentDateBS = '2083-04-16 BS';
+
+    const paymentMethod = (body.paymentMethod || 'CASH').toUpperCase();
+    // Generate payment number from the daily per-branch sequence based on the
+    // payment method: CP = Cash Payment, BP = Bank Payment
+    // (transfer/cheque/card/online). Format: CP-BRC01-202609150001
+    const payDocType = paymentMethod === 'CASH' ? 'CP' : 'BP';
+    const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
+    const id = `vp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newPayment: VendorPayment = {
+      id,
+      paymentNumber,
+      supplierId: supplierId || '',
+      supplierName,
+      branchId,
+      invoiceId: linkedInvoice?.id || body.invoiceId || null,
+      invoiceNumber: linkedInvoice?.invoiceNumber || body.invoiceNumber || null,
+      paymentDateAD,
+      paymentDateBS,
+      amount,
+      paymentMethod: paymentMethod as VendorPaymentMethod,
+      bankName: body.bankName || null,
+      bankBranch: body.bankBranch || null,
+      accountNumber: body.accountNumber || null,
+      chequeNumber: body.chequeNumber || null,
+      chequeDateAD: body.chequeDateAD || null,
+      chequeDateBS: body.chequeDateBS || null,
+      transactionReference: body.transactionReference || null,
+      notes: body.notes || null,
+      status: 'POSTED',
+      reversalReason: null,
+      reversedBy: null,
+      reversedAtAD: null,
+      originalPaymentId: null,
+      isDemo: false,
+      createdBy: getUserFromReq(req).email || 'system',
+    };
+
+    vendorPayments.unshift(newPayment);
+
+    if (isPgConnected) {
+      await pgPool.query(
+        `INSERT INTO vendor_payments (
+           id, payment_number, supplier_id, supplier_name, branch_id, invoice_id, invoice_number,
+           payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
+           account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
+           notes, status, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, FALSE, $21)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          newPayment.id, newPayment.paymentNumber, newPayment.supplierId || null, newPayment.supplierName,
+          newPayment.branchId, newPayment.invoiceId, newPayment.invoiceNumber,
+          newPayment.paymentDateAD, newPayment.paymentDateBS, newPayment.amount, newPayment.paymentMethod,
+          newPayment.bankName, newPayment.bankBranch, newPayment.accountNumber, newPayment.chequeNumber,
+          newPayment.chequeDateAD, newPayment.chequeDateBS, newPayment.transactionReference,
+          newPayment.notes, newPayment.status, newPayment.createdBy,
+        ]
+      );
+    }
+    logAuditEvent(
+      req,
+      'RECORD_VENDOR_PAYMENT',
+      'PROCUREMENT',
+      `Recorded vendor payment #${paymentNumber} of NPR ${amount.toLocaleString()} to ${supplierName} via ${paymentMethod}`,
+      branchId
+    );
+    broadcastChange({ type: 'VENDOR_PAYMENT', entity: 'purchase-invoices', branchId });
+    res.status(201).json(newPayment);
+  } catch (err: any) {
+    console.error('Error creating vendor payment:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// POST /api/vendor-payments/:id/reverse — reverse a posted payment
+app.post('/api/vendor-payments/:id/reverse', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required.' });
+    }
+    const payment = vendorPayments.find((p) => p.id === id);
+    if (!payment) {
+      return res.status(404).json({ message: 'Vendor payment not found.' });
+    }
+    if (payment.status !== 'POSTED') {
+      return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${payment.status.toLowerCase()}.` });
+    }
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Reverse the payment row.
+        await client.query(
+          `UPDATE vendor_payments SET
+             status = 'REVERSED',
+             reversal_reason = $1,
+             reversed_by = $2,
+             reversed_at_ad = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [reason, getUserFromReq(req).email || 'system', id]
+        );
+        // Undo the amount from the linked invoice so its balance is restored.
+        if (payment.invoiceId) {
+          await client.query(
+            `UPDATE purchase_invoices SET
+               amount_paid = GREATEST(0, amount_paid - $1),
+               payment_status = CASE WHEN (amount_paid - $1) >= grand_total THEN 'PAID'
+                                     WHEN (amount_paid - $1) > 0 THEN 'PARTIAL'
+                                     ELSE 'UNPAID' END
+             WHERE id = $2`,
+            [Number(payment.amount) || 0, payment.invoiceId]
+          );
+        }
+      });
+    }
+
+    payment.status = 'REVERSED';
+    payment.reversalReason = reason;
+    payment.reversedBy = getUserFromReq(req).email || 'system';
+    payment.reversedAtAD = new Date().toISOString();
+
+    // Mirror the invoice decrement in memory (only when not pg-connected).
+    if (!isPgConnected && payment.invoiceId) {
+      const inv = purchaseInvoices.find((i) => i.id === payment.invoiceId);
+      if (inv) {
+        inv.amountPaid = Math.max(0, Number(inv.amountPaid || 0) - Number(payment.amount || 0));
+        inv.paymentStatus = inv.amountPaid >= (Number(inv.grandTotal) || 0) ? 'PAID' : inv.amountPaid > 0 ? 'PARTIAL' : 'UNPAID';
+      }
+    }
+
+    logAuditEvent(
+      req,
+      'REVERSE_VENDOR_PAYMENT',
+      'PROCUREMENT',
+      `Reversed vendor payment #${payment.paymentNumber} of NPR ${Number(payment.amount || 0).toLocaleString()} (${reason})`,
+      payment.branchId
+    );
+    broadcastChange({ type: 'VENDOR_PAYMENT_REVERSED', entity: 'purchase-invoices', branchId: payment.branchId });
+    res.json({
+      success: true,
+      message: `Payment #${payment.paymentNumber} reversed.`,
+      paymentId: payment.id,
+    });
+  } catch (err: any) {
+    console.error('Error reversing vendor payment:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Vendor ledger report: debits (invoices) + credits (payments) with running balance.
+// GET /api/vendors/:supplierId/ledger?fromAd=&toAd=&fiscalYearId=&branchId=
+app.get('/api/vendors/:supplierId/ledger', async (req, res) => {
+  try {
+    const { supplierId } = req.params;
+    const { fromAd, toAd, fiscalYearId, branchId } = req.query;
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (!supplier) {
+      return res.status(404).json({ message: 'Supplier not found.' });
+    }
+
+    const nameMatcher = (name: string) =>
+      String(name || '').toLowerCase() === supplier.name.toLowerCase() ||
+      String(name || '').toLowerCase().includes(supplier.name.toLowerCase()) ||
+      supplier.name.toLowerCase().includes(String(name || '').toLowerCase());
+
+    // Match invoices/payments by the exact supplier_id FK first (the reliable
+    // route since duplicate supplier names can exist; e.g. demo vs real rows),
+    // and fall back to name matching only for legacy rows without a supplier_id.
+    const bySupplierId = (inv: any) =>
+      inv.supplierId && inv.supplierId === supplier.id;
+    const byLegacyName = (inv: any) => !inv.supplierId && nameMatcher(inv.supplierName);
+
+    let invoices: any[] = purchaseInvoices.filter((inv) => bySupplierId(inv) || byLegacyName(inv));
+    let payments: VendorPayment[] = vendorPayments.filter((p) =>
+      (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
+    );
+
+    if (isPgConnected) {
+      try {
+        const invRes = await pgPool.query(
+          `SELECT id, invoice_number AS "invoiceNumber", supplier_id AS "supplierId", supplier_name AS "supplierName",
+                  branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD",
+                  invoice_date_bs AS "invoiceDateBS", vat_amount AS "vatAmount",
+                  grand_total AS "grandTotal", notes
+           FROM purchase_invoices
+           WHERE supplier_id = $1 OR (supplier_id IS NULL AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3)))`,
+          [supplier.id, supplier.name, `%${supplier.name}%`]
+        );
+        invoices = invRes.rows;
+        const payRes = await pgPool.query(
+          `${VENDOR_PAYMENT_SELECT} WHERE supplier_id = $1 OR (supplier_id IS NULL OR supplier_id = '') AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3))`,
+          [supplier.id, supplier.name, `%${supplier.name}%`]
+        );
+        payments = payRes.rows;
+      } catch (err: any) {
+        console.error('Vendor ledger DB query failed, using cache:', err?.message || err);
+      }
+    }
+
+    // Apply branch + fiscal-year/date scoping.
+    const from = String(fromAd || '').split('T')[0];
+    const to = String(toAd || '').split('T')[0];
+    const scopedDate = (date: any) => {
+      const d = String(date || '').split('T')[0];
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    };
+    const inScope = (branch: string | undefined, date: any) =>
+      (!branchId || branchId === 'ALL' || branch === branchId) && scopedDate(date);
+
+    const invoiceLines = invoices
+      .filter((inv) => inScope(inv.branchId, inv.invoiceDateAD))
+      .map((inv) => ({
+        id: `inv-${inv.id}`,
+        documentNumber: inv.invoiceNumber,
+        dateAD: String(inv.invoiceDateAD || '').split('T')[0],
+        dateBS: inv.invoiceDateBS || '',
+        amount: Number(inv.grandTotal) || 0,
+        vatAmount: Number(inv.vatAmount) || 0,
+        type: 'INVOICE' as const,
+        notes: inv.notes || `Purchase invoice ${inv.invoiceNumber}`,
+        paymentMethod: undefined,
+        debit: Number(inv.grandTotal) || 0,
+        credit: 0,
+      }));
+
+    const paymentLines = payments
+      .filter((p) => p.status === 'POSTED' && inScope(p.branchId, p.paymentDateAD))
+      .map((p) => ({
+        id: `pay-${p.id}`,
+        documentNumber: p.paymentNumber,
+        dateAD: String(p.paymentDateAD || '').split('T')[0],
+        dateBS: p.paymentDateBS || '',
+        amount: Number(p.amount) || 0,
+        vatAmount: undefined,
+        type: 'PAYMENT' as const,
+        notes: p.notes || `Payment via ${p.paymentMethod}${p.chequeNumber ? ` (Chq ${p.chequeNumber})` : ''}`,
+        paymentMethod: p.paymentMethod,
+        debit: 0,
+        credit: Number(p.amount) || 0,
+      }));
+
+    const allLines = [...invoiceLines, ...paymentLines].sort((a, b) =>
+      a.dateAD === b.dateAD ? a.documentNumber.localeCompare(b.documentNumber) : a.dateAD.localeCompare(b.dateAD)
+    );
+
+    // Resolve the fiscal-year opening balance from the vendor_opening_balances
+    // register. Priority: explicit fiscalYearId → a from-date that equals a known
+    // fiscal year start → the current fiscal year. When a persisted opening
+    // exists, it is the carry-forward of the previous year's closing balance.
+    let fyStartAD = '';
+    let persistedOpening = 0;
+    let usedPersistedOpening = false;
+    if (isPgConnected) {
+      try {
+        let fyRow: any = null;
+        if (fiscalYearId) {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1',
+            [fiscalYearId]
+          );
+          fyRow = fyRes.rows[0] || null;
+        } else if (from) {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE start_date_ad = $1::date LIMIT 1',
+            [from]
+          );
+          fyRow = fyRes.rows[0] || null;
+        } else {
+          const fyRes = await pgPool.query(
+            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE is_current = TRUE ORDER BY start_date_ad DESC LIMIT 1'
+          );
+          fyRow = fyRes.rows[0] || null;
+        }
+        if (fyRow) {
+          fyStartAD = String(fyRow.startDateAD || '').split('T')[0];
+          const obRes = await pgPool.query(
+            `SELECT COALESCE(SUM(opening_balance), 0)::float AS total
+             FROM vendor_opening_balances
+             WHERE fiscal_year_id = $1 AND supplier_id = $2
+               AND ($3::text IS NULL OR $3 = 'ALL' OR branch_id = $3)`,
+            [fyRow.id, supplier.id, branchId === 'ALL' ? null : branchId]
+          );
+          persistedOpening = Number(obRes.rows[0]?.total) || 0;
+          usedPersistedOpening = true;
+        }
+      } catch (err: any) {
+        console.warn('Vendor ledger fiscal-year opening lookup failed, falling back to period-net:', err?.message || err);
+      }
+    }
+
+    // Opening balance:
+    //  - With a persisted fiscal-year opening: that carry-forward value, plus any
+    //    net activity between the fiscal-year start and an explicit earlier
+    //    cut-off (`from`). The ledger period then begins at `from`.
+    //  - Without a persisted opening (legacy / no fiscal year configured): net
+    //    (debits - credits) strictly before the `from` date.
+    let openingBalance: number;
+    let periodLines: typeof allLines;
+    if (usedPersistedOpening && fyStartAD) {
+      const periodStart = from && from > fyStartAD ? from : fyStartAD;
+      openingBalance =
+        persistedOpening +
+        allLines
+          .filter((line) => line.dateAD >= fyStartAD && line.dateAD < periodStart)
+          .reduce((sum, line) => sum + line.debit - line.credit, 0);
+      periodLines = allLines.filter((line) => line.dateAD >= periodStart);
+    } else {
+      openingBalance = allLines
+        .filter((line) => from && line.dateAD < from)
+        .reduce((sum, line) => sum + line.debit - line.credit, 0);
+      periodLines = allLines.filter((line) => !from || line.dateAD >= from);
+    }
+
+    let running = openingBalance;
+    const ledger = periodLines.map((line) => {
+      running += line.debit - line.credit;
+      return { ...line, balance: running };
+    });
+
+    const periodDebit = ledger.reduce((sum, line) => sum + line.debit, 0);
+    const periodCredit = ledger.reduce((sum, line) => sum + line.credit, 0);
+
+    res.json({
+      supplier: { id: supplier.id, name: supplier.name },
+      openingBalance,
+      openingSource: usedPersistedOpening && fyStartAD ? 'FISCAL_YEAR_OPENING' : 'PERIOD_NET',
+      fiscalYearStartAD: fyStartAD || null,
+      totalDebit: periodDebit,
+      totalCredit: periodCredit,
+      closingBalance: openingBalance + periodDebit - periodCredit,
+      ledger,
+    });
+  } catch (err: any) {
+    console.error('Error building vendor ledger:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
+// Resolves an existing supplier master row by vendor name, creating one on the
+// fly for invoice-driven payments when no supplierId was supplied.
+function providerSupplierIdFromName(name: string): string | undefined {
+  const clean = String(name || '').trim();
+  if (!clean) return undefined;
+  const matched = suppliers.find((s) => s.name.toLowerCase() === clean.toLowerCase()) ||
+    suppliers.find((s) => s.name.toLowerCase().includes(clean.toLowerCase()));
+  if (matched) return matched.id;
+  return undefined;
+}
+
 // Shipments
 app.get('/api/shipments', async (req, res) => {
   if (isPgConnected) {
     try {
       const r = await pgPool.query(
-        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAd", dispatch_date_bs AS "dispatchDateBs", estimated_arrival_ad AS "estimatedArrivalAd", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAd", received_date_bs AS "receivedDateBs", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
+        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
       );
       return res.json(r.rows);
     } catch (err) {
@@ -3248,17 +4601,48 @@ app.post('/api/shipments', async (req, res) => {
     const sourceBranch = branches.find((b) => b.id === req.body.sourceBranchId);
     const destBranch = branches.find((b) => b.id === req.body.destinationBranchId);
 
+    // BS calendar gate: a shipment dispatch may only be posted when its date
+    // has a seeded BS day record in bs_day_records (Nepali date is mandatory).
+    const rawDispatchDateAD = req.body.dispatchDateAD || req.body.dispatchDateAd;
+    const dispatchDateMismatch = detectDateTypeMismatch(rawDispatchDateAD, 'dispatchDateAD');
+    if (dispatchDateMismatch) {
+      return res.status(400).json({ message: dispatchDateMismatch, dateTypeMismatch: true });
+    }
+    const dispatchDateAD = String(rawDispatchDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const bsDayForShipment = await findBsDayRecordForAdDate(dispatchDateAD);
+    if (!bsDayForShipment.found) {
+      return res.status(400).json({
+        message: `BS date is not available for ${dispatchDateAD}. Please contact your system administrator for BS month seeding.`,
+        bsDateMissing: true,
+      });
+    }
+
+    const sourceBranchId = req.body.sourceBranchId || branches[0]?.id || 'WH001';
+    const trackingCode = req.body.trackingCode || (await issueNextDocNumber(sourceBranchId, 'ST', dispatchDateAD));
+
     const newShipment = {
+      ...req.body,
       id: req.body.id || `sh-${Date.now()}`,
-      trackingCode: req.body.trackingCode || generateStandardTransactionId(req.body.sourceBranchId || 'WH001', 'TRF'),
+      trackingCode,
       sourceBranchName: sourceBranch?.name || req.body.sourceBranchName || 'Source',
       destinationBranchName: destBranch?.name || req.body.destinationBranchName || 'Destination',
-      dispatchDateAD: req.body.dispatchDateAD || req.body.dispatchDateAd || new Date().toISOString().split('T')[0],
-      dispatchDateBS: req.body.dispatchDateBS || req.body.dispatchDateBs || '2083-04-10 BS',
+      // Date integrity: the AD dispatch date stays in the AD column, and the BS
+      // date is ALWAYS derived from the seeded bs_day_records DB record. A
+      // client-supplied dispatchDateBS can never override it.
+      dispatchDateAD,
+      dispatchDateBS: `${bsDayForShipment.record.bsDate} BS`,
       status: req.body.status || 'IN_TRANSIT',
       items: req.body.items || [],
-      ...req.body,
     };
+
+    let shipmentAlreadyExists = shipments.some((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode);
+    if (isPgConnected && !shipmentAlreadyExists) {
+      const existing = await pgPool.query(
+        'SELECT 1 FROM shipments WHERE id = $1 OR tracking_code = $2 LIMIT 1',
+        [newShipment.id, newShipment.trackingCode]
+      );
+      shipmentAlreadyExists = existing.rowCount === 1;
+    }
 
     const idx = shipments.findIndex((s) => s.id === newShipment.id);
     if (idx >= 0) shipments[idx] = newShipment;
@@ -3290,13 +4674,15 @@ app.post('/api/shipments', async (req, res) => {
           ]
         );
 
-        if (newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+        if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
           for (const item of newShipment.items) {
             const qtySent = Number(item.quantitySent || item.quantity || 1);
-            await client.query(
-              `UPDATE inventory_stock SET quantity_on_hand = GREATEST(0, quantity_on_hand - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+            const updated = await client.query(
+              `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
+               WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
               [qtySent, item.productId, newShipment.sourceBranchId]
             );
+            if (updated.rowCount !== 1) throw new Error(`Insufficient stock for ${item.productName || item.productId}.`);
 
             if (newShipment.destinationBranchId) {
               await client.query(
@@ -3313,7 +4699,7 @@ app.post('/api/shipments', async (req, res) => {
       });
     }
 
-    if (newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+    if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
       newShipment.items.forEach((item: any) => {
         const qtySent = Number(item.quantitySent || item.quantity || 1);
         let sourceStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === newShipment.sourceBranchId);
@@ -3344,11 +4730,21 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
     const { receivedItems, receivedByNotes } = req.body || {};
     let sh = shipments.find((s) => s.id === id);
     if (!sh) return res.status(404).json({ message: 'Shipment not found' });
+    if (['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(sh.status)) {
+      return res.status(409).json({ message: `Shipment ${sh.trackingCode} is already ${sh.status.toLowerCase()} and cannot be received again.` });
+    }
 
     let hasDiscrepancy = false;
     sh.receivedByNotes = receivedByNotes || '';
     sh.receivedDateAD = new Date().toISOString().split('T')[0];
-    sh.receivedDateBS = '2083-04-16 BS';
+    // Date integrity: the BS receipt date is ALWAYS derived from the seeded
+    // bs_day_records row for the AD receipt date — a hardcoded or client-
+    // supplied BS value is never stored in received_date_bs.
+    const bsDayForReceipt = await findBsDayRecordForAdDate(sh.receivedDateAD);
+    const receivedDateBS: string | null = bsDayForReceipt.found
+      ? `${bsDayForReceipt.record.bsDate} BS`
+      : null;
+    sh.receivedDateBS = receivedDateBS || undefined;
 
     sh.items.forEach((item: any, idx: number) => {
       const verified = Array.isArray(receivedItems)
@@ -3357,6 +4753,9 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
       const actualQtyReceived = verified !== null && verified !== undefined && verified.quantityReceived !== undefined
         ? Number(verified.quantityReceived)
         : (item.quantitySent || item.quantity || 1);
+      if (!Number.isInteger(actualQtyReceived) || actualQtyReceived < 0) {
+        throw new Error(`Received quantity for ${item.productName || item.productId} must be a non-negative integer.`);
+      }
 
       item.quantityReceived = actualQtyReceived;
       if (actualQtyReceived < (item.quantitySent || item.quantity || 1)) hasDiscrepancy = true;
@@ -3369,7 +4768,7 @@ app.post('/api/shipments/:id/receive', async (req, res) => {
       await withTransaction(async (client) => {
         await client.query(
           `UPDATE shipments SET status = $1, received_by_notes = $2, received_date_ad = CURRENT_DATE, received_date_bs = $3, has_discrepancy = $4, items = $5 WHERE id = $6`,
-          [sh.status, sh.receivedByNotes, sh.receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
+          [sh.status, sh.receivedByNotes, receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
         );
 
         for (const item of sh.items) {
@@ -3408,28 +4807,37 @@ app.post('/api/shipments/:id/cancel', async (req, res) => {
       return res.status(400).json({ message: `Transfer ${sh.trackingCode} is already cancelled.` });
     }
 
-    sh.status = 'CANCELLED';
-    sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
+    const cancellationNotes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
 
     if (isPgConnected) {
-      await pgPool.query('UPDATE shipments SET status = $1, notes = $2 WHERE id = $3 OR tracking_code = $3', ['CANCELLED', sh.notes, id]);
-
-      for (const item of sh.items) {
-        const qtySent = Number(item.quantitySent || (item as any).quantity) || 1;
-        if (qtySent > 0 && sh.sourceBranchId) {
-          await pgPool.query(
-            `UPDATE inventory_stock SET quantity_on_hand = inventory_stock.quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
-            [qtySent, item.productId, sh.sourceBranchId]
-          );
+      await withTransaction(async (client) => {
+        const current = await client.query('SELECT status, source_branch_id AS "sourceBranchId", destination_branch_id AS "destinationBranchId", items, notes FROM shipments WHERE id = $1 OR tracking_code = $1 FOR UPDATE', [id]);
+        if (!current.rows[0]) throw new Error('Shipment / transfer not found.');
+        if (['RECEIVED', 'DELIVERED'].includes(current.rows[0].status)) throw new Error('Transfers that have already been received cannot be cancelled.');
+        if (current.rows[0].status === 'CANCELLED') throw new Error('This transfer is already cancelled.');
+        const sourceBranchId = current.rows[0].sourceBranchId || sh.sourceBranchId;
+        const destinationBranchId = current.rows[0].destinationBranchId || sh.destinationBranchId;
+        const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || sh.items);
+        await client.query('UPDATE shipments SET status = $1, notes = $2 WHERE id = $3 OR tracking_code = $3', ['CANCELLED', cancellationNotes, id]);
+        for (const item of items) {
+          const qtySent = Number(item.quantitySent || item.quantity) || 1;
+          if (qtySent > 0 && sourceBranchId) {
+            await client.query(
+              `UPDATE inventory_stock SET quantity_on_hand = inventory_stock.quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+              [qtySent, item.productId, sourceBranchId]
+            );
+          }
+          if (qtySent > 0 && destinationBranchId) {
+            await client.query(
+              `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+              [qtySent, item.productId, destinationBranchId]
+            );
+          }
         }
-        if (qtySent > 0 && sh.destinationBranchId) {
-          await pgPool.query(
-            `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
-            [qtySent, item.productId, sh.destinationBranchId]
-          );
-        }
-      }
+      });
     }
+    sh.status = 'CANCELLED';
+    sh.notes = cancellationNotes;
     logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
     res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully.` });
   } catch (err: any) {
@@ -3451,7 +4859,7 @@ app.get('/api/stock-operations', async (req, res) => {
   if (isPgConnected) {
     try {
       const q =
-        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAd", date_bs AS "dateBs", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
+        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
         (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1 OR destination_warehouse_id = $1' : '') +
         ' ORDER BY created_at DESC';
       const params = branchId && branchId !== 'ALL' ? [branchId] : [];
@@ -3521,26 +4929,89 @@ app.post('/api/stock-operations', async (req, res) => {
       totalValue = Math.abs(req.body.quantityChanged) * req.body.costPerUnit;
     }
 
+    // BS calendar gate: a stock operation may only be posted when its date has
+    // a seeded BS day record in bs_day_records (Nepali date is mandatory).
+    const rawOpDateAD = req.body.dateAD || req.body.dateAd;
+    const opDateMismatch = detectDateTypeMismatch(rawOpDateAD, 'dateAD');
+    if (opDateMismatch) {
+      return res.status(400).json({ message: opDateMismatch, dateTypeMismatch: true });
+    }
+    const opDateAD = String(rawOpDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    const bsDayForOp = await findBsDayRecordForAdDate(opDateAD);
+    if (!bsDayForOp.found) {
+      return res.status(400).json({
+        message: `BS date is not available for ${opDateAD}. Please contact your system administrator for BS month seeding.`,
+        bsDateMissing: true,
+      });
+    }
+
+    const opBranchId = req.body.branchId || 'WH001';
+    // Map operation type to document type code for numbering:
+    // DAMAGE → DMG, PULLOUT → PLT, STOCK_OUT → SALE, CONSUMABLE_ISSUE → CON,
+    // MANUAL_ADJUSTMENT → SA, others → their first 4 letters.
+    const opTypeDocMap: Record<string, string> = {
+      DAMAGE: 'DMG',
+      PULLOUT: 'PLT',
+      STOCK_OUT: 'SALE',
+      CONSUMABLE_ISSUE: 'CON',
+      MANUAL_ADJUSTMENT: 'SA',
+    };
+    const docType = opTypeDocMap[opType] || opType.slice(0, 4).toUpperCase();
     const newOp = {
+      ...req.body,
       id: req.body.id || `op-${Date.now()}`,
-      referenceNumber: req.body.referenceNumber || generateStandardTransactionId(req.body.branchId || 'WH001', opType),
-      dateAD: req.body.dateAD || req.body.dateAd || new Date().toISOString().split('T')[0],
-      dateBS: req.body.dateBS || req.body.dateBs || '2083-04-16 BS',
+      referenceNumber: req.body.referenceNumber || (await issueNextDocNumber(opBranchId, docType, opDateAD)),
+      // Date integrity: the AD date stays in the AD column, and the BS date is
+      // ALWAYS derived from the seeded bs_day_records DB record for that AD
+      // date. A client-supplied dateBS can never override it (prevents
+      // BS-in-AD / AD-in-BS mismatches from reaching the database).
+      dateAD: opDateAD,
+      dateBS: `${bsDayForOp.record.bsDate} BS`,
       totalValue,
-      fiscalYear: req.body.fiscalYear || '2082/83',
+      fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(opDateAD),
       branchName: branchObj?.name || req.body.branchName || 'Branch',
       destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || 'WH001',
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
-      status: opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED',
-      ...req.body,
+      status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
     };
 
-    const idx = stockOperations.findIndex((o) => o.id === newOp.id);
-    if (idx >= 0) stockOperations[idx] = newOp;
-    else stockOperations.unshift(newOp);
+    // Keep the movement ledger authoritative for stock operations as well as
+    // purchase invoices and transfers. Pullouts from damaged stock do not
+    // change available quantity_on_hand, so they are intentionally excluded
+    // from this quantity ledger.
+    const operationTransactions: TransactionLog[] = operationItems
+      .filter((item: any) => !(opType === 'PULLOUT' && item.condition === 'DAMAGED_STOCK'))
+      .map((item: any, index: number) => {
+        const stockRecord = inventoryStock.find(
+          (entry) => entry.productId === item.productId && entry.branchId === newOp.branchId
+        );
+        const product = products.find((entry) => entry.id === item.productId);
+        const quantity = Number(item.quantity) || 1;
+        const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+        // DAMAGE ops move units from usable to damaged, still consuming
+        // quantity_on_hand; DISPOSAL / PULLOUT / STOCK_OUT consume stock too.
+        const quantityChanged = -(opType === 'DAMAGE' ? quantity : Math.abs(quantity));
+        return {
+          id: `txn-${newOp.id}-${item.productId}-${index}`,
+          transactionNumber: `${newOp.referenceNumber}-${index + 1}`,
+          productId: item.productId,
+          productSku: product?.sku || item.sku || '',
+          productName: product?.name || item.productName || 'Product',
+          branchId: newOp.branchId,
+          changeType: (opType === 'DAMAGE' ? 'DAMAGE' : opType) as TransactionLog['changeType'],
+          quantityBefore,
+          quantityChanged,
+          quantityAfter: Math.max(0, quantityBefore - quantity),
+          unitCost: Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || product?.costPrice || 0,
+          referenceDocId: newOp.referenceNumber,
+          timestampAD: new Date(`${newOp.dateAD}T00:00:00.000Z`).toISOString(),
+          timestampBS: newOp.dateBS,
+        };
+      });
 
     if (isPgConnected) {
-      await pgPool.query(
+      await withTransaction(async (client) => {
+        await client.query(
         `INSERT INTO stock_operations (
            id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
@@ -3569,30 +5040,87 @@ app.post('/api/stock-operations', async (req, res) => {
           newOp.status,
           JSON.stringify(items),
         ]
-      );
+        );
 
-      for (const item of operationItems) {
-        const qty = Number(item.quantity) || 1;
-        if (opType === 'DAMAGE') {
-          await pgPool.query(
+        for (const item of operationItems) {
+          const qty = Number(item.quantity) || 1;
+          let result;
+          if (opType === 'DAMAGE') {
+            result = await client.query(
             `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, damaged_qty = damaged_qty + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
             [qty, item.productId, newOp.branchId]
-          );
-        } else if (opType === 'PULLOUT') {
-          await pgPool.query(
+            );
+          } else if (opType === 'PULLOUT') {
+            result = await client.query(
             item.condition === 'DAMAGED_STOCK'
               ? `UPDATE inventory_stock SET damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`
               : `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
-            [qty, item.productId, newOp.branchId]
-          );
-        } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
-          await pgPool.query(
+              [qty, item.productId, newOp.branchId]
+            );
+          } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
+            result = await client.query(
             `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
-            [qty, item.productId, newOp.branchId]
+              [qty, item.productId, newOp.branchId]
+            );
+          }
+          if (stockConsumingType && result && result.rowCount !== 1) {
+            throw new Error(`Stock changed before this operation could be posted for ${item.productName || item.productId}. Please retry.`);
+          }
+        }
+
+        for (const txn of operationTransactions) {
+          await client.query(
+            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT (id) DO NOTHING`,
+            [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
           );
         }
-      }
+
+        // Persist a damage_records lifecycle entry for every DAMAGE stock
+        // operation, so the damage register (table 7b) always faithfully
+        // reflects what was actually written to inventory_stock.
+        if (opType === 'DAMAGE') {
+          for (const item of operationItems) {
+            const qty = Number(item.quantity) || 0;
+            if (qty <= 0) continue;
+            const product = products.find((entry) => entry.id === item.productId);
+            const unitCost = Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || product?.costPrice || 0;
+            const topReason = String(newOp.reason || 'Physical branch inventory inspection & transit damage tag').toUpperCase();
+            const knownReason = ['PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER'].find((r) => topReason.includes(r));
+            const damageReason = (knownReason || 'OTHER') as string;
+            await client.query(
+              `INSERT INTO damage_records (
+                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
+                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
+                 write_off_loss, approved_by, notes, fiscal_year_id, is_demo, created_by
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $11, $12, $13, FALSE, $14)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                `dmr-${newOp.id}-${item.productId}`,
+                `${newOp.referenceNumber}-${item.productId}`,
+                item.productId,
+                newOp.branchId,
+                qty,
+                unitCost,
+                qty * unitCost,
+                newOp.dateAD,
+                newOp.dateBS,
+                damageReason,
+                newOp.inspectorName || null,
+                newOp.reason || '',
+                newOp.fiscalYear ? getFiscalYearCodeForDate(newOp.dateAD) : null,
+                newOp.inspectorName || null,
+              ]
+            );
+          }
+        }
+      });
     }
+    const idx = stockOperations.findIndex((o) => o.id === newOp.id);
+    if (idx >= 0) stockOperations[idx] = newOp;
+    else stockOperations.unshift(newOp);
     if (stockConsumingType) {
       for (const item of operationItems) {
         const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === newOp.branchId);
@@ -3603,10 +5131,45 @@ app.post('/api/stock-operations', async (req, res) => {
           } else {
             stockRecord.quantityOnHand -= quantity;
           }
-          if (opType === 'DAMAGE') stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
+          if (opType === 'DAMAGE') {
+            stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
+            // Keep the in-memory damage register in lock-step with the DB so
+            // the Damaged Stock screen and ledger reflect it immediately.
+            const damageRef = `${newOp.referenceNumber}-${item.productId}`;
+            const existingDamage = damageRecords.find(
+              (dr) => dr.damageReference === damageRef || dr.id === `dmr-${newOp.id}-${item.productId}`
+            );
+            if (!existingDamage) {
+              damageRecords.unshift({
+                id: `dmr-${newOp.id}-${item.productId}`,
+                damageReference: damageRef,
+                productId: item.productId,
+                branchId: newOp.branchId,
+                quantityDamaged: quantity,
+                unitCost: Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || 0,
+                totalCost: quantity * (Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || 0),
+                damageDateAD: newOp.dateAD,
+                damageDateBS: newOp.dateBS,
+                damageReason: 'OTHER',
+                status: 'IDENTIFIED',
+                salvageValue: 0,
+                glAccountCode: 'GL-5120 (Loss on Inventory Scrap & Write-off)',
+                writeOffLoss: 0,
+                approvedBy: newOp.inspectorName,
+                notes: newOp.reason,
+                fiscalYearId: newOp.fiscalYear ? getFiscalYearCodeForDate(newOp.dateAD) : undefined,
+                isDemo: false,
+                createdBy: newOp.inspectorName,
+              } as DamageRecord);
+            }
+          }
           stockRecord.lastUpdated = new Date().toISOString();
         }
       }
+    }
+    for (const txn of operationTransactions) {
+      const existingTxn = transactionLogs.find((entry) => entry.id === txn.id);
+      if (!existingTxn) transactionLogs.unshift(txn);
     }
     logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
     res.status(201).json(newOp);
@@ -3616,21 +5179,194 @@ app.post('/api/stock-operations', async (req, res) => {
   }
 });
 
+// Reverse a DAMAGE stock operation (Super Admin / Inventory Manager only).
+// Safe-guarded entry reversal: the caller must supply a reason which is kept
+// on the audit trail. Units are moved back from damaged_qty to available
+// quantity_on_hand at the original branch, damage_records rows are marked
+// CANCELLED, and the stock operation status flips to CANCELLED.
+app.post('/api/stock-operations/:id/reverse', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body.reason || '').trim();
+    const reversedBy =
+      (req.body.user && (req.body.user.name || req.body.user.email)) ||
+      req.body.reversedBy ||
+      'Super Admin';
+    if (!reason) {
+      return res.status(400).json({ message: 'A reversal reason is required as a safeguard before undoing a damage record.' });
+    }
+
+    const opIndex = stockOperations.findIndex((o) => o.id === id);
+    if (opIndex < 0) {
+      return res.status(404).json({ message: 'Stock operation not found.' });
+    }
+    const op = stockOperations[opIndex];
+    if (op.type !== 'DAMAGE') {
+      return res.status(400).json({ message: 'Only DAMAGE stock operations can be reversed.' });
+    }
+    if (op.status === 'CANCELLED') {
+      return res.status(400).json({ message: 'This damage record has already been reversed.' });
+    }
+
+    const operationItems: any[] = Array.isArray(op.items) && op.items.length > 0
+      ? (op.items as any[])
+      : op.productId
+      ? [{ productId: op.productId, productName: op.productName || '', quantity: Math.abs(Number(op.quantityChanged) || 0), unitCost: op.costPerUnit }]
+      : [];
+
+    if (operationItems.length === 0) {
+      return res.status(400).json({ message: 'No items were found on this damage operation to reverse.' });
+    }
+
+    // Pre-flight availability check (safeguard: refuse partial / mismatched reversals)
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      const availableDamaged = Number(stockRecord?.damagedQty) || 0;
+      if (availableDamaged < qty) {
+        return res.status(400).json({
+          message: `Cannot reverse ${item.productName || item.productId}: only ${availableDamaged} damaged unit(s) remain at branch ${op.branchId || 'WH001'}. The current damaged stock has changed since this record was created.`,
+        });
+      }
+    }
+
+    // Reversal ledger date (today), with the same BS calendar gate used on creation.
+    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
+    const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
+
+    const reversalLedger: TransactionLog[] = [];
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const product = products.find((p) => p.id === item.productId);
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      const unitCost = Number(item.unitCost ?? item.costPerUnit ?? op.costPerUnit) || product?.costPrice || 0;
+      const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+      reversalLedger.push({
+        id: `txn-${op.id}-rev-${item.productId}`,
+        transactionNumber: `${op.referenceNumber}-REV`,
+        productId: item.productId,
+        productSku: item.sku || product?.sku || '',
+        productName: product?.name || item.productName || 'Product',
+        branchId: op.branchId,
+        changeType: 'DAMAGE_REVERSED',
+        quantityBefore,
+        quantityChanged: qty,
+        quantityAfter: quantityBefore + qty,
+        unitCost,
+        referenceDocId: op.referenceNumber,
+        timestampAD: new Date(`${reversalDateAD}T00:00:00.000Z`).toISOString(),
+        timestampBS: reversalDateBS,
+      });
+    }
+
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        for (const item of operationItems) {
+          const qty = Number(item.quantity) || 0;
+          if (qty <= 0) continue;
+          const result = await client.query(
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`,
+            [qty, item.productId, op.branchId]
+          );
+          if (result.rowCount !== 1) {
+            throw new Error(`Damaged stock changed before reversal could complete for ${item.productName || item.productId}.`);
+          }
+          await client.query(
+            `UPDATE damage_records SET status = 'CANCELLED', notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4 WHERE (damage_reference = $1 OR id = $2) AND status <> 'CANCELLED';`,
+            [`${op.referenceNumber}-${item.productId}`, `dmr-${op.id}-${item.productId}`, reason, reversedBy]
+          );
+        }
+
+        await client.query(
+          `UPDATE stock_operations SET status = 'CANCELLED', updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
+          [reversedBy, op.id]
+        );
+
+        for (const txn of reversalLedger) {
+          await client.query(
+            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT (id) DO NOTHING`,
+            [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
+          );
+        }
+      });
+    }
+
+    // In-memory mirrors so the UI reflects the reversal immediately.
+    const updatedOp: any = {
+      ...op,
+      status: 'CANCELLED',
+      reversalReason: reason,
+      reversedBy,
+      reversedAtAD: reversalDateAD,
+      reversedAtBS: reversalDateBS,
+    };
+    stockOperations[opIndex] = updatedOp;
+
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const stockRecord = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === op.branchId
+      );
+      if (stockRecord) {
+        stockRecord.quantityOnHand = (stockRecord.quantityOnHand || 0) + qty;
+        stockRecord.damagedQty = Math.max(0, (stockRecord.damagedQty || 0) - qty);
+        stockRecord.lastUpdated = new Date().toISOString();
+      }
+      const damageIdx = damageRecords.findIndex(
+        (dr) => dr.damageReference === `${op.referenceNumber}-${item.productId}` || dr.id === `dmr-${op.id}-${item.productId}`
+      );
+      if (damageIdx >= 0) {
+        damageRecords[damageIdx] = {
+          ...damageRecords[damageIdx],
+          status: 'CANCELLED',
+          notes: `${damageRecords[damageIdx].notes || ''} | REVERSED (${reason}) by ${reversedBy}`,
+        };
+      }
+    }
+
+    for (const txn of reversalLedger) {
+      const existingTxn = transactionLogs.find((entry) => entry.id === txn.id);
+      if (!existingTxn) transactionLogs.unshift(txn);
+    }
+
+    logAuditEvent(req, 'REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS', `Reversed damage record ${op.referenceNumber} — ${reason}`);
+    res.json({ message: 'Damage record reversed successfully. Units restored to available stock.', operation: updatedOp });
+  } catch (err: any) {
+    console.error('Error reversing stock operation:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+});
+
 // Receive Pullout Bin at Warehouse
 app.post('/api/stock-operations/:id/receive', async (req, res) => {
   try {
     const { id } = req.params;
     let op = stockOperations.find((o) => o.id === id);
-    if (op) op.status = 'RECEIVED';
+    if (op && op.status === 'RECEIVED') {
+      return res.status(409).json({ message: 'This stock operation has already been received.' });
+    }
 
     if (isPgConnected) {
-      await pgPool.query('UPDATE stock_operations SET status = $1 WHERE id = $2', ['RECEIVED', id]);
-      if (op) {
-        const whId = op.destinationWarehouseId || 'WH001';
-        const items = typeof op.items === 'string' ? JSON.parse(op.items) : (op.items || []);
+      await withTransaction(async (client) => {
+        const current = await client.query('SELECT status, destination_warehouse_id AS "destinationWarehouseId", items FROM stock_operations WHERE id = $1 FOR UPDATE', [id]);
+        if (!current.rows[0]) throw new Error('Stock operation not found.');
+        if (current.rows[0].status === 'RECEIVED') throw new Error('This stock operation has already been received.');
+        await client.query('UPDATE stock_operations SET status = $1 WHERE id = $2', ['RECEIVED', id]);
+        const whId = current.rows[0].destinationWarehouseId || op?.destinationWarehouseId || 'WH001';
+        const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || op?.items || []);
         for (const item of items) {
           const qty = Number(item.quantity) || 1;
-          await pgPool.query(
+          await client.query(
             `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty)
              VALUES ($1, $2, $3, $4, 0)
              ON CONFLICT (product_id, branch_id) DO UPDATE SET
@@ -3639,8 +5375,9 @@ app.post('/api/stock-operations/:id/receive', async (req, res) => {
             [`stk-${whId.toLowerCase()}-${item.productId}`, item.productId, whId, qty]
           );
         }
-      }
+      });
     }
+    if (op) op.status = 'RECEIVED';
     logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
@@ -3756,7 +5493,7 @@ app.post('/api/document-number-configs/generate-next', async (req, res) => {
       await pgPool.query(
         `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
         [nextSeq, docTypeId]
-      );
+        );
     } catch (e: any) {
       console.warn('PostgreSQL increment document_number_config notice:', e.message);
     }
@@ -3792,10 +5529,10 @@ app.post('/api/document-number-configs/reset-counter', async (req, res) => {
 app.get('/api/fiscal-years', async (req, res) => {
   try {
     const result = await pgPool.query(
-      `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+            `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
               start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-              is_current AS "isCurrent", is_closed AS "isClosed"
-       FROM fiscal_years ORDER BY code ASC;`
+                    is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo"
+             FROM fiscal_years ORDER BY start_date_ad DESC;`
     );
     if (result.rows.length > 0) {
       return res.json(result.rows);
@@ -3808,12 +5545,74 @@ app.get('/api/fiscal-years', async (req, res) => {
   res.json(fiscalYears);
 });
 
-app.post('/api/fiscal-years/:id/set-current', async (req, res) => {
+// Create a new fiscal year directly in Postgres. SUPER_ADMIN only. A new period
+// is never auto-activated: it starts open (is_closed = FALSE) and is normally
+// made the active view once it goes live.
+app.post('/api/fiscal-years', requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
+
+  if (![code, startDateAD, endDateAD, startDateBS, endDateBS].every((v) => typeof v === 'string' && v.trim())) {
+    return res.status(400).json({ message: 'Fiscal year code and all BS/AD period dates are required.' });
+  }
+  if (Number.isNaN(Date.parse(startDateAD)) || Number.isNaN(Date.parse(endDateAD)) || startDateAD > endDateAD) {
+    return res.status(400).json({ message: 'Enter a valid AD period with an end date on or after the start date.' });
+  }
+
+  const cleanCode = code.trim();
+  try {
+    // Prevent overlapping fiscal periods so every AD date belongs to exactly one
+    // fiscal year (the assign_fiscal_year_id_from_date trigger relies on this).
+    const overlapCheck = await pgPool.query(
+      `SELECT code FROM fiscal_years
+       WHERE ($1::date BETWEEN start_date_ad AND end_date_ad)
+          OR ($2::date BETWEEN start_date_ad AND end_date_ad)
+          OR (start_date_ad BETWEEN $1::date AND $2::date)
+       LIMIT 1;`,
+      [startDateAD, endDateAD]
+    );
+    if (overlapCheck.rows[0]) {
+      return res.status(409).json({
+        message: `The new period overlaps with FY ${overlapCheck.rows[0].code}. Adjust the dates so every day belongs to exactly one fiscal year.`,
+      });
+    }
+
+    const id = `fy-${crypto.randomUUID()}`;
+    const result = await pgPool.query(
+      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, FALSE)
+       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                 is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo";`,
+      [id, cleanCode, startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim()]
+    );
+    const newFiscalYear = result.rows[0];
+    fiscalYears.push(newFiscalYear);
+    fiscalYears.sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD)));
+    logAuditEvent(req, 'CREATE_FISCAL_YEAR', 'FISCAL_YEAR', `Created fiscal year ${newFiscalYear.code}`);
+    return res.status(201).json(newFiscalYear);
+  } catch (error: any) {
+    if (error?.code === '23505') return res.status(409).json({ message: 'That fiscal year code already exists.' });
+    console.error('Error creating fiscal year:', error);
+    return res.status(500).json({ message: `Unable to create fiscal year: ${error.message}` });
+  }
+});
+
+app.post('/api/fiscal-years/:id/set-current', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
   try {
-    await pgPool.query('UPDATE fiscal_years SET is_current = FALSE;');
-    await pgPool.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1;', [id]);
+    // One transaction: clear the old flag first, then set the new one, so the
+    // uq_fiscal_years_single_current index can never be violated mid-flight.
+    await withTransaction(async (client) => {
+      await client.query('UPDATE fiscal_years SET is_current = FALSE;');
+      const result = await client.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1 RETURNING id;', [id]);
+      if (!result.rowCount) {
+        const error: any = new Error('Fiscal year not found.');
+        error.statusCode = 404;
+        throw error;
+      }
+    });
   } catch (e: any) {
+    if (e?.statusCode) return res.status(e.statusCode).json({ message: e.message });
     console.warn('PostgreSQL set-current fiscal year notice:', e.message);
   }
 
@@ -3859,8 +5658,57 @@ app.put('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) =>
   }
 });
 
+// Super Admin re-authorization gate: fiscal period lock/unlock requires verified
+// Super Admin email + password (server-side check, independent of the session role).
+async function verifySuperAdminCredentials(
+  emailInput: unknown,
+  passwordInput: unknown
+): Promise<{ ok: boolean; email?: string; message?: string }> {
+  const cleanEmail = typeof emailInput === 'string' ? emailInput.trim().toLowerCase() : '';
+  const password = String(passwordInput || '');
+  if (!cleanEmail || !password) {
+    return { ok: false, message: 'Super Admin email and password are required to authorize this action.' };
+  }
+
+  if (isPgConnected) {
+    try {
+      const dbRes = await pgPool.query(
+        'SELECT id, email, password, role FROM users WHERE LOWER(email) = LOWER($1)',
+        [cleanEmail]
+      );
+      const dbUser = dbRes.rows[0];
+      if (!dbUser || dbUser.role !== 'SUPER_ADMIN') {
+        return { ok: false, message: 'Authorization failed: only a Super Admin account can lock or unlock a fiscal period.' };
+      }
+      const check = verifyPassword(password, dbUser.password);
+      if (!check.valid) return { ok: false, message: 'Authorization failed: invalid Super Admin email or password.' };
+      if (check.upgradedHash) {
+        await pgPool
+          .query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
+            check.upgradedHash,
+            dbUser.id,
+          ])
+          .catch(() => undefined);
+      }
+      return { ok: true, email: dbUser.email };
+    } catch (_err) {
+      // fall through to the in-memory user list if the DB query fails
+    }
+  }
+
+  const localUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+  if (!localUser || localUser.role !== 'SUPER_ADMIN') {
+    return { ok: false, message: 'Authorization failed: only a Super Admin account can lock or unlock a fiscal period.' };
+  }
+  const check = verifyPassword(password, localUser.password || '');
+  if (!check.valid) return { ok: false, message: 'Authorization failed: invalid Super Admin email or password.' };
+  return { ok: true, email: localUser.email };
+}
+
 app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
+  const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
+  if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
     const result = await pgPool.query(
       `UPDATE fiscal_years
@@ -3880,7 +5728,7 @@ app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, 
 
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) fiscalYears[index] = fiscalYear;
-    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code}`);
+    logAuditEvent(req, 'CLOSE_FISCAL_YEAR', 'FISCAL_YEAR', `Closed and locked fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
     return res.json(fiscalYear);
   } catch (error: any) {
     console.error('Error closing fiscal year:', error);
@@ -3890,6 +5738,8 @@ app.post('/api/fiscal-years/:id/close', requireRole('SUPER_ADMIN'), async (req, 
 
 app.post('/api/fiscal-years/:id/reopen', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
+  const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
+  if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
     const result = await pgPool.query(
       `UPDATE fiscal_years SET is_closed = FALSE WHERE id = $1
@@ -3902,7 +5752,7 @@ app.post('/api/fiscal-years/:id/reopen', requireRole('SUPER_ADMIN'), async (req,
     if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
     const index = fiscalYears.findIndex((item) => item.id === id);
     if (index >= 0) fiscalYears[index] = fiscalYear;
-    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code}`);
+    logAuditEvent(req, 'REOPEN_FISCAL_YEAR', 'FISCAL_YEAR', `Reopened fiscal year ${fiscalYear.code} (authorized by ${authCheck.email})`);
     return res.json(fiscalYear);
   } catch (error: any) {
     console.error('Error reopening fiscal year:', error);
@@ -3944,17 +5794,34 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
         throw error;
       }
 
+      // Enterprise rule: rows that were manually adjusted after the original close
+      // (source_type = 'MANUAL_ADJUSTMENT') are posted, corrected opening balances and
+      // must survive a re-initialization. Only closing-generated rows get refreshed.
+      const existingRes = await client.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE source_type = 'MANUAL_ADJUSTMENT')::int AS manual
+         FROM fiscal_year_opening_stock WHERE fiscal_year_id = $1`,
+        [targetFiscalYear.id]
+      );
+      const manualRowsPreserved = existingRes.rows[0]?.manual || 0;
+
       const inserted = await client.query(
         `INSERT INTO fiscal_year_opening_stock (
            id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost, source_type, source_reference, posted_by
          )
          SELECT
-           'open-' || $1 || '-' || inventory_stock.product_id || '-' || inventory_stock.branch_id,
-           $1, inventory_stock.product_id, inventory_stock.branch_id,
-           inventory_stock.quantity_on_hand, inventory_stock.damaged_qty, products.cost_price,
+           'open-' || $1 || '-' || products.id || '-' || branches.id,
+           $1, products.id, branches.id,
+           COALESCE(inventory_stock.quantity_on_hand, 0),
+           COALESCE(inventory_stock.damaged_qty, 0),
+           COALESCE(products.cost_price, 0),
            'FISCAL_CLOSE', $2, $3
-         FROM inventory_stock
-         INNER JOIN products ON products.id = inventory_stock.product_id
+         FROM products
+         CROSS JOIN branches
+         LEFT JOIN inventory_stock
+           ON inventory_stock.product_id = products.id
+          AND inventory_stock.branch_id = branches.id
+         WHERE branches.active = TRUE
          ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
            quantity_on_hand = EXCLUDED.quantity_on_hand,
            damaged_qty = EXCLUDED.damaged_qty,
@@ -3962,13 +5829,22 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
            source_type = EXCLUDED.source_type,
            source_reference = EXCLUDED.source_reference,
            posted_at = CURRENT_TIMESTAMP,
-           posted_by = EXCLUDED.posted_by;`,
-        [targetFiscalYear.id, sourceFiscalYear.code, (req.user || getUserFromReq(req)).email || 'system']
+           posted_by = EXCLUDED.posted_by
+         WHERE fiscal_year_opening_stock.source_type <> 'MANUAL_ADJUSTMENT'
+         RETURNING id;`,
+        [targetFiscalYear.id, sourceFiscalYear.code, getUserFromReq(req).email || 'system']
       );
-      return { targetFiscalYear, recordsCreated: inserted.rowCount || 0 };
+      return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
     });
 
-    logAuditEvent(req, 'INITIALIZE_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', `Initialized ${result.recordsCreated} opening-stock records for ${result.targetFiscalYear.code}`);
+    logAuditEvent(
+      req,
+      'INITIALIZE_FISCAL_OPENING_STOCK',
+      'FISCAL_YEAR',
+      `Initialized ${result.recordsCreated} opening-stock records for ${result.targetFiscalYear.code}${
+        result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved` : ''
+      }`
+    );
     return res.json(result);
   } catch (error: any) {
     if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
@@ -3977,13 +5853,550 @@ app.post('/api/fiscal-years/:id/initialize-opening-stock', requireRole('SUPER_AD
   }
 });
 
+// ========== FISCAL-YEAR OPENING STOCK — REGISTER VIEW & MANUAL ADJUSTMENT ==========
+
+// View the full opening-stock register for a fiscal year: every product × branch row
+// (including zero-quantity rows) joined with product/branch names and the current live
+// stock as a reference, plus summary stats.
+app.get(
+  '/api/fiscal-years/:id/opening-stock',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const fyRes = await pgPool.query(
+        `SELECT id, code,
+                start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                is_current AS "isCurrent", is_closed AS "isClosed"
+         FROM fiscal_years WHERE id = $1`,
+        [id]
+      );
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+      const rowsRes = await pgPool.query(
+        `SELECT 'opening-' || o.fiscal_year_id || '-' || o.product_id || '-' || o.branch_id AS id,
+                o.product_id AS "productId",
+                COALESCE(p.name, 'Deleted product') AS "productName",
+                COALESCE(p.sku, '-') AS "productSku",
+                o.branch_id AS "branchId",
+                COALESCE(b.name, 'Deleted branch') AS "branchName",
+                o.quantity_on_hand AS "quantityOnHand",
+                o.damaged_qty AS "damagedQty",
+                o.unit_cost::float AS "unitCost",
+                o.source_type AS "sourceType",
+                o.source_reference AS "sourceReference",
+                o.posted_at::text AS "postedAt",
+                o.posted_by AS "postedBy",
+                COALESCE(s.quantity_on_hand, 0) AS "liveQty",
+                COALESCE(s.damaged_qty, 0) AS "liveDamagedQty"
+         FROM fiscal_year_opening_stock o
+         LEFT JOIN products p ON p.id = o.product_id
+         LEFT JOIN branches b ON b.id = o.branch_id
+         LEFT JOIN inventory_stock s ON s.product_id = o.product_id AND s.branch_id = o.branch_id
+         WHERE o.fiscal_year_id = $1
+         ORDER BY p.name ASC, b.name ASC`,
+        [id]
+      );
+
+      const rows = rowsRes.rows;
+      const stats = {
+        totalRows: rows.length,
+        manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
+        zeroQtyRows: rows.filter((r: any) => Number(r.quantityOnHand) === 0).length,
+        totalUnits: rows.reduce((sum: number, r: any) => sum + Number(r.quantityOnHand), 0),
+        totalValue: rows.reduce((sum: number, r: any) => sum + Number(r.quantityOnHand) * Number(r.unitCost), 0),
+      };
+
+      return res.json({ fiscalYear: fy, rows, stats });
+    } catch (error: any) {
+      console.error('Error fetching fiscal-year opening stock register:', error);
+      return res.status(500).json({ message: `Unable to load fiscal-year opening stock: ${error.message}` });
+    }
+  }
+);
+
+// Manual opening-stock adjustment (batch). Allowed only while the fiscal year is OPEN —
+// closed years are period-locked and require Super Admin reopen first. Existing rows are
+// updated in place; missing product × branch combinations are created. Every touched row
+// is re-stamped as MANUAL_ADJUSTMENT with the authorizing user, and an audit entry
+// records old -> new values.
+app.put(
+  '/api/fiscal-years/:id/opening-stock',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'),
+  async (req, res) => {
+    const { id } = req.params;
+    const user = getUserFromReq(req);
+    const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    try {
+      const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+      if (fy.isClosed) {
+        return res.status(403).json({
+          message:
+            'This fiscal year is closed and period-locked. Reopen it with Super Admin authorization before adjusting opening stock.',
+        });
+      }
+      if (incoming.length === 0) {
+        return res.status(400).json({ message: 'No opening-stock rows were provided to adjust.' });
+      }
+
+      const [prodRes, branchRes] = await Promise.all([
+        pgPool.query('SELECT id, name FROM products'),
+        pgPool.query('SELECT id, name FROM branches'),
+      ]);
+      const productNameById = new Map<string, string>(prodRes.rows.map((r: any) => [r.id, r.name]));
+      const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+
+      // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
+      const updates: Array<{
+        productId: string;
+        branchId: string;
+        quantityOnHand: number;
+        damagedQty: number;
+        unitCost: number;
+      }> = [];
+
+      for (const item of incoming) {
+        const productId = String(item?.productId || '').trim();
+        const branchId = String(item?.branchId || '').trim();
+        const quantityOnHand = Number(item?.quantityOnHand);
+        const damagedQty = Number(item?.damagedQty ?? 0);
+        const unitCost = Number(item?.unitCost ?? 0);
+        const label = `${productNameById.get(productId) || productId || 'unknown product'} @ ${
+          branchNameById.get(branchId) || branchId || 'unknown branch'
+        }`;
+
+        if (!productId || !productNameById.has(productId)) {
+          return res.status(400).json({ message: `Invalid product reference in opening-stock adjustment: ${label}` });
+        }
+        if (!branchId || !branchNameById.has(branchId)) {
+          return res.status(400).json({ message: `Invalid branch reference in opening-stock adjustment: ${label}` });
+        }
+        if (!Number.isInteger(quantityOnHand) || quantityOnHand < 0) {
+          return res.status(400).json({ message: `Quantity on hand must be a whole number >= 0 for ${label}.` });
+        }
+        if (!Number.isInteger(damagedQty) || damagedQty < 0) {
+          return res.status(400).json({ message: `Damaged quantity must be a whole number >= 0 for ${label}.` });
+        }
+        if (damagedQty > quantityOnHand) {
+          return res.status(400).json({ message: `Damaged quantity cannot exceed quantity on hand for ${label}.` });
+        }
+        if (Number.isNaN(unitCost) || unitCost < 0) {
+          return res.status(400).json({ message: `Unit cost must be a number >= 0 for ${label}.` });
+        }
+
+        updates.push({ productId, branchId, quantityOnHand, damagedQty, unitCost });
+      }
+
+      // ---- Apply inside one transaction; capture old values for the audit trail ----
+      const result = await withTransaction(async (client) => {
+        const changeLog: string[] = [];
+        let createdCount = 0;
+
+        for (const u of updates) {
+          const beforeRes = await client.query(
+            `SELECT quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", unit_cost::float AS "unitCost"
+             FROM fiscal_year_opening_stock
+             WHERE fiscal_year_id = $1 AND product_id = $2 AND branch_id = $3`,
+            [id, u.productId, u.branchId]
+          );
+          const before = beforeRes.rows[0];
+
+          const afterRes = await client.query(
+            `INSERT INTO fiscal_year_opening_stock (
+               id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost,
+               source_type, source_reference, posted_at, posted_by
+             )
+             VALUES (
+               'open-' || $1::text || '-' || $2 || '-' || $3,
+               $1, $2, $3, $4, $5, $6,
+               'MANUAL_ADJUSTMENT', 'MANUAL_ADJUSTMENT', CURRENT_TIMESTAMP, $7
+             )
+             ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
+               quantity_on_hand = EXCLUDED.quantity_on_hand,
+               damaged_qty = EXCLUDED.damaged_qty,
+               unit_cost = EXCLUDED.unit_cost,
+               source_type = 'MANUAL_ADJUSTMENT',
+               source_reference = 'MANUAL_ADJUSTMENT',
+               posted_at = CURRENT_TIMESTAMP,
+               posted_by = EXCLUDED.posted_by
+             RETURNING id`,
+            [id, u.productId, u.branchId, u.quantityOnHand, u.damagedQty, u.unitCost, user.email || 'system']
+          );
+
+          if (!afterRes.rowCount) continue;
+          if (!before) createdCount++;
+          changeLog.push(
+            `${before ? 'updated' : 'created'} ${productNameById.get(u.productId)} @ ${branchNameById.get(u.branchId)}: ` +
+              `qty ${before ? before.quantityOnHand : '—'} -> ${u.quantityOnHand}, ` +
+              `damaged ${before ? before.damagedQty : '—'} -> ${u.damagedQty}, ` +
+              `cost NPR ${before ? before.unitCost : '—'} -> NPR ${u.unitCost}`
+          );
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog };
+      });
+
+    if (result.appliedCount > 0) {
+      const details =
+        `Adjusted ${result.appliedCount} opening-stock row(s) for fiscal year ${fy.code}` +
+        (result.createdCount ? ` (${result.createdCount} created)` : '') +
+        ` [${result.changeLog.slice(0, 15).join('; ')}${result.changeLog.length > 15 ? ' …' : ''}] ` +
+        `(by ${user.email || 'system'})`;
+      logAuditEvent(req, 'ADJUST_FISCAL_OPENING_STOCK', 'FISCAL_YEAR', details);
+    }
+
+      return res.json({
+        applied: result.appliedCount,
+        created: result.createdCount,
+        message: `${result.appliedCount} opening-stock row(s) saved for fiscal year ${fy.code}.`,
+      });
+    } catch (error: any) {
+      console.error('Error adjusting fiscal-year opening stock:', error);
+      return res.status(500).json({ message: `Unable to adjust fiscal-year opening stock: ${error.message}` });
+    }
+  }
+);
+
+// ========== FISCAL-YEAR VENDOR OPENING BALANCES (Vendor Ledger roll-forward) ==========
+
+// View the vendor opening balance register for a fiscal year: every supplier ×
+// branch row (including zero rows) with names, source, and audit fields.
+app.get(
+  '/api/fiscal-years/:id/vendor-opening-balances',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const fyRes = await pgPool.query(
+        `SELECT id, code,
+                start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                is_current AS "isCurrent", is_closed AS "isClosed"
+         FROM fiscal_years WHERE id = $1`,
+        [id]
+      );
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+
+      const rowsRes = await pgPool.query(
+        `SELECT 'vopen-' || o.fiscal_year_id || '-' || o.supplier_id || '-' || o.branch_id AS id,
+                o.supplier_id AS "supplierId",
+                COALESCE(s.name, 'Deleted supplier') AS "supplierName",
+                COALESCE(s.supplier_code, '-') AS "supplierCode",
+                o.branch_id AS "branchId",
+                COALESCE(b.name, 'Deleted branch') AS "branchName",
+                o.opening_balance::float AS "openingBalance",
+                o.source_type AS "sourceType",
+                o.source_reference AS "sourceReference",
+                o.posted_at::text AS "postedAt",
+                o.posted_by AS "postedBy"
+         FROM vendor_opening_balances o
+         LEFT JOIN suppliers s ON s.id = o.supplier_id
+         LEFT JOIN branches b ON b.id = o.branch_id
+         WHERE o.fiscal_year_id = $1
+         ORDER BY s.name ASC, b.name ASC`,
+        [id]
+      );
+
+      const rows = rowsRes.rows;
+      const stats = {
+        totalRows: rows.length,
+        manualAdjustments: rows.filter((r: any) => r.sourceType === 'MANUAL_ADJUSTMENT').length,
+        zeroRows: rows.filter((r: any) => Number(r.openingBalance) === 0).length,
+        totalDebitOpening: rows.reduce(
+          (sum: number, r: any) => sum + (Number(r.openingBalance) > 0 ? Number(r.openingBalance) : 0),
+          0
+        ),
+        totalCreditOpening: rows.reduce(
+          (sum: number, r: any) => sum + (Number(r.openingBalance) < 0 ? Math.abs(Number(r.openingBalance)) : 0),
+          0
+        ),
+      };
+
+      return res.json({ fiscalYear: fy, rows, stats });
+    } catch (error: any) {
+      console.error('Error fetching vendor opening balances register:', error);
+      return res.status(500).json({ message: `Unable to load vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
+// Manual vendor opening balance adjustment (batch). Allowed only while the fiscal
+// year is OPEN — closed years are period-locked and require Super Admin reopen.
+// Every touched row is re-stamped as MANUAL_ADJUSTMENT with the authorizing user.
+app.put(
+  '/api/fiscal-years/:id/vendor-opening-balances',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+    const user = getUserFromReq(req);
+    const incoming: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    try {
+      const fyRes = await pgPool.query('SELECT id, code, is_closed AS "isClosed" FROM fiscal_years WHERE id = $1', [id]);
+      const fy = fyRes.rows[0];
+      if (!fy) return res.status(404).json({ message: 'Fiscal year not found.' });
+      if (fy.isClosed) {
+        return res.status(403).json({
+          message:
+            'This fiscal year is closed and period-locked. Reopen it with Super Admin authorization before adjusting vendor opening balances.',
+        });
+      }
+      if (incoming.length === 0) {
+        return res.status(400).json({ message: 'No vendor opening-balance rows were provided to adjust.' });
+      }
+
+      const [supRes, branchRes] = await Promise.all([
+        pgPool.query('SELECT id, name FROM suppliers'),
+        pgPool.query('SELECT id, name FROM branches'),
+      ]);
+      const supplierNameById = new Map<string, string>(supRes.rows.map((r: any) => [r.id, r.name]));
+      const branchNameById = new Map<string, string>(branchRes.rows.map((r: any) => [r.id, r.name]));
+
+      // ---- Validate every row BEFORE writing anything (all-or-nothing) ----
+      const updates: Array<{ supplierId: string; branchId: string; openingBalance: number }> = [];
+
+      for (const item of incoming) {
+        const supplierId = String(item?.supplierId || '').trim();
+        const branchId = String(item?.branchId || '').trim();
+        const openingBalance = Number(item?.openingBalance ?? 0);
+        const label = `${supplierNameById.get(supplierId) || supplierId || 'unknown supplier'} @ ${
+          branchNameById.get(branchId) || branchId || 'unknown branch'
+        }`;
+
+        if (!supplierId || !supplierNameById.has(supplierId)) {
+          return res.status(400).json({ message: `Invalid supplier reference in vendor opening-balance adjustment: ${label}` });
+        }
+        if (!branchId || !branchNameById.has(branchId)) {
+          return res.status(400).json({ message: `Invalid branch reference in vendor opening-balance adjustment: ${label}` });
+        }
+        if (Number.isNaN(openingBalance)) {
+          return res.status(400).json({ message: `Opening balance must be a number for ${label}.` });
+        }
+
+        updates.push({ supplierId, branchId, openingBalance });
+      }
+
+      const result = await withTransaction(async (client) => {
+        const changeLog: string[] = [];
+        let createdCount = 0;
+
+        for (const u of updates) {
+          const beforeRes = await client.query(
+            `SELECT opening_balance::float AS "openingBalance"
+             FROM vendor_opening_balances
+             WHERE fiscal_year_id = $1 AND supplier_id = $2 AND branch_id = $3`,
+            [id, u.supplierId, u.branchId]
+          );
+          const before = beforeRes.rows[0];
+
+          const afterRes = await client.query(
+            `INSERT INTO vendor_opening_balances (
+               id, fiscal_year_id, supplier_id, branch_id, opening_balance,
+               source_type, source_reference, posted_at, posted_by
+             )
+             VALUES (
+               'vopen-' || $1::text || '-' || $2 || '-' || $3,
+               $1, $2, $3, $4,
+               'MANUAL_ADJUSTMENT', 'MANUAL_ADJUSTMENT', CURRENT_TIMESTAMP, $5
+             )
+             ON CONFLICT (fiscal_year_id, supplier_id, branch_id) DO UPDATE SET
+               opening_balance = EXCLUDED.opening_balance,
+               source_type = 'MANUAL_ADJUSTMENT',
+               source_reference = 'MANUAL_ADJUSTMENT',
+               posted_at = CURRENT_TIMESTAMP,
+               posted_by = EXCLUDED.posted_by
+             RETURNING id`,
+            [id, u.supplierId, u.branchId, u.openingBalance, user.email || 'system']
+          );
+
+          if (!afterRes.rowCount) continue;
+          if (!before) createdCount++;
+          const fmt = (v: number) => `NPR ${v.toLocaleString()}`;
+          changeLog.push(
+            `${before ? 'updated' : 'created'} ${supplierNameById.get(u.supplierId)} @ ${branchNameById.get(u.branchId)}: ` +
+              `${before ? fmt(Number(before.openingBalance)) : '—'} -> ${fmt(u.openingBalance)}`
+          );
+        }
+
+        return { appliedCount: changeLog.length, createdCount, changeLog };
+      });
+
+      if (result.appliedCount > 0) {
+        const details =
+          `Adjusted ${result.appliedCount} vendor opening-balance row(s) for fiscal year ${fy.code}` +
+          (result.createdCount ? ` (${result.createdCount} created)` : '') +
+          ` [${result.changeLog.slice(0, 15).join('; ')}${result.changeLog.length > 15 ? ' …' : ''}] ` +
+          `(by ${user.email || 'system'})`;
+        logAuditEvent(req, 'ADJUST_VENDOR_OPENING_BALANCE', 'FISCAL_YEAR', details);
+      }
+
+      return res.json({
+        applied: result.appliedCount,
+        created: result.createdCount,
+        message: `${result.appliedCount} vendor opening-balance row(s) saved for fiscal year ${fy.code}.`,
+      });
+    } catch (error: any) {
+      console.error('Error adjusting vendor opening balances:', error);
+      return res.status(500).json({ message: `Unable to adjust vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
+// Close the vendor ledger for a source fiscal year and roll each supplier × branch
+// closing balance forward into the next fiscal year's opening balance. The closing
+// balance is the net of all invoices (debits) minus posted payments (credits)
+// dated within the source fiscal year, plus any persisted opening balance carried
+// into that source year. Manual rows on the target year are preserved (not
+// overwritten) — matching the opening-stock roll-forward policy.
+app.post(
+  '/api/fiscal-years/:id/roll-forward-vendor-openings',
+  requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER', 'ACCOUNTANT'),
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const result = await withTransaction(async (client) => {
+        const sourceResult = await client.query(
+          'SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", is_closed AS "isClosed" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+          [id]
+        );
+        const sourceFiscalYear = sourceResult.rows[0];
+        if (!sourceFiscalYear) {
+          const error: any = new Error('Source fiscal year not found.');
+          error.statusCode = 404;
+          throw error;
+        }
+        if (!sourceFiscalYear.isClosed) {
+          const error: any = new Error('Close and lock the source fiscal year before rolling forward vendor opening balances.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const targetResult = await client.query(
+          `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+                  start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+                  is_current AS "isCurrent", is_closed AS "isClosed"
+           FROM fiscal_years WHERE start_date_ad > $1 ORDER BY start_date_ad ASC LIMIT 1 FOR UPDATE;`,
+          [sourceFiscalYear.startDateAD]
+        );
+        const targetFiscalYear = targetResult.rows[0];
+        if (!targetFiscalYear) {
+          const error: any = new Error('Create the next fiscal year before rolling forward vendor opening balances.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const existingRes = await client.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE source_type = 'MANUAL_ADJUSTMENT')::int AS manual
+           FROM vendor_opening_balances WHERE fiscal_year_id = $1`,
+          [targetFiscalYear.id]
+        );
+        const manualRowsPreserved = existingRes.rows[0]?.manual || 0;
+
+        const inserted = await client.query(
+          `INSERT INTO vendor_opening_balances (
+             id, fiscal_year_id, supplier_id, branch_id, opening_balance, source_type, source_reference, posted_by
+           )
+           WITH ledger AS (
+             SELECT
+               COALESCE(inv.supplier_id, o.supplier_id) AS supplier_id,
+               COALESCE(inv.branch_id, o.branch_id) AS branch_id,
+               COALESCE(o.opening_balance, 0)
+                 + COALESCE(SUM(inv.grand_total), 0)
+                 - COALESCE(
+                     (SELECT COALESCE(SUM(p.amount), 0) FROM vendor_payments p
+                      WHERE p.supplier_id = COALESCE(inv.supplier_id, o.supplier_id)
+                        AND p.branch_id = COALESCE(inv.branch_id, o.branch_id)
+                        AND p.status = 'POSTED'
+                        AND p.payment_date_ad >= $2::date
+                        AND p.payment_date_ad <= $3::date),
+                     0
+                   ) AS closing_balance
+             FROM (
+               SELECT DISTINCT supplier_id, branch_id
+               FROM (
+                 SELECT supplier_id, branch_id FROM purchase_invoices
+                 WHERE invoice_date_ad >= $2::date AND invoice_date_ad <= $3::date
+                 UNION
+                 SELECT supplier_id, branch_id FROM vendor_payments
+                 WHERE payment_date_ad >= $2::date AND payment_date_ad <= $3::date
+               ) t1
+             ) drv
+             LEFT JOIN purchase_invoices inv
+               ON inv.supplier_id = drv.supplier_id
+              AND inv.branch_id = drv.branch_id
+              AND inv.invoice_date_ad >= $2::date
+              AND inv.invoice_date_ad <= $3::date
+             LEFT JOIN vendor_opening_balances o
+               ON o.fiscal_year_id = $1
+              AND o.supplier_id = drv.supplier_id
+              AND o.branch_id = drv.branch_id
+             GROUP BY inv.supplier_id, inv.branch_id, o.supplier_id, o.branch_id, o.opening_balance
+           )
+           SELECT
+             'vopen-' || $4 || '-' || ledger.supplier_id || '-' || ledger.branch_id,
+             $4,
+             ledger.supplier_id,
+             ledger.branch_id,
+             ROUND(ledger.closing_balance, 2),
+             'FISCAL_CLOSE',
+             $5,
+             $6
+           FROM ledger
+           WHERE ledger.supplier_id IS NOT NULL AND ledger.branch_id IS NOT NULL
+           ON CONFLICT (fiscal_year_id, supplier_id, branch_id) DO UPDATE SET
+             opening_balance = EXCLUDED.opening_balance,
+             source_type = EXCLUDED.source_type,
+             source_reference = EXCLUDED.source_reference,
+             posted_at = CURRENT_TIMESTAMP,
+             posted_by = EXCLUDED.posted_by
+           WHERE vendor_opening_balances.source_type <> 'MANUAL_ADJUSTMENT'
+           RETURNING id;`,
+          [
+            targetFiscalYear.id,
+            sourceFiscalYear.startDateAD,
+            sourceFiscalYear.endDateAD,
+            targetFiscalYear.id,
+            sourceFiscalYear.code,
+            getUserFromReq(req).email || 'system',
+          ]
+        );
+
+        return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
+      });
+
+      logAuditEvent(
+        req,
+        'ROLLFORWARD_VENDOR_OPENINGS',
+        'FISCAL_YEAR',
+        `Rolled forward ${result.recordsCreated} vendor opening-balance record(s) into ${result.targetFiscalYear.code}${
+          result.manualRowsPreserved ? `; ${result.manualRowsPreserved} manual adjustment row(s) preserved` : ''
+        }`
+      );
+      return res.json(result);
+    } catch (error: any) {
+      if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+      console.error('Error rolling forward vendor opening balances:', error);
+      return res.status(500).json({ message: `Unable to roll forward vendor opening balances: ${error.message}` });
+    }
+  }
+);
+
 app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res) => {
   const { id } = req.params;
 
   try {
     const result = await withTransaction(async (client) => {
       const fiscalYearResult = await client.query(
-        'SELECT id, code, is_current AS "isCurrent" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
+        'SELECT id, code, is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
         [id]
       );
       const fiscalYear = fiscalYearResult.rows[0];
@@ -4000,12 +6413,59 @@ app.delete('/api/fiscal-years/:id', requireRole('SUPER_ADMIN'), async (req, res)
         throw error;
       }
 
+      // Safety guard: a fiscal year that already carries ANY business records
+      // (invoices, stock operations, opening balances, audit/transaction logs,
+      // device records, etc.) must never be deleted. Only a completely empty
+      // period created by mistake can be removed. bs_day_records are excluded:
+      // they are auto-generated calendar reference rows (FK ON DELETE SET NULL)
+      // that exist for every period, not business records belonging to the FY.
+      const referenceTables: Array<[table: string, label: string]> = [
+        ['purchase_invoices', 'purchase invoices'],
+        ['purchase_orders', 'purchase orders'],
+        ['shipments', 'shipments'],
+        ['stock_operations', 'stock operations'],
+        ['damage_records', 'damage records'],
+        ['fixed_assets', 'fixed assets'],
+        ['vendor_payments', 'vendor payments'],
+        ['audit_logs', 'audit logs'],
+        ['transaction_logs', 'transaction logs'],
+        ['customer_device_records', 'customer device records'],
+        ['approval_requests', 'approval requests'],
+        ['fiscal_year_opening_stock', 'opening-stock records'],
+        ['vendor_opening_balances', 'vendor opening-balance records'],
+      ];
+      const tableCounts: Array<{ label: string; count: number }> = [];
+
+      for (const [table, label] of referenceTables) {
+        try {
+          const countResult = await client.query(
+            `SELECT COUNT(*)::int AS count FROM ${table} WHERE fiscal_year_id = $1;`,
+            [id]
+          );
+          const count = Number(countResult.rows[0]?.count || 0);
+          if (count > 0) tableCounts.push({ label, count });
+        } catch (countError: any) {
+          // The table may not exist in older deployments — skip it rather than
+          // failing the whole deletion check.
+          if (countError?.code !== '42P01') throw countError;
+        }
+      }
+
+      if (tableCounts.length > 0) {
+        const summary = tableCounts.map((t) => `${t.label} (${t.count})`).join(', ');
+        const error: any = new Error(
+          `Fiscal year ${fiscalYear.code} cannot be deleted because it already contains records: ${summary}. Only a fiscal year with no records can be removed.`
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
       await client.query('DELETE FROM fiscal_years WHERE id = $1;', [id]);
       return fiscalYear;
     });
 
     fiscalYears = fiscalYears.filter((fiscalYear) => fiscalYear.id !== id);
-    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code}`);
+    logAuditEvent(req, 'DELETE_FISCAL_YEAR', 'FISCAL_YEAR', `Deleted fiscal year ${result.code} (no records existed)`);
     return res.json({ message: `Fiscal year ${result.code} deleted successfully.`, id });
   } catch (error: any) {
     if (error?.statusCode) {
@@ -4099,6 +6559,104 @@ function generateInMemoryBsDayRecords() {
 // Initial generation of in-memory records
 generateInMemoryBsDayRecords();
 
+/**
+ * Date-type integrity guard.
+ *
+ * Detects when a BS (Nepali) date string has been submitted in an AD date
+ * field (or vice versa) so calendar mismatches can never reach the database:
+ *  - values containing the "BS" suffix are rejected for AD fields
+ *  - a 4-digit year >= 2060 (BS years are 2078-2099, AD dates here are 2015-2059)
+ *    is treated as a BS date sent in the wrong field
+ *  - malformed date strings are rejected
+ *
+ * Returns a human-readable error message, or null when the value is a valid AD date.
+ */
+function detectDateTypeMismatch(raw: unknown, fieldName: string): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (/\bBS\b/i.test(s)) {
+    return `Date type mismatch: "${s}" is a BS (Nepali) date but was sent in AD field "${fieldName}". AD fields must contain a Gregorian (AD) date like 2026-08-30. Send the matching BS value only in the corresponding ${fieldName}BS field.`;
+  }
+  const m = s.split('T')[0].match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a valid AD date (expected YYYY-MM-DD Gregorian format).`;
+  }
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const day = parseInt(m[3], 10);
+  if (year >= 2060) {
+    return `Date type mismatch: "${s}" looks like a BS (Nepali) date (year ${year}) but was sent in AD field "${fieldName}". Convert it to its Gregorian (AD) equivalent first, e.g. send dateAD=2026-08-30 and dateBS=2083-05-14 BS.`;
+  }
+  if (year < 2015) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a plausible AD date (AD year must be between 2015 and 2059). If it is a BS date, convert it to AD before submitting.`;
+  }
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return `Date type mismatch: "${s}" in field "${fieldName}" is not a valid AD date (month/day out of range).`;
+  }
+  return null;
+}
+
+/**
+ * Resolves the exact BS day record for an AD date. PostgreSQL's bs_day_records
+ * table is authoritative; the in-memory cache is only consulted while
+ * PostgreSQL is unreachable. Returns found=false when the date has never been
+ * seeded (e.g. its BS month array is missing) so callers can block operations.
+ */
+async function findBsDayRecordForAdDate(adDateStr: string): Promise<{
+  found: boolean;
+  record: any | null;
+  source: 'postgres' | 'memory';
+}> {
+  const target = String(adDateStr || '').split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+    return { found: false, record: null, source: 'memory' };
+  }
+
+  try {
+    const result = await pgPool.query(
+      `SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
+              bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
+              day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
+              fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
+       FROM bs_day_records
+       WHERE ad_date = $1`,
+      [target]
+    );
+    if (result.rows.length > 0) {
+      return { found: true, record: result.rows[0], source: 'postgres' };
+    }
+    // Database reachable but no row exists for this date -> genuinely unseeded
+    return { found: false, record: null, source: 'postgres' };
+  } catch (_err) {
+    // PostgreSQL unreachable -> fall back to the in-memory calendar cache
+    const memoryRecord = inMemoryBsDayRecords.find((r) => r.adDate === target) || null;
+    return { found: memoryRecord !== null, record: memoryRecord, source: 'memory' };
+  }
+}
+
+// Refreshes the in-memory BS-calendar fallback cache from PostgreSQL, which is
+// the authoritative store for bs_calendar_years / bs_day_records. Called at
+// startup so the cache (used only while PostgreSQL is unreachable) starts in
+// sync with the database instead of the built-in defaults.
+async function hydrateBsCalendarFromDb(client: any) {
+  try {
+    const yrRes = await client.query(
+      'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC'
+    );
+    if (yrRes.rows.length > 0) inMemoryBsCalendarYears = yrRes.rows;
+    const dayRes = await client.query(
+      `SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
+              bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
+              day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
+              fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
+       FROM bs_day_records ORDER BY ad_date ASC`
+    );
+    if (dayRes.rows.length > 0) inMemoryBsDayRecords = dayRes.rows;
+  } catch (e: any) {
+    console.warn('BS calendar hydration from PostgreSQL skipped; using built-in calendar:', e?.message || e);
+  }
+}
+
 app.get('/api/bs-calendar/years', async (req, res) => {
   try {
     const result = await pgPool.query(
@@ -4111,6 +6669,28 @@ app.get('/api/bs-calendar/years', async (req, res) => {
     // Silently fall back to inMemoryBsCalendarYears if PostgreSQL is unreachable
   }
   res.json(inMemoryBsCalendarYears);
+});
+
+// Single-day lookup against bs_day_records. Used by the stock-operations gate
+// to verify that a Nepali (BS) date exists for the operation date before any
+// stock movement is allowed.
+app.get('/api/bs-calendar/day', async (req, res) => {
+  try {
+    const adDate = String(req.query.adDate || '');
+    const result = await findBsDayRecordForAdDate(adDate);
+    if (result.found) {
+      return res.json({ found: true, source: result.source, record: result.record });
+    }
+    return res.json({
+      found: false,
+      source: result.source,
+      adDate: adDate.split('T')[0] || null,
+      message: 'BS date is not available. Please contact your system administrator for BS month seeding.',
+    });
+  } catch (err: any) {
+    console.error('Error looking up BS day record:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
 });
 
 app.get('/api/bs-calendar/days', async (req, res) => {
@@ -4196,17 +6776,15 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
     return res.json({
       success: true,
       skipped: true,
+      pgSynced: true,
       message: `BS Year ${yearBS} already exists in database. Skipped overwrite because 'onlyIfNew' was specified.`,
     });
   }
-  if (existingIdx >= 0) {
-    inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
-  } else {
-    inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
-    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
-  }
-  generateInMemoryBsDayRecords();
 
+  // PostgreSQL is the authoritative store for the calendar: write there first.
+  // The in-memory store below is only a fallback cache for when PostgreSQL is
+  // unreachable, so it is refreshed after the database write attempt.
+  let pgSynced = false;
   try {
     await pgPool.query(
       `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
@@ -4276,13 +6854,399 @@ app.post('/api/bs-calendar/seed', async (req, res) => {
         runningDate.setDate(runningDate.getDate() + 1);
       }
     }
+    pgSynced = true;
   } catch (_err) {
-    // Silently continue if PostgreSQL is disconnected; in-memory store is already updated
+    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
+  }
+
+  if (existingIdx >= 0) {
+    inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+  } else {
+    inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+  }
+  generateInMemoryBsDayRecords();
+
+  res.json({
+    success: true,
+    pgSynced,
+    message: pgSynced
+      ? `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!`
+      : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`,
+  });
+});
+
+// Bulk (multi-year) seed endpoint - accepts array of { yearBS, daysInMonths, customStartAD? }
+app.post('/api/bs-calendar/seed-bulk', async (req, res) => {
+  const { years, onlyIfNew } = req.body;
+  if (!Array.isArray(years) || years.length === 0) {
+    return res.status(400).json({ success: false, message: 'Must provide non-empty years array' });
+  }
+
+  let pgSynced = false;
+  let seededCount = 0;
+  const skippedYears: number[] = [];
+  const errors: string[] = [];
+
+  try {
+    for (const item of years) {
+      const { yearBS, daysInMonths, customStartAD } = item;
+      if (!yearBS || !Array.isArray(daysInMonths) || daysInMonths.length !== 12) {
+        errors.push(`Year ${yearBS}: invalid payload`);
+        continue;
+      }
+
+      let startAD = customStartAD;
+      if (!startAD) {
+        const estADYear = yearBS - 57;
+        startAD = `${estADYear}-04-14`;
+      }
+
+      const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
+      if (onlyIfNew && existingIdx >= 0) {
+        skippedYears.push(yearBS);
+        continue;
+      }
+
+      await pgPool.query(
+        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (year_bs) DO UPDATE SET
+           days_in_months = EXCLUDED.days_in_months,
+           start_ad = EXCLUDED.start_ad;`,
+        [yearBS, daysInMonths, startAD]
+      );
+
+      let runningDate = new Date(startAD);
+      for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+        const monthBS = monthIdx + 1;
+        const daysInMonth = daysInMonths[monthIdx] || 30;
+
+        for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+          const adDateStr = runningDate.toISOString().split('T')[0];
+          const dayOfWeekIndex = runningDate.getUTCDay();
+
+          const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+          const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+          const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+          let startYear = yearBS;
+          if (monthBS < 4) startYear = yearBS - 1;
+          const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+          let qtr = 'Q4';
+          if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+          else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+          else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+          await pgPool.query(
+            `INSERT INTO bs_day_records (
+               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (ad_date) DO UPDATE SET
+               bs_date = EXCLUDED.bs_date,
+               bs_year = EXCLUDED.bs_year,
+               bs_month = EXCLUDED.bs_month,
+               bs_month_name = EXCLUDED.bs_month_name,
+               bs_month_name_np = EXCLUDED.bs_month_name_np,
+               bs_day = EXCLUDED.bs_day,
+               day_of_week_name = EXCLUDED.day_of_week_name,
+               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+               fiscal_year = EXCLUDED.fiscal_year,
+               quarter = EXCLUDED.quarter,
+               is_weekend = EXCLUDED.is_weekend;`,
+            [
+              adDateStr,
+              bsDateStr,
+              yearBS,
+              monthBS,
+              NEPALI_MONTHS_EN_SERVER[monthIdx],
+              NEPALI_MONTHS_NP_SERVER[monthIdx],
+              dayBS,
+              DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+              DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+              fyCode,
+              qtr,
+              dayOfWeekIndex === 6
+            ]
+          );
+
+          runningDate.setDate(runningDate.getDate() + 1);
+        }
+      }
+
+      if (existingIdx >= 0) {
+        inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+      } else {
+        inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+      }
+      seededCount++;
+    }
+
+    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+    generateInMemoryBsDayRecords();
+    pgSynced = true;
+  } catch (_err) {
+    // PostgreSQL is unreachable; in-memory fallback only
   }
 
   res.json({
     success: true,
-    message: `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table!`,
+    pgSynced,
+    seededCount,
+    skippedYears,
+    message: pgSynced
+      ? `Successfully seeded ${seededCount} BS year(s) and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`
+      : `Seeded ${seededCount} BS year(s) in the in-memory calendar only — PostgreSQL was unreachable. Re-run when database is back.${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`,
+  });
+});
+
+/**
+ * Builds the AD -> BS day-by-day records for one BS year from its config
+ * (start_ad + days_in_months). Mirrors generateInMemoryBsDayRecords() so the
+ * same mapping logic is used for PostgreSQL writes and the in-memory cache.
+ */
+function buildBsDayRecordsForYear(yearBS: number, daysInMonths: number[], startAD: string): any[] {
+  const records: any[] = [];
+  let runningDate = new Date(startAD);
+  for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+    const monthBS = monthIdx + 1;
+    const daysInMonth = daysInMonths[monthIdx] || 30;
+
+    for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+      const adDateStr = runningDate.toISOString().split('T')[0];
+      const dayOfWeekIndex = runningDate.getUTCDay();
+
+      const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+      const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+      const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+      let startYear = yearBS;
+      if (monthBS < 4) startYear = yearBS - 1;
+      const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+      let qtr = 'Q4';
+      if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+      else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+      else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+      records.push({
+        adDate: adDateStr,
+        bsDate: bsDateStr,
+        bsYear: yearBS,
+        bsMonth: monthBS,
+        bsMonthName: NEPALI_MONTHS_EN_SERVER[monthIdx],
+        bsMonthNameNp: NEPALI_MONTHS_NP_SERVER[monthIdx],
+        bsDay: dayBS,
+        dayOfWeekName: DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+        dayOfWeekNameNp: DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+        fiscalYear: fyCode,
+        quarter: qtr,
+        isWeekend: dayOfWeekIndex === 6,
+      });
+
+      runningDate.setDate(runningDate.getDate() + 1);
+    }
+  }
+  return records;
+}
+
+/**
+ * Updates the month-length configuration and/or the AD start date of an
+ * existing BS year, then regenerates that year's day-by-day records in
+ * bs_day_records so the derived lookup table always matches the configuration.
+ *
+ * When `recalculateNextStartAD` is true (default) and the edit changes the
+ * edited year's total length (or its start date), every subsequent seeded BS
+ * year is shifted by the same delta so AD->BS mappings stay continuous and
+ * intentional gaps between non-consecutive seeded years are preserved. All
+ * affected years have their day records regenerated.
+ *
+ * Body: { daysInMonths?: number[12], startAD?: string, recalculateNextStartAD?: boolean }
+ */
+app.put('/api/bs-calendar/years/:yearBS', async (req, res) => {
+  const yearBS = parseInt(req.params.yearBS as string, 10);
+  const { daysInMonths, startAD, recalculateNextStartAD = true } = req.body;
+
+  const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
+  if (existingIdx < 0) {
+    return res.status(404).json({
+      success: false,
+      message: `BS Year ${yearBS} does not exist. Use the seed endpoint to create it first.`,
+    });
+  }
+
+  if (daysInMonths !== undefined && (!Array.isArray(daysInMonths) || daysInMonths.length !== 12)) {
+    return res.status(400).json({ success: false, message: 'daysInMonths must be a 12-element month length array.' });
+  }
+  if (daysInMonths !== undefined && daysInMonths.some((d: number) => isNaN(d) || d < 28 || d > 32)) {
+    return res.status(400).json({ success: false, message: 'Each month day count must be between 28 and 32.' });
+  }
+  if (startAD !== undefined && isNaN(new Date(startAD).getTime())) {
+    return res.status(400).json({ success: false, message: `Invalid startAD value: ${startAD}` });
+  }
+
+  const newConfig: { yearBS: number; daysInMonths: number[]; startAD: string } = {
+    yearBS,
+    daysInMonths: daysInMonths !== undefined ? daysInMonths : [...inMemoryBsCalendarYears[existingIdx].daysInMonths],
+    startAD: startAD !== undefined ? startAD : inMemoryBsCalendarYears[existingIdx].startAD,
+  };
+
+  // Compute the end AD date of the edited year with its new config, both the
+  // original (before edit) and the updated version. The difference is the
+  // delta that must be applied to every subsequent seeded year so intervening
+  // real-world dates stay correct even when some BS years are not seeded.
+  const totalDaysOf = (days: number[]) => days.reduce((sum: number, d: number) => sum + (d || 30), 0);
+  const originalStart = new Date(inMemoryBsCalendarYears[existingIdx].startAD);
+  const originalEnd = new Date(originalStart);
+  originalEnd.setDate(originalEnd.getDate() + totalDaysOf(inMemoryBsCalendarYears[existingIdx].daysInMonths));
+
+  const newStart = new Date(newConfig.startAD);
+  const newEnd = new Date(newStart);
+  newEnd.setDate(newEnd.getDate() + totalDaysOf(newConfig.daysInMonths));
+
+  const deltaDays = Math.round((newEnd.getTime() - originalEnd.getTime()) / 86400000);
+
+  // The set of years whose day records must be regenerated. The edited year is
+  // always included; every subsequent seeded year is shifted by deltaDays and
+  // regenerated when recalculateNextStartAD is true.
+  const affectedYears: { yearBS: number; daysInMonths: number[]; startAD: string }[] = [];
+  affectedYears.push({ ...newConfig });
+
+  const sortedYears = inMemoryBsCalendarYears
+    .map((y) => ({ yearBS: y.yearBS, daysInMonths: [...y.daysInMonths], startAD: y.startAD }))
+    .sort((a, b) => a.yearBS - b.yearBS);
+
+  if (recalculateNextStartAD && deltaDays !== 0) {
+    const originalMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+    for (const y of sortedYears) originalMap.set(y.yearBS, y);
+
+    // Shift every seeded year AFTER the edited one by deltaDays. Using the
+    // previously seeded start_ad + delta preserves any intentional gaps
+    // between non-consecutive seeded years instead of collapsing them.
+    for (const y of sortedYears) {
+      if (y.yearBS <= yearBS) continue;
+
+      const orig = originalMap.get(y.yearBS)!;
+      const shiftedStart = new Date(orig.startAD);
+      shiftedStart.setDate(shiftedStart.getDate() + deltaDays);
+      const shiftedStartStr = shiftedStart.toISOString().split('T')[0];
+
+      affectedYears.push({ ...y, startAD: shiftedStartStr });
+    }
+  }
+  // When the edit does not change the edited year's total length
+  // (deltaDays === 0) no subsequent year's AD mapping changes, so only the
+  // edited year's day records are regenerated. When recalculateNextStartAD is
+  // false, the caller explicitly opted out of touching later years.
+
+  if (affectedYears.length === 0) {
+    return res.status(400).json({ success: false, message: `No change requested for BS Year ${yearBS}.` });
+  }
+
+  let pgSynced = false;
+  try {
+    await pgPool.query('BEGIN');
+
+    // 1. Upsert the edited year's config.
+    await pgPool.query(
+      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (year_bs) DO UPDATE SET
+         days_in_months = EXCLUDED.days_in_months,
+         start_ad = EXCLUDED.start_ad;`,
+      [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]
+    );
+
+    // 2. Rewrite the subsequent years' start_ad when the running calendar
+    //    requires it (keeps bs_calendar_years config consistent with the
+    //    regenerated day records).
+    for (const y of affectedYears) {
+      if (y.yearBS === yearBS) continue;
+      const dbIdx = inMemoryBsCalendarYears.findIndex((m) => m.yearBS === y.yearBS);
+      if (dbIdx < 0) continue;
+      const prevConfig = inMemoryBsCalendarYears[dbIdx];
+      if (prevConfig.startAD !== y.startAD) {
+        await pgPool.query(
+          `UPDATE bs_calendar_years SET start_ad = $2 WHERE year_bs = $1;`,
+          [y.yearBS, y.startAD]
+        );
+      }
+    }
+
+    // 3. Delete stale day records for every affected year, then regenerate.
+    const affectedNumList = affectedYears.map((y) => y.yearBS);
+    await pgPool.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [affectedNumList]);
+
+    for (const y of affectedYears) {
+      const records = buildBsDayRecordsForYear(y.yearBS, y.daysInMonths, y.startAD);
+      for (const rec of records) {
+        await pgPool.query(
+          `INSERT INTO bs_day_records (
+             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           ON CONFLICT (ad_date) DO UPDATE SET
+             bs_date = EXCLUDED.bs_date,
+             bs_year = EXCLUDED.bs_year,
+             bs_month = EXCLUDED.bs_month,
+             bs_month_name = EXCLUDED.bs_month_name,
+             bs_month_name_np = EXCLUDED.bs_month_name_np,
+             bs_day = EXCLUDED.bs_day,
+             day_of_week_name = EXCLUDED.day_of_week_name,
+             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+             fiscal_year = EXCLUDED.fiscal_year,
+             quarter = EXCLUDED.quarter,
+             is_weekend = EXCLUDED.is_weekend;`,
+          [
+            rec.adDate,
+            rec.bsDate,
+            rec.bsYear,
+            rec.bsMonth,
+            rec.bsMonthName,
+            rec.bsMonthNameNp,
+            rec.bsDay,
+            rec.dayOfWeekName,
+            rec.dayOfWeekNameNp,
+            rec.fiscalYear,
+            rec.quarter,
+            rec.isWeekend,
+          ]
+        );
+      }
+    }
+
+    await pgPool.query('COMMIT');
+    pgSynced = true;
+  } catch (err: any) {
+    try { await pgPool.query('ROLLBACK'); } catch (_rb) { /* ignore */ }
+    console.error('BS calendar update transaction failed:', err?.message || err);
+  }
+
+  // 4. Refresh the in-memory fallback cache with the same config + records.
+  const memMap = new Map<number, { yearBS: number; daysInMonths: number[]; startAD: string }>();
+  for (const m of inMemoryBsCalendarYears) memMap.set(m.yearBS, m);
+  for (const y of affectedYears) {
+    memMap.set(y.yearBS, { yearBS: y.yearBS, daysInMonths: y.daysInMonths, startAD: y.startAD });
+  }
+  inMemoryBsCalendarYears = Array.from(memMap.values()).sort((a, b) => a.yearBS - b.yearBS);
+  generateInMemoryBsDayRecords();
+
+  const regenCount = affectedYears.reduce((sum, y) => {
+    return sum + y.daysInMonths.reduce((m, d) => m + d, 0);
+  }, 0);
+
+  res.json({
+    success: true,
+    pgSynced,
+    affectedYears: affectedYears.map((y) => y.yearBS),
+    regeneratedRecords: regenCount,
+    message: pgSynced
+      ? `BS Year ${yearBS} updated. Regenerated ${regenCount} day records across BS year(s): ${affectedYears.map((y) => y.yearBS).join(', ')}. Subsequent year start dates were recomputed for calendar continuity.`
+      : `BS Year ${yearBS} updated in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run when database is back.`,
   });
 });
 
@@ -4292,17 +7256,9 @@ app.post('/api/bs-calendar/sync-range', async (req, res) => {
     return res.status(400).json({ success: false, message: 'No day records provided to write to SQL database.' });
   }
 
-  // Always sync to in-memory day records store
-  const recordMap = new Map<string, any>();
-  for (const r of inMemoryBsDayRecords) {
-    recordMap.set(r.adDate, r);
-  }
-  for (const r of dayRecords) {
-    recordMap.set(r.adDate, r);
-  }
-  inMemoryBsDayRecords = Array.from(recordMap.values());
-
-  let insertedCount = dayRecords.length;
+  // PostgreSQL is the authoritative store: write there first, then refresh the
+  // in-memory fallback cache with the same records.
+  let pgSynced = false;
   try {
     for (const rec of dayRecords) {
       await pgPool.query(
@@ -4339,14 +7295,28 @@ app.post('/api/bs-calendar/sync-range', async (req, res) => {
         ]
       );
     }
+    pgSynced = true;
   } catch (_err) {
-    // Continue cleanly using in-memory store
+    // PostgreSQL is unreachable; continue with the in-memory fallback cache only
   }
 
+  const recordMap = new Map<string, any>();
+  for (const r of inMemoryBsDayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  for (const r of dayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  inMemoryBsDayRecords = Array.from(recordMap.values());
+
+  const insertedCount = dayRecords.length;
   res.json({
     success: true,
+    pgSynced,
     count: insertedCount,
-    message: `Successfully written & updated ${insertedCount} daily conversion records in BSDayRecord database table!`,
+    message: pgSynced
+      ? `Successfully written & updated ${insertedCount} daily conversion records in PostgreSQL bs_day_records table!`
+      : `Kept ${insertedCount} daily conversion records in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated.`,
   });
 });
 
@@ -4425,7 +7395,7 @@ app.get('/api/customer-devices', async (req, res) => {
 
   if (isPgConnected) {
     try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAd", issued_date_bs AS "issuedDateBs", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
+      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
       const params: any[] = [];
       const conditions: string[] = [];
 
@@ -4479,46 +7449,86 @@ app.post('/api/customer-devices', async (req, res) => {
       id: req.body.id || `cust-${Date.now()}`,
       ...req.body,
     };
-    const idx = customerDeviceRecords.findIndex((c) => c.id === newRecord.id);
-    if (idx >= 0) customerDeviceRecords[idx] = newRecord;
-    else customerDeviceRecords.unshift(newRecord);
-
+    const normalizedDeviceSerial = String(newRecord.deviceSerial || '').trim().toUpperCase();
+    const normalizedPonSerial = String(newRecord.ponSerial || '').trim().toUpperCase();
+    if (!normalizedDeviceSerial || !normalizedPonSerial) {
+      return res.status(400).json({ message: 'Device serial and PON serial are required.' });
+    }
+    const duplicateLocal = customerDeviceRecords.find((record) =>
+      record.id !== newRecord.id &&
+      (String(record.deviceSerial || '').trim().toUpperCase() === normalizedDeviceSerial ||
+        String(record.ponSerial || '').trim().toUpperCase() === normalizedPonSerial)
+    );
+    if (duplicateLocal) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
+    if (isPgConnected) {
+      const duplicateDb = await pgPool.query(
+        `SELECT 1 FROM customer_device_records
+         WHERE id <> $1 AND (UPPER(TRIM(device_serial)) = $2 OR UPPER(TRIM(pon_serial)) = $3) LIMIT 1`,
+        [newRecord.id, normalizedDeviceSerial, normalizedPonSerial]
+      );
+      if (duplicateDb.rowCount) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
+    }
     const custCode = newRecord.customerCode || newRecord.customerId;
+    const branchId = newRecord.branchId || 'WH001';
+    const nextStatus = newRecord.status || 'ACTIVE';
+    const previousRecord = customerDeviceRecords.find((c) => c.id === newRecord.id);
+    let previousStatus = previousRecord?.status;
+    if (isPgConnected && !previousStatus) {
+      const existingRecord = await pgPool.query('SELECT status FROM customer_device_records WHERE id = $1', [newRecord.id]);
+      previousStatus = existingRecord.rows[0]?.status;
+    }
+    const wasAssigned = Boolean(previousStatus && previousStatus !== 'IN_STOCK');
+    const isAssigned = nextStatus !== 'IN_STOCK';
+    const assignmentDelta = (isAssigned ? 1 : 0) - (wasAssigned ? 1 : 0);
+    const product = products.find((entry) => entry.name.trim().toLowerCase() === String(newRecord.productName || '').trim().toLowerCase());
+    if (isAssigned && !product) return res.status(400).json({ message: 'A valid product is required when assigning a device.' });
 
     if (isPgConnected) {
-      await pgPool.query(
-        `INSERT INTO customer_device_records (
+      await withTransaction(async (client) => {
+        if (assignmentDelta !== 0 && product) {
+          const stockChange = assignmentDelta < 0 ? 1 : -1;
+          const stockResult = await client.query(
+            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
+             WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $4
+             RETURNING quantity_on_hand`,
+            [stockChange, product.id, branchId, assignmentDelta > 0 ? 1 : 0]
+          );
+          if (stockResult.rowCount !== 1) throw new Error(`Insufficient available stock for ${newRecord.productName}.`);
+        }
+        await client.query(
+          `INSERT INTO customer_device_records (
            id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            branch_id = EXCLUDED.branch_id,
            notes = EXCLUDED.notes;`,
-        [
+          [
           newRecord.id,
           newRecord.customerId || custCode,
           newRecord.customerName,
           custCode,
           newRecord.contactPhone || '',
           newRecord.installationAddress || '',
-          newRecord.branchId || 'WH001',
+          branchId,
           newRecord.productName,
           newRecord.deviceSerial,
           newRecord.ponSerial || newRecord.deviceSerial,
           newRecord.macAddress || null,
-          newRecord.status || 'ACTIVE',
+          nextStatus,
           newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
           newRecord.issuedDateBS || '2083-04-16 BS',
           newRecord.purchaseBillRef || null,
           newRecord.notes || '',
-        ]
-      );
+          ]
+        );
 
-      await pgPool.query(
+        const countDelta = assignmentDelta;
+        await client.query(
         `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, status, assigned_devices_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', 1)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)
          ON CONFLICT (customer_id) DO UPDATE SET
-           assigned_devices_count = customer_records.assigned_devices_count + 1;`,
+           assigned_devices_count = GREATEST(0, customer_records.assigned_devices_count + $8);`,
         [
           custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
           custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -4527,9 +7537,21 @@ app.post('/api/customer-devices', async (req, res) => {
           newRecord.contactPhone || '9800000000',
           newRecord.branchId || 'WH001',
           newRecord.installationAddress || 'Nepal',
+          countDelta,
         ]
-      );
+        );
+      });
+    } else if (assignmentDelta !== 0 && product) {
+      const stockRecord = inventoryStock.find((entry) => entry.productId === product.id && entry.branchId === branchId);
+      if (!stockRecord || (assignmentDelta > 0 && stockRecord.quantityOnHand < 1)) {
+        return res.status(400).json({ message: `Insufficient available stock for ${newRecord.productName}.` });
+      }
+      stockRecord.quantityOnHand -= assignmentDelta;
+      stockRecord.lastUpdated = new Date().toISOString();
     }
+    const idx = customerDeviceRecords.findIndex((c) => c.id === newRecord.id);
+    if (idx >= 0) customerDeviceRecords[idx] = { ...newRecord, status: nextStatus, branchId };
+    else customerDeviceRecords.unshift({ ...newRecord, status: nextStatus, branchId });
     logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
@@ -4566,6 +7588,359 @@ app.patch('/api/customer-devices/:id/status', async (req, res) => {
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 });
+
+// Shared handler for editing serials across all inventory and customer records
+async function handleUpdateSerials(req: any, res: any) {
+  try {
+    const targetId = req.params?.id || req.body?.id;
+    const {
+      sourceType,
+      sourceId,
+      oldDeviceSerial: rawOldDeviceSerial,
+      oldPonSerial: rawOldPonSerial,
+      oldMacAddress: rawOldMacAddress,
+      deviceSerial,
+      ponSerial,
+      macAddress,
+    } = req.body;
+
+    if (!deviceSerial || !ponSerial) {
+      return res.status(400).json({ message: 'Device serial and PON serial are required.' });
+    }
+
+    const normalizedDeviceSerial = String(deviceSerial).trim().toUpperCase();
+    const normalizedPonSerial = String(ponSerial).trim().toUpperCase();
+    const normalizedMacAddress = macAddress ? String(macAddress).trim().toUpperCase() : null;
+
+    let oldDeviceSerial = rawOldDeviceSerial ? String(rawOldDeviceSerial).trim().toUpperCase() : '';
+    let oldPonSerial = rawOldPonSerial ? String(rawOldPonSerial).trim().toUpperCase() : '';
+    let oldMacAddress = rawOldMacAddress ? String(rawOldMacAddress).trim().toUpperCase() : '';
+    let matchedBranchId: string | undefined = req.body?.branchId;
+    let customerName: string = 'Inventory Stock';
+
+    // 1. Try to find customer device record
+    let customerRecord = customerDeviceRecords.find((c) => c.id === targetId || (oldDeviceSerial && c.deviceSerial === oldDeviceSerial));
+    if (isPgConnected && !customerRecord && targetId && !targetId.startsWith('pi-') && !targetId.startsWith('ship-') && !targetId.startsWith('op-') && !targetId.startsWith('fa-')) {
+      try {
+        const r = await pgPool.query(
+          `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", 
+                  branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", 
+                  pon_serial AS "ponSerial", mac_address AS "macAddress", status FROM customer_device_records 
+           WHERE id = $1 OR (device_serial = $2 AND $2 != '') LIMIT 1`,
+          [targetId, oldDeviceSerial || '']
+        );
+        if (r.rows.length > 0) customerRecord = r.rows[0];
+      } catch (_e) {}
+    }
+
+    if (customerRecord) {
+      if (!oldDeviceSerial) oldDeviceSerial = customerRecord.deviceSerial;
+      if (!oldPonSerial) oldPonSerial = customerRecord.ponSerial;
+      if (!oldMacAddress) oldMacAddress = customerRecord.macAddress;
+      if (!matchedBranchId) matchedBranchId = customerRecord.branchId;
+      customerName = customerRecord.customerName || 'Customer Device';
+
+      customerRecord.deviceSerial = normalizedDeviceSerial;
+      customerRecord.ponSerial = normalizedPonSerial;
+      customerRecord.macAddress = normalizedMacAddress;
+    }
+
+    // 2. If Fixed Asset
+    if (targetId && (targetId.startsWith('fa-') || sourceType === 'FIXED_ASSET')) {
+      const assetId = targetId.replace(/^fa-/, '');
+      const asset = assetRegister.find((a) => a.id === assetId || a.tagNumber === oldDeviceSerial);
+      if (asset) {
+        if (!oldDeviceSerial) oldDeviceSerial = asset.tagNumber;
+        if (!matchedBranchId) matchedBranchId = asset.branchId;
+        asset.tagNumber = normalizedDeviceSerial;
+      }
+    }
+
+    if (!oldDeviceSerial && targetId) {
+      const parts = targetId.split('-');
+      if (parts.length >= 3) {
+        oldDeviceSerial = parts.slice(2).join('-');
+      }
+    }
+
+    if (!oldDeviceSerial) {
+      oldDeviceSerial = normalizedDeviceSerial;
+    }
+
+    // PostgreSQL Cascading Updates
+    if (isPgConnected) {
+      await withTransaction(async (client) => {
+        // Update customer_device_records
+        await client.query(
+          `UPDATE customer_device_records 
+           SET device_serial = $1, pon_serial = $2, mac_address = $3 
+           WHERE id = $4 OR device_serial = $5 OR (pon_serial IS NOT NULL AND pon_serial = $6)`,
+          [normalizedDeviceSerial, normalizedPonSerial, normalizedMacAddress, targetId, oldDeviceSerial, oldPonSerial || oldDeviceSerial]
+        );
+
+        // Update fixed_assets
+        const actualAssetId = targetId?.replace(/^fa-/, '');
+        await client.query(
+          `UPDATE fixed_assets SET tag_number = $1 WHERE id = $2 OR tag_number = $3`,
+          [normalizedDeviceSerial, actualAssetId, oldDeviceSerial]
+        );
+
+        // Update purchase_invoices items JSONB
+        const piResult = await client.query(
+          `SELECT id, items FROM purchase_invoices WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of piResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE purchase_invoices SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+
+        // Update shipments items JSONB
+        const shipResult = await client.query(
+          `SELECT id, items FROM shipments WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of shipResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            if (item.receivedSerials && Array.isArray(item.receivedSerials)) {
+              item.receivedSerials = item.receivedSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE shipments SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+
+        // Update stock_operations items JSONB
+        const soResult = await client.query(
+          `SELECT id, items FROM stock_operations WHERE items::text ILIKE $1 OR items::text ILIKE $2`,
+          [`%${oldDeviceSerial}%`, oldPonSerial ? `%${oldPonSerial}%` : `%${oldDeviceSerial}%`]
+        );
+
+        for (const row of soResult.rows) {
+          let items = row.items || [];
+          let updated = false;
+          items = items.map((item: any) => {
+            if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+              item.deviceSerials = item.deviceSerials.map((serial: any) => {
+                if (
+                  serial.deviceSerial === oldDeviceSerial ||
+                  (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                  (oldMacAddress && serial.macAddress === oldMacAddress)
+                ) {
+                  updated = true;
+                  return {
+                    ...serial,
+                    deviceSerial: normalizedDeviceSerial,
+                    ponSerial: normalizedPonSerial,
+                    macAddress: normalizedMacAddress,
+                  };
+                }
+                return serial;
+              });
+            }
+            return item;
+          });
+          if (updated) {
+            await client.query(`UPDATE stock_operations SET items = $1 WHERE id = $2`, [JSON.stringify(items), row.id]);
+          }
+        }
+      });
+    }
+
+    // In-memory updates for all sources
+    customerDeviceRecords.forEach((c) => {
+      if (c.id === targetId || c.deviceSerial === oldDeviceSerial || (oldPonSerial && c.ponSerial === oldPonSerial)) {
+        c.deviceSerial = normalizedDeviceSerial;
+        c.ponSerial = normalizedPonSerial;
+        c.macAddress = normalizedMacAddress;
+      }
+    });
+
+    const actualAssetId = targetId?.replace(/^fa-/, '');
+    assetRegister.forEach((a) => {
+      if (a.id === actualAssetId || a.tagNumber === oldDeviceSerial) {
+        a.tagNumber = normalizedDeviceSerial;
+      }
+    });
+
+    purchaseInvoices.forEach((inv: any) => {
+      if (inv.items && Array.isArray(inv.items)) {
+        inv.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    shipments.forEach((ship: any) => {
+      if (ship.items && Array.isArray(ship.items)) {
+        ship.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+          if (item.receivedSerials && Array.isArray(item.receivedSerials)) {
+            item.receivedSerials = item.receivedSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    stockOperations.forEach((op: any) => {
+      if (op.items && Array.isArray(op.items)) {
+        op.items.forEach((item: any) => {
+          if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+            item.deviceSerials = item.deviceSerials.map((serial: any) => {
+              if (
+                serial.deviceSerial === oldDeviceSerial ||
+                (oldPonSerial && serial.ponSerial === oldPonSerial) ||
+                (oldMacAddress && serial.macAddress === oldMacAddress)
+              ) {
+                return {
+                  ...serial,
+                  deviceSerial: normalizedDeviceSerial,
+                  ponSerial: normalizedPonSerial,
+                  macAddress: normalizedMacAddress,
+                };
+              }
+              return serial;
+            });
+          }
+        });
+      }
+    });
+
+    logAuditEvent(
+      req,
+      'EDIT_DEVICE_SERIALS',
+      'CPE_MANAGEMENT',
+      `Updated serial information: Device ${oldDeviceSerial}→${normalizedDeviceSerial}, PON ${oldPonSerial}→${normalizedPonSerial}, MAC ${oldMacAddress || 'N/A'}→${normalizedMacAddress || 'N/A'} (${customerName})`,
+      matchedBranchId
+    );
+
+    broadcastChange({ type: 'SERIALS_UPDATED', entity: 'device-serials', branchId: matchedBranchId });
+
+    res.json({
+      success: true,
+      message: 'Serial information updated successfully across all inventory records.',
+      deviceSerial: normalizedDeviceSerial,
+      ponSerial: normalizedPonSerial,
+      macAddress: normalizedMacAddress,
+      record: customerRecord,
+    });
+  } catch (err: any) {
+    console.error('Error updating device serials:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+}
+
+app.patch('/api/inventory/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
+app.patch('/api/customer-devices/:id/serials', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), handleUpdateSerials);
 
 // Device Exchange & Replacement Handler
 app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res) => {
@@ -5279,53 +8654,196 @@ app.post('/api/approval-requests/:id/cancel', async (req, res) => {
 
 // Financial Reports Summary
 app.get('/api/reports/financial-summary', async (req, res) => {
-  const { branchId } = req.query;
+  const { branchId, fiscalYearId } = req.query;
 
   if (isPgConnected) {
     try {
-      const bParam = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const whereBranch = branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '';
+      const hasBranch = Boolean(branchId && branchId !== 'ALL');
 
-      // Inventory Asset Value: SUM(quantity_on_hand * cost_price)
-      const invRes = await pgPool.query(
-        `SELECT SUM(s.quantity_on_hand * p.cost_price) AS total FROM inventory_stock s JOIN products p ON s.product_id = p.id` +
-          (branchId && branchId !== 'ALL' ? ' WHERE s.branch_id = $1' : ''),
-        bParam
-      );
+      // Fiscal-year scoping: for any year OTHER than the current fiscal year,
+      // inventory is valued from that year's opening-stock ledger
+      // (fiscal_year_opening_stock) — the live inventory_stock balance only
+      // represents the current fiscal year and must not be reported for
+      // past/closed years.
+      const currentFy = pickCurrentFiscalYear(fiscalYears) || null;
+      const requestedFy = fiscalYearId
+        ? fiscalYears.find((f) => f.id === fiscalYearId || f.code === fiscalYearId)
+        : undefined;
+      const useOpeningStock = Boolean(requestedFy && currentFy && requestedFy.id !== currentFy.id);
+
+      // Inventory Asset Value: SUM(quantity * cost_price)
+      const invParams: any[] = [];
+      let invSql: string;
+      if (useOpeningStock) {
+        invSql = `SELECT SUM(os.quantity_on_hand * p.cost_price) AS total
+                  FROM fiscal_year_opening_stock os
+                  JOIN products p ON os.product_id = p.id
+                  WHERE os.fiscal_year_id = $1`;
+        invParams.push(requestedFy!.id);
+        if (hasBranch) {
+          invParams.push(branchId);
+          invSql += ` AND os.branch_id = $${invParams.length}`;
+        }
+      } else {
+        invSql = `SELECT SUM(s.quantity_on_hand * p.cost_price) AS total
+                  FROM inventory_stock s
+                  JOIN products p ON s.product_id = p.id`;
+        const conds: string[] = [];
+        if (hasBranch) {
+          invParams.push(branchId);
+          conds.push(`s.branch_id = $${invParams.length}`);
+        }
+        if (conds.length) invSql += ` WHERE ${conds.join(' AND ')}`;
+      }
+      const invRes = await pgPool.query(invSql, invParams);
       const totalInventoryAssetValue = Number(invRes.rows[0]?.total || 0);
 
-      // Fixed Asset Value
+      // Fixed Asset Value (net book value is a live snapshot; the system does
+      // not track per-fiscal-year NBV history)
       const assetRes = await pgPool.query(
-        `SELECT SUM(net_book_value) AS total FROM fixed_assets` + whereBranch,
-        bParam
+        `SELECT SUM(net_book_value) AS total FROM fixed_assets` + (hasBranch ? ' WHERE branch_id = $1' : ''),
+        hasBranch ? [branchId] : []
       );
       const totalFixedAssetValue = Number(assetRes.rows[0]?.total || 0);
 
-      // Accounts Payable & VAT Input Tax
+      // Accounts Payable & VAT Input Tax (scoped to the selected fiscal year)
+      // AP = opening balance (from vendor_opening_balances, i.e. the carry-forward
+      // from the prior FY close) + current-period unpaid invoices − posted payments.
+      const piConds: string[] = [];
+      const piParams: any[] = [];
+      if (requestedFy) {
+        piParams.push(requestedFy.id);
+        piConds.push(`fiscal_year_id = $${piParams.length}`);
+      }
+      if (hasBranch) {
+        piParams.push(branchId);
+        piConds.push(`branch_id = $${piParams.length}`);
+      }
       const invPayRes = await pgPool.query(
-        `SELECT SUM(GREATEST(0, grand_total - amount_paid)) AS total_ap, SUM(vat_amount) AS total_vat FROM purchase_invoices` + whereBranch,
-        bParam
+        `SELECT SUM(grand_total) AS total_invoiced, SUM(vat_amount) AS total_vat FROM purchase_invoices` +
+          (piConds.length ? ` WHERE ${piConds.join(' AND ')}` : ''),
+        piParams
       );
-      const totalAccountsPayable = Number(invPayRes.rows[0]?.total_ap || 0);
+      // Opening balance carry-forward (same FY + branch scope)
+      const obParams: any[] = [];
+      const obConds: string[] = [];
+      if (requestedFy) {
+        obParams.push(requestedFy.id);
+        obConds.push(`fiscal_year_id = $${obParams.length}`);
+      }
+      if (hasBranch) {
+        obParams.push(branchId);
+        obConds.push(`branch_id = $${obParams.length}`);
+      }
+      const obRes = await pgPool.query(
+        `SELECT COALESCE(SUM(opening_balance), 0)::float AS total_ob FROM vendor_opening_balances` +
+          (obConds.length ? ` WHERE ${obConds.join(' AND ')}` : ''),
+        obParams
+      );
+      // Posted vendor payments in the same scope. Note: vendor payments are
+      // scoped by payment_date_ad date range (like the bootstrap endpoint),
+      // because older payments may have a NULL fiscal_year_id.
+      const vpConds: string[] = [];
+      const vpParams: any[] = [];
+      if (requestedFy) {
+        vpParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
+        vpConds.push(`payment_date_ad >= $${vpParams.length - 1}`);
+        vpConds.push(`payment_date_ad <= $${vpParams.length}`);
+      }
+      if (hasBranch) {
+        vpParams.push(branchId);
+        vpConds.push(`branch_id = $${vpParams.length}`);
+      }
+      vpConds.push(`status = 'POSTED'`);
+      const vpPayRes = await pgPool.query(
+        `SELECT COALESCE(SUM(amount), 0)::float AS total_paid FROM vendor_payments` +
+          (vpConds.length ? ` WHERE ${vpConds.join(' AND ')}` : ''),
+        vpParams
+      );
+      const vendorOpeningBal = Number(obRes.rows[0]?.total_ob || 0);
+      const currentPeriodInvoiced = Number(invPayRes.rows[0]?.total_invoiced || 0);
+      const postedPayments = Number(vpPayRes.rows[0]?.total_paid || 0);
+      const totalAccountsPayable = vendorOpeningBal + currentPeriodInvoiced - postedPayments;
       const totalVatInputTax = Number(invPayRes.rows[0]?.total_vat || 0);
 
-      // Damage Loss Value
+      // Damage Loss Value (scoped to the selected fiscal year)
+      const opConds: string[] = [];
+      const opParams: any[] = [];
+      if (requestedFy) {
+        opParams.push(requestedFy.id);
+        opConds.push(`fiscal_year_id = $${opParams.length}`);
+      }
+      if (hasBranch) {
+        opParams.push(branchId);
+        opConds.push(`branch_id = $${opParams.length}`);
+      }
       const opRes = await pgPool.query(
-        `SELECT SUM(total_value) AS total FROM stock_operations` + whereBranch,
-        bParam
+        `SELECT SUM(total_value) AS total FROM stock_operations` +
+          (opConds.length ? ` WHERE ${opConds.join(' AND ')}` : ''),
+        opParams
       );
       const totalDamageLossValue = Number(opRes.rows[0]?.total || 0);
 
-      const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
+      // Sales Revenue + Cost of Goods Sold: fetch the priced STOCK_OUT sale
+      // operations in the same FY/branch scope as inventory, then derive both
+      // numbers from the sale lines (identical logic to the bootstrap helper).
+      const saleConds: string[] = [`type = 'STOCK_OUT'`];
+      const saleParams: any[] = [];
+      if (requestedFy) {
+        saleParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
+        saleConds.push(`date_ad >= $${saleParams.length - 1}`);
+        saleConds.push(`date_ad <= $${saleParams.length}`);
+      }
+      if (hasBranch) {
+        saleParams.push(branchId);
+        saleConds.push(`branch_id = $${saleParams.length}`);
+      }
+      const saleRes = await pgPool.query(
+        `SELECT items FROM stock_operations` +
+          (saleConds.length ? ` WHERE ${saleConds.join(' AND ')}` : ''),
+        saleParams
+      );
+      const saleResRows: any[] = saleRes.rows || [];
+      const saleLines = saleResRows.flatMap((r: any) => {
+        const lines = Array.isArray(r.items) ? r.items : [];
+        return lines.filter(
+          (it: any) => it.totalValue !== undefined || it.sellingPrice !== undefined
+        );
+      });
+
+      // Products are needed to resolve cost for lines that don't carry unitCost.
+      const prodResForCogs = await pgPool.query(
+        'SELECT id, cost_price AS "costPrice" FROM products'
+      );
+      const productsForCogs = prodResForCogs.rows;
+      let totalSalesRevenue = 0;
+      let totalCostOfGoodsSold = 0;
+      for (const it of saleLines) {
+        const qty = Number(it.quantity) || 0;
+        const revenue = Number(it.totalValue) || Math.max(
+          0,
+          qty * (Number(it.sellingPrice) || 0) - (Number(it.discount) || 0)
+        );
+        if (revenue > 0) totalSalesRevenue += revenue;
+        if (qty > 0) {
+          const prod = productsForCogs.find((p: any) => p.id === it.productId);
+          const unitCost = Number(it.unitCost) || (prod ? Number(prod.costPrice) : 0);
+          totalCostOfGoodsSold += qty * unitCost;
+        }
+      }
+
+      const currentFyCode = currentFy?.code || '2082/83';
 
       return res.json({
         totalInventoryAssetValue,
         totalFixedAssetValue,
         totalAccountsPayable,
-        totalCostOfGoodsSold: 450000,
+        totalSalesRevenue,
+        totalCostOfGoodsSold,
         totalDamageLossValue,
         totalVatInputTax,
-        currentFiscalYear: currentFy,
+        currentFiscalYear: requestedFy ? requestedFy.code : currentFyCode,
+        fiscalYearId: requestedFy ? requestedFy.id : null,
       });
     } catch (err) {
       console.error('Error fetching financial summary report from DB:', err);
@@ -5369,16 +8887,22 @@ app.get('/api/reports/financial-summary', async (req, res) => {
     0
   );
 
-  const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
+  // In-memory fallback: derive the trading summary from the same STOCK_OUT
+  // sale-op lines (identical rules as the Postgres path).
+  const inMemTrading = computeTradingFromOps(targetOps, products);
+
+  const currentFy = pickCurrentFiscalYear(fiscalYears)?.code || '2082/83';
 
   res.json({
     totalInventoryAssetValue,
     totalFixedAssetValue,
     totalAccountsPayable,
-    totalCostOfGoodsSold: 450000,
+    totalSalesRevenue: inMemTrading.totalSalesRevenue,
+    totalCostOfGoodsSold: inMemTrading.totalCostOfGoodsSold,
     totalDamageLossValue,
     totalVatInputTax,
     currentFiscalYear: currentFy,
+    fiscalYearId: null,
   });
 });
 
@@ -5387,7 +8911,7 @@ app.get('/api/company-profile', async (req, res) => {
   try {
     if (isPgConnected) {
       const dbRes = await pgPool.query(
-        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
+        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
       );
       if (dbRes.rows.length > 0) {
         return res.json(dbRes.rows[0]);
@@ -5410,8 +8934,8 @@ app.put('/api/company-profile', async (req, res) => {
 
     if (isPgConnected) {
       await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            legal_name = EXCLUDED.legal_name,
@@ -5419,6 +8943,7 @@ app.put('/api/company-profile', async (req, res) => {
            address = EXCLUDED.address,
            city = EXCLUDED.city,
            country = EXCLUDED.country,
+           postal_code = EXCLUDED.postal_code,
            phone = EXCLUDED.phone,
            email = EXCLUDED.email,
            website = EXCLUDED.website,
@@ -5427,6 +8952,10 @@ app.put('/api/company-profile', async (req, res) => {
            logo_url = EXCLUDED.logo_url,
            logo_preset = EXCLUDED.logo_preset,
            currency_symbol = EXCLUDED.currency_symbol,
+           currency_code = EXCLUDED.currency_code,
+           currency_locale = EXCLUDED.currency_locale,
+           currency_position = EXCLUDED.currency_position,
+           currency_decimals = EXCLUDED.currency_decimals,
            default_tax_rate = EXCLUDED.default_tax_rate,
            notes = EXCLUDED.notes`,
         [
@@ -5437,6 +8966,7 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.address,
           companyProfile.city || '',
           companyProfile.country || 'Nepal',
+          companyProfile.postalCode || '',
           companyProfile.phone || '',
           companyProfile.email || '',
           companyProfile.website || '',
@@ -5444,7 +8974,11 @@ app.put('/api/company-profile', async (req, res) => {
           companyProfile.registrationNumber || '',
           companyProfile.logoUrl || '',
           companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'Rs.',
+          companyProfile.currencySymbol || 'NPR',
+          companyProfile.currencyCode || 'NPR',
+          companyProfile.currencyLocale || 'en-IN',
+          companyProfile.currencyPosition || 'before',
+          companyProfile.currencyDecimals ?? 2,
           companyProfile.defaultTaxRate || 13,
           companyProfile.notes || '',
         ]
@@ -5482,7 +9016,7 @@ async function syncDatabaseAndIndexes() {
       setIsPgConnected(false);
       throw new Error('PostgreSQL connection could not be established.');
     }
-    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (19 tables) & creating high-throughput performance indexes...');
+    console.log('PostgreSQL Pool connected successfully. Syncing full database schema (28 tables) & creating high-throughput performance indexes...');
 
     await client.query(`
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -5497,6 +9031,7 @@ async function syncDatabaseAndIndexes() {
         is_headquarters BOOLEAN DEFAULT FALSE,
         active BOOLEAN DEFAULT TRUE,
         allow_procurement BOOLEAN DEFAULT TRUE,
+        allow_warehouse_transfer BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -5533,7 +9068,8 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(150) UNIQUE NOT NULL,
         code VARCHAR(30) UNIQUE NOT NULL,
-        description TEXT
+        description TEXT,
+        is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE
       );
 
       -- 5. Products
@@ -5574,7 +9110,40 @@ async function syncDatabaseAndIndexes() {
         CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
       );
 
-      -- 7. Fixed Assets
+      -- 7. Damage Records (damage lifecycle: identified -> disposed/written-off)
+      CREATE TABLE IF NOT EXISTS damage_records (
+        id VARCHAR(50) PRIMARY KEY,
+        damage_reference VARCHAR(100) UNIQUE NOT NULL,
+        product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        quantity_damaged INT NOT NULL CHECK (quantity_damaged > 0),
+        unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        total_cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+        damage_date_ad DATE NOT NULL,
+        damage_date_bs VARCHAR(20) NOT NULL,
+        damage_reason VARCHAR(100) NOT NULL CHECK (damage_reason IN ('PHYSICAL_DAMAGE', 'TRANSIT_DAMAGE', 'STORAGE_DAMAGE', 'EXPIRED', 'RETURN_DAMAGE', 'QUALITY_DEFECT', 'OTHER')),
+        status VARCHAR(30) NOT NULL DEFAULT 'IDENTIFIED' CHECK (status IN ('IDENTIFIED', 'UNDER_REVIEW', 'DISPOSED', 'WRITTEN_OFF', 'RETURNED_TO_SUPPLIER', 'CANCELLED')),
+        disposal_date_ad DATE,
+        disposal_date_bs VARCHAR(20),
+        disposal_method VARCHAR(50) CHECK (disposal_method IN ('SCRAP_DESTRUCTION', 'SALVAGE_E_WASTE', 'VENDOR_RMA', 'INSURANCE_CLAIM', 'WRITE_OFF', 'RETURN_TO_SUPPLIER', 'AUCTION')),
+        salvage_value NUMERIC(15, 2) DEFAULT 0,
+        gl_account_code VARCHAR(100),
+        write_off_loss NUMERIC(15, 2) DEFAULT 0,
+        approved_by VARCHAR(150),
+        notes TEXT,
+        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_damage_records_product ON damage_records(product_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_branch ON damage_records(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_status ON damage_records(status);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_fiscal_year ON damage_records(fiscal_year_id);
+      CREATE INDEX IF NOT EXISTS idx_damage_records_demo ON damage_records(id) WHERE is_demo = TRUE;
+
+      -- 8. Fixed Assets
       CREATE TABLE IF NOT EXISTS fixed_assets (
         id VARCHAR(50) PRIMARY KEY,
         tag_number VARCHAR(100) UNIQUE NOT NULL,
@@ -5583,6 +9152,10 @@ async function syncDatabaseAndIndexes() {
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         acquisition_date_ad DATE NOT NULL,
         acquisition_date_bs VARCHAR(20) NOT NULL,
+        purchase_invoice_date_ad DATE,
+        purchase_invoice_date_bs VARCHAR(20),
+        capitalization_date_ad DATE,
+        placed_in_service_date_ad DATE,
         acquisition_cost NUMERIC(12, 2) NOT NULL,
         depreciation_method VARCHAR(50) DEFAULT 'STRAIGHT_LINE',
         depreciation_rate_percent NUMERIC(5, 2) DEFAULT 15.00,
@@ -5600,12 +9173,13 @@ async function syncDatabaseAndIndexes() {
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id VARCHAR(50) PRIMARY KEY,
         po_number VARCHAR(100) UNIQUE NOT NULL,
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
         supplier_name VARCHAR(200) NOT NULL,
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         order_date_ad DATE NOT NULL,
         order_date_bs VARCHAR(20) NOT NULL,
         expected_delivery_date_ad DATE,
-        status VARCHAR(30) DEFAULT 'DRAFT',
+        status VARCHAR(30) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT', 'IN_PROGRESS', 'PURCHASED', 'RECEIVED', 'CANCELLED')),
         subtotal_amount NUMERIC(14, 2) DEFAULT 0.00,
         tax_amount NUMERIC(14, 2) DEFAULT 0.00,
         total_amount NUMERIC(14, 2) DEFAULT 0.00,
@@ -5618,7 +9192,8 @@ async function syncDatabaseAndIndexes() {
         id VARCHAR(50) PRIMARY KEY,
         invoice_number VARCHAR(100) UNIQUE NOT NULL,
         po_reference_id VARCHAR(50),
-                    vendor_bill_number VARCHAR(100),
+        vendor_bill_number VARCHAR(100),
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
         supplier_name VARCHAR(200) NOT NULL,
         branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
         invoice_date_ad DATE NOT NULL,
@@ -5629,8 +9204,10 @@ async function syncDatabaseAndIndexes() {
         vat_amount NUMERIC(14, 2) DEFAULT 0.00,
         non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
         grand_total NUMERIC(14, 2) DEFAULT 0.00,
-        payment_status VARCHAR(30) DEFAULT 'UNPAID',
+        payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
+        payment_method VARCHAR(30) DEFAULT 'CREDIT' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE')),
         amount_paid NUMERIC(14, 2) DEFAULT 0.00,
+        notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -5684,7 +9261,8 @@ async function syncDatabaseAndIndexes() {
         start_date_bs VARCHAR(20) NOT NULL,
         end_date_bs VARCHAR(20) NOT NULL,
         is_current BOOLEAN DEFAULT FALSE,
-        is_closed BOOLEAN DEFAULT FALSE
+        is_closed BOOLEAN DEFAULT FALSE,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE
       );
 
       -- 13. Audit Trail
@@ -5845,6 +9423,7 @@ async function syncDatabaseAndIndexes() {
         address TEXT NOT NULL,
         city VARCHAR(100),
         country VARCHAR(100),
+        postal_code VARCHAR(30),
         phone VARCHAR(100),
         email VARCHAR(100),
         website VARCHAR(100),
@@ -5853,6 +9432,10 @@ async function syncDatabaseAndIndexes() {
         logo_url TEXT,
         logo_preset VARCHAR(50),
         currency_symbol VARCHAR(20),
+        currency_code VARCHAR(10) DEFAULT 'NPR',
+        currency_locale VARCHAR(20) DEFAULT 'en-IN',
+        currency_position VARCHAR(10) DEFAULT 'before',
+        currency_decimals INT DEFAULT 2,
         default_tax_rate NUMERIC,
         notes TEXT,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -5872,16 +9455,53 @@ async function syncDatabaseAndIndexes() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- 23b. Daily Document Sequence Counters (per branch, per doc type, per day)
+      CREATE TABLE IF NOT EXISTS document_sequence_daily (
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+        doc_type VARCHAR(20) NOT NULL,
+        date_ad DATE NOT NULL,
+        next_number INT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (branch_id, doc_type, date_ad)
+      );
+      CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequence_daily(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
+
       -- SCHEMA MIGRATION SAFE ALTERS
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS vendor_bill_number VARCHAR(100);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL;
       ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS items JSONB;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL;
       ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS items JSONB;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) DEFAULT 'CREDIT';
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS notes TEXT;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS items JSONB;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_by_notes TEXT;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_ad DATE;
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      -- Currency & locale columns for globally-configurable money formatting.
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS postal_code VARCHAR(30);
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_code VARCHAR(10) DEFAULT 'NPR';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_locale VARCHAR(20) DEFAULT 'en-IN';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_position VARCHAR(10) DEFAULT 'before';
+      ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_decimals INT DEFAULT 2;
+      -- Backfill an existing profile that only had the old symbol column.
+      UPDATE company_profile SET
+        currency_code = 'NPR',
+        currency_locale = 'en-IN',
+        currency_position = 'before',
+        currency_decimals = 2
+        WHERE currency_code IS NULL OR currency_code = '';
+      -- Drop the stale hard-coded fiscal-year default (fiscal year is now
+      -- derived from the record date at write time).
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stock_operations' AND column_name = 'fiscal_year' AND column_default IS NOT NULL) THEN
+          ALTER TABLE stock_operations ALTER COLUMN fiscal_year DROP DEFAULT;
+        END IF;
+      END $$;
       ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_module_check;
       ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
         'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
@@ -5902,6 +9522,33 @@ async function syncDatabaseAndIndexes() {
         posted_by VARCHAR(150),
         UNIQUE (fiscal_year_id, product_id, branch_id)
       );
+
+      -- 24. Fiscal-Year Vendor Opening Balances (Vendor Ledger roll-forward)
+      CREATE TABLE IF NOT EXISTS vendor_opening_balances (
+        id VARCHAR(100) PRIMARY KEY,
+        fiscal_year_id VARCHAR(50) NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+        supplier_id VARCHAR(50) NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+        branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+        source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE',
+        source_reference VARCHAR(100),
+        posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        posted_by VARCHAR(150),
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        UNIQUE (fiscal_year_id, supplier_id, branch_id)
+      );
+
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_type VARCHAR(30) NOT NULL DEFAULT 'FISCAL_CLOSE';
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS source_reference VARCHAR(100);
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS posted_by VARCHAR(150);
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE vendor_opening_balances ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_fy ON vendor_opening_balances(fiscal_year_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_supplier ON vendor_opening_balances(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_branch ON vendor_opening_balances(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_opening_demo ON vendor_opening_balances(id) WHERE is_demo = TRUE;
 
       -- HIGH-THROUGHPUT COMPOSITE PERFORMANCE INDEXES --
       CREATE INDEX IF NOT EXISTS idx_branches_code ON branches(code);
@@ -5930,6 +9577,7 @@ async function syncDatabaseAndIndexes() {
 
       CREATE INDEX IF NOT EXISTS idx_invoices_num ON purchase_invoices(invoice_number);
       CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON purchase_invoices(supplier_id);
       CREATE INDEX IF NOT EXISTS idx_invoices_status ON purchase_invoices(payment_status);
 
       CREATE INDEX IF NOT EXISTS idx_shipments_track ON shipments(tracking_code);
@@ -5960,14 +9608,223 @@ async function syncDatabaseAndIndexes() {
 
       CREATE INDEX IF NOT EXISTS idx_bs_days_date ON bs_day_records(bs_date);
       CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
+
+      -- Exactly one fiscal year may be flagged current (prevents the
+      -- ambiguous-default bug where two rows had is_current = TRUE).
+      DROP INDEX IF EXISTS uq_fiscal_years_single_current;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_years_single_current ON fiscal_years ((is_current)) WHERE is_current = TRUE;
+
+      -- Fiscal-year/branch scoped bootstrap query support
+      CREATE INDEX IF NOT EXISTS idx_po_branch_order_date ON purchase_orders(branch_id, order_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_pi_branch_invoice_date ON purchase_invoices(branch_id, invoice_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_assets_acquisition_date ON fixed_assets(acquisition_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_devices_issued_date ON customer_device_records(issued_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad);
+      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
+
+      -- v3.0 enterprise migration: demo tracking (is_demo), audit columns
+      -- (created_by/updated_by/updated_at) and fiscal_year_id FKs tying every
+      -- transactional document to the fiscal_years master table.
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_special_tracked BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE inventory_stock ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS purchase_invoice_date_ad DATE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS purchase_invoice_date_bs VARCHAR(20);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS capitalization_date_ad DATE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS placed_in_service_date_ad DATE;
+      UPDATE fixed_assets SET purchase_invoice_date_ad = acquisition_date_ad WHERE purchase_invoice_date_ad IS NULL;
+      UPDATE fixed_assets SET purchase_invoice_date_bs = acquisition_date_bs WHERE purchase_invoice_date_bs IS NULL;
+      UPDATE fixed_assets SET capitalization_date_ad = acquisition_date_ad WHERE capitalization_date_ad IS NULL;
+      UPDATE fixed_assets SET placed_in_service_date_ad = acquisition_date_ad WHERE placed_in_service_date_ad IS NULL;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- 24. Vendor Payments Sub-ledger
+      CREATE TABLE IF NOT EXISTS vendor_payments (
+        id VARCHAR(50) PRIMARY KEY,
+        payment_number VARCHAR(100) UNIQUE NOT NULL,
+        supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_name VARCHAR(200) NOT NULL,
+        branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+        invoice_id VARCHAR(50) REFERENCES purchase_invoices(id) ON DELETE SET NULL,
+        invoice_number VARCHAR(100),
+        payment_date_ad DATE NOT NULL,
+        payment_date_bs VARCHAR(20),
+        amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+        payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+        bank_name VARCHAR(150),
+        bank_branch VARCHAR(150),
+        account_number VARCHAR(100),
+        cheque_number VARCHAR(100),
+        cheque_date_ad DATE,
+        cheque_date_bs VARCHAR(20),
+        transaction_reference VARCHAR(200),
+        notes TEXT,
+        status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
+        reversal_reason TEXT,
+        reversed_by VARCHAR(150),
+        reversed_at_ad TIMESTAMP WITH TIME ZONE,
+        original_payment_id VARCHAR(50) REFERENCES vendor_payments(id) ON DELETE SET NULL,
+        fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+        is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_supplier ON vendor_payments(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_branch ON vendor_payments(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_invoice ON vendor_payments(invoice_id);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_date ON vendor_payments(payment_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_status ON vendor_payments(status);
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_fiscal_year ON vendor_payments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_vendor_payments_demo ON vendor_payments(id) WHERE is_demo = TRUE;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE fiscal_year_opening_stock ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- Allow the extended stock-movement event types used by the operational
+      -- modules (Stock Operations, Damage Disposal, Product Stock-Out). Fresh
+      -- installs already get the new list from the CREATE TABLE above; this is
+      -- a no-op rewrite on databases created before the extended set shipped.
+      ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
+      ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
+        change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
+          'DAMAGE', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
+          'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')
+      );
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE customer_device_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE bs_day_records ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+      -- is_demo labelling for master tables seeded with example/dummy data
+      -- (Nepali/BS calendar tables are real reference data and never carry it)
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE branches ADD COLUMN IF NOT EXISTS allow_warehouse_transfer BOOLEAN NOT NULL DEFAULT TRUE;
+      ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+      -- v3.0 partial indexes: demo-row fast paths and fiscal-year scoping
+      CREATE INDEX IF NOT EXISTS idx_suppliers_demo ON suppliers(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_categories_demo ON categories(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_products_demo ON products(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_inventory_stock_demo ON inventory_stock(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_demo ON fixed_assets(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_demo ON purchase_orders(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_purchase_invoices_demo ON purchase_invoices(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_shipments_demo ON shipments(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_stock_operations_demo ON stock_operations(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_demo ON audit_logs(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_customer_records_demo ON customer_records(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_customer_device_records_demo ON customer_device_records(id) WHERE is_demo = TRUE;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_device_serial ON customer_device_records ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_pon_serial ON customer_device_records ((lower(trim(pon_serial)))) WHERE trim(pon_serial) <> '';
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_mac_address ON customer_device_records ((lower(trim(mac_address)))) WHERE mac_address IS NOT NULL AND trim(mac_address) <> '';
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_demo ON approval_requests(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_fiscal_year_id ON fixed_assets(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_purchase_invoice_id ON fixed_assets(purchase_invoice_id) WHERE purchase_invoice_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_invoice_date ON fixed_assets(branch_id, purchase_invoice_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_fixed_assets_service_date ON fixed_assets(branch_id, placed_in_service_date_ad);
+      CREATE INDEX IF NOT EXISTS idx_fiscal_years_start_date ON fiscal_years(start_date_ad DESC);
+      CREATE INDEX IF NOT EXISTS idx_fiscal_years_demo ON fiscal_years(id) WHERE is_demo = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_fiscal_year_id ON purchase_orders(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_purchase_invoices_fiscal_year_id ON purchase_invoices(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_shipments_fiscal_year_id ON shipments(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_stock_operations_fiscal_year_id ON stock_operations(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_fiscal_year_id ON audit_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_transaction_logs_fiscal_year_id ON transaction_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_customer_device_records_fiscal_year_id ON customer_device_records(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_fiscal_year_id ON approval_requests(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year_id ON bs_day_records(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
+      CREATE OR REPLACE FUNCTION assign_fiscal_year_id_from_date()
+      RETURNS trigger AS $$
+      DECLARE date_value DATE;
+      BEGIN
+        IF NEW.fiscal_year_id IS NULL THEN
+          date_value := (to_jsonb(NEW) ->> TG_ARGV[0])::DATE;
+          SELECT id INTO NEW.fiscal_year_id FROM fiscal_years
+          WHERE start_date_ad <= date_value AND end_date_ad >= date_value
+          ORDER BY start_date_ad DESC LIMIT 1;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE OR REPLACE TRIGGER trg_fixed_assets_fiscal_year BEFORE INSERT OR UPDATE ON fixed_assets FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('acquisition_date_ad');
+      CREATE OR REPLACE TRIGGER trg_purchase_orders_fiscal_year BEFORE INSERT OR UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('order_date_ad');
+      CREATE OR REPLACE TRIGGER trg_purchase_invoices_fiscal_year BEFORE INSERT OR UPDATE ON purchase_invoices FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('invoice_date_ad');
+      CREATE OR REPLACE TRIGGER trg_shipments_fiscal_year BEFORE INSERT OR UPDATE ON shipments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('dispatch_date_ad');
+      CREATE OR REPLACE TRIGGER trg_stock_operations_fiscal_year BEFORE INSERT OR UPDATE ON stock_operations FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('date_ad');
+      CREATE OR REPLACE TRIGGER trg_audit_logs_fiscal_year BEFORE INSERT OR UPDATE ON audit_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
+      CREATE OR REPLACE TRIGGER trg_transaction_logs_fiscal_year BEFORE INSERT OR UPDATE ON transaction_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');
+      CREATE OR REPLACE TRIGGER trg_customer_devices_fiscal_year BEFORE INSERT OR UPDATE ON customer_device_records FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('issued_date_ad');
+      CREATE OR REPLACE TRIGGER trg_approval_requests_fiscal_year BEFORE INSERT OR UPDATE ON approval_requests FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('requested_at_ad');
+      CREATE OR REPLACE TRIGGER trg_vendor_payments_fiscal_year BEFORE INSERT OR UPDATE ON vendor_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');
+      UPDATE fixed_assets SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE acquisition_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE purchase_orders SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE order_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE purchase_invoices SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE invoice_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE shipments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE dispatch_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE stock_operations SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE customer_device_records SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE issued_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+      UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE payment_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
     `);
 
     isPgConnected = true;
     setIsPgConnected(true);
     await seedInitialPostgresData(client);
+    await hydrateOperationalData(client);
+    await hydrateBsCalendarFromDb(client);
 
     client.release();
-    console.log('✅ All 19 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
+    console.log('✅ All 28 Database tables and enterprise composite performance indexes synced successfully on PostgreSQL.');
   } catch (err: any) {
     isPgConnected = false;
     setIsPgConnected(false);
@@ -5979,22 +9836,22 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
   try {
     for (const b of INITIAL_MASTER_BRANCHES) {
       await client.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-        [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false]
+        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.code, b.name, b.location, b.phone || '', b.isHeadquarters || false, b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false]
       );
     }
     for (const fy of INITIAL_MASTER_FISCAL_YEARS) {
       await client.query(
-        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
         [fy.id, fy.code, fy.startDateAD || '2025-07-16', fy.endDateAD || '2026-07-15', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
       );
     }
     // Seed Company Profile if empty
     await client.query(
-      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, default_tax_rate, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) ON CONFLICT (id) DO NOTHING`,
       [
         INITIAL_COMPANY_PROFILE.id,
         INITIAL_COMPANY_PROFILE.name,
@@ -6003,6 +9860,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         INITIAL_COMPANY_PROFILE.address,
         INITIAL_COMPANY_PROFILE.city,
         INITIAL_COMPANY_PROFILE.country,
+        INITIAL_COMPANY_PROFILE.postalCode || '',
         INITIAL_COMPANY_PROFILE.phone,
         INITIAL_COMPANY_PROFILE.email,
         INITIAL_COMPANY_PROFILE.website,
@@ -6011,6 +9869,10 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
         INITIAL_COMPANY_PROFILE.logoUrl,
         INITIAL_COMPANY_PROFILE.logoPreset,
         INITIAL_COMPANY_PROFILE.currencySymbol,
+        INITIAL_COMPANY_PROFILE.currencyCode || 'NPR',
+        INITIAL_COMPANY_PROFILE.currencyLocale || 'en-IN',
+        INITIAL_COMPANY_PROFILE.currencyPosition || 'before',
+        INITIAL_COMPANY_PROFILE.currencyDecimals ?? 2,
         INITIAL_COMPANY_PROFILE.defaultTaxRate,
         INITIAL_COMPANY_PROFILE.notes,
       ]
@@ -6019,14 +9881,14 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     for (const u of INITIAL_MASTER_UOM) {
       await client.query(
         `INSERT INTO uom (id, name, symbol, type, is_base_unit)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING`,
         [u.id, u.name, u.symbol, u.type, u.isBaseUnit]
       );
     }
     for (const l of INITIAL_MASTER_LOCATIONS) {
       await client.query(
-        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE) ON CONFLICT (id) DO NOTHING`,
         [l.id, l.name, l.type, l.branchId, l.address, JSON.stringify(l.coordinates), l.contactPerson, l.contactPhone, l.notes, l.activeAssetsCount]
       );
     }
@@ -6034,9 +9896,20 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     for (const s of INITIAL_MASTER_SUPPLIERS) {
       const sup = s as any;
       await client.query(
-        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE) ON CONFLICT (id) DO NOTHING`,
         [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
+      );
+    }
+
+    // Example/dummy user accounts (is_demo = TRUE) so the app is testable out
+    // of the box after a fresh setup. Never overwrite existing accounts.
+    for (const eu of INITIAL_EXAMPLE_USERS) {
+      const allowedBranchIds = eu.role === 'SUPER_ADMIN' ? INITIAL_MASTER_BRANCHES.map((b) => b.id) : [eu.branchId];
+      await client.query(
+        `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (email) DO NOTHING`,
+        [eu.id, eu.email, hashPassword(EXAMPLE_USER_PASSWORD), eu.name, eu.role, eu.branchId, allowedBranchIds, eu.canSwitchUser]
       );
     }
 
@@ -6048,18 +9921,8 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       );
     }
 
-    if (users.length > 0) {
-      for (const u of users) {
-        await client.query(
-          `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-          [u.id, u.email, u.password, u.name, u.role, u.branchId, u.allowedBranchIds || [], u.canSwitchUser || false]
-        );
-      }
-    }
-
     // Hydrate all master data from PostgreSQL
-    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement" FROM branches ORDER BY code');
+    const bRes = await client.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY code');
     if (bRes.rows.length > 0) branches = bRes.rows;
 
     const dbUsersRes = await client.query(
@@ -6069,7 +9932,7 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       users = dbUsersRes.rows;
     }
 
-    const fyRes = await client.query('SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years ORDER BY id');
+    const fyRes = await client.query('SELECT id, code, start_date_ad AS "startDateAD", end_date_ad AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo" FROM fiscal_years ORDER BY start_date_ad DESC');
     if (fyRes.rows.length > 0) fiscalYears = fyRes.rows;
 
     const uomRes = await client.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC');
@@ -6081,135 +9944,118 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
     const supDbRes = await client.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
     if (supDbRes.rows.length > 0) suppliers = supDbRes.rows;
 
-    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+    const compRes = await client.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
     if (compRes.rows.length > 0) companyProfile = compRes.rows[0];
 
     const docCfgRes = await client.query('SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits", starting_number AS "startingNumber", next_number AS "nextNumber", reset_every_fiscal_year AS "resetEveryFiscalYear", notes FROM document_number_configs ORDER BY id ASC');
     if (docCfgRes.rows.length > 0) docNumberConfigs = docCfgRes.rows;
 
-    // Only populate operational sample inventory/orders if SEED_DUMMY_DATA=true is explicitly set
-    if (process.env.SEED_DUMMY_DATA !== 'true') {
-      console.log('ℹ️ Clean DB mode active (SEED_DUMMY_DATA is not set). Operational tables initialized empty.');
-      return;
-    }
-
-    for (const s of suppliers) {
-      const sup = s as any;
-      await client.query(
-        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING`,
-        [sup.id, sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', sup.rating || 5.0, sup.status || 'ACTIVE']
-      );
-    }
-    const categoryList = Array.from(new Set(products.map((p) => p.category))).map((cat, idx) => ({
-      id: `cat-${idx + 1}`,
-      name: cat,
-      code: cat.toUpperCase().replace(/\s+/g, '_').slice(0, 10),
-      description: `${cat} Inventory Category`,
-    }));
-    for (const c of categoryList) {
-      await client.query(
-        `INSERT INTO categories (id, name, code, description)
-         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.name, c.code, c.description]
-      );
-    }
-    for (const p of products) {
-      const prod = p as any;
-      await client.query(
-        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
-        [
-          prod.id, prod.sku, prod.barcode || '', prod.name, prod.category, prod.productGroup || 'Product Item', prod.unit || 'Pcs',
-          prod.costPrice || 0, prod.sellingPrice || 0, prod.taxRate || 13.0, prod.minReorderLevel || 5, prod.requiresSerialTracking || false,
-          prod.trackingType || 'QUANTITY_ONLY', prod.description || '', prod.status || 'ACTIVE'
-        ]
-      );
-    }
-    for (const st of inventoryStock) {
-      await client.query(
-        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-        [st.id, st.productId, st.branchId, st.quantityOnHand || 0, st.damagedQty || 0, st.reservedQty || 0, st.incomingQty || 0, st.minReorderLevel || 5]
-      );
-    }
-    for (const a of assetRegister) {
-      await client.query(
-        `INSERT INTO fixed_assets (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (id) DO NOTHING`,
-        [
-          a.id, a.tagNumber, a.name, a.category, a.branchId, a.acquisitionDateAD || '2025-01-01', a.acquisitionDateBS || '2081-09-17',
-          a.acquisitionCost || 0, a.depreciationMethod || 'STRAIGHT_LINE', a.depreciationRatePercent || 15.0,
-          a.accumulatedDepreciation || 0, a.netBookValue || 0, a.status || 'ACTIVE', a.supplierName || '', a.invoiceNo || ''
-        ]
-      );
-    }
-    for (const po of purchaseOrders) {
-      await client.query(
-        `INSERT INTO purchase_orders (id, po_number, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING`,
-        [
-          po.id, po.poNumber, po.supplierName, po.branchId, po.orderDateAD || '2025-01-01', po.orderDateBS || '2081-09-17',
-          po.expectedDeliveryDateAD || '2025-01-10', po.status || 'DRAFT', po.subtotalAmount || 0, po.taxAmount || 0,
-          po.totalAmount || 0, po.notes || ''
-        ]
-      );
-    }
-    for (const inv of purchaseInvoices) {
-      await client.query(
-        `INSERT INTO purchase_invoices (id, invoice_number, po_reference_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, amount_paid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING`,
-        [
-          inv.id, inv.invoiceNumber, inv.poReferenceId || '', inv.supplierName, inv.branchId, inv.invoiceDateAD || '2025-01-01',
-          inv.invoiceDateBS || '2081-09-17', inv.taxableAmount || 0, inv.vatAmount || 0, inv.nonTaxableAmount || 0,
-          inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.amountPaid || 0
-        ]
-      );
-    }
-    for (const cust of customerMasterRecords) {
-      await client.query(
-        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING`,
-        [
-          cust.id, cust.customerId, cust.customerName, cust.username || '', cust.contactNumber || '', cust.branchId,
-          cust.address || '', cust.email || '', cust.status || 'ACTIVE', cust.creditLimit || 0, cust.assignedDevicesCount || 0
-        ]
-      );
-    }
-    for (const dev of customerDeviceRecords) {
-      await client.query(
-        `INSERT INTO customer_device_records (id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) ON CONFLICT (id) DO NOTHING`,
-        [
-          dev.id, dev.customerId || '', dev.customerName, dev.customerCode, dev.contactPhone || '', dev.installationAddress || '',
-          dev.branchId, dev.productName, dev.deviceSerial, dev.ponSerial, dev.macAddress || '', dev.status || 'ACTIVE',
-          dev.issuedDateAD || '2025-01-01', dev.issuedDateBS || '2081-09-17', dev.purchaseBillRef || '', dev.notes || ''
-        ]
-      );
-    }
-    for (const app of approvalRequests) {
-      await client.query(
-        `INSERT INTO approval_requests (id, request_number, type, target_id, customer_name, customer_code, device_serial, pon_serial, product_name, current_status, requested_status, requested_by_role, requested_by_email, requested_by_name, branch_id, branch_name, reason, restock_qty_on_approval, status, requested_at_ad, requested_at_bs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) ON CONFLICT (id) DO NOTHING`,
-        [
-          app.id, app.requestNumber, app.type, app.targetId || '', app.customerName || '', app.customerCode || '',
-          app.deviceSerial || '', app.ponSerial || '', app.productName || '', app.currentStatus || '', app.requestedStatus || '',
-          app.requestedByRole || '', app.requestedByEmail || '', app.requestedByName || '', app.branchId, app.branchName || '',
-          app.reason || '', app.restockQtyOnApproval || false, app.status || 'PENDING', app.requestedAtAD || new Date().toISOString(), app.requestedAtBS || '2081-09-17'
-        ]
-      );
-    }
-    console.log('✅ Initial PostgreSQL seed data loaded successfully.');
+    console.log('✅ Master data seeded and hydrated. Operational data is always served from PostgreSQL (single source of truth).');
   } catch (seedErr: any) {
     console.log('PostgreSQL initial seed note:', seedErr?.message || seedErr);
   }
 }
 
+// Re-hydrates the operational runtime caches directly from PostgreSQL so the
+// server always starts with a mirror of the database (PostgreSQL is the
+// single source of truth). Each table is loaded independently; a failure on
+// one table keeps the previously loaded caches intact.
+async function hydrateOperationalData(client: pg.PoolClient) {
+  const loads: Array<{ name: string; query: string; apply: (rows: any[]) => void }> = [
+    {
+      name: 'products',
+      query: 'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products',
+      apply: (rows) => { products = rows; },
+    },
+    {
+      name: 'categories',
+      query: 'SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC',
+      apply: (rows) => { categories = rows; },
+    },
+    {
+      name: 'inventory_stock',
+      query: 'SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock',
+      apply: (rows) => { inventoryStock = rows; },
+    },
+    {
+      name: 'fixed_assets',
+      query: 'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets',
+      apply: (rows) => { assetRegister = rows; },
+    },
+    {
+      name: 'purchase_orders',
+      query: 'SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders',
+      apply: (rows) => { purchaseOrders = rows; },
+    },
+    {
+      name: 'purchase_invoices',
+      query: 'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM purchase_invoices',
+      apply: (rows) => { purchaseInvoices = rows; },
+    },
+    {
+      name: 'shipments',
+      query: 'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments',
+      apply: (rows) => { shipments = rows; },
+    },
+    {
+      name: 'stock_operations',
+      query: 'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations',
+      apply: (rows) => { stockOperations = rows; },
+    },
+    {
+      name: 'audit_logs',
+      query: 'SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs ORDER BY timestamp_ad DESC',
+      apply: (rows) => { auditTrail = rows; },
+    },
+    {
+      name: 'transaction_logs',
+      query: 'SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs ORDER BY timestamp_ad DESC',
+      apply: (rows) => { transactionLogs = rows; },
+    },
+    {
+      name: 'customer_records',
+      query: 'SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records',
+      apply: (rows) => { customerMasterRecords = rows; },
+    },
+    {
+      name: 'customer_device_records',
+      query: 'SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records',
+      apply: (rows) => { customerDeviceRecords = rows; },
+    },
+    {
+      name: 'vendor_payments',
+      query: 'SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments ORDER BY payment_date_ad DESC, created_at DESC',
+      apply: (rows) => { vendorPayments = rows; },
+    },
+    {
+      name: 'vendor_opening_balances',
+      query: 'SELECT id, fiscal_year_id AS "fiscalYearId", supplier_id AS "supplierId", branch_id AS "branchId", opening_balance::float AS "openingBalance", source_type AS "sourceType", source_reference AS "sourceReference", posted_at::text AS "postedAt", posted_by AS "postedBy" FROM vendor_opening_balances',
+      apply: (rows) => { vendorOpeningBalances = rows; },
+    },
+  ];
+
+  for (const load of loads) {
+    try {
+      const result = await client.query(load.query);
+      load.apply(result.rows);
+    } catch (e: any) {
+      console.warn(`Operational cache hydration skipped for ${load.name}:`, e?.message || e);
+    }
+  }
+  console.log(
+    `✅ Operational caches hydrated from PostgreSQL: ` +
+    `${products.length} products, ${inventoryStock.length} stock rows, ${purchaseOrders.length} POs, ` +
+    `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops, ` +
+    `${vendorPayments.length} vendor payments, ${vendorOpeningBalances.length} vendor opening balances.`
+  );
+}
+
+
 async function startServer() {
   await syncDatabaseAndIndexes();
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
+    console.log(`Inventory Management System server running on http://localhost:${PORT}`);
   });
 
   if (process.env.NODE_ENV !== 'production') {

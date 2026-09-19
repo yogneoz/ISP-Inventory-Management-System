@@ -11,6 +11,8 @@ import {
   Shipment,
   StockOperation,
   FiscalYear,
+  FiscalYearOpeningStockResponse,
+  VendorOpeningBalanceResponse,
   AuditLog,
   TransactionLog,
   FinancialSummary,
@@ -22,13 +24,18 @@ import {
   UnitOfMeasure,
   LocationRecord,
   DocumentNumberConfig,
+  VendorPayment,
 } from '../types';
-import { generateNextDocumentNumber } from '../utils/documentNumbering';
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
 let currentUserContext: User | null = null;
 let currentFiscalYearId: string | null = null;
+let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem('inventory_auth_token') : null;
+
+export const setAuthToken = (token: string | null) => {
+  authToken = token;
+};
 
 export const setUserContext = (user: User | null) => {
   currentUserContext = user;
@@ -51,12 +58,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
   }
 
   const userHeaders: Record<string, string> = {};
-  if (currentUserContext) {
-    userHeaders['x-user-email'] = currentUserContext.email;
-    userHeaders['x-user-name'] = currentUserContext.name;
-    userHeaders['x-user-role'] = currentUserContext.role;
-    userHeaders['x-user-branch'] = currentUserContext.branchId;
-  }
+  if (authToken) userHeaders.Authorization = `Bearer ${authToken}`;
   if (currentFiscalYearId) userHeaders['x-fiscal-year-id'] = currentFiscalYearId;
 
   const promise = (async () => {
@@ -72,7 +74,14 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(errorBody.message || `Request failed with status ${res.status}`);
+        const error = new Error(errorBody.message || `Request failed with status ${res.status}`);
+        // Attach status code for 401 detection
+        (error as any).status = res.status;
+        // Dispatch auth expiration event on 401 so App can force logout
+        if (res.status === 401) {
+          window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
+        }
+        throw error;
       }
       return await res.json();
     } finally {
@@ -174,10 +183,13 @@ export const api = {
     return fetchJson('/api/auth/me');
   },
 
-  async switchProfile(targetUserId: string): Promise<{ user: User; token: string }> {
+  async switchProfile(
+    targetUserId: string,
+    options?: { targetEmail?: string }
+  ): Promise<{ user: User; token: string }> {
     return fetchJson('/api/auth/switch-profile', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId }),
+      body: JSON.stringify({ targetUserId, ...(options?.targetEmail ? { targetEmail: options.targetEmail } : {}) }),
     });
   },
 
@@ -357,6 +369,22 @@ export const api = {
     });
   },
 
+  async recalculateFixedAssets(): Promise<{ message: string; updated: number }> {
+    return fetchJson('/api/admin/recalculate/fixed-assets', { method: 'POST' });
+  },
+
+  async recalculateLiveStock(): Promise<{ message: string; updated: number }> {
+    return fetchJson('/api/admin/recalculate/live-stock', { method: 'POST' });
+  },
+
+  async rebuildBsDayRecords(): Promise<{ success: boolean; pgSynced: boolean; years: number; regeneratedRecords: number; message: string }> {
+    return fetchJson('/api/admin/recalculate/bs-day-records', { method: 'POST' });
+  },
+
+  async repairFiscalYearLinks(): Promise<{ success: boolean; totalFixed: number; perTable: Record<string, number>; message: string }> {
+    return fetchJson('/api/admin/repair/fiscal-year-links', { method: 'POST' });
+  },
+
   // Purchase Orders
   async getPurchaseOrders(branchId?: string): Promise<PurchaseOrder[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -364,10 +392,11 @@ export const api = {
   },
 
   async createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'> & { poNumber?: string }): Promise<PurchaseOrder> {
-    const poNumber = po.poNumber || generateNextDocumentNumber('PO', true);
+    // The server issues the PO number via issueNextDocNumber (per-branch daily
+    // atomic counter). Only pass one through when the caller explicitly set it.
     return fetchJson('/api/purchase-orders', {
       method: 'POST',
-      body: JSON.stringify({ ...po, poNumber }),
+      body: JSON.stringify(po),
     });
   },
 
@@ -389,12 +418,6 @@ export const api = {
     return fetchJson(`/api/purchase-orders/${id}`, { method: 'DELETE' });
   },
 
-  async receivePurchaseOrder(id: string): Promise<PurchaseOrder> {
-    return fetchJson(`/api/purchase-orders/${id}/receive`, {
-      method: 'POST',
-    });
-  },
-
   // Purchase Invoices
   async getPurchaseInvoices(branchId?: string): Promise<PurchaseInvoice[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -402,22 +425,131 @@ export const api = {
   },
 
   async createPurchaseInvoice(inv: Partial<PurchaseInvoice>): Promise<PurchaseInvoice> {
-    const invoiceNumber = inv.invoiceNumber || generateNextDocumentNumber('PI', true);
+    // The server issues the invoice number via issueNextDocNumber.
     return fetchJson('/api/purchase-invoices', {
       method: 'POST',
-      body: JSON.stringify({ ...inv, invoiceNumber }),
+      body: JSON.stringify(inv),
     });
   },
 
-  async recordInvoicePayment(id: string, amount: number): Promise<PurchaseInvoice> {
+  async recordInvoicePayment(id: string, amount: number, paymentMethod?: string): Promise<PurchaseInvoice> {
     return fetchJson(`/api/purchase-invoices/${id}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, paymentMethod }),
     });
   },
 
   async deletePurchaseInvoice(id: string): Promise<{ success: boolean }> {
     return fetchJson(`/api/purchase-invoices/${id}`, { method: 'DELETE' });
+  },
+
+  async getInvoicePayments(id: string): Promise<VendorPayment[]> {
+    return fetchJson(`/api/purchase-invoices/${id}/payments`);
+  },
+
+  // Vendor Payments Sub-ledger
+  async getVendorPayments(params?: {
+    supplierId?: string;
+    invoiceId?: string;
+    branchId?: string;
+    status?: string;
+    fromAd?: string;
+    toAd?: string;
+    fiscalYearId?: string;
+  }): Promise<VendorPayment[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.supplierId) queryParams.set('supplierId', params.supplierId);
+    if (params?.invoiceId) queryParams.set('invoiceId', params.invoiceId);
+    if (params?.branchId) queryParams.set('branchId', params.branchId);
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
+    if (params?.toAd) queryParams.set('toAd', params.toAd);
+    if (params?.fiscalYearId) queryParams.set('fiscalYearId', params.fiscalYearId);
+    const qs = queryParams.toString();
+    return fetchJson(`/api/vendor-payments${qs ? `?${qs}` : ''}`);
+  },
+
+  async createVendorPayment(payload: {
+    supplierId?: string;
+    supplierName?: string;
+    invoiceId?: string;
+    invoiceNumber?: string;
+    amount: number;
+    paymentDateAD?: string;
+    paymentDateBS?: string;
+    paymentMethod?: string;
+    paymentNumber?: string;
+    bankName?: string;
+    bankBranch?: string;
+    accountNumber?: string;
+    chequeNumber?: string;
+    chequeDateAD?: string;
+    chequeDateBS?: string;
+    transactionReference?: string;
+    branchId?: string;
+  }): Promise<VendorPayment> {
+    // The server issues the payment number via issueNextDocNumber
+    // (CP = Cash Payment, BP = Bank Payment, both per-branch daily counters).
+    return fetchJson('/api/vendor-payments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async reverseVendorPayment(id: string, reason: string): Promise<{ success: boolean; message: string; paymentId: string }> {
+    return fetchJson(`/api/vendor-payments/${id}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  // Reverse ALL posted payments for a fully paid invoice (restores it to UNPAID)
+  async reverseInvoicePayments(
+    id: string,
+    reason: string
+  ): Promise<{ success: boolean; message: string; reversedCount: number; invoiceId: string }> {
+    return fetchJson(`/api/purchase-invoices/${id}/reverse-payments`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getVendorLedger(
+    supplierId: string,
+    params?: {
+      fromAd?: string;
+      toAd?: string;
+      fiscalYearId?: string;
+      branchId?: string;
+    }
+  ): Promise<{
+    supplier: { id: string; name: string };
+    openingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+    closingBalance: number;
+    ledger: Array<{
+      id: string;
+      documentNumber: string;
+      dateAD: string;
+      dateBS: string;
+      amount: number;
+      type: 'INVOICE' | 'PAYMENT';
+      notes?: string | null;
+      vatAmount?: number;
+      paymentMethod?: string;
+      debit: number;
+      credit: number;
+      balance: number;
+    }>;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
+    if (params?.toAd) queryParams.set('toAd', params.toAd);
+    if (params?.fiscalYearId) queryParams.set('fiscalYearId', params.fiscalYearId);
+    if (params?.branchId) queryParams.set('branchId', params.branchId);
+    const qs = queryParams.toString();
+    return fetchJson(`/api/vendors/${supplierId}/ledger${qs ? `?${qs}` : ''}`);
   },
 
   // Shipments
@@ -427,10 +559,10 @@ export const api = {
   },
 
   async createShipment(shipment: Partial<Shipment>): Promise<Shipment> {
-    const trackingCode = shipment.trackingCode || generateNextDocumentNumber('ST', true);
+    // The server issues the tracking code via issueNextDocNumber (ST).
     return fetchJson('/api/shipments', {
       method: 'POST',
-      body: JSON.stringify({ ...shipment, trackingCode }),
+      body: JSON.stringify(shipment),
     });
   },
 
@@ -493,6 +625,19 @@ export const api = {
     });
   },
 
+  // Reverse a DAMAGE stock operation: restores units to available stock and
+  // marks the damage record CANCELLED. Guarded to Super Admin / Inventory Manager.
+  async reverseStockOperation(
+    id: string,
+    reason?: string,
+    user?: User | null
+  ): Promise<{ message: string; operation: StockOperation }> {
+    return fetchJson(`/api/stock-operations/${id}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, user }),
+    });
+  },
+
   // Fiscal Years
   async getFiscalYears(): Promise<FiscalYear[]> {
     return fetchJson('/api/fiscal-years');
@@ -511,16 +656,89 @@ export const api = {
     });
   },
 
-  async closeFiscalYear(id: string): Promise<FiscalYear> {
-    return fetchJson(`/api/fiscal-years/${id}/close`, { method: 'POST' });
+  async createFiscalYear(input: {
+    code: string;
+    startDateAD: string;
+    endDateAD: string;
+    startDateBS: string;
+    endDateBS: string;
+  }): Promise<FiscalYear> {
+    return fetchJson('/api/fiscal-years', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
 
-  async reopenFiscalYear(id: string): Promise<FiscalYear> {
-    return fetchJson(`/api/fiscal-years/${id}/reopen`, { method: 'POST' });
+  async closeFiscalYear(
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify(credentials || {}),
+    });
   },
 
-  async initializeFiscalYearOpeningStock(id: string): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }> {
+  async reopenFiscalYear(
+    id: string,
+    credentials?: { adminEmail: string; adminPassword: string }
+  ): Promise<FiscalYear> {
+    return fetchJson(`/api/fiscal-years/${id}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(credentials || {}),
+    });
+  },
+
+  async initializeFiscalYearOpeningStock(
+    id: string
+  ): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }> {
     return fetchJson(`/api/fiscal-years/${id}/initialize-opening-stock`, { method: 'POST' });
+  },
+
+  // Opening-Stock Register (Fiscal Year)
+  async getFiscalYearOpeningStock(id: string): Promise<FiscalYearOpeningStockResponse> {
+    return fetchJson(`/api/fiscal-years/${id}/opening-stock`);
+  },
+
+  async adjustFiscalYearOpeningStock(
+    id: string,
+    rows: Array<{
+      productId: string;
+      branchId: string;
+      quantityOnHand: number;
+      damagedQty: number;
+      unitCost: number;
+    }>
+  ): Promise<{ applied: number; created: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${id}/opening-stock`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    });
+  },
+
+  // Fiscal-Year Vendor Opening Balances (Vendor Ledger roll-forward)
+  async getVendorOpeningBalances(id: string): Promise<VendorOpeningBalanceResponse> {
+    return fetchJson(`/api/fiscal-years/${id}/vendor-opening-balances`);
+  },
+
+  async adjustVendorOpeningBalances(
+    id: string,
+    rows: Array<{
+      supplierId: string;
+      branchId: string;
+      openingBalance: number;
+    }>
+  ): Promise<{ applied: number; created: number; message: string }> {
+    return fetchJson(`/api/fiscal-years/${id}/vendor-opening-balances`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    });
+  },
+
+  async rollForwardVendorOpenings(
+    id: string
+  ): Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }> {
+    return fetchJson(`/api/fiscal-years/${id}/roll-forward-vendor-openings`, { method: 'POST' });
   },
 
   async deleteFiscalYear(id: string): Promise<{ message: string; id: string }> {
@@ -572,8 +790,11 @@ export const api = {
   },
 
   // Financial Summary
-  async getFinancialSummary(branchId?: string): Promise<FinancialSummary> {
-    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+  async getFinancialSummary(branchId?: string, fiscalYearId?: string): Promise<FinancialSummary> {
+    const params = new URLSearchParams();
+    if (branchId && branchId !== 'ALL') params.set('branchId', branchId);
+    if (fiscalYearId) params.set('fiscalYearId', fiscalYearId);
+    const query = params.toString() ? `?${params.toString()}` : '';
     return fetchJson(`/api/reports/financial-summary${query}`);
   },
 
@@ -614,6 +835,24 @@ export const api = {
   }): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
     return fetchJson('/api/customer-devices/exchange', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateDeviceSerials(payload: {
+    id?: string;
+    sourceType?: string;
+    sourceId?: string;
+    oldDeviceSerial?: string;
+    oldPonSerial?: string;
+    oldMacAddress?: string;
+    deviceSerial: string;
+    ponSerial: string;
+    macAddress?: string;
+    branchId?: string;
+  }): Promise<any> {
+    return fetchJson('/api/inventory/serials', {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     });
   },
@@ -698,17 +937,60 @@ export const api = {
     return fetchJson(`/api/bs-calendar/days${queryString}`);
   },
 
-  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; message: string }> {
+  // Single-day lookup against the bs_day_records table (PostgreSQL authoritative,
+  // in-memory fallback). Returns found=false when the AD date has no seeded BS record.
+  async getBsDayRecordByAdDate(adDateStr: string): Promise<{
+    found: boolean;
+    source?: string;
+    adDate?: string | null;
+    record?: any;
+    message?: string;
+  }> {
+    const params = new URLSearchParams({ adDate: adDateStr });
+    return fetchJson(`/api/bs-calendar/day?${params.toString()}`);
+  },
+
+  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string, onlyIfNew?: boolean): Promise<{ success: boolean; skipped?: boolean; pgSynced?: boolean; message: string }> {
     return fetchJson('/api/bs-calendar/seed', {
       method: 'POST',
       body: JSON.stringify({ yearBS, daysInMonths, customStartAD, onlyIfNew }),
     });
   },
 
-  async syncBsDayRange(dayRecords: any[]): Promise<{ success: boolean; count: number; message: string }> {
+  // Batch (multi-year) seed of the BS calendar month arrays. Seeds every
+  // provided year in one request, expanding the day-by-day bs_day_records
+  // lookup table for all of them. Accepts an array of { yearBS, daysInMonths,
+  // customStartAD? } objects.
+  async seedBsCalendarYearsBulk(years: { yearBS: number; daysInMonths: number[]; customStartAD?: string }[], onlyIfNew?: boolean): Promise<{
+    success: boolean;
+    pgSynced?: boolean;
+    seededCount?: number;
+    skippedYears?: number[];
+    message: string;
+  }> {
+    return fetchJson('/api/bs-calendar/seed-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ years, onlyIfNew }),
+    });
+  },
+
+  async syncBsDayRange(dayRecords: any[]): Promise<{ success: boolean; pgSynced?: boolean; count: number; message: string }> {
     return fetchJson('/api/bs-calendar/sync-range', {
       method: 'POST',
       body: JSON.stringify({ dayRecords }),
+    });
+  },
+
+  // Update an existing BS year's month-length config / AD start date, then
+  // regenerate its day-by-day records (and those of subsequent years whose
+  // start date shifts) in bs_day_records.
+  async updateBsCalendarYear(
+    yearBS: number,
+    payload: { daysInMonths?: number[]; startAD?: string; recalculateNextStartAD?: boolean }
+  ): Promise<{ success: boolean; pgSynced?: boolean; affectedYears?: number[]; regeneratedRecords?: number; message: string }> {
+    return fetchJson(`/api/bs-calendar/years/${yearBS}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   },
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Users,
   Search,
@@ -28,6 +29,7 @@ import {
   Check,
   Tag,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import * as XLSX from 'xlsx';
 
 interface CustomerMasterDirectoryProps {
@@ -40,7 +42,6 @@ interface CustomerMasterDirectoryProps {
   onDeleteCustomer: (id: string) => Promise<void>;
   onNavigateToImport: () => void;
   onSelectTab?: (tab: string, searchQuery?: string) => void;
-  isDarkMode?: boolean;
 }
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
@@ -53,7 +54,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   onDeleteCustomer,
   onNavigateToImport,
   onSelectTab,
-  isDarkMode = false,
 }) => {
   // Check permission: Only Super Admin and Inventory Manager can Edit / Delete master customer records
   const canManageMaster =
@@ -217,6 +217,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     return matchesBranch && matchesStatus && matchesSearch;
   });
 
+  const customersPagination = useClientPagination(filteredCustomers, 15, [searchQuery, selectedBranchFilter, statusFilter]);
+
   // Export Customer Master Table to CSV (.csv)
   const handleExportCSV = () => {
     if (filteredCustomers.length === 0) {
@@ -257,18 +259,18 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Top Header Banner */}
-      <div className={`p-6 rounded-2xl border shadow-sm ${isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className={`px-4 py-3 rounded-2xl border shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                <Users className="h-6 w-6" />
+              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <Users className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">Customer Master Directory</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                <h1 className="text-lg font-bold tracking-tight">Customer Master Directory</h1>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Central master table for customer records, usernames, primary mobile numbers, branch assignments, and credit profiles.
                 </p>
               </div>
@@ -279,11 +281,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canExportImport && (
               <button
                 onClick={handleExportCSV}
-                className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
-                  isDarkMode
-                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
-                    : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                 <span>Export CSV</span>
@@ -293,11 +291,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             {canExportImport && (
               <button
                 onClick={onNavigateToImport}
-                className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
-                  isDarkMode
-                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
-                    : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
                 <Upload className="h-4 w-4 text-indigo-600" />
                 <span>Import CSV</span>
@@ -317,51 +311,45 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         </div>
 
         {/* Quick Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Registered Customers</span>
-            <div className="text-xl font-bold mt-1 text-slate-900 dark:text-white">{customers.length} Accounts</div>
+            <div className="text-lg font-bold mt-0.5 text-slate-900 dark:text-white">{customers.length} Accounts</div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Active Status Accounts</span>
-            <div className="text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
+            <div className="text-lg font-bold mt-0.5 text-emerald-700 dark:text-emerald-400">
               {customers.filter((c) => c.status === 'ACTIVE').length} Active
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Tracked Device Serials</span>
-            <div className="text-xl font-bold mt-1 text-indigo-700 dark:text-indigo-400">
+            <div className="text-lg font-bold mt-0.5 text-indigo-700 dark:text-indigo-400">
               {customerDevices.length} Hardware Devices
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Total Credit Capacity</span>
-            <div className="text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">
-              रु {customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0).toLocaleString('en-IN')}
+            <div className="text-lg font-bold mt-0.5 text-amber-700 dark:text-amber-400">
+              {formatNPR(customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
             </div>
           </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className={`p-4 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 ${
-        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-      }`}>
-        <div className="relative flex-1 w-full">
+      <div className={`p-3 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             placeholder="Search by Cus. Code, Name, Username, Primary Mobile, Email, or Address..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full pl-10 pr-4 py-2 text-sm rounded-xl border transition-colors outline-none ${
-              isDarkMode
-                ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:border-indigo-500'
-                : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-500'
-            }`}
+            className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border transition-colors outline-none bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-indigo-500`}
           />
         </div>
 
@@ -372,11 +360,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <select
               value={selectedBranchFilter}
               onChange={(e) => setSelectedBranchFilter(e.target.value)}
-              className={`px-3 py-2 text-sm rounded-xl border outline-none font-medium ${
-                isDarkMode
-                  ? 'bg-slate-800 border-slate-700 text-white'
-                  : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-medium bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
             >
               <option value="ALL">All Branches ({branches.length})</option>
               {branches.map((b) => (
@@ -392,11 +376,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className={`px-3 py-2 text-sm rounded-xl border outline-none font-medium ${
-                isDarkMode
-                  ? 'bg-slate-800 border-slate-700 text-white'
-                  : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-medium bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
             >
               <option value="ALL">All Statuses</option>
               <option value="ACTIVE">Active Only</option>
@@ -407,30 +387,26 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       </div>
 
       {/* Customer Master Directory Table */}
-      <div className={`rounded-2xl border shadow-sm overflow-hidden ${
-        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div className={`rounded-2xl border shadow-sm overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className={`border-b text-xs uppercase font-bold tracking-wider ${
-                isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
-              }`}>
-                <th className="p-3.5">Cus. Code</th>
-                <th className="p-3.5">Customer Name & Username</th>
-                <th className="p-3.5">Primary Mobile</th>
-                <th className="p-3.5">Branch</th>
-                <th className="p-3.5">Contact Details & Address</th>
-                <th className="p-3.5 text-center">Assigned Hardware</th>
-                <th className="p-3.5 text-right">Credit Limit</th>
-                <th className="p-3.5 text-center">Status</th>
-                <th className="p-3.5 text-right">Actions</th>
+              <tr className={`border-b text-[11px] font-bold tracking-wider bg-slate-100 border-slate-200 text-slate-700 dark:bg-slate-800/90 dark:border-slate-700 dark:text-slate-300`}>
+                <th className="px-2.5 py-1.5">Cus. Code</th>
+                <th className="px-2.5 py-1.5">Customer Name & Username</th>
+                <th className="px-2.5 py-1.5">Primary Mobile</th>
+                <th className="px-2.5 py-1.5">Branch</th>
+                <th className="px-2.5 py-1.5">Contact Details & Address</th>
+                <th className="px-2.5 py-1.5 text-center">Assigned Hardware</th>
+                <th className="px-2.5 py-1.5 text-right">Credit Limit (NPR)</th>
+                <th className="px-2.5 py-1.5 text-center">Status</th>
+                <th className="px-2.5 py-1.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-12 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
                     <p className="font-semibold text-base">No Customer Records Found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -439,7 +415,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   </td>
                 </tr>
               ) : (
-                filteredCustomers.map((customer) => {
+                customersPagination.pagedItems.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
                   
                   // Matching device serial records from Customer Device Serials
@@ -454,17 +430,15 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   return (
                     <React.Fragment key={customer.id}>
                       <tr
-                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
-                          isExpanded ? (isDarkMode ? 'bg-slate-800/60' : 'bg-indigo-50/30') : ''
-                        } ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}
+                        className={`hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors ${isExpanded ? 'bg-indigo-50/30 dark:bg-slate-800/60' : 'text-slate-800 dark:text-slate-200'}`}
                       >
                         {/* Cus. Code */}
-                        <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           {customer.customerId || customer.id}
                         </td>
 
                         {/* Customer Name & Username */}
-                        <td className="p-3.5">
+                        <td className="p-2.5">
                           <div className="font-bold text-slate-900 dark:text-white">
                             {customer.customerName}
                           </div>
@@ -474,7 +448,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Primary Mobile */}
-                        <td className="p-3.5 font-mono text-slate-900 dark:text-white whitespace-nowrap">
+                        <td className="p-2.5 font-mono text-slate-900 dark:text-white whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Phone className="h-3.5 w-3.5 text-slate-400" />
                             <span>{customer.contactNumber}</span>
@@ -482,7 +456,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Branch */}
-                        <td className="p-3.5 whitespace-nowrap">
+                        <td className="p-2.5 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             <Building2 className="h-3 w-3 text-indigo-500" />
                             {branchObj ? `${branchObj.name} (${branchObj.code})` : customer.branchId}
@@ -490,7 +464,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Contact Details & Address */}
-                        <td className="p-3.5 max-w-xs">
+                        <td className="p-2.5 max-w-xs">
                           {customer.email && (
                             <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-0.5 truncate">
                               <Mail className="h-3 w-3 text-slate-400 flex-shrink-0" />
@@ -504,18 +478,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Assigned Hardware & Serials Badge */}
-                        <td className="p-3.5 text-center whitespace-nowrap">
+                        <td className="p-2.5 text-center whitespace-nowrap">
                           <button
                             onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                              matchingDevices.length > 0
-                                ? isDarkMode
-                                  ? 'bg-indigo-950/60 border-indigo-700 text-indigo-300 hover:bg-indigo-900'
-                                  : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                                : isDarkMode
-                                ? 'bg-slate-800 border-slate-700 text-slate-400'
-                                : 'bg-slate-100 border-slate-200 text-slate-500'
-                            }`}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${matchingDevices.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}
                           >
                             <Smartphone className="h-3.5 w-3.5 text-indigo-500" />
                             <span>{matchingDevices.length} Serials</span>
@@ -528,12 +494,12 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Credit Limit */}
-                        <td className="p-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                          रु {(customer.creditLimit || 0).toLocaleString('en-IN')}
+                        <td className="p-2.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                          {formatNPR(customer.creditLimit)}
                         </td>
 
                         {/* Status */}
-                        <td className="p-3.5 text-center whitespace-nowrap">
+                        <td className="p-2.5 text-center whitespace-nowrap">
                           {customer.status === 'ACTIVE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                               <CheckCircle2 className="h-3 w-3" />
@@ -548,7 +514,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
 
                         {/* Actions */}
-                        <td className="p-3.5 text-right whitespace-nowrap">
+                        <td className="p-2.5 text-right whitespace-nowrap">
                           {canManageMaster ? (
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -575,9 +541,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                       {/* Expandable Panel showing assigned hardware serials for this customer */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={9} className={`p-4 border-y ${
-                            isDarkMode ? 'bg-slate-950/90 border-indigo-900/40' : 'bg-indigo-50/40 border-indigo-100'
-                          }`}>
+                          <td colSpan={9} className={`p-2.5 border-y bg-indigo-50/40 border-indigo-100 dark:bg-slate-950/90 dark:border-indigo-900/40`}>
                             <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 p-4 bg-white dark:bg-slate-900 shadow-sm">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
                                 <div className="flex items-center gap-2">
@@ -598,7 +562,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                               </div>
 
                               {matchingDevices.length === 0 ? (
-                                <div className="p-6 text-center text-slate-500 text-xs">
+                                <div className="p-4 text-center text-slate-500 text-xs">
                                   <p className="font-semibold">No Hardware Serials Assigned</p>
                                   <p className="text-[11px] text-slate-400 mt-0.5">
                                     No router, ONU, or STB devices are currently linked to this customer code in the serials directory.
@@ -617,20 +581,18 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                 <div className="overflow-x-auto">
                                   <table className="w-full text-left text-xs border-collapse">
                                     <thead>
-                                      <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${
-                                        isDarkMode ? 'bg-slate-800/90 text-slate-300' : 'bg-slate-100 text-slate-700'
-                                      }`}>
-                                        <th className="p-2.5">Hardware Model</th>
-                                        <th className="p-2.5">Device Serial #</th>
-                                        <th className="p-2.5">PON Serial #</th>
-                                        <th className="p-2.5">MAC Address</th>
-                                        <th className="p-2.5">Issued Date</th>
-                                        <th className="p-2.5 text-center">Status</th>
+                                      <tr className={`border-b text-[10px] font-bold tracking-wider bg-slate-100 text-slate-700 dark:bg-slate-800/90 dark:text-slate-300`}>
+                                        <th className="px-2.5 py-1.5">Hardware Model</th>
+                                        <th className="px-2.5 py-1.5">Device Serial #</th>
+                                        <th className="px-2.5 py-1.5">PON Serial #</th>
+                                        <th className="px-2.5 py-1.5">MAC Address</th>
+                                        <th className="px-2.5 py-1.5">Issued Date</th>
+                                        <th className="px-2.5 py-1.5 text-center">Status</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                       {matchingDevices.map((dev) => (
-                                        <tr key={dev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                        <tr key={dev.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
                                           <td className="p-2.5 font-semibold text-slate-900 dark:text-white">
                                             {dev.productName}
                                           </td>
@@ -699,14 +661,23 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={customersPagination.page}
+          pageCount={customersPagination.pageCount}
+          totalItems={customersPagination.totalItems}
+          rangeStart={customersPagination.rangeStart}
+          rangeEnd={customersPagination.rangeEnd}
+          pageSize={customersPagination.pageSize}
+          onPageChange={customersPagination.setPage}
+          onPageSizeChange={customersPagination.setPageSize}
+          className="mt-1"
+        />
       </div>
 
       {/* Add / Edit Customer Modal */}
       {(isAddModalOpen || editingCustomer) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-6 overflow-hidden ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border p-5 overflow-hidden bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
@@ -728,14 +699,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   setIsAddModalOpen(false);
                   setEditingCustomer(null);
                 }}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveCustomer} className="mt-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Cus. Code (Customer ID) *
@@ -746,9 +717,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     value={formData.customerId}
                     onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
                     placeholder="e.g. CUS-10291"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none font-mono ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-mono bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
@@ -762,9 +731,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     placeholder="e.g. aarav.sharma"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
               </div>
@@ -779,13 +746,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   value={formData.customerName}
                   onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                   placeholder="e.g. Aarav Sharma"
-                  className={`w-full px-3 py-2 text-sm rounded-xl border outline-none font-semibold ${
-                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-semibold bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Primary Mobile Number *
@@ -795,10 +760,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     required
                     value={formData.contactNumber}
                     onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
-                    placeholder="e.g. 9851092810"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none font-mono ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    placeholder="e.g. 9800000001"
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-mono bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
@@ -809,9 +772,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   <select
                     value={formData.branchId}
                     onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   >
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -822,7 +783,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Email Address
@@ -832,9 +793,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder="e.g. aarav@gmail.com"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
@@ -848,9 +807,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     value={formData.creditLimit}
                     onChange={(e) => setFormData({ ...formData, creditLimit: Number(e.target.value) || 0 })}
                     placeholder="0"
-                    className={`w-full px-3 py-2 text-sm rounded-xl border outline-none font-mono ${
-                      isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-mono bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
               </div>
@@ -863,10 +820,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                   type="text"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="e.g. Durbar Marg Ward 4, Kathmandu, Nepal"
-                  className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  placeholder="e.g. Example Street, Example City, Nepal"
+                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                 />
               </div>
 
@@ -877,9 +832,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <select
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                  className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                    isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
+                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                 >
                   <option value="ACTIVE">Active Account</option>
                   <option value="INACTIVE">Inactive / Suspended</option>
@@ -893,7 +846,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     setIsAddModalOpen(false);
                     setEditingCustomer(null);
                   }}
-                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -913,9 +866,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       {/* Delete Confirmation Modal */}
       {deletingCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 ${
-            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-5 bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}>
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
               <div className="p-2 rounded-xl bg-rose-500/10">
                 <Trash2 className="h-6 w-6" />
@@ -930,7 +881,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => setDeletingCustomer(null)}
-                className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>

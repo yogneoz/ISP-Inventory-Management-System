@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Branch, Product } from '../../types';
 import { UploadCloud, FileSpreadsheet, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw } from 'lucide-react';
+import { formatNPR } from '../../utils/nprFormat';
 
 interface ImportStockProps {
   branches: Branch[];
   products: Product[];
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
   onRefreshData?: () => void;
-  isDarkMode?: boolean;
 }
 
 interface ParsedImportRow {
@@ -33,7 +33,6 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   products,
   onCreateProduct,
   onRefreshData,
-  isDarkMode = false,
 }) => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
@@ -42,10 +41,10 @@ export const ImportStock: React.FC<ImportStockProps> = ({
 
   const sampleCsvData = `SKU,Barcode,ProductName,ProductGroup,Category,Unit,CostPrice,SellingPrice,TaxRate,MinReorder,TargetBranch,InitialQty
 SPL-1X8-01,890102938101,PLC Fiber Optic Splitter 1x8 SC/APC,Consumable Item,Splitters,Pcs,450,650,13,20,ALL,100
-SLV-60MM-01,890102938102,Fiber Fusion Protection Sleeve 60mm (Box of 100),Consumable Item,Sleeves,Box,250,380,13,30,BR-KTM,50
+SLV-60MM-01,890102938102,Fiber Fusion Protection Sleeve 60mm (Box of 100),Consumable Item,Sleeves,Box,250,380,13,30,WH001,50
 CPL-SCAPC-01,890102938103,Fiber Optic Coupler SC/APC Simplex Adapter,Consumable Item,Coupler,Pcs,35,50,13,50,ALL,200
-IZ-109282,890102938104,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,BR-KTM,40
-IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,BR-KTM,3`;
+EXM-109282,890102938104,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,WH001,40
+EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,WH001,3`;
 
   const parseCsvContent = (content: string, filename?: string) => {
     if (filename) setSelectedFileName(filename);
@@ -65,7 +64,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
 
       if (cols.length < 3) continue;
 
-      const sku = cols[0] || `IZ-${Math.floor(100000 + Math.random() * 900000)}`;
+      const sku = cols[0] || `INV-${Math.floor(100000 + Math.random() * 900000)}`;
       const barcode = cols[1] || `890${Math.floor(100000000 + Math.random() * 900000000)}`;
       const name = cols[2] || 'Imported Stock Item';
       const rawGrp = (cols[3] || 'Product Item').toLowerCase();
@@ -156,7 +155,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'iZone_Stock_Import_Template.csv';
+    a.download = 'Inventory_Stock_Import_Template.csv';
     a.click();
   };
 
@@ -208,24 +207,20 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+        <div className="min-w-0">
+          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
             <UploadCloud className="h-5 w-5 text-indigo-500" />
             <span>Import Stock Data</span>
           </h2>
-          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
             Upload stock spreadsheet template directly. Automatically detects existing SKUs and updates product details without creating duplicate copies.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2">
           <button
             onClick={handleDownloadSampleCsv}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
-              isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
           >
             <Download className="h-4 w-4" />
             <span>Download CSV Template</span>
@@ -260,9 +255,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
       {/* Main Split Screen */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
         {/* Direct File Upload Dropzone */}
-        <div className={`lg:col-span-5 flex flex-col justify-between rounded-2xl border p-5 shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <div className={`lg:col-span-5 flex flex-col justify-between rounded-2xl border p-5 shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -272,11 +265,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
               <span className="text-[10px] text-slate-400 font-mono">.csv, .txt</span>
             </div>
 
-            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
-              selectedFileName
-                ? isDarkMode ? 'border-indigo-500 bg-indigo-950/20' : 'border-indigo-500 bg-indigo-50/50'
-                : isDarkMode ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700' : 'border-slate-300 bg-slate-50 hover:border-indigo-300'
-            }`}>
+            <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${selectedFileName ? 'border-indigo-500 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-950/20' : 'border-slate-300 bg-slate-50 hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-slate-700'}`}>
               <input
                 type="file"
                 accept=".csv,.txt"
@@ -284,13 +273,13 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
 
-              <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
+              <div className={`h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3`}>
                 <Upload className="h-6 w-6" />
               </div>
 
               {selectedFileName ? (
                 <div>
-                  <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 block truncate max-w-[200px]">
+                  <span className={`font-bold text-xs text-indigo-600 dark:text-indigo-400 block truncate max-w-[200px]`}>
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -303,7 +292,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
                     Click to browse or drag & drop CSV template file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-1">
-                    Supports iZone CSV format with auto-duplicate detection
+                    Supports Inventory CSV format with auto-duplicate detection
                   </span>
                 </div>
               )}
@@ -340,12 +329,8 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
         </div>
 
         {/* Live Preview Panel */}
-        <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <div className={`p-3.5 border-b flex items-center justify-between ${
-            isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-          }`}>
+        <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+          <div className={`p-3.5 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50`}>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
               <span>Parsed Import Preview</span>
@@ -357,18 +342,16 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
 
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className={`sticky top-0 z-20 font-bold uppercase text-[9px] tracking-wider border-b ${
-                isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+              <thead className={`sticky top-0 z-20 font-bold text-[9px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-[#12161f] dark:text-slate-400 dark:border-slate-800`}>
                 <tr>
-                  <th className="p-2.5">SKU / Name</th>
-                  <th className="p-2.5">Group & Category</th>
-                  <th className="p-2.5 text-right">Cost / Sell</th>
-                  <th className="p-2.5 text-center">Initial Qty</th>
-                  <th className="p-2.5">Status</th>
+                  <th className="px-2.5 py-1.5">SKU / Name</th>
+                  <th className="px-2.5 py-1.5">Group & Category</th>
+                  <th className="px-2.5 py-1.5 text-right">Cost / Sell (NPR)</th>
+                  <th className="px-2.5 py-1.5 text-center">Initial Qty</th>
+                  <th className="px-2.5 py-1.5">Status</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+              <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {parsedRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-500 text-xs">
@@ -377,11 +360,9 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
                   </tr>
                 ) : (
                   parsedRows.map((row, idx) => (
-                    <tr key={idx} className={`transition-colors ${
-                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                    }`}>
+                    <tr key={idx} className={`transition-colors hover:bg-slate-200 dark:hover:bg-slate-800/40`}>
                       <td className="p-2.5">
-                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">{row.sku}</div>
+                        <div className={`font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]`}>{row.sku}</div>
                         <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.name}</div>
                       </td>
                       <td className="p-2.5 text-[11px]">
@@ -389,10 +370,10 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
                         <div className="text-[10px] text-slate-500">{row.productGroup}</div>
                       </td>
                       <td className="p-2.5 text-right font-mono text-[11px]">
-                        <div>रु {(row.costPrice ?? 0).toLocaleString('en-IN')}</div>
-                        <div className="text-slate-400 text-[10px]">रु {(row.sellingPrice ?? 0).toLocaleString('en-IN')}</div>
+                        <div>{formatNPR(row.costPrice)}</div>
+                        <div className="text-slate-400 text-[10px]">{formatNPR(row.sellingPrice)}</div>
                       </td>
-                      <td className="p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      <td className={`p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400`}>
                         {row.initialQty} {row.unit}
                       </td>
                       <td className="p-2.5">

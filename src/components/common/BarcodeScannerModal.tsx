@@ -18,13 +18,14 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { Product } from '../../types';
+import { Product, CompanyProfile } from '../../types';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   products?: Product[];
   onScanResult?: (code: string) => void;
+  companyProfile?: CompanyProfile | null;
 }
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
@@ -32,6 +33,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onClose,
   products = [],
   onScanResult,
+  companyProfile,
 }) => {
   const [activeTab, setActiveTab] = useState<'SCANNER' | 'GENERATOR'>('SCANNER');
   const [scannedInput, setScannedInput] = useState('');
@@ -41,7 +43,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   // Label Printer Settings
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
-  const [serialNumber, setSerialNumber] = useState('IZ-ONU-2081-8842');
+  const [serialNumber, setSerialNumber] = useState('INV-ONU-2081-8842');
   const [ponSerial, setPonSerial] = useState('ZTEG8A41B22F');
   const [macAddress, setMacAddress] = useState('00:1A:2B:3C:4D:5E');
   const [labelSize, setLabelSize] = useState<'SHELF_50x30' | 'COMPACT_38x25' | 'LARGE_100x50'>('SHELF_50x30');
@@ -55,7 +57,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [scanHistory, setScanHistory] = useState<
     { code: string; type: string; timestamp: string; matchedName?: string }[]
   >([
-    { code: 'IZ-ONU-2081-8842', type: 'ONU Router Serial', timestamp: new Date().toLocaleTimeString(), matchedName: 'Dual Band Fiber Router' },
+    { code: 'INV-ONU-2081-8842', type: 'ONU Router Serial', timestamp: new Date().toLocaleTimeString(), matchedName: 'Dual Band Fiber Router' },
     { code: '8997011234567', type: 'Product SKU Barcode', timestamp: new Date().toLocaleTimeString(), matchedName: 'CAT6 UTP Network Cable' },
   ]);
 
@@ -467,12 +469,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   </span>
                 </div>
 
-                <div className="border-2 border-slate-700 rounded-3xl bg-white text-slate-950 p-6 shadow-2xl relative overflow-hidden max-w-lg mx-auto">
+                <div className={`border-2 rounded-3xl p-6 shadow-2xl relative overflow-hidden max-w-lg mx-auto border-slate-700 bg-white text-slate-950 dark:border-slate-600 dark:bg-slate-900 dark:text-white`}>
                   {/* Header */}
                   {showCompany && (
                     <div className="flex items-center justify-between border-b-2 border-slate-900 pb-2 mb-2">
                       <span className="text-xs font-black tracking-wider text-rose-700 uppercase">
-                        IZONE DIGITAL NETWORK PVT. LTD.
+                        {companyProfile?.name || 'INVENTORY DIGITAL NETWORK PVT. LTD.'}
                       </span>
                       <span className="text-[9px] font-bold text-slate-700 uppercase">
                         NEPAL IRD COMPLIANT
@@ -486,7 +488,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         {selectedProduct?.name || 'Dual Band ONU Router (Fiber)'}
                       </div>
                       <div className="text-[10px] text-slate-700 font-mono">
-                        SKU: <strong className="text-slate-950">{selectedProduct?.sku || 'IZ-ONT-DB01'}</strong>
+                        SKU: <strong className="text-slate-950">{selectedProduct?.sku || 'INV-ONT-DB01'}</strong>
                       </div>
                       {showPrice && (
                         <div className="text-sm font-black font-mono text-indigo-950 pt-0.5">

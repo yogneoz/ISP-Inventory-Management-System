@@ -1,6 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FiscalYear, FinancialSummary, Product, InventoryStock, Asset, PurchaseInvoice, User } from '../../types';
+import {
+  FiscalYear,
+  FinancialSummary,
+  Product,
+  InventoryStock,
+  Asset,
+  PurchaseInvoice,
+  PurchaseOrder,
+  Shipment,
+  ApprovalRequest,
+  User,
+  CompanyProfile,
+} from '../../types';
 import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { filterFiscalYears } from '../../utils/permissions';
+import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { useDialog } from '../../components/common/DialogProvider';
+import type { NavTab } from '../../components/layout/Sidebar';
 import {
   Lock,
   Unlock,
@@ -20,23 +36,50 @@ import {
   KeyRound,
   Download,
   Award,
+  Wallet,
+  CalendarDays,
+  Info,
+  Trash2,
 } from 'lucide-react';
+import { TablePagination, useClientPagination } from '../../components/common/TablePagination';
 
 interface FiscalYearClosingWizardProps {
   fiscalYears: FiscalYear[];
   onSetCurrentFiscalYear: (id: string) => Promise<void>;
-  onCloseFiscalYear: (id: string) => Promise<void>;
-  onReopenFiscalYear: (id: string) => Promise<void>;
-  onInitializeOpeningStock: (id: string) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number }>;
+  onCloseFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
+  onReopenFiscalYear: (id: string, credentials: { adminEmail: string; adminPassword: string }) => Promise<void>;
+  onCreateFiscalYear?: (input: {
+    code: string;
+    startDateAD: string;
+    endDateAD: string;
+    startDateBS: string;
+    endDateBS: string;
+  }) => Promise<FiscalYear>;
+  onDeleteFiscalYear?: (id: string) => Promise<{ message: string; id: string }>;
+  onInitializeOpeningStock: (
+    id: string
+  ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
+  onRollForwardVendorOpenings: (
+    id: string
+  ) => Promise<{ targetFiscalYear: FiscalYear; recordsCreated: number; manualRowsPreserved?: number }>;
   dateMode: 'BS' | 'AD';
-  isDarkMode?: boolean;
   financialSummary: FinancialSummary;
   products: Product[];
   stock: InventoryStock[];
   assets: Asset[];
   purchaseInvoices: PurchaseInvoice[];
+  purchaseOrders?: PurchaseOrder[];
+  shipments?: Shipment[];
+  approvalRequests?: ApprovalRequest[];
   currentUser: User | null;
   onRefreshData?: () => Promise<void>;
+  companyProfile?: CompanyProfile | null;
+  /** Globally selected fiscal year id (app-wide scope). */
+  selectedFiscalYearId?: string;
+  /** Update the global fiscal-year view when the user changes it here. */
+  onSelectFiscalYear?: (fiscalYearId: string) => void;
+  /** Navigate to a different tab in the app (used for diagnostic links). */
+  onNavigateTab?: (tab: NavTab) => void;
 }
 
 export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = ({
@@ -44,44 +87,114 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   onSetCurrentFiscalYear,
   onCloseFiscalYear,
   onReopenFiscalYear,
+  onCreateFiscalYear,
+  onDeleteFiscalYear,
   onInitializeOpeningStock,
+  onRollForwardVendorOpenings,
   dateMode,
-  isDarkMode = false,
   financialSummary,
   products,
   stock,
   assets,
   purchaseInvoices,
+  purchaseOrders = [],
+  shipments = [],
+  approvalRequests = [],
   currentUser,
   onRefreshData,
+  companyProfile,
+  selectedFiscalYearId,
+  onSelectFiscalYear,
+  onNavigateTab,
 }) => {
-  const defaultFiscalYear = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
-  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(defaultFiscalYear?.id || '');
-  const currentFy = fiscalYears.find((fy) => fy.id === selectedFiscalYearId) || defaultFiscalYear;
+  const { confirm: confirmDialog } = useDialog();
+  const defaultFiscalYear: FiscalYear | undefined = fiscalYears.find((fy) => fy.isCurrent) || fiscalYears[0];
+  const [selectedFyId, setSelectedFyId] = useState<string>(defaultFiscalYear?.id || '');
+  const currentFy: FiscalYear | undefined = fiscalYears.find((fy) => fy.id === selectedFyId) || defaultFiscalYear;
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLocked, setIsLocked] = useState<boolean>(currentFy?.isClosed || false);
-  const [adminAuthKey, setAdminAuthKey] = useState<string>('');
+  const [adminEmail, setAdminEmail] = useState<string>(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
+  const [adminPassword, setAdminPassword] = useState<string>('');
+  const [showUnlockAuth, setShowUnlockAuth] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [isProcessingStep, setIsProcessingStep] = useState<boolean>(false);
   const [step1Completed, setStep1Completed] = useState<boolean>(false);
   const [step2Completed, setStep2Completed] = useState<boolean>(false);
   const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
+  const [step5Completed, setStep5Completed] = useState<boolean>(false);
+
+  // Nepali Fiscal Year Accounting Periods overview table (sorted newest first).
+  const periodsSorted = useMemo(
+    () => [...fiscalYears].sort((a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))),
+    [fiscalYears]
+  );
+  const periodsPagination = useClientPagination(periodsSorted, 3, []);
+  const [viewFiscalYearId, setViewFiscalYearId] = useState<string>('');
+  const activePeriodFyId =
+    viewFiscalYearId ||
+    (selectedFiscalYearId && fiscalYears.some((f) => f.id === selectedFiscalYearId)
+      ? selectedFiscalYearId
+      : '') ||
+    fiscalYears.find((f) => f.isCurrent)?.id ||
+    periodsSorted[0]?.id ||
+    '';
+
+  // Period status helpers — mirror the wizard's live lock state.
+  const isPeriodLocked = (fy: FiscalYear) => Boolean(fy.isClosed);
+  const isPeriodActive = (fy: FiscalYear) => Boolean(fy.isCurrent);
+
+  // Diagnostic ID → NavTab mapping for clickable "Go to" links
+  const diagnosticNavMap: Record<string, NavTab> = {
+    'unclosed-pos': 'purchase-list',        // Purchase Orders / Invoices
+    'stock-reconciliation': 'physical-stock-audit', // Physical Stock Audit
+    'asset-depreciation': 'fixed-assets',   // Fixed Asset Register
+    'vat-register': 'vat-register',         // VAT Register
+  };
+
   const [openingStockMessage, setOpeningStockMessage] = useState<string>('');
+  const [vendorOpeningMessage, setVendorOpeningMessage] = useState<string>('');
+
+  // Add-Fiscal-Year inline form state (only the current active period may be created before it).
+  const [showAddFiscalYearForm, setShowAddFiscalYearForm] = useState<boolean>(false);
+  const [newFyForm, setNewFyForm] = useState({
+    code: '',
+    startDateAD: '',
+    endDateAD: '',
+    startDateBS: '',
+    endDateBS: '',
+  });
+  const [fyFormError, setFyFormError] = useState<string>('');
+  const [fyFormSuccess, setFyFormSuccess] = useState<string>('');
+  // Row-level delete error surfaced per fiscal year.
+  const [fyDeleteError, setFyDeleteError] = useState<string>('');
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
   const now = new Date();
   const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const isClosingEligible = Boolean(currentFy?.endDateAD && currentFy.endDateAD < todayAD);
 
   useEffect(() => {
-    if (!currentFy && defaultFiscalYear) setSelectedFiscalYearId(defaultFiscalYear.id);
+    if (!currentFy && defaultFiscalYear) setSelectedFyId(defaultFiscalYear.id);
   }, [currentFy, defaultFiscalYear]);
+
+  // Keep the wizard in sync with the app-wide fiscal-year view (header /
+  // other fiscal-year pages) whenever the user changes it elsewhere.
+  useEffect(() => {
+    if (selectedFiscalYearId && fiscalYears.some((f) => f.id === selectedFiscalYearId) && selectedFiscalYearId !== selectedFyId) {
+      setSelectedFyId(selectedFiscalYearId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFiscalYearId, fiscalYears]);
 
   useEffect(() => {
     setIsLocked(currentFy?.isClosed || false);
     setCurrentStep(1);
-    setAdminAuthKey('');
+    setAdminEmail(currentUser?.role === 'SUPER_ADMIN' ? currentUser.email : '');
+    setAdminPassword('');
+    setShowUnlockAuth(false);
     setAuthError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFy?.id, currentFy?.isClosed]);
 
   // Financial Metrics for the Closing Year
@@ -99,13 +212,18 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     assets.forEach((a) => {
       const cost = a.acquisitionCost || 0;
       fixedAssetValue += cost;
-      const rate = a.depreciationRate || 15;
+      const rate = a.depreciationRatePercent || 15;
       annualDepreciation += (cost * rate) / 100;
     });
 
     let vatInputTax = 0;
+    const fStart = currentFy?.startDateAD;
+    const fEnd = currentFy?.endDateAD;
     purchaseInvoices.forEach((inv) => {
-      vatInputTax += inv.vatAmount || 0;
+      const day = String(inv.invoiceDateAD || '').slice(0, 10);
+      if (fStart && fEnd && day >= fStart && day <= fEnd) {
+        vatInputTax += inv.vatAmount || 0;
+      }
     });
 
     return {
@@ -114,22 +232,164 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       annualDepreciation,
       netAssetValue: fixedAssetValue - annualDepreciation,
       vatInputTax,
-      totalCOGS: financialSummary.totalCostOfGoodsSold || inventoryValue * 0.75,
-      totalExpenses: annualDepreciation + 125000,
+      // Do not manufacture accounting entries during close. COGS and
+      // operating expenses are zero until posted sales/expense ledgers exist.
+      totalCOGS: financialSummary.totalCostOfGoodsSold || 0,
+      totalExpenses: 0,
     };
-  }, [stock, products, assets, purchaseInvoices, financialSummary]);
+  }, [stock, products, assets, purchaseInvoices, financialSummary, currentFy]);
+
+  // ---- STEP 1 PRE-CLOSING DIAGNOSTICS (live, data-driven) ----
+  // Every check is computed from real DB-backed records passed into the
+  // wizard, scoped to the selected closing fiscal year via its AD range.
+  const preCloseDiagnostics = useMemo(() => {
+    if (!currentFy) return [];
+    const fyCode = `FY ${currentFy.code}`;
+    const fyStart = currentFy.startDateAD;
+    const fyEnd = currentFy.endDateAD;
+    const inFy = (d?: string | null) => {
+      if (!d) return false;
+      const day = String(d).slice(0, 10);
+      return day >= fyStart && day <= fyEnd;
+    };
+
+    // 1) Unclosed Purchase Orders + inbound shipments still in flight.
+    const fyPos = (purchaseOrders || []).filter((po) => inFy(po.orderDateAD));
+    const openStatuses = ['DRAFT', 'APPROVED', 'SENT', 'IN_PROGRESS'];
+    const openPos = fyPos.filter((po) => openStatuses.includes(po.status));
+    const fyShipments = (shipments || []).filter((s) => inFy(s.dispatchDateAD));
+    const openShipments = fyShipments.filter(
+      (s) => s.status === 'DISPATCHED' || s.status === 'IN_TRANSIT'
+    );
+    const openRefs = [
+      ...openPos.map((po) => po.poNumber),
+      ...openShipments.map((s) => s.trackingCode),
+    ];
+    const unclosedBlocking = openRefs.length > 0;
+    const poDiagnostic = {
+      id: 'unclosed-pos',
+      title: 'Unclosed Purchase Orders',
+      status: (unclosedBlocking ? 'critical' : 'ready') as 'ready' | 'warning' | 'critical',
+      badge: unclosedBlocking ? `${openRefs.length} Open` : 'Ready',
+      detail: unclosedBlocking
+        ? `${openRefs.length} inbound document(s) still open in ${fyCode}: ${openRefs
+            .slice(0, 4)
+            .join(', ')}${openRefs.length > 4 ? '…' : ''}. Fully receive or cancel before closing.`
+        : `${fyPos.length} purchase order(s) and ${fyShipments.length} shipment(s) in ${fyCode} are fully received, billed or cancelled.`,
+    };
+
+    // 2) Physical stock count reconciliation (audit batches).
+    // Scope by fiscal_year_id when the payload carries it (DB column is now
+    // returned by bootstrap); otherwise fall back to the request date range.
+    // Bootstrap also used to return `requestedAtAd` — accept both casings.
+    const fyAudits = (approvalRequests || []).filter((r) => {
+      if (r.type !== 'STOCK_AUDIT_RECONCILIATION') return false;
+      if ((r as any).fiscalYearId) return (r as any).fiscalYearId === currentFy.id;
+      return inFy((r as any).requestedAtAD ?? (r as any).requestedAtAd);
+    });
+    const pendingAudits = fyAudits.filter((r) => r.status === 'PENDING');
+    const pendingAuditRefs = pendingAudits.map(
+      (r) => (r as any).auditData?.auditRefNumber || r.deviceSerial || r.requestNumber
+    );
+    const stockReconDiagnostic = {
+      id: 'stock-reconciliation',
+      title: 'Physical Stock Count Reconciliation',
+      status: (pendingAudits.length ? 'critical' : 'ready') as 'ready' | 'warning' | 'critical',
+      badge: pendingAudits.length ? `${pendingAudits.length} Pending` : 'Reconciled',
+      detail: pendingAudits.length
+        ? `${pendingAudits.length} audit batch(es) awaiting reconciliation approval in ${fyCode} (${pendingAuditRefs
+            .slice(0, 3)
+            .join(', ')}${pendingAuditRefs.length > 3 ? '…' : ''}). Approve them in Physical Stock Audit before closing.`
+        : `${fyAudits.length} audit batch(es) in ${fyCode} are reconciled — physical counts match the ledger.`,
+    };
+
+    // 3) Fixed asset depreciation ledger.
+    const activeAssets = (assets || []).filter(
+      (a) => a.status !== 'DISPOSED' && a.status !== 'MAINTENANCE'
+    );
+    const badRateAssets = activeAssets.filter(
+      (a) => !a.depreciationRatePercent || a.depreciationRatePercent <= 0 || !a.depreciationMethod
+    );
+    const depreciationAmount = activeAssets.reduce(
+      (sum, a) => sum + (a.acquisitionCost || 0) * ((a.depreciationRatePercent || 15) / 100),
+      0
+    );
+    const assetDiagnostic = {
+      id: 'asset-depreciation',
+      title: 'Fixed Asset Depreciation Ledger',
+      status: (activeAssets.length === 0
+        ? 'warning'
+        : badRateAssets.length
+        ? 'critical'
+        : 'ready') as 'ready' | 'warning' | 'critical',
+      badge:
+        activeAssets.length === 0
+          ? 'No Assets'
+          : badRateAssets.length
+          ? `${badRateAssets.length} Missing Rate`
+          : 'Ready to Post',
+      detail:
+        activeAssets.length === 0
+          ? `No active fixed assets are registered — the depreciation journal will be skipped. Confirm this is expected before closing ${fyCode}.`
+          : badRateAssets.length
+          ? `${badRateAssets.length} asset(s) missing a valid depreciation rate (${badRateAssets
+              .slice(0, 3)
+              .map((a) => a.tagNumber)
+              .join(', ')}${badRateAssets.length > 3 ? '…' : ''}). Fix them in the Fixed Asset Register.`
+          : `Annual depreciation NPR ${depreciationAmount.toLocaleString()} computed for ${activeAssets.length} active fixed asset(s) using statutory rates.`,
+    };
+
+    // 4) VAT sales & purchase register.
+    const fyInvoices = (purchaseInvoices || []).filter((inv) => inFy(inv.invoiceDateAD));
+    const vatInputTax = fyInvoices.reduce((sum, inv) => sum + (inv.vatAmount || 0), 0);
+    const salesRevenue = financialSummary?.totalSalesRevenue || 0;
+    const vatDiagnostic = {
+      id: 'vat-register',
+      title: 'VAT Sales & Purchase Register',
+      status: (fyInvoices.length === 0 ? 'warning' : 'ready') as 'ready' | 'warning' | 'critical',
+      badge: fyInvoices.length === 0 ? 'No Input VAT' : 'Reconciled',
+      detail:
+        fyInvoices.length === 0
+          ? `No purchase invoices are posted in ${fyCode} — the VAT input register is empty for Ashadh end.`
+          : `Total VAT Input Tax NPR ${vatInputTax.toLocaleString()} across ${fyInvoices.length} purchase invoice(s) in ${fyCode}; reference sales revenue NPR ${salesRevenue.toLocaleString()}.`,
+    };
+
+    return [poDiagnostic, stockReconDiagnostic, assetDiagnostic, vatDiagnostic];
+  }, [
+    currentFy,
+    purchaseOrders,
+    shipments,
+    approvalRequests,
+    assets,
+    purchaseInvoices,
+    financialSummary,
+  ]);
+
+  const diagnosticCounts = useMemo(() => {
+    const counts = { ready: 0, warning: 0, critical: 0 };
+    preCloseDiagnostics.forEach((d) => {
+      counts[d.status] += 1;
+    });
+    return counts;
+  }, [preCloseDiagnostics]);
 
   // Steps definition
   const wizardSteps = [
     { number: 1, title: 'Pre-Closing Audit & Diagnostics', icon: FileCheck2 },
     { number: 2, title: 'Asset Depreciation & Stock Valuation Lock', icon: Calculator },
     { number: 3, title: 'Trial Balance & Retained Earnings', icon: Scale },
-    { number: 4, title: 'Opening Balance Roll-Forward', icon: Building2 },
-    { number: 5, title: 'Lock Period & Compliance Seal', icon: ShieldCheck },
+    { number: 4, title: 'Opening Balances Roll-Forward', icon: Building2 },
+    { number: 5, title: 'Close Vendor Ledgers', icon: Wallet },
+    { number: 6, title: 'Lock Period & Compliance Seal', icon: ShieldCheck },
   ];
 
   const handleNextStep = () => {
-    if (currentStep < 5) {
+    // Block navigation from Step 1 if critical issues exist
+    if (currentStep === 1 && diagnosticCounts.critical > 0) {
+      // The blocking message in Step 1 already tells the user what's wrong
+      return;
+    }
+    if (currentStep < 6) {
       setCurrentStep((prev) => prev + 1);
     }
   };
@@ -146,19 +406,16 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       setAuthError(`Fiscal year ${currentFy?.code || ''} cannot be closed until after its AD end date (${currentFy?.endDateAD || 'not configured'}).`);
       return;
     }
-    if (!adminAuthKey.trim()) {
-      setAuthError('Please enter Super Admin authorization PIN or password.');
-      return;
-    }
-    if (adminAuthKey !== '1234' && adminAuthKey !== 'admin') {
-      setAuthError('Invalid authorization key. Enter 1234 or admin to approve.');
+    if (!adminEmail.trim() || !adminPassword) {
+      setAuthError('Please enter the Super Admin email address and password to authorize this closing.');
       return;
     }
 
     setIsProcessingStep(true);
     try {
-      await onCloseFiscalYear(currentFy.id);
+      await onCloseFiscalYear(currentFy.id, { adminEmail: adminEmail.trim(), adminPassword });
       setIsLocked(true);
+      setAdminPassword('');
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Unable to close the fiscal year.');
     } finally {
@@ -167,13 +424,20 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   };
 
   const handleUnlockPeriod = async () => {
+    setAuthError('');
+    if (!adminEmail.trim() || !adminPassword) {
+      setAuthError('Please enter the Super Admin email address and password to unlock the period.');
+      return;
+    }
     setIsProcessingStep(true);
     try {
       if (!currentFy) return;
-      await onReopenFiscalYear(currentFy.id);
+      await onReopenFiscalYear(currentFy.id, { adminEmail: adminEmail.trim(), adminPassword });
       setIsLocked(false);
+      setShowUnlockAuth(false);
+      setAdminPassword('');
     } catch (err) {
-      console.error(err);
+      setAuthError(err instanceof Error ? err.message : 'Unable to unlock the fiscal year.');
     } finally {
       setIsProcessingStep(false);
     }
@@ -186,7 +450,15 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     try {
       const result = await onInitializeOpeningStock(currentFy.id);
       setStep4Completed(true);
-      setOpeningStockMessage(`${result.recordsCreated} opening-stock records prepared for FY ${result.targetFiscalYear.code}.`);
+      const baseMessage = `${result.recordsCreated} opening-stock records prepared for FY ${result.targetFiscalYear.code}`;
+      const preservedNote = result.manualRowsPreserved
+        ? ` ${result.manualRowsPreserved} manually adjusted row(s) were preserved and not overwritten.`
+        : '';
+      setOpeningStockMessage(
+        baseMessage +
+          ' — every product × branch combination is included, with zero-quantity rows carried forward so no product or branch disappears from the new period.' +
+          preservedNote
+      );
     } catch (error) {
       setOpeningStockMessage(error instanceof Error ? error.message : 'Unable to initialize opening stock.');
     } finally {
@@ -194,10 +466,97 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     }
   };
 
+  const handleRollForwardVendorOpenings = async () => {
+    if (!currentFy) return;
+    setVendorOpeningMessage('');
+    setIsProcessingStep(true);
+    try {
+      const result = await onRollForwardVendorOpenings(currentFy.id);
+      setStep5Completed(true);
+      const baseMessage = `${result.recordsCreated} vendor opening-balance record(s) rolled forward to FY ${result.targetFiscalYear.code}`;
+      const preservedNote = result.manualRowsPreserved
+        ? ` ${result.manualRowsPreserved} manually adjusted row(s) were preserved and not overwritten.`
+        : '';
+      setVendorOpeningMessage(
+        baseMessage +
+          ' — each supplier × branch closing balance (invoices minus posted payments) is carried into the new period.' +
+          preservedNote
+      );
+    } catch (error) {
+      setVendorOpeningMessage(error instanceof Error ? error.message : 'Unable to close vendor ledgers.');
+    } finally {
+      setIsProcessingStep(false);
+    }
+  };
+
+  const handleAddFiscalYearSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFyFormError('');
+    setFyFormSuccess('');
+    if (!onCreateFiscalYear) {
+      setFyFormError('Adding fiscal years is not available for your account.');
+      return;
+    }
+    const { code, startDateAD, endDateAD, startDateBS, endDateBS } = newFyForm;
+    if (![code, startDateAD, endDateAD, startDateBS, endDateBS].every((v) => v.trim())) {
+      setFyFormError('Please fill in the fiscal year code and all BS/AD period dates.');
+      return;
+    }
+    if (Number.isNaN(Date.parse(startDateAD)) || Number.isNaN(Date.parse(endDateAD)) || startDateAD > endDateAD) {
+      setFyFormError('Enter a valid AD period with an end date on or after the start date.');
+      return;
+    }
+    setIsProcessingStep(true);
+    try {
+      const created = await onCreateFiscalYear({
+        code: code.trim(),
+        startDateAD,
+        endDateAD,
+        startDateBS: startDateBS.trim(),
+        endDateBS: endDateBS.trim(),
+      });
+      setFyFormSuccess(`Fiscal year FY ${created.code} created successfully. It is marked Open and can be Set Active when it goes live.`);
+      setNewFyForm({ code: '', startDateAD: '', endDateAD: '', startDateBS: '', endDateBS: '' });
+      setShowAddFiscalYearForm(false);
+      onSelectFiscalYear?.(created.id);
+    } catch (error) {
+      setFyFormError(error instanceof Error ? error.message : 'Unable to create fiscal year.');
+    } finally {
+      setIsProcessingStep(false);
+    }
+  };
+
+  const handleDeleteFiscalYear = async (fy: FiscalYear) => {
+    setFyDeleteError('');
+    if (!onDeleteFiscalYear) {
+      setFyDeleteError('Deleting fiscal years is not available for your account.');
+      return;
+    }
+    const ok = await confirmDialog(`Delete fiscal year FY ${fy.code}?\n\nOnly a fiscal year with NO records attached can be deleted. This cannot be undone.`);
+    if (!ok) return;
+
+    setIsProcessingStep(true);
+    try {
+      await onDeleteFiscalYear(fy.id);
+      if (selectedFyId === fy.id) {
+        const remaining = fiscalYears.filter((x) => x.id !== fy.id);
+        const nextFy = remaining.find((x) => x.isCurrent) || remaining[0];
+        if (nextFy) {
+          setSelectedFyId(nextFy.id);
+          onSelectFiscalYear?.(nextFy.id);
+        }
+      }
+    } catch (error) {
+      setFyDeleteError(error instanceof Error ? error.message : 'Unable to delete fiscal year.');
+    } finally {
+      setIsProcessingStep(false);
+    }
+  };
+
   const handleDownloadClosingCertificate = () => {
     const certText = `
-===================================================================
-       IZONE INVENTORY MANAGEMENT SYSTEM - FISCAL CLOSING
+=======${companyProfile?.name || 'INVENTORY MANAGEMENT SYSTEM'}=================================
+       INVENTORY MANAGEMENT SYSTEM - FISCAL CLOSING
 ===================================================================
 Fiscal Year Code: FY ${currentFy?.code || '2082/83'} BS
 Nepali BS Period: ${currentFy?.startDateBS} to ${currentFy?.endDateBS}
@@ -230,14 +589,10 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* HEADER BAR */}
       <div
-        className={`p-5 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-          isDarkMode
-            ? 'bg-slate-900/90 border-slate-800 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-        }`}
+        className={`p-3 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-start gap-3 bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-slate-900/90 dark:border-slate-800 dark:text-slate-100`}
       >
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
@@ -263,16 +618,19 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
         <div className="flex items-center gap-3">
           <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
             Closing year
-            <select
-              value={currentFy?.id || ''}
-              onChange={(event) => setSelectedFiscalYearId(event.target.value)}
-              className="ml-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
-            >
-              {fiscalYears.map((fiscalYear) => (
-                <option key={fiscalYear.id} value={fiscalYear.id}>FY {fiscalYear.code} — ends {fiscalYear.endDateAD}</option>
-              ))}
-            </select>
           </label>
+          <FiscalYearSelect
+            fiscalYears={filterFiscalYears(fiscalYears)}
+            value={currentFy?.id || ''}
+            onChange={(fyId) => {
+              setSelectedFyId(fyId);
+              onSelectFiscalYear?.(fyId);
+            }}
+            pageSize={3}
+            showFyPrefix
+            showStatus
+            triggerClassName="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs"
+          />
           <div
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
               isLocked
@@ -295,11 +653,14 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
           {isLocked && (
             <button
-              onClick={handleUnlockPeriod}
+              onClick={() => {
+                setShowUnlockAuth((prev) => !prev);
+                setAuthError('');
+              }}
               disabled={isProcessingStep}
-              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
             >
-              Unlock Period
+              Unlock Period…
             </button>
           )}
         </div>
@@ -311,13 +672,64 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
         </div>
       )}
 
+      {/* UNLOCK AUTHORIZATION PANEL — Super Admin re-authentication required */}
+      {isLocked && showUnlockAuth && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200 space-y-3">
+          <div className="flex items-center gap-2 font-bold">
+            <KeyRound className="h-4 w-4" />
+            <span>Super Admin Authorization Required to Unlock</span>
+          </div>
+          <p className="text-[11px] opacity-80">
+            Unlocking a sealed fiscal period removes its compliance lock and re-opens it for backdated posting.
+            Enter the Super Admin credentials to continue — verified server-side.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Super Admin Email</label>
+              <input
+                type="email"
+                placeholder="superadmin@example.com"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-xl border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Password</label>
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-xl border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            <button
+              onClick={handleUnlockPeriod}
+              disabled={isProcessingStep}
+              className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold transition-colors cursor-pointer"
+            >
+              {isProcessingStep ? 'Verifying…' : 'Confirm Unlock'}
+            </button>
+            <button
+              onClick={() => {
+                setShowUnlockAuth(false);
+                setAuthError('');
+              }}
+              className="px-4 py-1.5 rounded-xl border border-amber-300 dark:border-amber-500/40 hover:bg-amber-100/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+          {authError && <p className="text-xs text-rose-500 dark:text-rose-300 font-semibold">{authError}</p>}
+        </div>
+      )}
+
       {/* STEPPER NAV BAR */}
       <div
-        className={`p-3 rounded-2xl border ${
-          isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}
+        className={`p-3 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {wizardSteps.map((step) => {
             const isActive = currentStep === step.number;
             const StepIcon = step.icon;
@@ -326,22 +738,10 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <button
                 key={step.number}
                 onClick={() => setCurrentStep(step.number)}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${
-                  isActive
-                    ? 'bg-indigo-600 text-white font-bold shadow-md'
-                    : isDarkMode
-                    ? 'bg-slate-800/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-                }`}
+                className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${isActive ? 'bg-indigo-600 text-white font-bold shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
               >
                 <div
-                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${
-                    isActive
-                      ? 'bg-white text-indigo-700'
-                      : isDarkMode
-                      ? 'bg-slate-700 text-slate-300'
-                      : 'bg-slate-200 text-slate-700'
-                  }`}
+                  className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${isActive ? 'bg-white text-indigo-700' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}
                 >
                   {step.number}
                 </div>
@@ -356,9 +756,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 
       {/* WIZARD STEP CONTENT PANELS */}
       <div
-        className={`p-6 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 ${
-          isDarkMode ? 'bg-slate-900/60 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-        }`}
+        className={`p-4 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200`}
       >
         {/* STEP 1: PRE-CLOSING DIAGNOSTICS */}
         {currentStep === 1 && (
@@ -369,62 +767,78 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 <span>Step 1: System Pre-Closing Diagnostic Verification</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Validate operational readiness prior to freezing ledgers for FY {currentFy?.code} BS.
+                Live operational-readiness checks computed from the actual DB-backed ledgers for FY {currentFy?.code} BS.
               </p>
             </div>
 
+            {diagnosticCounts.critical > 0 && (
+              <div className="flex items-start gap-2 p-3 rounded-xl border border-rose-300/70 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/40 dark:text-rose-300 text-xs font-semibold">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  {diagnosticCounts.critical} blocking issue(s) found. Resolve them before closing FY {currentFy?.code} BS.
+                </span>
+              </div>
+            )}
+            {diagnosticCounts.critical === 0 && diagnosticCounts.warning > 0 && (
+              <div className="flex items-start gap-2 p-3 rounded-xl border border-amber-300/70 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200 text-xs font-semibold">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  {diagnosticCounts.warning} warning(s) — review before closing FY {currentFy?.code} BS.
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Check Item 1 */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Unclosed Purchase Orders</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Ready
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  All inbound shipments and supplier purchase orders have been fully received or billed.
-                </p>
-              </div>
-
-              {/* Check Item 2 */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Physical Stock Count Reconciliation</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Reconciled
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Stock count audit batches for HQ and active branches are verified and adjusted.
-                </p>
-              </div>
-
-              {/* Check Item 3 */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Fixed Asset Depreciation Ledger</span>
-                  <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold flex items-center gap-1">
-                    Ready to Post
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Annual tax depreciation rates are calculated for all registered fixed hardware assets.
-                </p>
-              </div>
-
-              {/* Check Item 4 */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">VAT Sales & Purchase Register</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Reconciled
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Total VAT Input Tax calculated at NPR {(closingMetrics.vatInputTax ?? 0).toLocaleString()} for Ashadh end.
-                </p>
-              </div>
+              {preCloseDiagnostics.map((diag) => {
+                const isCritical = diag.status === 'critical';
+                const isWarning = diag.status === 'warning';
+                const navTarget = diagnosticNavMap[diag.id];
+                return (
+                  <div
+                    key={diag.id}
+                    className={`p-4 rounded-xl border space-y-2 ${
+                      isCritical
+                        ? 'border-rose-300 bg-rose-50/60 dark:border-rose-500/40 dark:bg-rose-950/30'
+                        : isWarning
+                        ? 'border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/30'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs">{diag.title}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                          isCritical
+                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                            : isWarning
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                        }`}
+                      >
+                        {isCritical ? (
+                          <AlertTriangle className="h-3 w-3" />
+                        ) : isWarning ? (
+                          <AlertTriangle className="h-3 w-3" />
+                        ) : (
+                          <CheckCircle2 className="h-3 w-3" />
+                        )}
+                        {diag.badge}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{diag.detail}</p>
+                    {navTarget && onNavigateTab && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateTab(navTarget)}
+                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        <ArrowRight className="h-3 w-3" />
+                        Go to {navTarget.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -442,11 +856,11 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono">
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Closing Inventory Stock Value</p>
                 <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-                  NPR {(closingMetrics.inventoryValue ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.inventoryValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Evaluated at FIFO Cost Price</p>
               </div>
@@ -454,7 +868,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Gross Fixed Asset Acquisition</p>
                 <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                  NPR {(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">{assets.length} Active Hardware Items</p>
               </div>
@@ -462,7 +876,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Calculated Year Depreciation</p>
                 <p className="text-xl font-extrabold text-amber-500 mt-1">
-                  NPR {(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
+                  NPR {Math.round(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Income Tax Act Rates Applied</p>
               </div>
@@ -483,7 +897,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               </p>
             </div>
 
-            <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
+            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Billed Purchase Invoices (Gross)</span>
                 <span className="font-bold">NPR {((closingMetrics.inventoryValue || 0) * 1.15).toLocaleString()}</span>
@@ -541,13 +955,64 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           </div>
         )}
 
-        {/* STEP 5: LOCK PERIOD & COMPLIANCE SEAL */}
+        {/* STEP 5: CLOSE VENDOR LEDGERS (ROLL-FORWARD ACCOUNTS PAYABLE) */}
         {currentStep === 5 && (
           <div className="space-y-5">
             <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-indigo-500" />
+                <span>Step 5: Close Vendor Ledgers & Carry Opening Payables</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Close every supplier sub-ledger for FY {currentFy?.code} BS and carry the net closing balance
+                (purchases minus payments) forward as the opening payable in the next fiscal year.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-700 dark:text-indigo-300 space-y-2">
+              <p className="font-bold">Target Roll-forward Fiscal Period:</p>
+              <div className="flex items-center justify-between font-mono font-semibold">
+                <span>Closing FY: <strong>FY {currentFy?.code || '—'} BS</strong></span>
+                <span>Closing Date: <strong>{currentFy?.endDateBS || '—'}</strong></span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Each supplier × branch closing balance is computed from billed purchase invoices minus posted
+                payments within the fiscal period, plus any opening balance already carried into this year.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs space-y-2">
+              <div className="flex items-center justify-between font-mono">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Total Accounts Payable (opening + invoices − payments)</span>
+                <span className="font-bold text-amber-500">
+                  NPR {(financialSummary?.totalAccountsPayable || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-mono">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Payable sources</span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">{purchaseInvoices.length} purchase invoices</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRollForwardVendorOpenings}
+              disabled={!isLocked || isProcessingStep || step5Completed}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 text-white text-xs font-bold"
+            >
+              {step5Completed ? 'Vendor Ledgers Closed' : 'Close Vendor Ledgers & Carry Balances Forward'}
+            </button>
+            {vendorOpeningMessage && <p className={`text-xs font-semibold ${step5Completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{vendorOpeningMessage}</p>}
+          </div>
+        )}
+
+        {/* STEP 6: LOCK PERIOD & COMPLIANCE SEAL */}
+        {currentStep === 6 && (
+          <div className="space-y-5">
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-indigo-500" />
-                <span>Step 5: Lock Fiscal Period & Generate IRD Compliance Certificate</span>
+                <span>Step 6: Lock Fiscal Period & Generate IRD Compliance Certificate</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Final authorization step to prevent backdated edits and issue audit certificate.
@@ -555,24 +1020,42 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             </div>
 
             {!isLocked ? (
-              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4">
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 space-y-4">
                 <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
                   <KeyRound className="h-4 w-4" />
                   <span>Super Admin Closing Authorization</span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                    Enter Admin PIN / Authorization Key (e.g. 1234 or admin)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="Enter security pin..."
-                    value={adminAuthKey}
-                    onChange={(e) => setAdminAuthKey(e.target.value)}
-                    className="w-full max-w-sm px-3.5 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {authError && <p className="text-xs text-rose-500 font-semibold mt-1">{authError}</p>}
+                <div className="space-y-3">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Closing locks the fiscal period for all backdated posting. Authorization is verified server-side
+                    against a Super Admin account — no local PIN is used.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Super Admin Email
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="superadmin@example.com"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className="w-full max-w-sm px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                      Super Admin Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Enter Super Admin password..."
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full max-w-sm px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {authError && <p className="text-xs text-rose-500 font-semibold mt-1">{authError}</p>}
+                  </div>
                 </div>
 
                 <button
@@ -614,7 +1097,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
               currentStep === 1
                 ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                : 'border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
             }`}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -622,15 +1105,16 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
           </button>
 
           <span className="text-xs font-mono font-bold text-slate-400">
-            Step {currentStep} of 5
+            Step {currentStep} of 6
           </span>
 
           <button
             onClick={handleNextStep}
-            disabled={currentStep === 5}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              currentStep === 5
+            disabled={currentStep === 6 || (currentStep === 1 && diagnosticCounts.critical > 0)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${currentStep === 6
                 ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
+                : currentStep === 1 && diagnosticCounts.critical > 0
+                ? 'opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
             }`}
           >
@@ -638,6 +1122,294 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
+      </div>
+
+      {/* Nepali Fiscal Year Accounting Periods Overview & Status */}
+      <div className={`rounded-2xl border p-4 shadow-xs bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
+          <h3 className={`text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200`}>
+            <CalendarDays className="h-4 w-4 text-indigo-500" />
+            <span>Nepali Fiscal Year Accounting Periods (<code className="text-amber-700 font-mono dark:text-amber-300 dark:font-mono">YYYY/YY</code>)</span>
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300`}>
+              <CalendarDays className="h-3.5 w-3.5 text-indigo-500" />
+              <FiscalYearSelect
+                fiscalYears={periodsSorted}
+                value={activePeriodFyId}
+                onChange={(fyId) => {
+                  setViewFiscalYearId(fyId);
+                  onSelectFiscalYear?.(fyId);
+                }}
+                showFyPrefix={false}
+                pageSize={3}
+                title="Select fiscal year to inspect"
+              />
+            </div>
+            {isSuperAdmin && onCreateFiscalYear && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddFiscalYearForm((prev) => !prev);
+                  setFyFormError('');
+                  setFyFormSuccess('');
+                }}
+                disabled={isProcessingStep}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Add Fiscal Year
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ADD NEW FISCAL YEAR INLINE FORM */}
+        {isSuperAdmin && showAddFiscalYearForm && (
+          <form
+            onSubmit={handleAddFiscalYearSubmit}
+            className="mb-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 p-4 rounded-2xl border border-emerald-300/60 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-950/30"
+          >
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                FY Code (YYYY/YY)
+              </label>
+              <input
+                type="text"
+                placeholder="2084/85"
+                value={newFyForm.code}
+                onChange={(e) => setNewFyForm({ ...newFyForm, code: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                BS Start (YYYY-MM-DD)
+              </label>
+              <input
+                type="text"
+                placeholder="2084-04-01"
+                value={newFyForm.startDateBS}
+                onChange={(e) => setNewFyForm({ ...newFyForm, startDateBS: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                BS End (YYYY-MM-DD)
+              </label>
+              <input
+                type="text"
+                placeholder="2085-03-31"
+                value={newFyForm.endDateBS}
+                onChange={(e) => setNewFyForm({ ...newFyForm, endDateBS: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                AD Start
+              </label>
+              <input
+                type="date"
+                value={newFyForm.startDateAD}
+                onChange={(e) => setNewFyForm({ ...newFyForm, startDateAD: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                AD End
+              </label>
+              <input
+                type="date"
+                value={newFyForm.endDateAD}
+                onChange={(e) => setNewFyForm({ ...newFyForm, endDateAD: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <button
+                type="submit"
+                disabled={isProcessingStep}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors cursor-pointer flex-1"
+              >
+                {isProcessingStep ? 'Creating…' : 'Create Year'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddFiscalYearForm(false);
+                  setFyFormError('');
+                  setFyFormSuccess('');
+                }}
+                className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+            {fyFormError && (
+              <p className="lg:col-span-6 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" /> {fyFormError}
+              </p>
+            )}
+            {fyFormSuccess && (
+              <p className="lg:col-span-6 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" /> {fyFormSuccess}
+              </p>
+            )}
+          </form>
+        )}
+        {fyDeleteError && (
+          <div className="mb-3 flex items-start gap-2 p-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/40 dark:text-rose-300 text-xs font-semibold">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>{fyDeleteError}</span>
+            <button
+              type="button"
+              onClick={() => setFyDeleteError('')}
+              className="ml-auto text-rose-500 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-100 font-bold cursor-pointer"
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+          <table className="w-full min-w-[720px] text-left text-xs border-collapse">
+            <thead className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900/80 dark:text-slate-400 dark:border-slate-800`}>
+              <tr>
+                <th className="px-3 py-2">Fiscal Year</th>
+                <th className="px-3 py-2">BS Period</th>
+                <th className="px-3 py-2">AD Period</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2 text-right">Closing State</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
+              {periodsPagination.pagedItems.map((fy) => {
+                const locked = isPeriodLocked(fy);
+                const active = isPeriodActive(fy);
+                return (
+                  <tr
+                    key={fy.id}
+                    className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                      fy.id === activePeriodFyId
+                        ? 'bg-indigo-50/80 dark:bg-indigo-950/40'
+                        : active
+                        ? 'bg-indigo-50/70 dark:bg-indigo-950/30'
+                        : ''
+                    }`}
+                  >
+                    <td className="p-3 font-bold font-mono text-slate-900 dark:text-white">
+                      FY {fy.code}
+                      {fy.id === activePeriodFyId && (
+                        <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300`}>
+                          Viewing
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateBS} to {fy.endDateBS}</td>
+                    <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{fy.startDateAD} to {fy.endDateAD}</td>
+                    <td className="p-3 font-bold text-slate-900 dark:text-white">
+                      {active ? (
+                        <span className={`inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400`}>
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Active
+                        </span>
+                      ) : locked ? (
+                        <span className={`inline-flex items-center gap-1 text-amber-600 dark:text-amber-400`}>
+                          <Lock className="h-3 w-3" /> Closed
+                        </span>
+                      ) : (
+                        <span className={`text-emerald-600 dark:text-emerald-400`}>Open</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex justify-end items-center gap-2">
+                        {!active && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (await confirmDialog(`Set FY ${fy.code} as the active (current) fiscal year?`)) {
+                                try {
+                                  await onSetCurrentFiscalYear(fy.id);
+                                } catch (_e) {
+                                  /* refresh callback handled upstream */
+                                }
+                              }
+                            }}
+                            disabled={isProcessingStep}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Set Active
+                          </button>
+                        )}
+                        {locked ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFyId(fy.id);
+                              setShowUnlockAuth(true);
+                              setAuthError('');
+                            }}
+                            disabled={isProcessingStep}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Unlock className="h-3.5 w-3.5" /> Reopen
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFyId(fy.id);
+                              setCurrentStep(6);
+                            }}
+                            className={`inline-flex items-center gap-1 text-xs font-semibold hover:underline cursor-pointer ${
+                              active
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-indigo-600 dark:text-indigo-400'
+                            }`}
+                          >
+                            <Lock className="h-3.5 w-3.5" /> Close
+                          </button>
+                        )}
+                        {isSuperAdmin &&
+                          onDeleteFiscalYear &&
+                          !active &&
+                          !locked && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFiscalYear(fy)}
+                              disabled={isProcessingStep}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Delete only if this fiscal year has no records attached"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
+                          )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <TablePagination
+          page={periodsPagination.page}
+          pageCount={periodsPagination.pageCount}
+          totalItems={periodsPagination.totalItems}
+          rangeStart={periodsPagination.rangeStart}
+          rangeEnd={periodsPagination.rangeEnd}
+          pageSize={periodsPagination.pageSize}
+          onPageChange={periodsPagination.setPage}
+          onPageSizeChange={periodsPagination.setPageSize}
+          className="mt-1"
+        />
+        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+          <Info className="h-3 w-3" />
+          Status reflects the fiscal-year lock set by this wizard. Reopening a closed period removes its compliance seal.
+        </p>
       </div>
     </div>
   );

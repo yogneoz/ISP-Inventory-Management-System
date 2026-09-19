@@ -17,7 +17,7 @@ export interface CSVExportOptions<T = any> {
 }
 
 /**
- * Enhanced CSV / Excel Data Exporter Utility for IZone Multi-Branch ERP
+ * Enhanced CSV / Excel Data Exporter Utility for Inventory Multi-Branch ERP
  * Includes uniform BS exported date (YYYY-MM-DD HH:mm:ss) and report metadata.
  */
 export function exportToCSV<T extends Record<string, any>>(

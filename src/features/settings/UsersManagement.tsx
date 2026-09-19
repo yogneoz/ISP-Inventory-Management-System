@@ -18,7 +18,10 @@ import {
   Lock,
   RotateCcw,
 } from 'lucide-react';
+import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { api } from '../../services/api';
+import { useDialog } from '../../components/common/DialogProvider';
+import { isOperationAllowed } from '../../utils/permissions';
 
 interface UsersManagementProps {
   currentUser: User | null;
@@ -28,18 +31,18 @@ interface UsersManagementProps {
   onUpdateUser?: (id: string, user: Partial<User> & { password?: string }) => Promise<void>;
   onResetPassword?: (userId: string, newPassword: string) => Promise<void>;
   onDeleteUser?: (id: string) => Promise<void>;
-  isDarkMode?: boolean;
 }
 
 export const UsersManagement: React.FC<UsersManagementProps> = ({
+  currentUser,
   users,
   branches,
   onCreateUser,
   onUpdateUser,
   onResetPassword,
   onDeleteUser,
-  isDarkMode = false,
 }) => {
+  const { confirm: confirmDialog } = useDialog();
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -75,6 +78,8 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
       (u?.email || '').toLowerCase().includes((search || '').toLowerCase()) ||
       (u?.role || '').toLowerCase().includes((search || '').toLowerCase())
   );
+
+  const usersPagination = useClientPagination(filtered, 12, [search]);
 
   const handleOpenAddModal = () => {
     setEditingUser(null);
@@ -114,7 +119,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
   const generateRandomPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-    let pass = 'IZ';
+    let pass = 'INV';
     for (let i = 0; i < 6; i++) {
       pass += chars.charAt(Math.floor(Math.random() * chars.length));
     }
@@ -169,7 +174,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   };
 
   const handleDelete = async (u: User) => {
-    if (window.confirm(`Are you sure you want to delete user "${u.name}" (${u.email})?`)) {
+    if (await confirmDialog(`Are you sure you want to delete user "${u.name}" (${u.email})?`)) {
       if (onDeleteUser) {
         await onDeleteUser(u.id);
       }
@@ -228,25 +233,35 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     }
   };
 
-  const cardBg = isDarkMode
-    ? 'bg-[#0f1218] border-slate-800 text-slate-300'
-    : 'bg-white border-slate-200 text-slate-800 shadow-xs';
+  const cardBg = 'bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-300';
+
+  if (!isOperationAllowed('admin-users', currentUser?.role)) {
+    return (
+      <div className={`p-10 rounded-3xl border text-center space-y-4 max-w-2xl mx-auto my-8 bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-300`}>
+        <Shield className="h-14 w-14 text-rose-500 mx-auto animate-bounce" />
+        <h2 className="text-xl font-bold font-serif">Access Denied</h2>
+        <p className="text-xs leading-relaxed max-w-md mx-auto opacity-90">
+          You do not have the <strong>User Management &amp; Role Assignment</strong> permission to access staff accounts. Contact your Super Admin to grant this permission.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Users className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
             <span>User Access & Role Administration</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="truncate text-slate-500 text-xs mt-0.5">
             Add, update roles, assign branches, or reset user passwords in case staff forget credentials.
           </p>
         </div>
         <button
           onClick={handleOpenAddModal}
-          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="h-4 w-4" />
           <span>Add New User</span>
@@ -255,32 +270,28 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>
-        <div className="relative max-w-md">
+ <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search user by name, email, or role..."
-            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none ${
-              isDarkMode
-                ? 'border border-slate-800 bg-slate-900 text-white placeholder-slate-500'
-                : 'border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400'
-            }`}
+            className={`w-full rounded-lg pl-9 pr-4 py-2 text-xs focus:outline-none border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 dark:border dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:placeholder-slate-500`}
           />
         </div>
       </div>
 
       {/* Grid of Users */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((u) => {
+        {usersPagination.pagedItems.map((u) => {
           const userBranch = branches.find((b) => b.id === u.branchId);
 
           return (
-            <div key={u.id} className={`p-5 rounded-2xl border transition-all ${cardBg}`}>
+            <div key={u.id} className={`p-4 rounded-2xl border transition-all ${cardBg}`}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30">
+                  <div className={`h-10 w-10 rounded-full bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm border border-indigo-500/30`}>
                     {u.name.charAt(0)}
                   </div>
                   <div>
@@ -293,7 +304,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleOpenResetModal(u)}
                     title="Reset Password"
-                    className="p-1.5 rounded-lg text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1 font-semibold text-[10px]"
+                    className={`p-1.5 rounded-lg text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-950/60 hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1 font-semibold text-[10px]`}
                   >
                     <Key className="h-3.5 w-3.5" />
                     <span>Reset Pass</span>
@@ -302,7 +313,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleOpenEditModal(u)}
                     title="Edit User"
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer`}
                   >
                     <Edit className="h-3.5 w-3.5" />
                   </button>
@@ -310,7 +321,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     type="button"
                     onClick={() => handleDelete(u)}
                     title="Delete User"
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 transition-colors cursor-pointer`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -335,7 +346,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     {u.role === 'SUPER_ADMIN' || u.role === 'INVENTORY_MANAGER' ? (
                       <span className="text-purple-600 dark:text-purple-400 font-bold">All Branches (Global Access)</span>
                     ) : u.allowedBranchIds && u.allowedBranchIds.length > 1 ? (
-                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                      <span className={`text-indigo-600 dark:text-indigo-400 font-bold`}>
                         {u.allowedBranchIds.length} Branches Assigned ({u.allowedBranchIds.map((id) => branches.find((b) => b.id === id)?.name || id).join(', ')})
                       </span>
                     ) : (
@@ -346,7 +357,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
               </div>
 
               <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <span className={`text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1`}>
                   <CheckCircle2 className="h-3 w-3" /> Active Account
                 </span>
                 <span className="text-slate-400 font-mono">ID: {u.id}</span>
@@ -355,17 +366,26 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
           );
         })}
       </div>
+      <TablePagination
+        page={usersPagination.page}
+        pageCount={usersPagination.pageCount}
+        totalItems={usersPagination.totalItems}
+        rangeStart={usersPagination.rangeStart}
+        rangeEnd={usersPagination.rangeEnd}
+        pageSize={usersPagination.pageSize}
+        onPageChange={usersPagination.setPage}
+        onPageSizeChange={usersPagination.setPageSize}
+        className="mt-1"
+      />
 
       {/* Modal Add / Edit User */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <h3 className="text-base font-bold mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-indigo-600" />
+              <Users className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
               <span>{editingUser ? 'Edit User & Credentials' : 'Add System User'}</span>
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
@@ -376,7 +396,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Suman Thapa"
+                  placeholder="e.g., Full Name"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -388,7 +408,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="suman@izone.net.np"
+                  placeholder="user@example.com"
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
                 />
               </div>
@@ -478,7 +498,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => toggleBranchPermission(b.id)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                              className={`rounded border-slate-300 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500 h-4 w-4`}
                             />
                             <span className="font-medium text-slate-800 dark:text-slate-200">
                               {b.name} ({b.code})
@@ -520,13 +540,11 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
       {resetModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
           <div
-            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
-              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-            }`}
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400">
+                <div className={`p-2 rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/80 dark:text-amber-400`}>
                   <Key className="h-5 w-5" />
                 </div>
                 <div>
@@ -547,7 +565,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 space-y-2">
                   <div className="flex items-center gap-2 font-bold text-emerald-900 dark:text-emerald-100">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    <CheckCircle2 className={`h-5 w-5 text-emerald-600 dark:text-emerald-400`} />
                     <span>Password Successfully Reset!</span>
                   </div>
                   <p className="text-[11px]">{resetSuccessMsg}</p>
@@ -586,7 +604,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     <button
                       type="button"
                       onClick={handleGeneratePasswordClick}
-                      className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      className={`text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer`}
                     >
                       <Wand2 className="h-3 w-3" />
                       <span>Auto Generate Strong Password</span>
@@ -614,7 +632,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyPassword}
-                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                        className={`p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400`}
                         title="Copy password"
                       >
                         {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, Branch } from '../../types';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   Bell,
   AlertTriangle,
@@ -25,8 +26,11 @@ interface NotificationCenterProps {
   shipments: Shipment[];
   branches: Branch[];
   selectedBranchId: string;
-  isDarkMode: boolean;
   onSelectTab: (tabId: string) => void;
+  /** Dismissed notification ids (lifted to App so badges stay in sync). */
+  dismissedIds?: string[];
+  onDismiss?: (id: string) => void;
+  onClearAll?: () => void;
 }
 
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({
@@ -39,11 +43,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   shipments = [],
   branches = [],
   selectedBranchId,
-  isDarkMode,
   onSelectTab,
+  dismissedIds = [],
+  onDismiss,
+  onClearAll,
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'REORDER' | 'APPROVAL' | 'SHIPMENT' | 'PO'>('ALL');
-  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
   if (!isOpen) return null;
 
@@ -148,7 +153,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   const shipmentAlerts = shipments
     .filter(
       (sh) =>
-        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED' || sh.status === 'DRAFT') &&
+        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
         (selectedBranchId === 'ALL' ||
           sh.destinationBranchId === selectedBranchId ||
           sh.sourceBranchId === selectedBranchId)
@@ -159,7 +164,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       title: `Shipment ${sh.status}: ${sh.trackingCode}`,
       subtitle: `${sh.sourceBranchName || 'Source'} → ${sh.destinationBranchName} (${sh.items?.length || 0} items)`,
       branchName: sh.destinationBranchName,
-      date: sh.dispatchDateAD || sh.createdDateAD,
+      date: sh.dispatchDateAD,
       severity: 'INFO' as const,
       actionLabel: 'Track Shipment',
       actionTab: 'shipment-list',
@@ -176,9 +181,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       id: `po-${po.id}`,
       type: 'PO' as const,
       title: `Purchase Order #${po.poNumber} (${po.status})`,
-      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${(po.grandTotal ?? po.totalAmount ?? 0).toLocaleString('en-IN')}`,
+      subtitle: `Supplier: ${po.supplierName} • Total: ${formatNPR(po.totalAmount ?? 0)}`,
       branchName: branches.find((b) => b.id === po.branchId)?.name || 'Branch',
-      date: po.poDateAD,
+      date: po.orderDateAD,
       severity: 'INFO' as const,
       actionLabel: 'View Order',
       actionTab: 'po-list',
@@ -195,19 +200,17 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   });
 
   const handleDismiss = (id: string) => {
-    setDismissedIds((prev) => [...prev, id]);
+    if (onDismiss) onDismiss(id);
   };
 
   const handleClearAll = () => {
-    setDismissedIds(allNotifications.map((n) => n.id));
+    if (onClearAll) onClearAll();
   };
 
   return (
     <div className="fixed inset-0 z-[9999] flex justify-end bg-slate-900/60 backdrop-blur-xs animate-fade-in">
       <div
-        className={`w-full max-w-md h-full flex flex-col border-l shadow-2xl transition-all duration-200 z-[10000] ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className={`w-full max-w-md h-full flex flex-col border-l shadow-2xl transition-all duration-200 z-[10000] bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-100`}
       >
         {/* Header Bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -234,14 +237,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               <button
                 onClick={handleClearAll}
                 title="Dismiss all notifications"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
               >
                 Clear All
               </button>
             )}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="h-5 w-5" />
             </button>

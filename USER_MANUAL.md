@@ -68,7 +68,7 @@ The system enforces strict Role-Based Access Control (RBAC):
 
 ### Branch Switching
 - Located on the left side of the top header.
-- Select **"All Branches (HQ Consolidated)"** for global executive reports or pick a specific branch (e.g., *Kathmandu HQ*, *Pokhara Branch*) to filter data.
+- Select **"All Branches (HQ Consolidated)"** for global executive reports or pick a specific branch (e.g., *Branch 1 (WH001)*, *Branch 2 (BRH01)*) to filter data.
 
 ### Dual Calendar System (BS & AD)
 - The header continuously displays today's date in both **AD** (Gregorian) and **BS** (Nepali Bikram Sambat, e.g., *2081 Shrawan 26*).

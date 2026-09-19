@@ -20,13 +20,14 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Consumable & Fixed Asset Management**:
   - Consumable Stock Out & Issue logging with work order and technician tagging.
   - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
+  - ERP-style asset dates: supplier invoice date, capitalization date, and placed-in-service date. Depreciation starts from the placed-in-service date and is persisted in PostgreSQL.
 - **Serial, MAC, PON & Customer Device Tracking**:
   - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
 - **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting.
 - **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 19 relational database tables.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 25 relational database tables.
 
 ---
 
@@ -52,7 +53,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   └── App.tsx                   # Main React Application shell
 │
 ├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql                # Full 19-Table PostgreSQL Schema with Indexes & FKs
+│   ├── schema.sql                # PostgreSQL Schema with Indexes, FKs & Asset Date Migrations
+│   ├── demo_dataset.js           # Linked demo products, stock and fixed assets
 │   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
 │   └── setup_db.js               # Node.js runner for database setup & migration
 │
@@ -79,8 +81,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-organization/izone-enterprise-erp.git
-cd izone-enterprise-erp
+git clone https://github.com/your-organization/inventory-management-system.git
+cd inventory-management-system
 
 # Install all npm dependencies
 npm install
@@ -103,13 +105,13 @@ Review or adjust `.env` parameters as needed:
 PORT=3000
 NODE_ENV=development
 
-# PostgreSQL Connection Settings
-DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
+# PostgreSQL Connection Settings (replace with your own credentials)
+DATABASE_URL="postgres://inventory_user:<YOUR_DB_PASSWORD>@localhost:5432/inventory_db"
 POSTGRES_HOST="localhost"
 POSTGRES_PORT="5432"
 POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
-POSTGRES_PASSWORD="securepassword"
+POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
 # Optional: Set to "true" only if you want sample demo data seeded on first launch
 SEED_DUMMY_DATA=false
@@ -128,7 +130,7 @@ npm run setup:pg
 **What this script does:**
 1. Detects your OS (Ubuntu, Debian, CentOS, macOS, Docker) and installs/starts PostgreSQL if not running.
 2. Creates the database `inventory_db` and user `inventory_user`.
-3. Migrates all 19 relational tables, constraints, foreign keys, and indexes from `scripts/schema.sql`.
+3. Migrates the relational tables, constraints, foreign keys, indexes, and fixed-asset date columns from `scripts/schema.sql`.
 4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
 
 The application requires PostgreSQL to be available. It does not use local file storage or an in-memory database fallback.
@@ -150,30 +152,79 @@ http://localhost:3000
 
 ## 🔑 Initial Super Admin Login Credentials
 
-On first launch, you can either create your own Super Admin account via the setup screen, or use the pre-configured root administrator:
+On first launch, the setup screen lets you create your own Super Admin account. Example pre-seeded administrator:
 
 | Field | Default Value |
 | :--- | :--- |
-| **Email** | `admin@izone.net.np` |
-| **Password** | `admin123` |
+| **Email** | `superadmin@example.com` |
+| **Password** | *(set during first-launch setup)* |
 | **Role** | `SUPER_ADMIN` |
-| **Branch** | Head Office (Urlabari) |
+| **Branch** | Branch 1 (WH001) — Example Location 1 |
 
-> **Security Note**: You can change your password anytime under **User Management** or through the profile menu in the header.
+> **Security Note**: Change the default password immediately after first login via **User Management** or the profile menu in the header.
+
+### 🧪 Seeded Example (Dummy) Accounts
+
+All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing. Passwords are assigned during first-launch setup.
+
+| Email | Role | Branch |
+| :--- | :--- | :--- |
+| `superadmin@example.com` | SUPER_ADMIN | WH001 |
+| `branch1@example.com` | BRANCH_MANAGER | WH001 |
+| `branch2@example.com` | BRANCH_MANAGER | BRH01 |
+| `inventory1@example.com` | INVENTORY_MANAGER | WH001 |
+| `accountant1@example.com` | ACCOUNTANT | WH001 |
+| `frontdesk1@example.com` | FRONT_DESK | BRH01 |
 
 ---
 
 ## 🧹 Managing Demo vs. Clean Operational Data
 
+### Fixed Asset Accounting Dates
+
+Fixed assets are separate from inventory opening stock. The system records:
+
+- **Purchase invoice date**: supplier document date used for invoice/datewise reporting.
+- **Capitalization date**: date the purchase is recognized as a fixed asset.
+- **Placed-in-service date**: date depreciation begins.
+- **Fiscal year**: derived from the asset’s accounting period.
+
+The Fixed Asset Register and Depreciation Register calculate from the placed-in-service date and selected fiscal-year reporting date. They do not use Stock Movement Ledger opening quantities. Asset links to products and purchase invoices are retained in PostgreSQL.
+
+### Administrative Recalculation & Repair
+
+Super Admins can open **Administration & Governance → Data Recalculation & Repair** and run separate, audited operations:
+
+1. **Recalculate Fixed Assets** — persists accumulated depreciation and NBV from asset dates, cost, rate, and method.
+2. **Rebuild Opening Stock** — creates the next fiscal year’s opening register from a closed year while preserving manual adjustments.
+3. **Recalculate Live Stock** — restores live quantities from the latest reliable stock transaction without rewriting transaction history.
+
+Run these after an import correction or database migration, preferably during a controlled maintenance window.
+
+### Resetting a Database for Demo Testing
+
+To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg`. The demo fixed asset `ast-car004` is linked to product `prod-car004` and includes purchase, capitalization, and placed-in-service dates.
+
 ### Default Clean Mode
-By default, the application starts with **0 products, 0 stock records, 0 customer devices, 0 POs, and 0 transaction logs**. Master branches (19 actual telecom branches) and Fiscal Years are preserved so you can immediately begin importing your real products or entering stock.
+The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus Fiscal Years, so you can immediately begin importing your real products or entering stock.
 
 ### Clearing Demo Data
-If demo data was previously loaded or tested, you can clear all operational demo records at any time:
+If demo data was previously loaded or tested, you can clear all demo records at any time (including demo branches, demo users, and all demo operational records):
 1. Navigate to **System Settings** -> **Maintenance & Data Management**.
 2. Click **"Clear Demo Data"**.
-3. All mock products, stock balances, test customer devices, invoices, and audit records will be purged, leaving your Super Admin accounts, branch structure, and fiscal year configurations intact.
+3. All mock products, stock balances, test customer devices, invoices, audit records, demo branches, and demo users will be purged.
 4. The system persists the cleanup directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
+
+> **Note**: The "Clear Demo Data" action removes all rows where `is_demo = TRUE`. Real business data (rows where `is_demo = FALSE`) is never touched. If you created your own Super Admin account during first-launch setup, it will remain because it has `is_demo = FALSE`.
+
+### 🔄 Full Reset to a Fresh Demo State
+To wipe **all** records (including users, branches, and locations) while **preserving the Nepali (BS) calendar reference tables**, then reseed the example dataset:
+
+```bash
+node scripts/reset_fresh_demo.mjs
+```
+
+After running it, restart the server (`npm run dev`) and log in with the credentials you set during first-launch setup.
 
 ---
 
@@ -213,10 +264,10 @@ sudo apt install -y certbot python3-certbot-nginx
 sudo -u postgres psql
 ```
 
-Execute SQL commands:
+Execute SQL commands (replace the password with a strong value of your choice):
 ```sql
 CREATE DATABASE inventory_db;
-CREATE USER inventory_user WITH PASSWORD 'YourVeryStrongProductionPassword123!';
+CREATE USER inventory_user WITH PASSWORD '<YOUR_STRONG_PASSWORD>';
 GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory_user;
 \c inventory_db
 GRANT ALL ON SCHEMA public TO inventory_user;
@@ -225,8 +276,8 @@ GRANT ALL ON SCHEMA public TO inventory_user;
 
 Import the database schema:
 ```bash
-cd /var/www/izone-enterprise-erp
-PGPASSWORD='YourVeryStrongProductionPassword123!' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
+cd /var/www/inventory-management-system
+PGPASSWORD='<YOUR_STRONG_PASSWORD>' psql -h localhost -U inventory_user -d inventory_db -f scripts/schema.sql
 ```
 
 ---
@@ -234,7 +285,7 @@ PGPASSWORD='YourVeryStrongProductionPassword123!' psql -h localhost -U inventory
 ### Step 3: Production Build
 
 ```bash
-cd /var/www/izone-enterprise-erp
+cd /var/www/inventory-management-system
 
 # Install dependencies (including dev tools for building)
 npm install
@@ -309,15 +360,15 @@ sudo certbot --nginx -d erp.yourdomain.com
 
 ```bash
 # Build multi-stage Docker image
-docker build -t izone-erp:latest .
+docker build -t inventory-erp:latest .
 
 # Run container
 docker run -d \
-  --name izone-erp-app \
+  --name inventory-erp-app \
   --restart always \
   -p 3000:3000 \
   --env-file .env \
-  izone-erp:latest
+  inventory-erp:latest
 ```
 
 ---
