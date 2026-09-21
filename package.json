@@ -5,14 +5,17 @@
   "description": "Enterprise Multi-Branch Inventory Management System, Device Tracking, VAT & Fiscal Closing",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "dev": "tsx watch server/index.ts",
+    "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "integrity:check": "node scripts/integrity_check.mjs",
+    "smoke": "node scripts/smoke_test.mjs",
+    "bench:write": "node scripts/bench_write_latency.mjs",
     "setup:pg": "node scripts/setup_db.js",
     "setup:postgres": "bash scripts/setup_postgres.sh",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsc --noEmit && tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

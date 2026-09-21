@@ -189,6 +189,7 @@ async function ensureEnterpriseColumns(client) {
     { table: 'products', column: 'is_demo', label: 'demo tracking' },
     { table: 'stock_operations', column: 'fiscal_year_id', label: 'fiscal-year FK' },
     { table: 'purchase_orders', column: 'is_demo', label: 'demo tracking' },
+    { table: 'serial_log', column: 'device_serial', label: 'serial-log register (one row per serial)' },
   ];
   for (const c of checks) {
     const res = await client.query(
@@ -600,6 +601,25 @@ async function seedDemoData(client) {
     summary.fixed_assets = dataset.assetRegister.length;
   }
 
+  // Seed serial_log demo rows
+  if (!(await skipTable('serial_log'))) {
+    for (const sl of (dataset.serialLogs || [])) {
+      await client.query(
+        `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          sl.id, sl.deviceSerial, sl.ponSerial || null, sl.macAddress || null,
+          sl.productId || null, sl.productName, sl.branchId,
+          sl.customerId || null, sl.customerName || null, sl.status,
+          sl.sourceType, sl.sourceId || null, JSON.stringify(sl.history || []),
+          sl.createdAt || new Date().toISOString(), sl.updatedAt || new Date().toISOString()
+        ]
+      );
+    }
+    summary.serial_log = (dataset.serialLogs || []).length;
+  }
+
   if (!(await skipTable('purchase_orders'))) {
     for (const po of dataset.purchaseOrders) {
       await client.query(
@@ -805,6 +825,7 @@ async function runSetup() {
         (SELECT COUNT(*) FROM purchase_orders WHERE is_demo) AS orders,
         (SELECT COUNT(*) FROM purchase_invoices WHERE is_demo) AS invoices,
         (SELECT COUNT(*) FROM vendor_payments WHERE is_demo) AS vendor_payments,
+        (SELECT COUNT(*) FROM serial_log WHERE is_demo)      AS serial_log,
         (SELECT COUNT(*) FROM damage_records WHERE is_demo)  AS damage_records
     `);
     console.log(`\n📌 Demo rows now in database: ${JSON.stringify(demoCounts.rows[0])}`);

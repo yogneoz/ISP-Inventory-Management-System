@@ -5,13 +5,19 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // The frontend now lives in client/ (client/index.html + client/src/).
+    root: 'client',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    // Emit the built SPA to the project-root dist/ folder the Express
+    // server serves in production (path.join(process.cwd(), 'dist')).
     build: {
+      outDir: path.resolve(__dirname, 'dist'),
+      emptyOutDir: true,
       rollupOptions: {
         output: {
           manualChunks(id) {

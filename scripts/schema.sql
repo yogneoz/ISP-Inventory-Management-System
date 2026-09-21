@@ -12,6 +12,9 @@
 --     document to the fiscal_years master table
 --   * bs_day_records.fiscal_year_id FK alongside the fiscal_year code column
 --   * Partial indexes for is_demo = TRUE rows and fiscal_year_id scoping
+--   * v3.2: serial_log register (17b) - one row per unique device serial with
+--     lifecycle history, enforced by uq_serial_log_device_serial. Demo rows are
+--     seeded by `npm run setup:pg` (scripts/setup_db.js -> scripts/demo_dataset.js).
 --
 -- AD (Gregorian) dates remain the source of truth for every date column,
 -- BS dates and fiscal years are derived server-side from bs_day_records.
@@ -302,7 +305,7 @@ CREATE TABLE IF NOT EXISTS vendor_payments (
     payment_date_ad DATE NOT NULL,
     payment_date_bs VARCHAR(20),
     amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
-    payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+    payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
     bank_name VARCHAR(150),
     bank_branch VARCHAR(150),
     account_number VARCHAR(100),
@@ -366,7 +369,7 @@ CREATE TABLE IF NOT EXISTS shipments (
 CREATE TABLE IF NOT EXISTS stock_operations (
     id VARCHAR(50) PRIMARY KEY,
     reference_number VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('PULLOUT', 'DAMAGE', 'STOCK_OUT', 'MANUAL_ADJUSTMENT', 'CONSUMABLE_ISSUE')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('PULLOUT', 'DAMAGE', 'DISPOSAL', 'STOCK_OUT', 'MANUAL_ADJUSTMENT', 'CONSUMABLE_ISSUE')),
     technician_name VARCHAR(150),
     work_order_ref VARCHAR(100),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
@@ -445,7 +448,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     user_email VARCHAR(150) NOT NULL,
     user_name VARCHAR(150) NOT NULL,
     action VARCHAR(100) NOT NULL,
-    module VARCHAR(50) NOT NULL CHECK (module IN ('AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS', 'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY_AUDIT', 'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM')),
+    module VARCHAR(50) NOT NULL CHECK (module IN ('AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS', 'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY', 'INVENTORY_AUDIT', 'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM')),
     details TEXT,
     timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     timestamp_bs VARCHAR(20),
@@ -519,6 +522,31 @@ CREATE TABLE IF NOT EXISTS customer_device_records (
     issued_date_bs VARCHAR(20),
     purchase_bill_ref VARCHAR(100),
     notes TEXT,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 17b. Serial Log (one row per unique serial — consolidated register)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS serial_log (
+    id VARCHAR(50) PRIMARY KEY,
+    device_serial VARCHAR(100) NOT NULL,
+    pon_serial VARCHAR(100),
+    mac_address VARCHAR(100),
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    product_name VARCHAR(255),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    customer_id VARCHAR(50),
+    customer_name VARCHAR(200),
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+    source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
+    source_id VARCHAR(50),
+    history_json TEXT DEFAULT '[]',
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -613,7 +641,7 @@ CREATE TABLE IF NOT EXISTS uom (
 CREATE TABLE IF NOT EXISTS locations (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('POP_SERVER_ROOM', 'WAREHOUSE', 'STORE', 'OFFICE', 'DEPOT')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('POP_SERVER_ROOM', 'FIBER_NETWORK_NODE', 'CUSTOMER_SITE', 'WAREHOUSE', 'BRANCH_OFFICE', 'STORE', 'OFFICE', 'DEPOT')),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     address TEXT,
     coordinates JSONB,
@@ -696,6 +724,23 @@ CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_branch ON document_sequen
 CREATE INDEX IF NOT EXISTS idx_document_sequence_daily_date ON document_sequence_daily(date_ad);
 
 -- ============================================================================
+-- 30. Permission Matrix (server-side authority for role-based operation gating)
+-- One row per (operation_id, role). Mirrors the server's permission matrix:
+-- the server seeds the actual operation/role rows at startup with
+-- INSERT ... ON CONFLICT DO NOTHING, so an empty table on a fresh install is
+-- correct. Creating the table here keeps setup_db.js's truncate-and-verify
+-- flow consistent with the runtime schema.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS permission_matrix (
+    operation_id VARCHAR(60) NOT NULL,
+    role VARCHAR(40) NOT NULL,
+    allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (operation_id, role)
+);
+
+CREATE INDEX IF NOT EXISTS idx_permission_matrix_role ON permission_matrix(role);
+
+-- ============================================================================
 -- v3.0 MIGRATION for databases created with schema v2.x
 -- (No-ops on fresh installs where the columns already exist above.)
 -- ============================================================================
@@ -764,8 +809,9 @@ ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50)
 ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
 ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
   change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
-    'DAMAGE', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
-    'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN')
+    'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
+    'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED')
 );
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
@@ -913,6 +959,16 @@ CREATE INDEX IF NOT EXISTS idx_txn_type ON transaction_logs(change_type);
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_fiscal_year_id ON transaction_logs(fiscal_year_id) WHERE fiscal_year_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_transaction_logs_demo ON transaction_logs(id) WHERE is_demo = TRUE;
 
+-- Audit module enum: 'INVENTORY' is written by the serial-log upsert path
+-- (server.ts SERIAL_LOG_UPSERT). Without it the insert is silently rejected
+-- and serial-log audit events never reach the database.
+ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_module_check;
+ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_module_check CHECK (module IN (
+  'AUTH', 'MASTER_DATA', 'PRODUCTS', 'CATEGORIES', 'PROCUREMENT', 'LOGISTICS',
+  'STOCK_OPERATIONS', 'FIXED_ASSETS', 'CPE_MANAGEMENT', 'INVENTORY', 'INVENTORY_AUDIT',
+  'OPERATIONS', 'BRANCH_OPERATIONS', 'FISCAL_YEAR', 'APPROVAL_WORKFLOW', 'SYSTEM'
+));
+
 -- Customer Records indexes
 CREATE INDEX IF NOT EXISTS idx_customer_records_id ON customer_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customer_records_branch ON customer_records(branch_id);
@@ -929,6 +985,12 @@ CREATE INDEX IF NOT EXISTS idx_customer_device_records_demo ON customer_device_r
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_device_serial ON customer_device_records ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_pon_serial ON customer_device_records ((lower(trim(pon_serial)))) WHERE trim(pon_serial) <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_device_mac_address ON customer_device_records ((lower(trim(mac_address)))) WHERE mac_address IS NOT NULL AND trim(mac_address) <> '';
+
+-- Serial Log indexes (unique device_serial = one row per serial)
+CREATE INDEX IF NOT EXISTS idx_serial_log_branch ON serial_log(branch_id) WHERE branch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_serial_log_status ON serial_log(status);
+CREATE INDEX IF NOT EXISTS idx_serial_log_demo ON serial_log(id) WHERE is_demo = TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_device_serial ON serial_log ((lower(trim(device_serial)))) WHERE trim(device_serial) <> '';
 
 -- Approval Requests indexes
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);

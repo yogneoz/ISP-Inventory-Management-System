@@ -21,6 +21,8 @@ const EXCEL_ITEMS = [
   { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
   { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
   { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
+  { code: 'SWT001', group: 'FIXED ASSET', type: 'Network Switch', name: '24-PORT MANAGED NETWORK SWITCH', uom: 'Pcs', qty: 5, val: 85000 },
+  { code: 'UPS001', group: 'FIXED ASSET', type: 'UPS Unit', name: 'ONLINE UPS 3KVA', uom: 'Pcs', qty: 8, val: 45000 },
   { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
   { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
 ];
@@ -217,7 +219,7 @@ export function buildDemoDataset(branches) {
 
       return {
         id: `ast-${item.code.toLowerCase()}`,
-        tagNumber: `AST-${item.code}`,
+        tagNumber: `SN-${item.code}-${String(idx + 1).padStart(4, '0')}`,
         name: item.name,
         category: cat,
         branchId: assignedBranch,
@@ -236,7 +238,109 @@ export function buildDemoDataset(branches) {
         status: 'ACTIVE',
         isDemo: true,
       };
+    });  // Demo serial-log register rows — one row per unique serial.
+  //
+  // Every serial-tracked unit in branch stock gets its own register row:
+  //  - Fixed assets keep their existing SN-<itemcode>-NNNN tags (one row each).
+  //  - Product-item stock (e.g. all ONU routers) is expanded unit-by-unit so
+  //    the register matches inventory_stock quantities, with deterministic
+  //    SN-<SKU>-NNNN device serials, PON-<serial> PONs, and HWTC-XXXXXXXX MACs.
+  //
+  // NOTE: this block intentionally lives AFTER demoAssetRegister is fully built
+  // so it never references the array while it is still being constructed.
+  const demoSerialLogs = [];
+  const usedSerialKeys = new Set(); // case-insensitive uniqueness across SN/PON/MAC
+  const macFromIndex = (n) => {
+    // Deterministic pseudo-MAC from a counter: HWTC-XX-XX-XX-XX style.
+    const v = 0x10000000 + n * 0x1B2C3D; // spreads values nicely
+    const hex = v.toString(16).toUpperCase().padStart(8, '0').slice(-8);
+    return `HWTC-${hex.slice(0, 2)}${hex.slice(2, 4)}${hex.slice(4, 6)}${hex.slice(6, 8)}`;
+  };
+  let macCounter = 0;
+  const registerSerialRow = (row) => {
+    // Guarantee SN/PON/MAC uniqueness even if the dataset grows later.
+    for (const key of [row.deviceSerial, row.ponSerial, row.macAddress]) {
+      const k = String(key || '').trim().toUpperCase();
+      if (k) {
+        if (usedSerialKeys.has(k)) {
+          throw new Error(`Demo serial collision: ${k} (row ${row.deviceSerial})`);
+        }
+        usedSerialKeys.add(k);
+      }
+    }
+    demoSerialLogs.push(row);
+  };
+
+  // 1. Fixed assets — one serial row per asset tag (all of them, not a subset).
+  // All units are seeded IN_STOCK (no customer/POP assignments in the demo set).
+  demoAssetRegister.forEach((asset) => {
+    const status = 'IN_STOCK';
+    const mac = macFromIndex(macCounter++);
+    registerSerialRow({
+      id: `sl-${asset.tagNumber.toLowerCase()}`,
+      deviceSerial: asset.tagNumber,
+      ponSerial: `PON-${asset.tagNumber}`,
+      macAddress: mac,
+      productId: asset.productId,
+      productName: asset.name,
+      branchId: asset.branchId,
+      customerId: undefined,
+      customerName: undefined,
+      status,
+      sourceType: 'FIXED_ASSET',
+      sourceId: asset.id,
+      history: [
+        { status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: '2024-04-15' },
+      ],
+      createdAt: '2024-04-15T10:00:00Z',
+      updatedAt: undefined,
+      isDemo: true,
     });
+  });
+
+  // 2. Product-item stock — expand every serial-tracked product's per-branch
+  // stock quantity into individual register rows (unit-level tracking).
+  // Serial numbering is GLOBAL per product (the DB unique index on
+  // lower(device_serial) spans all branches), so a per-product counter is
+  // carried across branches instead of restarting at 0001 per branch.
+  const productSerialCounter = {};
+  demoInventoryStock.forEach((stock) => {
+    const product = demoProducts.find((p) => p.id === stock.productId);
+    if (!product || !product.requiresSerialTracking) return;
+    // Fixed-asset products are already unit-tracked via their asset tags
+    // (section 1) — expanding their stock rows would create duplicates.
+    if (product.productGroup === 'Fixed Asset') return;
+
+    // All units are seeded IN_STOCK (no customer assignments or in-transit
+    // units in the demo set) so the register matches stock exactly.
+    const total = stock.quantityOnHand || 0;
+
+    for (let i = 1; i <= total; i++) {
+      productSerialCounter[product.id] = (productSerialCounter[product.id] || 0) + 1;
+      const serial = `SN-${product.sku}-${String(productSerialCounter[product.id]).padStart(4, '0')}`;
+      const mac = macFromIndex(macCounter++);
+      const status = 'IN_STOCK';
+      const sourceType = 'PURCHASE';
+      const history = [{ status: 'IN_STOCK', sourceType: 'PURCHASE', dateAD: '2026-07-20' }];
+      registerSerialRow({
+        id: `sl-${serial.toLowerCase()}`,
+        deviceSerial: serial,
+        ponSerial: `PON-${serial}`,
+        macAddress: mac,
+        productId: product.id,
+        productName: product.name,
+        branchId: stock.branchId,
+        customerId: undefined,
+        customerName: undefined,
+        status,
+        sourceType,
+        history,
+        createdAt: '2026-07-20T10:00:00Z',
+        updatedAt: undefined,
+        isDemo: true,
+      });
+    }
+  });
 
   // Demo purchase order (references the first demo supplier + a demo product).
   const demoPurchaseOrders = [
@@ -500,6 +604,7 @@ export function buildDemoDataset(branches) {
     products: demoProducts,
     inventoryStock: demoInventoryStock,
     assetRegister: demoAssetRegister,
+    serialLogs: demoSerialLogs,
     purchaseOrders: demoPurchaseOrders,
     purchaseInvoices: demoPurchaseInvoices,
     vendorPayments: demoVendorPayments,
