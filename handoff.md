@@ -167,14 +167,18 @@ ISP-Inventory-Management-System/
 │       ├── middleware/                # Middleware chain
 │       │   ├── auth.ts                # scrypt hashing, HMAC tokens, session helpers
 │       │   └── index.ts               # auth, PG gate, fiscal lock, RBAC, matrix perms, branch scope
-│       ├── models/                    # Schema blueprints / data access
+│       ├── models/                    # Schema blueprints / data access — per-domain SQL query builders
 │       │   ├── bootstrap.repo.ts      # Bootstrap fetches + serial history parsing
-│       │   └── columnMappings.ts      # Per-table column mappings (single source)
+│       │   ├── columnMappings.ts      # Per-table column mappings (single source)
+│       │   ├── masterdata.repo.ts     # Master-data SQL (products, suppliers, branches, …)
+│       │   ├── procurement.repo.ts    # PO / purchase-invoice / vendor-payment / ledger SQL
+│       │   ├── shipments.repo.ts      # Inter-branch transfer, receipt and cancel-restore SQL
+│       │   └── misc.repo.ts           # Audit trail, txn logs, approval-request lifecycle SQL
 │       ├── routes/                    # Endpoint layout — every route is a thin forwarder
 │       │   ├── auth.routes.ts / bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
 │       │   ├── shipments.routes.ts / masterdata.routes.ts / admin.routes.ts /
 │       │   └── reports.routes.ts / sync.routes.ts / permissions.routes.ts / misc.routes.ts
-│       ├── services/                  # Core business logic — unit-tested (100 tests)
+│       ├── services/                  # Core business logic — unit-tested (174 tests)
 │       │   ├── damage.service.ts
 │       │   ├── serialEditCapture.service.ts
 │       │   └── serials.service.ts
@@ -183,7 +187,9 @@ ISP-Inventory-Management-System/
 │
 ├── server.ts                          # Root shim → re-exports server/src/app
 │                                      #   (legacy entry compatibility)
-└── tests/                             # Unit tests (node:test) for services
+└── tests/                             # Unit tests (node:test) for services + repo query
+                                       #   builders — 174 tests; CI runs tsc + npm test on
+                                       #   every push/PR (.github/workflows/ci.yml)
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
