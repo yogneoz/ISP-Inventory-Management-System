@@ -8,11 +8,19 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction } from '../app';
 import { UnitOfMeasure, LocationRecord, Supplier, Category, CustomerRecord } from '../../../client/src/types';
+import {
+  UOM_SELECT, UOM_UPSERT_SQL, upsertUomParams, UOM_UPDATE_SQL, updateUomParams, UOM_DELETE_SQL,
+  buildLocationSelectSql, LOCATION_UPSERT_SQL, locationParams, LOCATION_UPDATE_SQL, LOCATION_DELETE_SQL,
+  SUPPLIER_SELECT, SUPPLIER_UPSERT_SQL, supplierUpsertParams, SUPPLIER_UPDATE_SQL, supplierUpdateParams, SUPPLIER_DELETE_SQL,
+  PRODUCT_SELECT, PRODUCT_UPSERT_SQL, productUpsertParams, PRODUCT_UPDATE_SQL, productUpdateParams, PRODUCT_DELETE_SQL, STOCK_INIT_SQL, stockInitParams,
+  CATEGORY_SELECT, CATEGORY_UPSERT_SQL, categoryUpsertParams, CATEGORY_UPDATE_SQL, categoryUpdateParams, CATEGORY_DELETE_SQL,
+  buildCustomerListQuery, CUSTOMER_UPSERT_SQL, customerUpsertParams,
+} from '../models/masterdata.repo';
 /** Forwarded from masterdata.routes.ts (get_uom). */
 export async function get_uom(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query('SELECT id, name, symbol, type, is_base_unit AS "isBaseUnit" FROM uom ORDER BY name ASC');
+      const r = await pgPool.query(UOM_SELECT);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -37,16 +45,7 @@ try {
     setUomList(idx >= 0 ? withReplaced(uomList, idx, newUom) : withAppended(uomList, newUom));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO uom (id, name, symbol, type, is_base_unit)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           symbol = EXCLUDED.symbol,
-           type = EXCLUDED.type,
-           is_base_unit = EXCLUDED.is_base_unit;`,
-        [newUom.id, newUom.name, newUom.symbol, newUom.type, newUom.isBaseUnit]
-      );
+      await pgPool.query(UOM_UPSERT_SQL, upsertUomParams(newUom));
     }
     logAuditEvent(req, 'CREATE_UOM', 'MASTER_DATA', `Created/updated Unit of Measure ${newUom.name} (${newUom.symbol})`);
     res.status(201).json(newUom);
@@ -66,10 +65,7 @@ try {
     const uom = uomList[idx] || req.body;
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE uom SET name = $1, symbol = $2, type = $3, is_base_unit = $4 WHERE id = $5;`,
-        [uom.name, uom.symbol, uom.type, Boolean(uom.isBaseUnit), id]
-      );
+      await pgPool.query(UOM_UPDATE_SQL, updateUomParams(uom, id));
     }
     logAuditEvent(req, 'UPDATE_UOM', 'MASTER_DATA', `Updated UOM ${uom.name}`);
     res.json(uom);
@@ -88,7 +84,7 @@ try {
     setUomList(uomList.filter((u) => u.id !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM uom WHERE id = $1', [id]);
+      await pgPool.query(UOM_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_UOM', 'MASTER_DATA', `Deleted UOM ${uom?.name || id}`);
     res.json({ success: true });
@@ -104,10 +100,8 @@ export async function get_locations(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const q = 'SELECT id, name, type, branch_id AS "branchId", address, coordinates, contact_person AS "contactPerson", contact_phone AS "contactPhone", notes, active_assets_count AS "activeAssetsCount" FROM locations' +
-                (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') + ' ORDER BY name ASC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
+      const { sql: q, params } = buildLocationSelectSql(branchId);
+      const r = await pgPool.query(q, params as any[]);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -139,32 +133,7 @@ try {
     setLocationRecords(idx >= 0 ? withReplaced(locationRecords, idx, newLoc) : withPrepended(locationRecords, newLoc));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO locations (id, name, type, branch_id, address, coordinates, contact_person, contact_phone, notes, active_assets_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           type = EXCLUDED.type,
-           branch_id = EXCLUDED.branch_id,
-           address = EXCLUDED.address,
-           coordinates = EXCLUDED.coordinates,
-           contact_person = EXCLUDED.contact_person,
-           contact_phone = EXCLUDED.contact_phone,
-           notes = EXCLUDED.notes,
-           active_assets_count = EXCLUDED.active_assets_count;`,
-        [
-          newLoc.id,
-          newLoc.name,
-          newLoc.type,
-          newLoc.branchId,
-          newLoc.address,
-          JSON.stringify(newLoc.coordinates),
-          newLoc.contactPerson,
-          newLoc.contactPhone,
-          newLoc.notes,
-          newLoc.activeAssetsCount,
-        ]
-      );
+      await pgPool.query(LOCATION_UPSERT_SQL, locationParams(newLoc));
     }
     logAuditEvent(req, 'CREATE_LOCATION', 'MASTER_DATA', `Created/updated location ${newLoc.name} (${newLoc.id})`, newLoc.branchId);
     res.status(201).json(newLoc);
@@ -184,11 +153,7 @@ try {
     const loc = locationRecords[idx] || req.body;
 
     if (getPgConnected() && loc) {
-      await pgPool.query(
-        `UPDATE locations SET
-           name = $1, type = $2, branch_id = $3, address = $4, coordinates = $5, contact_person = $6, contact_phone = $7, notes = $8, active_assets_count = $9
-         WHERE id = $10;`,
-        [
+      await pgPool.query(LOCATION_UPDATE_SQL, [
           loc.name,
           loc.type,
           loc.branchId,
@@ -199,8 +164,7 @@ try {
           loc.notes,
           loc.activeAssetsCount,
           id,
-        ]
-      );
+        ]);
     }
     logAuditEvent(req, 'UPDATE_LOCATION', 'MASTER_DATA', `Updated location details for ${loc.name} (${id})`, loc.branchId);
     res.json(loc);
@@ -219,7 +183,7 @@ try {
     setLocationRecords(locationRecords.filter((l) => l.id !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM locations WHERE id = $1', [id]);
+      await pgPool.query(LOCATION_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_LOCATION', 'MASTER_DATA', `Deleted location ${loc?.name || id}`);
     res.json({ success: true });
@@ -234,7 +198,7 @@ try {
 export async function get_suppliers(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query('SELECT id, supplier_code AS "supplierCode", name, contact_person AS "contactPerson", phone, email, address, pan_vat_number AS "panVatNumber", rating, status FROM suppliers ORDER BY name ASC');
+      const r = await pgPool.query(SUPPLIER_SELECT);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -264,21 +228,7 @@ try {
 
     if (getPgConnected()) {
       const sup = newSupplier as any;
-      await pgPool.query(
-        `INSERT INTO suppliers (id, supplier_code, name, contact_person, phone, email, address, pan_vat_number, rating, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (id) DO UPDATE SET
-           supplier_code = EXCLUDED.supplier_code,
-           name = EXCLUDED.name,
-           contact_person = EXCLUDED.contact_person,
-           phone = EXCLUDED.phone,
-           email = EXCLUDED.email,
-           address = EXCLUDED.address,
-           pan_vat_number = EXCLUDED.pan_vat_number,
-           rating = EXCLUDED.rating,
-           status = EXCLUDED.status;`,
-        [sup.id, sup.supplierCode, sup.name, sup.contactPerson, sup.phone, sup.email, sup.address, sup.panVatNumber, sup.rating, sup.status]
-      );
+      await pgPool.query(SUPPLIER_UPSERT_SQL, supplierUpsertParams(sup));
     }
     logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name}`);
     res.status(201).json(newSupplier);
@@ -299,12 +249,7 @@ try {
     const sup = suppliers[idx] as any;
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE suppliers SET
-           supplier_code = $1, name = $2, contact_person = $3, phone = $4, email = $5, address = $6, pan_vat_number = $7, rating = $8, status = $9
-         WHERE id = $10;`,
-        [sup.supplierCode || '', sup.name, sup.contactPerson || '', sup.phone || '', sup.email || '', sup.address || '', sup.panVatNumber || '', Number(sup.rating) || 5.0, sup.status || 'ACTIVE', id]
-      );
+      await pgPool.query(SUPPLIER_UPDATE_SQL, supplierUpdateParams(sup, id));
     }
     logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${sup.name} (${id})`);
     res.json(sup);
@@ -323,7 +268,7 @@ try {
     setSuppliers(suppliers.filter((s) => s.id !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM suppliers WHERE id = $1', [id]);
+      await pgPool.query(SUPPLIER_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
     res.json({ success: true });
@@ -338,9 +283,7 @@ try {
 export async function get_products(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query(
-        'SELECT id, sku, barcode, name, category, product_group AS "productGroup", unit, cost_price AS "costPrice", selling_price AS "sellingPrice", tax_rate AS "taxRate", min_reorder_level AS "minReorderLevel", requires_serial_tracking AS "requiresSerialTracking", tracking_type AS "trackingType", description, status FROM products ORDER BY created_at DESC'
-      );
+      const r = await pgPool.query(PRODUCT_SELECT);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -393,40 +336,10 @@ try {
 
     // PostgreSQL database insertion
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO products (id, sku, barcode, name, category, product_group, unit, cost_price, selling_price, tax_rate, min_reorder_level, requires_serial_tracking, tracking_type, description, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         ON CONFLICT (id) DO UPDATE SET
-           sku = EXCLUDED.sku,
-           name = EXCLUDED.name,
-           category = EXCLUDED.category,
-           selling_price = EXCLUDED.selling_price;`,
-        [
-          newProd.id,
-          newProd.sku,
-          newProd.barcode,
-          newProd.name,
-          newProd.category,
-          newProd.productGroup,
-          newProd.unit,
-          newProd.costPrice,
-          newProd.sellingPrice,
-          newProd.taxRate,
-          newProd.minReorderLevel,
-          newProd.requiresSerialTracking,
-          newProd.trackingType,
-          newProd.description,
-          newProd.status,
-        ]
-      );
+      await pgPool.query(PRODUCT_UPSERT_SQL, productUpsertParams(newProd as any));
 
       for (const stk of newStockItems) {
-        await pgPool.query(
-          `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (id) DO NOTHING;`,
-          [stk.id, stk.productId, stk.branchId, stk.quantityOnHand, stk.damagedQty, stk.reservedQty, stk.incomingQty, stk.minReorderLevel]
-        );
+        await pgPool.query(STOCK_INIT_SQL, stockInitParams(stk));
       }
     }
     logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
@@ -450,41 +363,7 @@ try {
     const updated = products[idx];
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE products SET
-           sku = $1,
-           barcode = $2,
-           name = $3,
-           category = $4,
-           product_group = $5,
-           unit = $6,
-           cost_price = $7,
-           selling_price = $8,
-           tax_rate = $9,
-           min_reorder_level = $10,
-           requires_serial_tracking = $11,
-           tracking_type = $12,
-           description = $13,
-           status = $14
-         WHERE id = $15;`,
-        [
-          updated.sku,
-          updated.barcode || '',
-          updated.name,
-          updated.category,
-          updated.productGroup || 'Product Item',
-          updated.unit || 'Pcs',
-          Number(updated.costPrice) || 0,
-          Number(updated.sellingPrice) || 0,
-          Number(updated.taxRate) || 13,
-          Number(updated.minReorderLevel) || 5,
-          Boolean(updated.requiresSerialTracking),
-          updated.trackingType || 'QUANTITY_ONLY',
-          updated.description || '',
-          updated.status || 'ACTIVE',
-          id,
-        ]
-      );
+      await pgPool.query(PRODUCT_UPDATE_SQL, productUpdateParams(updated, id));
     }
     const changeMsg = oldProd.sku !== updated.sku
       ? `SKU updated from ${oldProd.sku} to ${updated.sku}`
@@ -508,7 +387,7 @@ try {
     setInventoryStock(inventoryStock.filter((s) => s.productId !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM products WHERE id = $1;', [id]);
+      await pgPool.query(PRODUCT_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
     res.json({ success: true });
@@ -523,9 +402,7 @@ try {
 export async function get_categories(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const { rows } = await pgPool.query(
-        'SELECT id, name, code, description, is_special_tracked AS "isSpecialTracked" FROM categories ORDER BY name ASC'
-      );
+      const { rows } = await pgPool.query(CATEGORY_SELECT);
       res.json(rows);
       return;
     } catch (err: any) {
@@ -554,16 +431,7 @@ try {
     }
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO categories (id, name, code, description, is_special_tracked)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           code = EXCLUDED.code,
-           description = EXCLUDED.description,
-           is_special_tracked = EXCLUDED.is_special_tracked;`,
-        [newCat.id, newCat.name, newCat.code, newCat.description, newCat.isSpecialTracked]
-      );
+      await pgPool.query(CATEGORY_UPSERT_SQL, categoryUpsertParams(newCat));
     }
     logAuditEvent(req, 'CREATE_CATEGORY', 'CATEGORIES', `Created category ${newCat.name} (${newCat.code})`);
     broadcastChange({ type: 'CATEGORY_CREATED', entity: 'categories' });
@@ -586,15 +454,7 @@ try {
     const updated = categories[idx] || { id, ...req.body };
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE categories
-         SET name = $1,
-             code = $2,
-             description = $3,
-             is_special_tracked = $4
-         WHERE id = $5;`,
-        [updated.name, updated.code, updated.description || '', Boolean(updated.isSpecialTracked), id]
-      );
+      await pgPool.query(CATEGORY_UPDATE_SQL, categoryUpdateParams(updated, id));
     }
     logAuditEvent(req, 'UPDATE_CATEGORY', 'CATEGORIES', `Updated category ${updated.name}`);
     broadcastChange({ type: 'CATEGORY_UPDATED', entity: 'categories' });
@@ -614,7 +474,7 @@ try {
     setCategories(categories.filter((c) => c.id !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM categories WHERE id = $1;', [id]);
+      await pgPool.query(CATEGORY_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_CATEGORY', 'CATEGORIES', `Deleted category ${cat?.name || id}`);
     broadcastChange({ type: 'CATEGORY_DELETED', entity: 'categories' });
@@ -632,26 +492,8 @@ const { branchId, query } = req.query;
 
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount" FROM customer_records`;
-      const params: any[] = [];
-      const conditions: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conditions.push(`branch_id = $${params.length}`);
-      }
-
-      if (query && typeof query === 'string' && query.trim()) {
-        params.push(`%${query.trim().toLowerCase()}%`);
-        conditions.push(`(LOWER(customer_id) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(username) LIKE $${params.length} OR LOWER(contact_number) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(address) LIKE $${params.length})`);
-      }
-
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
-      sql += ' ORDER BY customer_name ASC';
-
-      const r = await pgPool.query(sql, params);
+      const { sql, params } = buildCustomerListQuery(branchId, query);
+      const r = await pgPool.query(sql, params as any[]);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -715,33 +557,7 @@ try {
     }
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT (id) DO UPDATE SET
-           customer_id = EXCLUDED.customer_id,
-           customer_name = EXCLUDED.customer_name,
-           username = EXCLUDED.username,
-           contact_number = EXCLUDED.contact_number,
-           branch_id = EXCLUDED.branch_id,
-           address = EXCLUDED.address,
-           email = EXCLUDED.email,
-           status = EXCLUDED.status,
-           credit_limit = EXCLUDED.credit_limit;`,
-        [
-          newRecord.id,
-          newRecord.customerId,
-          newRecord.customerName,
-          newRecord.username,
-          newRecord.contactNumber,
-          newRecord.branchId,
-          newRecord.address,
-          newRecord.email,
-          newRecord.status,
-          newRecord.creditLimit,
-          newRecord.assignedDevicesCount,
-        ]
-      );
+      await pgPool.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord));
     }
     logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
     res.status(201).json(newRecord);
@@ -782,33 +598,7 @@ try {
             setCustomerMasterRecords(withPrepended(customerMasterRecords, newRecord));
           }
 
-          await client.query(
-            `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-             ON CONFLICT (id) DO UPDATE SET
-               customer_id = EXCLUDED.customer_id,
-               customer_name = EXCLUDED.customer_name,
-               username = EXCLUDED.username,
-               contact_number = EXCLUDED.contact_number,
-               branch_id = EXCLUDED.branch_id,
-               address = EXCLUDED.address,
-               email = EXCLUDED.email,
-               status = EXCLUDED.status,
-               credit_limit = EXCLUDED.credit_limit;`,
-            [
-              newRecord.id,
-              newRecord.customerId,
-              newRecord.customerName,
-              newRecord.username,
-              newRecord.contactNumber,
-              newRecord.branchId,
-              newRecord.address,
-              newRecord.email,
-              newRecord.status,
-              newRecord.creditLimit,
-              newRecord.assignedDevicesCount,
-            ]
-          );
+          await client.query(CUSTOMER_UPSERT_SQL, customerUpsertParams(newRecord) as any[]);
           count++;
         }
       });
