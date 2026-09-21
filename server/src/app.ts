@@ -2,6 +2,8 @@ import express from 'express';
 // BS calendar moved to config/bsCalendar.ts — re-exported for route files that import from '../app'
 export { NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, inMemoryBsCalendarYears, inMemoryBsDayRecords, setInMemoryBsCalendarYears, setInMemoryBsDayRecords, generateInMemoryBsDayRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, hydrateBsCalendarFromDb, buildBsDayRecordsForYear } from './config/bsCalendar';
 
+import type { SharedStateAccessors } from './sharedState';
+import { VendorOpeningBalanceRow } from './sharedState';
 import { registerSyncRoutes } from './routes/sync.routes';
 import { registerPermissionsRoutes } from './routes/permissions.routes';
 import { registerBootstrapRoutes } from './routes/bootstrap.routes';
@@ -176,38 +178,78 @@ export async function refreshOperationalCache(): Promise<void> {
 // (isPgConnected accessors get unique names: db.ts already exports
 // getIsPgConnected/setIsPgConnected which server.ts imports.)
 // ---------------------------------------------------------------------------
-export function setUsers(value: any) { users = value as any; }
-export function setSuppliers(value: any) { suppliers = value as any; }
-export function setUomList(value: any) { uomList = value as any; }
-export function setLocationRecords(value: any) { locationRecords = value as any; }
-export function setBranches(value: any) { branches = value as any; }
-export function setFiscalYears(value: any) { fiscalYears = value as any; }
-export function setProducts(value: any) { products = value as any; }
-export function setCategories(value: any) { categories = value as any; }
-export function setInventoryStock(value: any) { inventoryStock = value as any; }
-export function setAssetRegister(value: any) { assetRegister = value as any; }
-export function setCustomerDeviceRecords(value: any) { customerDeviceRecords = value as any; }
-export function setCustomerMasterRecords(value: any) { customerMasterRecords = value as any; }
-export function setPurchaseOrders(value: any) { purchaseOrders = value as any; }
-export function setPurchaseInvoices(value: any) { purchaseInvoices = value as any; }
-export function setShipments(value: any) { shipments = value as any; }
-export function setStockOperations(value: any) { stockOperations = value as any; }
-export function setAuditTrail(value: any) { auditTrail = value as any; }
-export function setTransactionLogs(value: any) { transactionLogs = value as any; }
-export function setApprovalRequests(value: any) { approvalRequests = value as any; }
-export function setDamageRecords(value: any) { damageRecords = value as any; }
-export function setSerialLogs(value: any) { serialLogs = value as any; }
-export function setVendorPayments(value: any) { vendorPayments = value as any; }
-export function setVendorOpeningBalances(value: any) { vendorOpeningBalances = value as any; }
-export function setDocNumberConfigs(value: any) { docNumberConfigs = value as any; }
-export function setPermissionMatrix(value: any) { permissionMatrix = value as any; }
-export function setCompanyProfile(value: any) { companyProfile = value as any; }
-export function getPgConnected() { return isPgConnected; }
-export function setPgConnected(v: boolean) { isPgConnected = v; }
-export function getActiveUser() { return activeUser; }
-export function setActiveUser(v: any) { activeUser = v as any; }
-export function getDataVersion() { return dataVersion; }
-export function setDataVersion(v: number) { dataVersion = v; }
+// Shared-state accessors (typed contract in ./sharedState). Controllers and
+// route files import these to mutate app-owned runtime state; the assertion
+// below makes the compiler verify every signature against the contract.
+export function setUsers(value: readonly User[]): void { users = value; }
+export function setSuppliers(value: readonly Supplier[]): void { suppliers = value; }
+export function setUomList(value: readonly UnitOfMeasure[]): void { uomList = value; }
+export function setLocationRecords(value: readonly LocationRecord[]): void { locationRecords = value; }
+export function setBranches(value: readonly Branch[]): void { branches = value; }
+export function setFiscalYears(value: readonly FiscalYear[]): void { fiscalYears = value; }
+export function setProducts(value: readonly Product[]): void { products = value; }
+export function setCategories(value: readonly Category[]): void { categories = value; }
+export function setInventoryStock(value: readonly InventoryStock[]): void { inventoryStock = value; }
+export function setAssetRegister(value: readonly Asset[]): void { assetRegister = value; }
+export function setCustomerDeviceRecords(value: readonly CustomerDeviceRecord[]): void { customerDeviceRecords = value; }
+export function setCustomerMasterRecords(value: readonly CustomerRecord[]): void { customerMasterRecords = value; }
+export function setPurchaseOrders(value: readonly PurchaseOrder[]): void { purchaseOrders = value; }
+export function setPurchaseInvoices(value: readonly PurchaseInvoice[]): void { purchaseInvoices = value; }
+export function setShipments(value: readonly Shipment[]): void { shipments = value; }
+export function setStockOperations(value: readonly StockOperation[]): void { stockOperations = value; }
+export function setAuditTrail(value: readonly AuditLog[]): void { auditTrail = value; }
+export function setTransactionLogs(value: readonly TransactionLog[]): void { transactionLogs = value; }
+export function setApprovalRequests(value: readonly ApprovalRequest[]): void { approvalRequests = value; }
+export function setDamageRecords(value: readonly DamageRecord[]): void { damageRecords = value; }
+export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
+export function setVendorPayments(value: readonly VendorPayment[]): void { vendorPayments = value; }
+export function setVendorOpeningBalances(value: readonly VendorOpeningBalanceRow[]): void { vendorOpeningBalances = value; }
+export function setDocNumberConfigs(value: DocumentNumberConfig[]): void { docNumberConfigs = value; }
+export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; }
+export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; }
+export function setPgConnected(v: boolean): void { isPgConnected = v; }
+export function setActiveUser(value: User): void { activeUser = value; }
+export function getPgConnected(): boolean { return isPgConnected; }
+export function getActiveUser(): User | null { return activeUser; }
+export function getDataVersion(): number { return dataVersion; }
+export function setDataVersion(v: number): void { dataVersion = v; }
+
+// Compile-time conformance: every accessor must match SharedStateAccessors.
+const sharedStateAccessors: SharedStateAccessors = {
+  setUsers,
+  setSuppliers,
+  setUomList,
+  setLocationRecords,
+  setBranches,
+  setFiscalYears,
+  setProducts,
+  setCategories,
+  setInventoryStock,
+  setAssetRegister,
+  setCustomerDeviceRecords,
+  setCustomerMasterRecords,
+  setPurchaseOrders,
+  setPurchaseInvoices,
+  setShipments,
+  setStockOperations,
+  setAuditTrail,
+  setTransactionLogs,
+  setApprovalRequests,
+  setDamageRecords,
+  setSerialLogs,
+  setVendorPayments,
+  setVendorOpeningBalances,
+  setDocNumberConfigs,
+  setPermissionMatrix,
+  setCompanyProfile,
+  setPgConnected,
+  setActiveUser,
+  getPgConnected,
+  getActiveUser,
+  getDataVersion,
+  setDataVersion,
+};
+export { sharedStateAccessors };
 
 // Operational arrays initialized empty by default (refreshed from PostgreSQL
 // at boot and after every write; see refreshOperationalCache above).
@@ -233,7 +275,7 @@ export let approvalRequests: readonly ApprovalRequest[] = [];
 export let damageRecords: readonly DamageRecord[] = [];
 export let serialLogs: readonly SerialLog[] = [];
 export let vendorPayments: readonly VendorPayment[] = [];
-export let vendorOpeningBalances: readonly any[] = [];
+export let vendorOpeningBalances: readonly VendorOpeningBalanceRow[] = [];
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
