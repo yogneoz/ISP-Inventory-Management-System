@@ -26,6 +26,8 @@ import {
   DocumentNumberConfig,
   VendorPayment,
   SerialLog,
+  SerialLookupResult,
+  SerialEditPayload,
 } from '../types';
 
 function safeParseHistory(v: unknown): SerialLog['history'] {
@@ -868,6 +870,26 @@ export const api = {
     return fetchJson('/api/inventory/serials', {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    });
+  },
+
+  // Resolve a typed serial value (device serial / PON / MAC) to the device
+  // that already holds it — powers live duplicate detection in the edit modal.
+  async lookupSerial(value: string, exclude?: string[]): Promise<SerialLookupResult> {
+    const search = new URLSearchParams();
+    search.append('value', value);
+    (exclude || []).forEach((v) => v && search.append('exclude', v));
+    return fetchJson<SerialLookupResult>(`/api/inventory/serials/lookup?${search.toString()}`);
+  },
+
+  // Apply two serial corrections in one operation (supports swaps).
+  async updateDeviceSerialsDual(
+    a: SerialEditPayload,
+    b: SerialEditPayload
+  ): Promise<any> {
+    return fetchJson('/api/inventory/serials/dual', {
+      method: 'POST',
+      body: JSON.stringify({ a, b }),
     });
   },
 

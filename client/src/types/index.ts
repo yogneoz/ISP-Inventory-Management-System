@@ -265,6 +265,32 @@ export interface SerialLogEntry {
   notes?: string;
 }
 
+// Result of GET /api/inventory/serials/lookup — the device that already holds
+// a typed serial value, used for live duplicate detection in the edit modal.
+export interface SerialLookupResult {
+  deviceSerial: string;
+  ponSerial?: string | null;
+  macAddress?: string | null;
+  productId?: string | null;
+  productName?: string | null;
+  branchId?: string | null;
+  customerId?: string | null;
+  customerName?: string | null;
+  status?: string | null;
+  source: 'SERIAL_LOG' | 'CUSTOMER_DEVICE' | 'FIXED_ASSET';
+}
+
+// One device's serial correction, as sent to the single- and dual-edit APIs.
+export interface SerialEditPayload {
+  oldDeviceSerial?: string;
+  oldPonSerial?: string;
+  oldMacAddress?: string;
+  deviceSerial: string;
+  ponSerial: string;
+  macAddress?: string;
+  branchId?: string;
+}
+
 export interface POLineItem {
   id: string;
   productId: string;

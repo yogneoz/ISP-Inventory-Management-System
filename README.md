@@ -1,33 +1,39 @@
 # Enterprise ERP & Multi-Branch Inventory Management System
 
-A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL**.
+A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React 19, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL**. Purpose-built for **ISP / fiber-network operations in Nepal**.
 
 ---
 
 ## 🌟 Key Features
 
-- **Clean Production Readiness**: Zero hardcoded mock operational data on first run. Starts with pristine, empty inventory registers while maintaining master branches and fiscal periods.
+- **Clean Production Readiness**: Zero hardcoded mock operational data at runtime. Demo data is seeded only by the setup scripts (`is_demo = TRUE`), keeping real rows untouched.
 - **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking, reorder levels, and inter-branch shipments.
+- **Serial Log Register**: One row per physical device serial (Device Serial / PON Serial / MAC Address) with full lifecycle history, converged from purchases, shipments, stock operations and customer assignments. Includes:
+  - **Authoritative duplicate prevention** — a serial that exists on another device (checked case-insensitively across `serial_log`, `customer_device_records` and `fixed_assets`) can never be saved.
+  - **Dual-panel conflict resolution** — typing a conflicting serial expands the edit modal side-by-side so both devices can be corrected in one pass (full A↔B swaps supported, applied atomically park-then-apply on the server).
+  - **Cross-table cascade** — a correction propagates to every table holding the serial (customer devices, purchase invoices, shipments, stock operations).
 - **Physical Stock Count & Reconciliation Audit**:
   - Perform stock counting across branches with variance calculation (shortage/excess).
   - Financial impact calculation, discrepancy reasoning, and automated stock adjustment posting.
   - CSV export for physical audit records.
 - **Fiscal Year Closing & Lock Wizard**:
-  - 5-Step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
-  - Super Admin authorization key check and downloadable official IRD Audit Closing Certificate.
-- **Role-Based Access Control (RBAC)**: Support for Super Admin, Inventory Manager, Branch Manager, Front Desk, and Accountant roles with permissions matrix.
+  - 5-step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
+  - Super Admin re-authentication and downloadable official IRD Audit Closing Certificate.
+- **Role-Based Access Control (RBAC)**: 9 roles × 41 operations permission matrix, editable in-app and persisted server-side in the `permission_matrix` table (with client-side caching).
+- **Vendor Ledger & Payments**: Vendor payments sub-ledger with bank/cheque details, partial payments, payment reversal, and a full vendor ledger report with running balances.
 - **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:
   - Consumable Stock Out & Issue logging with work order and technician tagging.
-  - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
+  - Fixed Asset Register with depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
   - ERP-style asset dates: supplier invoice date, capitalization date, and placed-in-service date. Depreciation starts from the placed-in-service date and is persisted in PostgreSQL.
 - **Serial, MAC, PON & Customer Device Tracking**:
   - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
-- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting.
+- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded).
 - **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
-- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 25 relational database tables.
+- **Real-Time Multi-User Sync**: Server-Sent Events (SSE) broadcast every mutation to all connected clients, which re-sync through a single atomic bootstrap endpoint.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
 
 ---
 
@@ -35,34 +41,47 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 
 ```
 .
-├── src/                          # React 19 + TypeScript Frontend
-│   ├── components/               # UI Views and Modals
-│   │   ├── Header.tsx            # Header with Profile Switching & Notifications
-│   │   ├── Sidebar.tsx           # Multi-level Rail Navigation & Submenus
-│   │   ├── LoginModal.tsx        # Super Admin First-Launch Setup & Login
-│   │   ├── PhysicalStockAudit.tsx# Physical Stock Count & Reconciliation Audit View
-│   │   ├── FiscalYearClosingWizard.tsx # 5-Step Fiscal Closing & Lock Wizard
-│   │   ├── StockOperations.tsx   # Stock Out, Consumable Issue, Pullouts & Adjustments
-│   │   ├── CustomerDeviceManagement.tsx # ONU / Router Serial & Customer Assignment
-│   │   ├── ApprovalWorkflowCenter.tsx   # Multi-tier Device Return & Refund Approvals
-│   │   ├── FixedAssetRegister.tsx# Fixed Assets & Depreciation Register
-│   │   ├── NepaliFiscalManagement.tsx # BS Fiscal Calendar & Year Settings
-│   │   └── ...
-│   ├── types/                    # Shared TypeScript Interfaces (index.ts)
-│   ├── utils/                    # BS/AD Calendar Utilities & Permissions
-│   └── App.tsx                   # Main React Application shell
+├── src/                              # React 19 + TypeScript Frontend
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── Header.tsx            # Header with profile switching, notifications, date mode
+│   │   │   └── Sidebar.tsx           # Multi-level rail navigation & submenus
+│   │   └── common/                   # LoginModal, GlobalSearchModal, ProfileSwitchModal,
+│   │                                 # BarcodeScannerModal, NotificationCenter, TablePagination, ...
+│   ├── features/
+│   │   ├── dashboard/                # Dashboard KPIs & charts
+│   │   ├── inventory/                # Products, stock, SerialLogRegister, audits, imports
+│   │   ├── procurement/              # Suppliers, POs, invoices, receiving, shipments
+│   │   ├── sales/                    # Customer directory & device assignment
+│   │   ├── finance/                  # Assets, financial statements, VAT, fiscal years, vendor ledger
+│   │   └── settings/                 # Branches, users, permissions, approvals, maintenance
+│   ├── services/
+│   │   └── api.ts                    # Typed API client (fetch + SSE subscription)
+│   ├── types/
+│   │   └── index.ts                  # Shared TypeScript interfaces
+│   ├── utils/                        # BS/AD calendar, depreciation, document numbering,
+│   │                                 # permissions matrix data, session cache, currency formatting
+│   └── App.tsx                       # Root application shell (state, routing, SSE)
 │
-├── scripts/                      # Database Automation Scripts
-│   ├── schema.sql                # PostgreSQL Schema with Indexes, FKs & Asset Date Migrations
-│   ├── demo_dataset.js           # Linked demo products, stock and fixed assets
-│   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
-│   └── setup_db.js               # Node.js runner for database setup & migration
+├── server/
+│   └── db.ts                         # PostgreSQL pool (DATE columns parsed as 'YYYY-MM-DD')
 │
-├── server.ts                     # Full-stack Node.js Express server with Vite middleware
-├── ecosystem.config.js           # PM2 Process Manager Configuration for Production
-├── Dockerfile                    # Production Docker Multi-Stage Build
-├── .env.example                  # Environment configuration template
-└── package.json                  # Frontend Vite / React & Server Dependencies
+├── scripts/                          # Database Automation Scripts
+│   ├── schema.sql                    # Full PostgreSQL schema — 30 tables, idempotent, safe to re-run
+│   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
+│   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
+│   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
+│   ├── integrity_check.mjs           # Database integrity verification
+│   └── reset_fresh_demo.mjs          # Full reset & re-seed while preserving the BS calendar
+│
+├── server/                           # Backend (Node.js + Express) — index.ts bootstrap,
+│                                     #   src/{app,routes,controllers,services,middleware,models,config,errors,utils}
+├── client/                           # Frontend (Vite root) — index.html + src/
+├── server.ts                         # Root shim re-exporting server/src/app (legacy entry)
+├── ecosystem.config.js               # PM2 Process Manager Configuration for Production
+├── Dockerfile                        # Production Docker Multi-Stage Build
+├── .env.example                      # Environment configuration template
+└── package.json                      # Frontend Vite / React & Server Dependencies
 ```
 
 ---
@@ -73,18 +92,16 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Node.js**: `v20.x` or `v22.x` LTS recommended ([Download Node.js](https://nodejs.org/))
 - **npm**: `v10.x+` (comes bundled with Node.js)
 - **Git**: Installed and configured
-- **PostgreSQL** *(required)*: `v14+` or `v15+` (can be auto-installed via `npm run setup:pg`)
+- **PostgreSQL** *(required)*: `v14+` (can be auto-installed via `npm run setup:pg`)
 
 ---
 
 ### Step 1: Clone the Repository & Install Dependencies
 
 ```bash
-# Clone the repository
 git clone https://github.com/your-organization/inventory-management-system.git
 cd inventory-management-system
 
-# Install all npm dependencies
 npm install
 ```
 
@@ -113,7 +130,7 @@ POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
-# Optional: Set to "true" only if you want sample demo data seeded on first launch
+# Optional: seed demo data on first launch (the setup scripts also seed it)
 SEED_DUMMY_DATA=false
 ```
 
@@ -121,17 +138,18 @@ SEED_DUMMY_DATA=false
 
 ### Step 3: Database Setup & Migration (PostgreSQL)
 
-You can run the built-in automatic database setup engine:
+Run the built-in automatic database setup engine:
 
 ```bash
 npm run setup:pg
 ```
 
 **What this script does:**
-1. Detects your OS (Ubuntu, Debian, CentOS, macOS, Docker) and installs/starts PostgreSQL if not running.
-2. Creates the database `inventory_db` and user `inventory_user`.
-3. Migrates the relational tables, constraints, foreign keys, indexes, and fixed-asset date columns from `scripts/schema.sql`.
-4. Populates Bikram Sambat (BS) calendar reference tables (2078 BS to 2085 BS) and Fiscal Year periods.
+1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
+2. Applies `scripts/schema.sql` — all **30 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
+4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
+5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
 
 The application requires PostgreSQL to be available. It does not use local file storage or an in-memory database fallback.
 
@@ -150,26 +168,25 @@ http://localhost:3000
 
 ---
 
-## 🔑 Initial Super Admin Login Credentials
+## 🔑 Initial Login Credentials
 
-On first launch, the setup screen lets you create your own Super Admin account. Example pre-seeded administrator:
+### Demo Password
 
-| Field | Default Value |
+All pre-seeded example accounts share the demo password:
+
+| Field | Value |
 | :--- | :--- |
-| **Email** | `superadmin@example.com` |
-| **Password** | *(set during first-launch setup)* |
-| **Role** | `SUPER_ADMIN` |
-| **Branch** | Branch 1 (WH001) — Example Location 1 |
+| **Password** | `Demo@123` |
 
-> **Security Note**: Change the default password immediately after first login via **User Management** or the profile menu in the header.
+> **Security Note**: Demo accounts exist so the app is testable out of the box. Change these passwords or delete the demo users before going live. Your own Super Admin account (created during first-launch setup when no users exist) is a real account, not a demo one.
 
-### 🧪 Seeded Example (Dummy) Accounts
+### 🧪 Seeded Example Accounts
 
-All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing. Passwords are assigned during first-launch setup.
+All seeded accounts, branches, locations, suppliers, and operational records are **dummy data** (`is_demo = TRUE`) for testing.
 
 | Email | Role | Branch |
 | :--- | :--- | :--- |
-| `superadmin@example.com` | SUPER_ADMIN | WH001 |
+| `superadmin@example.com` | SUPER_ADMIN | WH001 (Head Office) |
 | `branch1@example.com` | BRANCH_MANAGER | WH001 |
 | `branch2@example.com` | BRANCH_MANAGER | BRH01 |
 | `inventory1@example.com` | INVENTORY_MANAGER | WH001 |
@@ -187,35 +204,36 @@ Fixed assets are separate from inventory opening stock. The system records:
 - **Purchase invoice date**: supplier document date used for invoice/datewise reporting.
 - **Capitalization date**: date the purchase is recognized as a fixed asset.
 - **Placed-in-service date**: date depreciation begins.
-- **Fiscal year**: derived from the asset’s accounting period.
+- **Fiscal year**: derived from the asset's accounting period.
 
-The Fixed Asset Register and Depreciation Register calculate from the placed-in-service date and selected fiscal-year reporting date. They do not use Stock Movement Ledger opening quantities. Asset links to products and purchase invoices are retained in PostgreSQL.
+The Fixed Asset Register and Depreciation Register calculate from the placed-in-service date and selected fiscal-year reporting date. They do not use Stock Movement Ledger opening quantities.
 
 ### Administrative Recalculation & Repair
 
-Super Admins can open **Administration & Governance → Data Recalculation & Repair** and run separate, audited operations:
+Super Admins can run separate, audited maintenance operations (**Settings → Data Recalculation & Maintenance**):
 
 1. **Recalculate Fixed Assets** — persists accumulated depreciation and NBV from asset dates, cost, rate, and method.
-2. **Rebuild Opening Stock** — creates the next fiscal year’s opening register from a closed year while preserving manual adjustments.
-3. **Recalculate Live Stock** — restores live quantities from the latest reliable stock transaction without rewriting transaction history.
+2. **Recalculate Live Stock** — restores live quantities from the latest reliable stock transaction without rewriting transaction history.
+3. **Recalculate BS Day Records** — rebuilds the day-by-day BS calendar mapping.
+4. **Repair Fiscal-Year Links** — re-links transactional rows whose `fiscal_year_id` is missing.
 
 Run these after an import correction or database migration, preferably during a controlled maintenance window.
 
 ### Resetting a Database for Demo Testing
 
-To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg`. The demo fixed asset `ast-car004` is linked to product `prod-car004` and includes purchase, capitalization, and placed-in-service dates.
+To recreate the demo database from scratch, drop/recreate `inventory_db`, then run `npm run setup:pg`.
 
 ### Default Clean Mode
-The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus Fiscal Years, so you can immediately begin importing your real products or entering stock.
+The application seeds **example master branches only** (Branch 1 `WH001`, Branch 2 `BRH01`) plus fiscal years at minimum, so you can immediately begin importing your real products or entering stock.
 
 ### Clearing Demo Data
 If demo data was previously loaded or tested, you can clear all demo records at any time (including demo branches, demo users, and all demo operational records):
-1. Navigate to **System Settings** -> **Maintenance & Data Management**.
+1. Navigate to **System Settings** → **Maintenance & Data Management**.
 2. Click **"Clear Demo Data"**.
 3. All mock products, stock balances, test customer devices, invoices, audit records, demo branches, and demo users will be purged.
-4. The system persists the cleanup directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
+4. The cleanup persists directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
 
-> **Note**: The "Clear Demo Data" action removes all rows where `is_demo = TRUE`. Real business data (rows where `is_demo = FALSE`) is never touched. If you created your own Super Admin account during first-launch setup, it will remain because it has `is_demo = FALSE`.
+> **Note**: The "Clear Demo Data" action removes all rows where `is_demo = TRUE`. Real business data (rows where `is_demo = FALSE`) is never touched. If you created your own Super Admin account during first-launch setup, it remains because it has `is_demo = FALSE`.
 
 ### 🔄 Full Reset to a Fresh Demo State
 To wipe **all** records (including users, branches, and locations) while **preserving the Nepali (BS) calendar reference tables**, then reseed the example dataset:
@@ -224,7 +242,13 @@ To wipe **all** records (including users, branches, and locations) while **prese
 node scripts/reset_fresh_demo.mjs
 ```
 
-After running it, restart the server (`npm run dev`) and log in with the credentials you set during first-launch setup.
+After running it, restart the server (`npm run dev`) and log in with the demo credentials above (or your own account, if it was preserved).
+
+### 🔍 Database Integrity Check
+
+```bash
+npm run integrity:check
+```
 
 ---
 
@@ -381,7 +405,12 @@ docker run -d \
 | **Type Check & Lint** | `npm run lint` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
-| **Automated DB Setup** | `npm run setup:pg` |
+| **Automated DB Setup (Node)** | `npm run setup:pg` |
+| **Automated DB Setup (Shell)** | `npm run setup:postgres` |
+| **Database Integrity Check** | `npm run integrity:check` |
+| **API Smoke Test** *(server must be running)* | `npm run smoke` |
+| **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
+| **Full Demo Reset** | `node scripts/reset_fresh_demo.mjs` |
 | **PM2 Process Status** | `pm2 status` |
 | **View Server Logs** | `pm2 logs enterprise-erp` |
 | **Restart Application** | `pm2 restart enterprise-erp` |

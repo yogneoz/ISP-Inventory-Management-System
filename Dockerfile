@@ -28,7 +28,6 @@ RUN npm ci --only=production
 # Copy built dist directory and database scripts
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/server.ts ./server.ts
 
 EXPOSE 3000
 

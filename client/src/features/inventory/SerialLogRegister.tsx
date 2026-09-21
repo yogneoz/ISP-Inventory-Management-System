@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Branch, SerialLog, User } from '../../types';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Branch, SerialLog, SerialLookupResult, User } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -78,6 +78,12 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   const [editForm, setEditForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
+  // Dual-panel state: when a typed value collides with another device, the
+  // modal expands and the conflicting device gets its own editable panel.
+  const [conflictDevice, setConflictDevice] = useState<SerialLookupResult | null>(null);
+  const [conflictField, setConflictField] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [bForm, setBForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
 
   const register = useMemo<DisplayLog[]>(() => {
     const bySerial = new Map<string, DisplayLog>();
@@ -183,16 +189,66 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
     setEditingRow(null);
     setEditForm({ deviceSerial: '', ponSerial: '', macAddress: '' });
     setEditError('');
+    setConflictDevice(null);
+    setConflictField('');
+    setBForm({ deviceSerial: '', ponSerial: '', macAddress: '' });
   };
 
-  const serialDuplicate = useMemo(() => {
-    if (!editingRow) return null;
-    const val = editForm.deviceSerial.trim().toUpperCase();
-    if (!val) return null;
-    return register.find(
-      (r) => r.id !== editingRow.id && String(r.deviceSerial || '').trim().toUpperCase() === val
-    ) || null;
-  }, [editingRow, editForm.deviceSerial, register]);
+  // Normalize an identifier for case-insensitive duplicate comparison.
+  const norm = (v: string | undefined | null) => String(v || '').trim().toUpperCase();
+
+  // Rows that must not hold any final value: everything except the edited row
+  // and (in dual mode) the conflicting device, which is being re-serialled too.
+  const otherRows = useMemo(() => {
+    if (!editingRow) return [];
+    const conflictKeys = conflictDevice
+      ? new Set(
+          [conflictDevice.deviceSerial, conflictDevice.ponSerial, conflictDevice.macAddress]
+            .map((v) => norm(v))
+            .filter(Boolean)
+        )
+      : new Set<string>();
+    return register.filter((r) => {
+      if (r.id === editingRow.id) return false;
+      if (
+        conflictKeys.size > 0 &&
+        (conflictKeys.has(norm(r.deviceSerial)) || conflictKeys.has(norm(r.ponSerial)) || conflictKeys.has(norm(r.macAddress)))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [register, editingRow, conflictDevice]);
+
+  const findConflict = (value: string): DisplayLog | null => {
+    const v = norm(value);
+    if (!v) return null;
+    return (
+      otherRows.find(
+        (r) => norm(r.deviceSerial) === v || norm(r.ponSerial) === v || norm(r.macAddress) === v
+      ) || null
+    );
+  };
+
+  const deviceConflict = useMemo(() => findConflict(editForm.deviceSerial), [editForm.deviceSerial, otherRows]);
+  const ponConflict = useMemo(() => findConflict(editForm.ponSerial), [editForm.ponSerial, otherRows]);
+  const macConflict = useMemo(() => findConflict(editForm.macAddress), [editForm.macAddress, otherRows]);
+  const bDeviceConflict = useMemo(() => (conflictDevice ? findConflict(bForm.deviceSerial) : null), [bForm.deviceSerial, otherRows, conflictDevice]);
+  const bPonConflict = useMemo(() => (conflictDevice ? findConflict(bForm.ponSerial) : null), [bForm.ponSerial, otherRows, conflictDevice]);
+  const bMacConflict = useMemo(() => (conflictDevice ? findConflict(bForm.macAddress) : null), [bForm.macAddress, otherRows, conflictDevice]);
+
+  // Cross-panel rule: the two devices must not end up sharing any value.
+  const crossPanelClash = useMemo(() => {
+    if (!conflictDevice) return false;
+    const aVals = new Set(
+      [editForm.deviceSerial, editForm.ponSerial, editForm.macAddress].map(norm).filter(Boolean)
+    );
+    const bVals = [bForm.deviceSerial, bForm.ponSerial, bForm.macAddress].map(norm).filter(Boolean);
+    return bVals.some((v) => aVals.has(v));
+  }, [conflictDevice, editForm, bForm]);
+
+  const hasAnyConflict = !!(deviceConflict || ponConflict || macConflict);
+  const bHasAnyConflict = !!(bDeviceConflict || bPonConflict || bMacConflict);
 
   const allFieldsChanged = useMemo(() => {
     if (!editingRow) return false;
@@ -203,7 +259,97 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
     );
   }, [editingRow, editForm]);
 
-  const canSave = !!editingRow && !!editForm.deviceSerial.trim() && !!editForm.ponSerial.trim() && !serialDuplicate && allFieldsChanged;
+  const bChanged = useMemo(() => {
+    if (!conflictDevice) return false;
+    return (
+      norm(bForm.deviceSerial) !== norm(conflictDevice.deviceSerial) ||
+      norm(bForm.ponSerial) !== norm(conflictDevice.ponSerial) ||
+      norm(bForm.macAddress) !== norm(conflictDevice.macAddress)
+    );
+  }, [conflictDevice, bForm]);
+
+  const canSave =
+    !!editingRow &&
+    !!editForm.deviceSerial.trim() &&
+    !!editForm.ponSerial.trim() &&
+    !hasAnyConflict &&
+    !crossPanelClash &&
+    allFieldsChanged &&
+    (!conflictDevice || (!!bForm.deviceSerial.trim() && !!bForm.ponSerial.trim() && !bHasAnyConflict));
+
+  // ------------------------------------------------------------------
+  // Live duplicate detection: whenever a serial field is typed into,
+  // ask the server which device already holds that value. A hit expands
+  // the modal with a second editable panel for the conflicting device.
+  // ------------------------------------------------------------------
+  const lookupSeq = useRef(0);
+  // Remembers which conflicting device the B-form was prefilled for, so the
+  // lookup effect only re-prefills when a DIFFERENT device conflicts — not on
+  // every keystroke (which would clobber user edits and the swap button).
+  const prefilledForRef = useRef('');
+  useEffect(() => {
+    if (!editingRow) return;
+    const candidates: Array<{ field: string; value: string }> = [
+      { field: 'deviceSerial', value: editForm.deviceSerial.trim().toUpperCase() },
+      { field: 'ponSerial', value: editForm.ponSerial.trim().toUpperCase() },
+      { field: 'macAddress', value: editForm.macAddress.trim().toUpperCase() },
+    ].filter((c) => c.value);
+
+    const ownValues = new Set(
+      [editingRow.deviceSerial, editingRow.ponSerial, editingRow.macAddress].map(norm).filter(Boolean)
+    );
+    const conflicting = candidates.filter((c) => !ownValues.has(norm(c.value)));
+
+    if (conflicting.length === 0) {
+      // No live conflict typed in — collapse the dual panel.
+      setConflictDevice(null);
+      setConflictField('');
+      setBForm({ deviceSerial: '', ponSerial: '', macAddress: '' });
+      prefilledForRef.current = '';
+      return;
+    }
+
+    const seq = ++lookupSeq.current;
+    const timer = setTimeout(async () => {
+      setLookupLoading(true);
+      try {
+        for (const c of conflicting) {
+          const hit = await api.lookupSerial(c.value, [editingRow.deviceSerial, editingRow.ponSerial, editingRow.macAddress].filter(Boolean) as string[]);
+          if (seq !== lookupSeq.current) return; // stale response
+          if (hit) {
+            const hitKey = String(hit.deviceSerial || '').trim().toUpperCase();
+            if (prefilledForRef.current !== hitKey) {
+              prefilledForRef.current = hitKey;
+              setConflictDevice(hit);
+              setConflictField(c.field);
+              setBForm({
+                deviceSerial: hit.deviceSerial || '',
+                ponSerial: hit.ponSerial || '',
+                macAddress: hit.macAddress || '',
+              });
+            }
+            return;
+          }
+        }
+        // Server confirms no conflict — collapse.
+        setConflictDevice(null);
+        setConflictField('');
+        setBForm({ deviceSerial: '', ponSerial: '', macAddress: '' });
+        prefilledForRef.current = '';
+      } catch {
+        // Lookup failure is non-fatal; server still validates on save.
+      } finally {
+        if (seq === lookupSeq.current) setLookupLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [editingRow, editForm.deviceSerial, editForm.ponSerial, editForm.macAddress]);
+
+  const buildEditPayload = (form: { deviceSerial: string; ponSerial: string; macAddress: string }) => ({
+    deviceSerial: form.deviceSerial.trim().toUpperCase(),
+    ponSerial: form.ponSerial.trim().toUpperCase(),
+    macAddress: form.macAddress.trim().toUpperCase() || undefined,
+  });
 
   const handleEditSave = async () => {
     if (!editingRow) return;
@@ -211,8 +357,30 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       setEditError('Device serial and PON serial are required.');
       return;
     }
-    if (serialDuplicate) {
-      setEditError(`Serial number "${editForm.deviceSerial.trim().toUpperCase()}" already exists for product "${serialDuplicate.productName || 'Unknown'}".`);
+    if (conflictDevice && (!bForm.deviceSerial.trim() || !bForm.ponSerial.trim())) {
+      setEditError('Device serial and PON serial are required for the second device too.');
+      return;
+    }
+    if (hasAnyConflict || bHasAnyConflict || crossPanelClash) {
+      const conflict = deviceConflict || ponConflict || macConflict || bDeviceConflict || bPonConflict || bMacConflict;
+      if (conflict) {
+        const fieldLabel = deviceConflict || bDeviceConflict ? 'Device serial' : ponConflict || bPonConflict ? 'PON serial' : 'MAC address';
+        const conflictValue = norm(
+          deviceConflict ? editForm.deviceSerial
+          : bDeviceConflict ? bForm.deviceSerial
+          : ponConflict ? editForm.ponSerial
+          : bPonConflict ? bForm.ponSerial
+          : macConflict ? editForm.macAddress
+          : bForm.macAddress
+        );
+        setEditError(
+          `${fieldLabel} "${conflictValue}" already exists on device "${conflict.deviceSerial}"` +
+            (conflict.productName ? ` (${conflict.productName})` : '') +
+            '. Correct the highlighted field before saving.'
+        );
+      } else if (crossPanelClash) {
+        setEditError('Both devices cannot end up with the same serial value. Correct one of the panels — or use the swap by exchanging the values between them.');
+      }
       return;
     }
     if (!allFieldsChanged) {
@@ -222,17 +390,27 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
     setEditLoading(true);
     setEditError('');
     try {
-      await api.updateDeviceSerials({
+      const aPayload = {
         // No `id`: the register row is not a customer-device record, and the
         // server resolves the target by matching the old serial across sources.
         oldDeviceSerial: editingRow.deviceSerial,
         oldPonSerial: editingRow.ponSerial,
         oldMacAddress: editingRow.macAddress,
-        deviceSerial: editForm.deviceSerial.trim().toUpperCase(),
-        ponSerial: editForm.ponSerial.trim().toUpperCase(),
-        macAddress: editForm.macAddress.trim().toUpperCase() || undefined,
+        ...buildEditPayload(editForm),
         branchId: editingRow.branchId,
-      });
+      };
+      if (conflictDevice && bChanged) {
+        // Dual save — both devices corrected in one operation (swaps included).
+        await api.updateDeviceSerialsDual(aPayload, {
+          oldDeviceSerial: conflictDevice.deviceSerial,
+          oldPonSerial: conflictDevice.ponSerial || '',
+          oldMacAddress: conflictDevice.macAddress || '',
+          ...buildEditPayload(bForm),
+          branchId: conflictDevice.branchId || editingRow.branchId,
+        });
+      } else {
+        await api.updateDeviceSerials(aPayload);
+      }
       handleEditCancel();
       onRefreshData?.();
     } catch (err: any) {
@@ -436,15 +614,22 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
 
       {editingRow && (
         <div className="fixed inset-0 z-50 bg-black/50 dark:bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[92vh] flex flex-col ${
+            conflictDevice ? 'max-w-4xl' : 'max-w-lg'
+          }`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
               <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
                   <Edit2 className="h-4 w-4 text-indigo-500" />
-                  Correct Serial Numbers
+                  <span>Correct Serial Numbers</span>
+                  {conflictDevice && (
+                    <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                      Dual Edit — resolve on both devices
+                    </span>
+                  )}
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-                  {editingRow.deviceSerial}
+                  {editingRow.deviceSerial}{conflictDevice ? `  ↔  ${conflictDevice.deviceSerial}` : ''}
                 </p>
               </div>
               <button
@@ -456,12 +641,28 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
-              <div className="flex gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                <Info className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-                  All three serial numbers must be corrected together as a unit. The correction applies across
-                  all records and is logged in the serial history.
+            <div className="p-5 space-y-4 overflow-y-auto">
+              <div className={`flex gap-2.5 p-3 rounded-xl border ${
+                conflictDevice
+                  ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
+                  : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+              }`}>
+                <Info className={`h-4 w-4 mt-0.5 shrink-0 ${conflictDevice ? 'text-indigo-500' : 'text-amber-500'}`} />
+                <p className={`text-[11px] leading-relaxed ${conflictDevice ? 'text-indigo-700 dark:text-indigo-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                  {conflictDevice ? (
+                    <>
+                      The serial you typed already exists on <span className="font-bold">{conflictDevice.deviceSerial}</span>
+                      {conflictDevice.productName ? ` (${conflictDevice.productName})` : ''}
+                      {conflictDevice.source === 'CUSTOMER_DEVICE' && conflictDevice.customerName ? ` — assigned to ${conflictDevice.customerName}` : ''}
+                      {conflictDevice.source === 'FIXED_ASSET' ? ' — fixed asset' : ''}. Both devices are now editable side by side:
+                      give each a unique serial, or use the swap button to exchange the values. The correction applies across all records.
+                    </>
+                  ) : (
+                    <>Serial numbers must be unique — a device serial, PON serial, or MAC address that already
+                    exists on another device cannot be saved. The correction applies across
+                    all records and is logged in the serial history.</>
+                  )}
+                  {lookupLoading && <span className="ml-1 opacity-60">Checking serials…</span>}
                 </p>
               </div>
 
@@ -472,6 +673,23 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                 </div>
               )}
 
+              <div className={`grid gap-5 ${conflictDevice ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
+                {/* -------- Panel A: the device being corrected -------- */}
+                <div className={`space-y-4 rounded-xl p-3 border ${
+                  conflictDevice
+                    ? 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20'
+                    : 'border-transparent p-0'
+                }`}>
+                  {conflictDevice && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Device 1 — {editingRow.productName || 'Original'}
+                      </span>
+                      <span className="text-[9px] rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 font-bold">
+                        REGISTER
+                      </span>
+                    </div>
+                  )}
               <div className="space-y-1">
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Device Serial <span className="text-rose-500">*</span>
@@ -485,18 +703,21 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                   onChange={(e) => setEditForm({ ...editForm, deviceSerial: e.target.value })}
                   disabled={editLoading}
                   className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
-                    serialDuplicate
+                    deviceConflict
                       ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
                       : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
                   }`}
                 />
-                {serialDuplicate && (
+                {deviceConflict && (
                   <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
                     <AlertCircle className="h-3 w-3 shrink-0" />
-                    Already exists for{' '}
-                    <span className="font-semibold">{serialDuplicate.productName || 'Unknown'}</span>
-                    {serialDuplicate.branchName && (
-                      <> in <span className="font-semibold">{serialDuplicate.branchName}</span></>
+                    Already exists on{' '}
+                    <span className="font-semibold">{deviceConflict.deviceSerial}</span>
+                    {deviceConflict.productName && (
+                      <> — <span className="font-semibold">{deviceConflict.productName}</span></>
+                    )}
+                    {deviceConflict.branchName && (
+                      <> in <span className="font-semibold">{deviceConflict.branchName}</span></>
                     )}
                   </p>
                 )}
@@ -514,8 +735,25 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                   value={editForm.ponSerial}
                   onChange={(e) => setEditForm({ ...editForm, ponSerial: e.target.value })}
                   disabled={editLoading}
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+                  className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
+                    ponConflict
+                      ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
+                      : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
+                  }`}
                 />
+                {ponConflict && (
+                  <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    Already exists on{' '}
+                    <span className="font-semibold">{ponConflict.deviceSerial}</span>
+                    {ponConflict.productName && (
+                      <> — <span className="font-semibold">{ponConflict.productName}</span></>
+                    )}
+                    {ponConflict.branchName && (
+                      <> in <span className="font-semibold">{ponConflict.branchName}</span></>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -530,8 +768,135 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                   value={editForm.macAddress}
                   onChange={(e) => setEditForm({ ...editForm, macAddress: e.target.value })}
                   disabled={editLoading}
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+                  className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
+                    macConflict
+                      ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
+                      : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
+                  }`}
                 />
+                {macConflict && (
+                  <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    Already exists on{' '}
+                    <span className="font-semibold">{macConflict.deviceSerial}</span>
+                    {macConflict.productName && (
+                      <> — <span className="font-semibold">{macConflict.productName}</span></>
+                    )}
+                    {macConflict.branchName && (
+                      <> in <span className="font-semibold">{macConflict.branchName}</span></>
+                    )}
+                  </p>
+                )}
+              </div>
+                </div>
+
+                {/* -------- Panel B: the conflicting device (only when detected) -------- */}
+                {conflictDevice && (
+                  <div className="space-y-4 rounded-xl p-3 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Device 2 — {conflictDevice.productName || 'Conflicting device'}
+                      </span>
+                      <span className="text-[9px] rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 font-bold">
+                        {conflictDevice.source === 'SERIAL_LOG' ? 'REGISTER' : conflictDevice.source === 'CUSTOMER_DEVICE' ? 'CUSTOMER DEVICE' : 'FIXED ASSET'}
+                      </span>
+                    </div>
+                    {conflictDevice.customerName && (
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        Customer: <span className="font-semibold">{conflictDevice.customerName}</span>
+                      </p>
+                    )}
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Device Serial <span className="text-rose-500">*</span>
+                      </label>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        Current: {conflictDevice.deviceSerial}
+                      </p>
+                      <input
+                        type="text"
+                        value={bForm.deviceSerial}
+                        onChange={(e) => setBForm({ ...bForm, deviceSerial: e.target.value })}
+                        disabled={editLoading}
+                        className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
+                          bDeviceConflict
+                            ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
+                            : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
+                        }`}
+                      />
+                      {bDeviceConflict && (
+                        <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          Already exists on <span className="font-semibold">{bDeviceConflict.deviceSerial}</span>
+                          {bDeviceConflict.productName && <> — <span className="font-semibold">{bDeviceConflict.productName}</span></>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        PON Serial <span className="text-rose-500">*</span>
+                      </label>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        Current: {conflictDevice.ponSerial || '—'}
+                      </p>
+                      <input
+                        type="text"
+                        value={bForm.ponSerial}
+                        onChange={(e) => setBForm({ ...bForm, ponSerial: e.target.value })}
+                        disabled={editLoading}
+                        className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
+                          bPonConflict
+                            ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
+                            : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
+                        }`}
+                      />
+                      {bPonConflict && (
+                        <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          Already exists on <span className="font-semibold">{bPonConflict.deviceSerial}</span>
+                          {bPonConflict.productName && <> — <span className="font-semibold">{bPonConflict.productName}</span></>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        MAC Address
+                      </label>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        Current: {conflictDevice.macAddress || '—'}
+                      </p>
+                      <input
+                        type="text"
+                        value={bForm.macAddress}
+                        onChange={(e) => setBForm({ ...bForm, macAddress: e.target.value })}
+                        disabled={editLoading}
+                        className={`w-full px-3 py-2.5 text-xs rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono transition-colors ${
+                          bMacConflict
+                            ? 'border-rose-400 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/20'
+                            : 'border-slate-300 dark:border-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-1 focus:ring-indigo-500/30'
+                        }`}
+                      />
+                      {bMacConflict && (
+                        <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          Already exists on <span className="font-semibold">{bMacConflict.deviceSerial}</span>
+                          {bMacConflict.productName && <> — <span className="font-semibold">{bMacConflict.productName}</span></>}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBForm({ ...editForm });
+                        setEditForm({ ...bForm });
+                      }}
+                      disabled={editLoading}
+                      className="w-full px-3 py-2 text-[11px] font-bold rounded-xl border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors cursor-pointer"
+                    >
+                      ⇄ Swap values between the two devices
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -549,7 +914,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
                 className="flex-1 px-4 py-2.5 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
-                {editLoading ? 'Saving...' : 'Save Correction'}
+                {editLoading ? 'Saving...' : conflictDevice && bChanged ? 'Save Both Corrections' : 'Save Correction'}
               </button>
             </div>
           </div>

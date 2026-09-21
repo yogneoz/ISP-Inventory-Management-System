@@ -33,6 +33,7 @@ import {
   Lock,
   Download,
   FileSpreadsheet,
+  Undo2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -126,6 +127,76 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   // Guide State
   const [showWriteOffGuide, setShowWriteOffGuide] = useState<boolean>(false);
+
+  // ---------------------------------------------------------------------------
+  // Damage Reversal (wrong product marked damaged): pick the originating
+  // DAMAGE stock operation behind a damaged cell and reverse it. Uses the
+  // existing guarded endpoint (Super Admin / Inventory Manager only).
+  // ---------------------------------------------------------------------------
+  const [reversalCell, setReversalCell] = useState<{ product: Product; branch: Branch } | null>(null);
+  const [isReversing, setIsReversing] = useState(false);
+
+  const canReverseDamage =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  const activeDamageOpsFor = (productId: string, branchId: string): Array<{
+    damageReference: string; notes?: string | null; quantityDamaged: number; totalCost: number; damageDateAD: string; damageDateBS?: string; approvedBy?: string | null;
+  }> =>
+    damageRecords
+      .filter(
+        (dr) =>
+          dr.productId === productId &&
+          dr.branchId === branchId &&
+          (dr.status === 'IDENTIFIED' || dr.status === 'UNDER_REVIEW') &&
+          dr.damageReference
+      )
+      .map((dr) => ({
+        damageReference: dr.damageReference,
+        notes: dr.notes,
+        quantityDamaged: Number(dr.quantityDamaged) || 0,
+        totalCost: Number(dr.totalCost) || 0,
+        damageDateAD: dr.damageDateAD,
+        damageDateBS: dr.damageDateBS,
+        approvedBy: dr.approvedBy,
+      }))
+      // One damage record per (op, product) — the reference embeds the op ref.
+      .filter((rec, idx, arr) => arr.findIndex((r) => r.damageReference === rec.damageReference) === idx);
+
+  const handleReverseDamageRecord = async (damageReference: string) => {
+    if (!ensureBsDateAvailable()) return;
+    const opRef = damageReference.replace(/-[^-]+$/, '');
+    const reason = window.prompt(
+      `Reverse damage record ${damageReference} (operation ${opRef})?\n\n` +
+        `Units will be restored to available stock, quarantined serials will be returned to IN_STOCK, ` +
+        `and the record will be marked CANCELLED.\n\n` +
+        `Enter the reason for reversal (required, audit-trailed):`
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    setIsReversing(true);
+    try {
+      // Resolve the stock operation id from the damage reference.
+      const ops = await api.getStockOperations();
+      const op = (ops || []).find((o: StockOperation) =>
+        o.type === 'DAMAGE' && damageReference.startsWith(`${o.referenceNumber}-`)
+      );
+      if (!op) {
+        alert(`No matching DAMAGE operation found for ${damageReference}.`);
+        return;
+      }
+      await api.reverseStockOperation(op.id, reason.trim(), currentUser);
+      alert(`✓ Damage record ${damageReference} reversed. Units and serials restored to available stock.`);
+      setReversalCell(null);
+      window.location.reload();
+    } catch (err: any) {
+      alert(`Reversal failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsReversing(false);
+    }
+  };
 
   const [showZeroDamaged, setShowZeroDamaged] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
@@ -758,6 +829,16 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                                 </button>
                               )}
 
+                              {localDamaged > 0 && canReverseDamage && activeDamageOpsFor(prod.id, b.id).length > 0 && (
+                                <button
+                                  onClick={() => setReversalCell({ product: prod, branch: b })}
+                                  title="Reverse a wrong damage entry (restores units & serials to stock)"
+                                  className="p-1 rounded text-amber-500 hover:text-white hover:bg-amber-500 transition-colors cursor-pointer"
+                                >
+                                  <Undo2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
                               {canAdjustDamageCount && onUpdateStockLevel && (
                                 <button
                                   onClick={() => openDamagedStockEdit(s, prod, b)}
@@ -1116,6 +1197,68 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL 3: REVERSE WRONG DAMAGE ENTRY */}
+      {reversalCell && (() => {
+        const ops = activeDamageOpsFor(reversalCell.product.id, reversalCell.branch.id);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <div className={`w-full max-w-lg rounded-2xl shadow-2xl border p-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Undo2 className="h-5 w-5 text-amber-500" />
+                  <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
+                    Reverse Wrong Damage Entry
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setReversalCell(null)}
+                  disabled={isReversing}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500">Product</label>
+                  <div className="font-bold text-sm text-slate-900 dark:text-white">{reversalCell.product.name}</div>
+                  <div className="text-xs text-slate-500">{reversalCell.branch.name} — {ops.length} reversible damage record(s)</div>
+                </div>
+
+                <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                  {ops.map((rec) => (
+                    <div key={rec.damageReference} className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}>
+                      <div className="min-w-0">
+                        <div className="font-mono font-bold text-[11px] text-rose-600 dark:text-rose-400 truncate">{rec.damageReference}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          {rec.quantityDamaged} unit(s) · {formatNPR(rec.totalCost)} · {rec.damageDateAD}
+                          {rec.approvedBy ? ` · by ${rec.approvedBy}` : ''}
+                        </div>
+                        {rec.notes && <div className="text-[10px] text-slate-400 truncate mt-0.5">{rec.notes}</div>}
+                      </div>
+                      <button
+                        onClick={() => handleReverseDamageRecord(rec.damageReference)}
+                        disabled={isReversing}
+                        className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500 text-white hover:bg-amber-600 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {isReversing ? 'Reversing…' : 'Reverse & Restore'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Reversing restores the units to available stock, returns quarantined serials to IN_STOCK in the Serial
+                  Log Register, marks the damage record CANCELLED, and writes a DAMAGE_REVERSED entry to the movement
+                  ledger. A reason is required and kept on the audit trail.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
