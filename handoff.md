@@ -153,8 +153,14 @@ ISP-Inventory-Management-System/
 │       ├── config/                    # Seed/config data
 │       │   ├── bsCalendar.ts          # BS calendar constants, fallback cache, helpers
 │       │   └── seedData.ts            # Company profile, doc numbering, master data, demo users
-│       ├── controllers/               # HTTP orchestration (route → controller → service)
-│       │   └── auth.controller.ts     # Login (pattern exemplar for other domains)
+│       ├── controllers/               # HTTP orchestration (route → controller → service);
+│       │                              #   every route forwards to a controller fn whose
+│       │                              #   rejection flows to the central error handler
+│       │   ├── auth.controller.ts
+│       │   ├── inventory.controller.ts / procurement.controller.ts / admin.controller.ts /
+│       │   ├── masterdata.controller.ts / shipments.controller.ts / misc.controller.ts /
+│       │   └── reports.controller.ts / sync.controller.ts / permissions.controller.ts /
+│       │       bootstrap.controller.ts
 │       ├── errors/                    # Structured error handling
 │       │   ├── ApiError.ts            # throw new ApiError(status, message)
 │       │   └── errorHandler.ts        # Central middleware converting ApiError → JSON
@@ -164,9 +170,8 @@ ISP-Inventory-Management-System/
 │       ├── models/                    # Schema blueprints / data access
 │       │   ├── bootstrap.repo.ts      # Bootstrap fetches + serial history parsing
 │       │   └── columnMappings.ts      # Per-table column mappings (single source)
-│       ├── routes/                    # Endpoint layout — thin forwarders
-│       │   ├── auth.routes.ts         # + login forwarded to controllers/auth.controller
-│       │   ├── bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
+│       ├── routes/                    # Endpoint layout — every route is a thin forwarder
+│       │   ├── auth.routes.ts / bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
 │       │   ├── shipments.routes.ts / masterdata.routes.ts / admin.routes.ts /
 │       │   └── reports.routes.ts / sync.routes.ts / permissions.routes.ts / misc.routes.ts
 │       ├── services/                  # Core business logic — unit-tested (100 tests)
