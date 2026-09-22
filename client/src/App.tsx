@@ -94,6 +94,7 @@ import { setCurrencyConfig } from './utils/nprFormat';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
 import { setServerMatrix } from './utils/permissions';
+import { setExportCompanyProfile } from './utils/exportUtils';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
 // AD range contains today's date (guards against multiple years being flagged
@@ -334,6 +335,12 @@ export default function App() {
       decimals: profile.currencyDecimals ?? 2,
     });
   };
+
+  // Keep the CSV/Excel exporter's app-wide company identity in sync so every
+  // export metadata header embeds the configured Company Profile.
+  useEffect(() => {
+    setExportCompanyProfile(companyProfile);
+  }, [companyProfile]);
 
   // Instant pre-hydration from recent cache (scoped per user+branch+FY, TTL-guarded)
   const cacheScopeRef = useRef<{ userId?: string; branchId?: string; fiscalYearId?: string }>({

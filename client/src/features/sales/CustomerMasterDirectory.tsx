@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
+import { exportToCSV } from '../../utils/exportUtils';
 import {
   Users,
   Search,
@@ -30,7 +31,6 @@ import {
   Tag,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import * as XLSX from 'xlsx';
 
 interface CustomerMasterDirectoryProps {
   customers: CustomerRecord[];
@@ -243,19 +243,29 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       };
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
-
-    const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    const fileName = `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    exportToCSV({
+      filename: `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}`,
+      reportTitle: 'Customer Master Database Directory',
+      branchName:
+        selectedBranchFilter === 'ALL'
+          ? 'All Branches (Consolidated)'
+          : branches.find((b) => b.id === selectedBranchFilter)?.name,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : 'System User',
+      data: exportRows,
+      columns: [
+        { key: 'Cus. Code', label: 'Cus. Code' },
+        { key: 'Customer Name', label: 'Customer Name' },
+        { key: 'Username', label: 'Username' },
+        { key: 'Primary Mobile', label: 'Primary Mobile' },
+        { key: 'Branch Code', label: 'Branch Code' },
+        { key: 'Branch Name', label: 'Branch Name' },
+        { key: 'Address', label: 'Address' },
+        { key: 'Email', label: 'Email' },
+        { key: 'Status', label: 'Status' },
+        { key: 'Credit Limit (NPR)', label: 'Credit Limit (NPR)' },
+        { key: 'Assigned Hardware Count', label: 'Assigned Hardware Count' },
+      ],
+    });
   };
 
   return (

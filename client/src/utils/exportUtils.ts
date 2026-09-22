@@ -19,6 +19,21 @@ export interface CSVExportOptions<T = any> {
 }
 
 /**
+ * App-wide default company identity used by every exportToCSV call unless a
+ * call site passes its own `companyInfo`. The application shell keeps this in
+ * sync with the loaded Company Profile via `setExportCompanyProfile`.
+ */
+let defaultCompanyInfo: CSVExportOptions<any>['companyInfo'];
+
+export function setExportCompanyProfile(
+  profile: { name?: string; legalName?: string; panVatNumber?: string } | null | undefined
+) {
+  defaultCompanyInfo = profile
+    ? { name: profile.name, legalName: profile.legalName, panVatNumber: profile.panVatNumber }
+    : undefined;
+}
+
+/**
  * Enhanced CSV / Excel Data Exporter Utility for Inventory Multi-Branch ERP
  * Includes uniform BS exported date (YYYY-MM-DD HH:mm:ss) and report metadata.
  */
@@ -36,7 +51,6 @@ export function exportToCSV<T extends Record<string, any>>(
   let generatedBy: string | undefined;
   let includeMetadataHeader: boolean = true;
   let companyInfo: CSVExportOptions<T>['companyInfo'] | undefined;
-
   if (typeof filenameOrOptions === 'object' && filenameOrOptions !== null) {
     filename = filenameOrOptions.filename;
     data = filenameOrOptions.data;
@@ -53,6 +67,7 @@ export function exportToCSV<T extends Record<string, any>>(
     companyInfo = maybeCompanyInfo;
     reportTitle = filename.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
+  companyInfo = companyInfo || defaultCompanyInfo;
 
   if (!data || data.length === 0) {
     alert('No data available to export.');
