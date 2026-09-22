@@ -1,17 +1,20 @@
 /**
- * Repo-layer guard: fails when a controller contains raw SQL literals.
+ * Repo-layer guard: fails when a controller contains raw SQL literals or
+ * bypasses the shared database layer.
  *
- * Architecture rule enforced here (branch refactor/psql-only-reads): every
- * SQL string and param builder lives in server/src/models/*.repo.ts; the
- * controllers under server/src/controllers/ keep only HTTP concerns and
- * execute repo-owned constants.
+ * Architecture rules enforced here (branch refactor/psql-only-reads):
+ *  1. Every SQL string and param builder lives in server/src/models/*.repo.ts;
+ *     controllers keep only HTTP concerns and execute repo-owned constants.
+ *  2. Controllers never acquire connections or manage transactions directly —
+ *     pgPool.connect() / realPoolInstance.connect() and hand-rolled
+ *     BEGIN/COMMIT/ROLLBACK belong in withTransaction/withConnection (app.ts).
  *
- * The detection core (`findInlineSql`) is a pure string→violations function
- * so the unit tests in tests/no_inline_sql.guard.test.ts can exercise it
- * against synthetic sources. The CLI entry (`runAsScript`) scans the real
- * controllers directory and exits non-zero on any violation.
+ * The detection core (`findInlineSql`, `findConnectionViolations`) is pure
+ * string→violations so the unit tests in tests/no_inline_sql.guard.test.ts
+ * can exercise it against synthetic sources. The CLI entry (`runAsScript`)
+ * scans the real controllers directory and exits non-zero on any violation.
  *
- * Detection is lexical (no TS parser dependency): it walks the source
+ * SQL detection is lexical (no TS parser dependency): it walks the source
  * character-by-character, tracks template-literal / string / comment state,
  * and flags string-literal bodies that look like SQL. String interpolations
  * (`${...}`) are skipped so suffix concatenation like
@@ -169,6 +172,79 @@ function lineOf(source: string, offset: number): number {
   return line;
 }
 
+// ---------------------------------------------------------------------------
+// Connection / transaction bypass detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Lexical pattern (regex over raw source, comments stripped) matching direct
+ * connection acquisition or pool-level transaction control in controllers.
+ * These must go through withTransaction/withConnection (app.ts) so rollback
+ * and release are handled in one audited place.
+ */
+const CONNECTION_PATTERNS: Array<{ re: RegExp; message: string }> = [
+  { re: /\b(?:pgPool|realPoolInstance|pool)\s*\.\s*connect\s*\(/g, message: 'direct pool connect() — use withTransaction/withConnection (app.ts)' },
+  { re: /\b(?:client|conn|connection)\s*\.\s*query\s*\(\s*['"`]\s*(?:BEGIN|COMMIT|ROLLBACK)\b/gi, message: 'hand-rolled transaction control — use withTransaction (app.ts)' },
+  { re: /\bpgPool\s*\.\s*query\s*\(\s*['"`]\s*(?:BEGIN|COMMIT|ROLLBACK)\b/gi, message: 'pool-level BEGIN/COMMIT/ROLLBACK spans separate connections and is never atomic — use withTransaction (app.ts)' },
+];
+
+/**
+ * Strips comments from source so guard patterns never match prose.
+ * Reuses the same lexical discipline as extractLiteralBodies (simplified:
+ * strings are left intact — the connection patterns only match identifiers
+ * and the BEGIN/COMMIT/ROLLBACK keywords, which do not appear in strings
+ * outside of real transaction calls in practice).
+ */
+function stripComments(source: string): string {
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    if (source.startsWith(LINE_COMMENT, i)) {
+      const end = source.indexOf('\n', i);
+      i = end === -1 ? source.length : end;
+      continue;
+    }
+    if (source.startsWith(BLOCK_COMMENT_START, i)) {
+      const end = source.indexOf(BLOCK_COMMENT_END, i + 2);
+      i = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    out += source[i];
+    i++;
+  }
+  return out;
+}
+
+export interface ConnectionViolation {
+  file: string;
+  line: number;
+  snippet: string;
+  rule: string;
+}
+
+/**
+ * Pure detection core: returns one violation per direct connect() or
+ * BEGIN/COMMIT/ROLLBACK call in the given controller source.
+ */
+export function findConnectionViolations(source: string, fileLabel: string): ConnectionViolation[] {
+  const violations: ConnectionViolation[] = [];
+  const code = stripComments(source);
+  for (const { re, message } of CONNECTION_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(code)) !== null) {
+      violations.push({
+        file: fileLabel,
+        line: lineOf(code, m.index),
+        snippet: m[0],
+        rule: message,
+      });
+      if (m.index === re.lastIndex) re.lastIndex++; // zero-length guard
+    }
+  }
+  return violations;
+}
+
 /**
  * Pure detection core: returns one violation per SQL-looking string literal
  * in the given controller source.
@@ -214,17 +290,27 @@ export function runAsScript(argv: string[] = process.argv.slice(2)): number {
   }
 
   const violations: InlineSqlViolation[] = [];
+  const connectionViolations: ConnectionViolation[] = [];
   for (const file of files) {
     const source = fs.readFileSync(file, 'utf8');
     violations.push(...findInlineSql(source, path.relative(process.cwd(), file)));
+    connectionViolations.push(...findConnectionViolations(source, path.relative(process.cwd(), file)));
   }
 
-  if (violations.length > 0) {
-    console.error(`✖ repo-layer violation: raw SQL found in ${violations.length} place(s):\n`);
-    for (const v of violations) {
-      console.error(`  ${v.file}:${v.line}\n    ${v.snippet}\n`);
+  if (violations.length > 0 || connectionViolations.length > 0) {
+    if (violations.length > 0) {
+      console.error(`✖ repo-layer violation: raw SQL found in ${violations.length} place(s):\n`);
+      for (const v of violations) {
+        console.error(`  ${v.file}:${v.line}\n    ${v.snippet}\n`);
+      }
     }
-    console.error('Move SQL strings and param builders into server/src/models/*.repo.ts.');
+    if (connectionViolations.length > 0) {
+      console.error(`✖ repo-layer violation: direct connection/transaction control found in ${connectionViolations.length} place(s):\n`);
+      for (const v of connectionViolations) {
+        console.error(`  ${v.file}:${v.line}\n    ${v.snippet}\n    rule: ${v.rule}\n`);
+      }
+    }
+    console.error('Move SQL strings and param builders into server/src/models/*.repo.ts and use withTransaction/withConnection from app.ts for connections and transactions.');
     return 1;
   }
 

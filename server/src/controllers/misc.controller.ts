@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, realPoolInstance, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import {
   DB_STATUS_PROBE_SQL,
@@ -37,11 +37,9 @@ let isConnected = await ensurePostgresConnection();
   let errorDetails = '';
   let tableCount = 0;
 
-  if (isConnected && realPoolInstance) {
+  if (isConnected) {
     try {
-      const client = await realPoolInstance.connect();
-      const testRes = await client.query(DB_STATUS_PROBE_SQL);
-      client.release();
+      const testRes: any = await withConnection((client: any) => client.query(DB_STATUS_PROBE_SQL));
       isConnected = true;
       setPgConnected(true);
       setIsPgConnected(true);

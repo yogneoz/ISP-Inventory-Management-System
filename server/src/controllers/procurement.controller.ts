@@ -380,7 +380,18 @@ try {
         if (invoice.poReferenceId) {
           await client.query(PO_MARK_STATUS_SQL, ['APPROVED', invoice.poReferenceId]);
         }
+        // Audit entry joins the transaction (committed deletion never unlogged).
+        await logAuditEvent(
+          req,
+          'DELETE_PURCHASE_INVOICE',
+          'PROCUREMENT',
+          `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`,
+          undefined,
+          client
+        );
       });
+    } else {
+      logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
     }
 
     setPurchaseInvoices(purchaseInvoices.filter((entry) => entry.id !== id));
@@ -394,7 +405,6 @@ try {
     ));
     const linkedPO = purchaseOrders.find((entry) => entry.id === invoice.poReferenceId || entry.poNumber === invoice.poReferenceId);
     if (linkedPO) linkedPO.status = 'APPROVED';
-    logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
     console.error('Error deleting purchase invoice:', err);
@@ -437,6 +447,8 @@ try {
     // Read-modify-write against the authoritative row inside a transaction so
     // concurrent payments cannot interleave and corrupt the balance (the
     // UPDATE itself re-derives payment_status from the final amount_paid).
+    // The audit entry joins the same transaction: a committed payment is
+    // never left unlogged.
     const finalRes = await withTransaction(async (client) => {
       const locked = await client.query(PI_LOCK_FOR_UPDATE_SQL, [id]);
       if (!locked.rows[0]) {
@@ -446,10 +458,17 @@ try {
       }
       await client.query(PI_RECORD_PAYMENT_SQL, [paymentAmount, id]);
       const after = await client.query(PI_BALANCE_AFTER_SQL, [id]);
+      await logAuditEvent(
+        req,
+        'RECORD_INVOICE_PAYMENT',
+        'PROCUREMENT',
+        `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`,
+        undefined,
+        client
+      );
       return after.rows[0];
     });
 
-    logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`);
     res.json({ ...inv, amountPaid: Number(finalRes.amountPaid), paymentStatus: finalRes.paymentStatus, message: 'Payment recorded' });
   } catch (err: any) {
     console.error('Error recording payment:', err);
@@ -507,6 +526,15 @@ try {
         }
         // Reset the invoice amount_paid and payment_status
         await client.query(PI_RESET_PAYMENT_SQL, [id]);
+        // Audit entry joins the transaction (committed reversal never unlogged).
+        await logAuditEvent(
+          req,
+          'REVERSE_INVOICE_PAYMENTS',
+          'PROCUREMENT',
+          `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber} (${reason})`,
+          inv.branchId,
+          client
+        );
       });
     }
 
@@ -520,13 +548,15 @@ try {
     inv.amountPaid = 0;
     inv.paymentStatus = 'UNPAID';
 
-    logAuditEvent(
-      req,
-      'REVERSE_INVOICE_PAYMENTS',
-      'PROCUREMENT',
-      `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber} (${reason})`,
-      inv.branchId
-    );
+    if (!getPgConnected()) {
+      logAuditEvent(
+        req,
+        'REVERSE_INVOICE_PAYMENTS',
+        'PROCUREMENT',
+        `Reversed ${paymentsToReverse.length} payment(s) totaling NPR ${reversedTotal.toLocaleString()} for Invoice #${inv.invoiceNumber} (${reason})`,
+        inv.branchId
+      );
+    }
     broadcastChange({ type: 'INVOICE_PAYMENTS_REVERSED', entity: 'purchase-invoices', branchId: inv.branchId });
     res.json({
       success: true,
@@ -742,7 +772,24 @@ try {
         if (payment.invoiceId) {
           await client.query(PI_UNDO_PAYMENT_SQL, [Number(payment.amount) || 0, payment.invoiceId]);
         }
+        // Audit entry joins the transaction (committed reversal never unlogged).
+        await logAuditEvent(
+          req,
+          'REVERSE_VENDOR_PAYMENT',
+          'PROCUREMENT',
+          `Reversed vendor payment #${payment.paymentNumber} of NPR ${Number(payment.amount || 0).toLocaleString()} (${reason})`,
+          payment.branchId,
+          client
+        );
       });
+    } else {
+      logAuditEvent(
+        req,
+        'REVERSE_VENDOR_PAYMENT',
+        'PROCUREMENT',
+        `Reversed vendor payment #${payment.paymentNumber} of NPR ${Number(payment.amount || 0).toLocaleString()} (${reason})`,
+        payment.branchId
+      );
     }
 
     payment.status = 'REVERSED';
@@ -759,13 +806,6 @@ try {
       }
     }
 
-    logAuditEvent(
-      req,
-      'REVERSE_VENDOR_PAYMENT',
-      'PROCUREMENT',
-      `Reversed vendor payment #${payment.paymentNumber} of NPR ${Number(payment.amount || 0).toLocaleString()} (${reason})`,
-      payment.branchId
-    );
     broadcastChange({ type: 'VENDOR_PAYMENT_REVERSED', entity: 'purchase-invoices', branchId: payment.branchId });
     res.json({
       success: true,

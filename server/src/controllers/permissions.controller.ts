@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { permissionMatrix, pgPool, setPermissionMatrix, getUserFromReq } from '../app';
+import { permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction } from '../app';
 import {
   PERMISSION_MATRIX_DELETE_ALL_SQL,
   PERMISSION_MATRIX_UPSERT_SQL,
@@ -28,25 +28,17 @@ try {
       res.status(400).json({ message: 'Invalid permission matrix payload.' });
       return;
     }
-    const client = await pgPool.connect();
-    try {
-      await client.query('BEGIN');
+    await withTransaction(async (client) => {
       await client.query(PERMISSION_MATRIX_DELETE_ALL_SQL);
       const entries = permissionMatrixEntries(matrix);
       for (const entry of entries) {
         await client.query(PERMISSION_MATRIX_UPSERT_SQL, permissionMatrixUpsertParams(entry));
       }
-      await client.query('COMMIT');
       setPermissionMatrix(JSON.parse(JSON.stringify(matrix)));
-      console.log(`✅ Permission matrix updated by ${(getUserFromReq(req)).email || 'unknown'}.`);
-      res.json({ message: 'Permission matrix updated successfully.', operationCount: Object.keys(matrix).length });
-      return;
-    } catch (txErr: any) {
-      await client.query('ROLLBACK');
-      throw txErr;
-    } finally {
-      client.release();
-    }
+    });
+    console.log(`✅ Permission matrix updated by ${(getUserFromReq(req)).email || 'unknown'}.`);
+    res.json({ message: 'Permission matrix updated successfully.', operationCount: Object.keys(matrix).length });
+    return;
   } catch (err: any) {
     res.status(500).json({ message: `Unable to update permissions: ${err.message}` });
     return;

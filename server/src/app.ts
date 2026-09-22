@@ -541,13 +541,34 @@ export async function withTransaction<T>(
   }
 }
 
+/**
+ * Runs `fn` with a dedicated pooled connection (no transaction). Use when a
+ * multi-statement read needs one consistent connection (e.g. cache hydration)
+ * but atomicity is not required; use withTransaction for writes.
+ */
+export async function withConnection<T>(
+  callback: (client: any) => Promise<T>
+): Promise<T> {
+  const client = await pgPool.connect();
+  try {
+    return await callback(client);
+  } finally {
+    if (client && typeof client.release === 'function') {
+      try {
+        client.release();
+      } catch (_e) {}
+    }
+  }
+}
+
 export function logAuditEvent(
   req: any,
   action: string,
   module: string,
   details: string,
-  overrideBranchId?: string
-) {
+  overrideBranchId?: string,
+  client?: any
+): AuditLog | Promise<AuditLog> {
   const u = getUserFromReq(req);
   const auditItem: AuditLog = {
     id: `aud-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -570,11 +591,15 @@ export function logAuditEvent(
     branchId: auditItem.branchId,
   });
 
-  // Async persist to Postgres if available. Failures are logged (never
-  // silently dropped) — the audit trail is a compliance record and must be
-  // observable when it cannot be written.
-  pgPool
-    .query(
+  // Persist to Postgres. Two paths:
+  //  - `client` provided: the INSERT runs (and is awaited by the caller) on
+  //    the caller's transaction, so the audit row commits or rolls back
+  //    together with the business action it records. Insert failures abort
+  //    the transaction — an audited action is never committed unlogged.
+  //  - no `client` (demo mode / non-transactional callers): fire-and-forget
+  //    best-effort insert; failures are logged, never silently dropped.
+  const insertAudit = async (executor: { query: (sql: string, params: any[]) => Promise<any> }) => {
+    await executor.query(
       `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
        ON CONFLICT (id) DO NOTHING`,
@@ -590,9 +615,16 @@ export function logAuditEvent(
         // store NULL so the branch_id FK is never violated.
         auditItem.branchId && auditItem.branchId !== 'ALL' ? auditItem.branchId : null,
       ]
-    )
-    .catch((e: any) => console.error('audit_logs persist failed:', auditItem.action, e?.message || e));
+    );
+    return auditItem;
+  };
 
+  if (client) return insertAudit(client);
+  // Demo mode (PostgreSQL down): the register lives in memory only; skip the
+  // pool insert instead of spamming connection errors for every event.
+  if (isPgConnected) {
+    insertAudit(pgPool).catch((e: any) => console.error('audit_logs persist failed:', auditItem.action, e?.message || e));
+  }
   return auditItem;
 }
 

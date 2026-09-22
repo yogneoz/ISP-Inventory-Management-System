@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, setInMemoryBsDayRecords, broadcastChange } from '../app';
+import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, setInMemoryBsDayRecords, broadcastChange } from '../app';
 import { Branch, Asset, DocumentNumberConfig, CompanyProfile, FiscalYear, User } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import {
@@ -81,12 +81,7 @@ try {
     }
 
     // Re-hydrate the runtime caches so memory matches the database again.
-    const client = await pgPool.connect();
-    try {
-      await hydrateOperationalData(client);
-    } finally {
-      client.release();
-    }
+    await withConnection((client) => hydrateOperationalData(client));
 
     setDataVersion(getDataVersion() + 1);
     sseClients.forEach((client) => {
@@ -1339,39 +1334,39 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
 
   let pgSynced = false;
   try {
-    await pgPool.query('BEGIN');
+    // One real transaction on a single pooled connection (withTransaction).
+    // The previous pool-level BEGIN/COMMIT spanned separate connections per
+    // query, so the calendar rewrite was never actually atomic.
+    await withTransaction(async (client) => {
+      // 1. Upsert the edited year's config.
+      await client.query(BS_CALENDAR_YEAR_UPSERT_SQL, [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]);
 
-    // 1. Upsert the edited year's config.
-    await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]);
-
-    // 2. Rewrite the subsequent years' start_ad when the running calendar
-    //    requires it (keeps bs_calendar_years config consistent with the
-    //    regenerated day records).
-    for (const y of affectedYears) {
-      if (y.yearBS === yearBS) continue;
-      const dbIdx = inMemoryBsCalendarYears.findIndex((m) => m.yearBS === y.yearBS);
-      if (dbIdx < 0) continue;
-      const prevConfig = inMemoryBsCalendarYears[dbIdx];
-      if (prevConfig.startAD !== y.startAD) {
-        await pgPool.query(BS_CALENDAR_YEAR_SET_START_SQL, [y.yearBS, y.startAD]);
+      // 2. Rewrite the subsequent years' start_ad when the running calendar
+      //    requires it (keeps bs_calendar_years config consistent with the
+      //    regenerated day records).
+      for (const y of affectedYears) {
+        if (y.yearBS === yearBS) continue;
+        const dbIdx = inMemoryBsCalendarYears.findIndex((m) => m.yearBS === y.yearBS);
+        if (dbIdx < 0) continue;
+        const prevConfig = inMemoryBsCalendarYears[dbIdx];
+        if (prevConfig.startAD !== y.startAD) {
+          await client.query(BS_CALENDAR_YEAR_SET_START_SQL, [y.yearBS, y.startAD]);
+        }
       }
-    }
 
-    // 3. Delete stale day records for every affected year, then regenerate.
-    const affectedNumList = affectedYears.map((y) => y.yearBS);
-    await pgPool.query(BS_DAY_RECORDS_DELETE_BY_YEARS_SQL, [affectedNumList]);
+      // 3. Delete stale day records for every affected year, then regenerate.
+      const affectedNumList = affectedYears.map((y) => y.yearBS);
+      await client.query(BS_DAY_RECORDS_DELETE_BY_YEARS_SQL, [affectedNumList]);
 
-    for (const y of affectedYears) {
-      const records = buildBsDayRecordsForYear(y.yearBS, y.daysInMonths, y.startAD);
-      for (const rec of records) {
-        await pgPool.query(BS_DAY_RECORD_UPSERT_SQL, bsDayRecordParams(rec));
+      for (const y of affectedYears) {
+        const records = buildBsDayRecordsForYear(y.yearBS, y.daysInMonths, y.startAD);
+        for (const rec of records) {
+          await client.query(BS_DAY_RECORD_UPSERT_SQL, bsDayRecordParams(rec));
+        }
       }
-    }
-
-    await pgPool.query('COMMIT');
+    });
     pgSynced = true;
   } catch (err: any) {
-    try { await pgPool.query('ROLLBACK'); } catch (_rb) { /* ignore */ }
     console.error('BS calendar update transaction failed:', err?.message || err);
   }
 
