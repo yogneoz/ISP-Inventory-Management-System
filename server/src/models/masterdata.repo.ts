@@ -274,6 +274,22 @@ export function customerUpsertParams(c: Record<string, any>): unknown[] {
   ];
 }
 
+/** Customer master update (PUT): matches by id or customer_id with one value. */
+export const CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL = `UPDATE customer_records SET
+   customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9
+ WHERE id = $10 OR customer_id = $10;`;
+
+export function customerUpdateByIdOrCodeParams(c: Record<string, any>): unknown[] {
+  return [
+    c.customerId, c.customerName, c.username, c.contactNumber, c.branchId,
+    c.address, c.email, c.status, Number(c.creditLimit) || 0,
+  ];
+}
+
+/** Customer delete matches both id and customer_id with a single parameter. */
+export const CUSTOMER_DELETE_BY_ID_OR_CODE_SQL =
+  'DELETE FROM customer_records WHERE id = $1 OR customer_id = $1';
+
 
 
 

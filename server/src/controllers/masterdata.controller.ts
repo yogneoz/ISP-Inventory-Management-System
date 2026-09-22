@@ -15,6 +15,7 @@ import {
   PRODUCT_SELECT, PRODUCT_UPSERT_SQL, productUpsertParams, PRODUCT_UPDATE_SQL, productUpdateParams, PRODUCT_DELETE_SQL, STOCK_INIT_SQL, stockInitParams,
   CATEGORY_SELECT, CATEGORY_UPSERT_SQL, categoryUpsertParams, CATEGORY_UPDATE_SQL, categoryUpdateParams, CATEGORY_DELETE_SQL,
   buildCustomerListQuery, CUSTOMER_UPSERT_SQL, customerUpsertParams,
+  CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL, customerUpdateByIdOrCodeParams, CUSTOMER_DELETE_BY_ID_OR_CODE_SQL,
 } from '../models/masterdata.repo';
 /** Forwarded from masterdata.routes.ts (get_uom). */
 export async function get_uom(req: any, res: Response): Promise<any> {
@@ -654,10 +655,8 @@ try {
 
     if (getPgConnected()) {
       await pgPool.query(
-        `UPDATE customer_records SET
-           customer_id = $1, customer_name = $2, username = $3, contact_number = $4, branch_id = $5, address = $6, email = $7, status = $8, credit_limit = $9
-         WHERE id = $10 OR customer_id = $10;`,
-        [updated.customerId, updated.customerName, updated.username, updated.contactNumber, updated.branchId, updated.address, updated.email, updated.status, Number(updated.creditLimit) || 0, id]
+        CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL,
+        [...customerUpdateByIdOrCodeParams(updated), id]
       );
     }
     logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${updated.customerName} (${updated.customerId})`, updated.branchId);
@@ -677,7 +676,7 @@ try {
     setCustomerMasterRecords(customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM customer_records WHERE id = $1 OR customer_id = $1', [id]);
+      await pgPool.query(CUSTOMER_DELETE_BY_ID_OR_CODE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
     res.json({ success: true, deletedId: id });

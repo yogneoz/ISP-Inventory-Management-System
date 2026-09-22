@@ -11,18 +11,68 @@ import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '.
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials } from '../services/damage.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
+import {
+  buildStockListQuery,
+  STOCK_FIND_BY_ID_SQL,
+  STOCK_UPSERT_LEVELS_SQL,
+  stockUpsertLevelsParams,
+  STOCK_UPSERT_REORDER_SQL,
+  stockUpsertReorderParams,
+  STOCK_RECONCILE_UPSERT_SQL,
+  stockReconcileUpsertParams,
+  TXN_INSERT_NOW_SQL,
+  miscPulloutTxnParams,
+  TXN_INSERT_ON_CONFLICT_SQL,
+  txnInsertOnConflictParams,
+  DAMAGE_RECORD_ADJUSTMENT_SQL,
+  damageAdjustmentParams,
+  DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
+  damageAuditShortageParams,
+  DAMAGE_RECORD_CANCEL_SQL,
+  buildAssetListQuery,
+  ASSET_UPSERT_SQL,
+  assetUpsertParams,
+  ASSET_SET_STATUS_SQL,
+  buildStockOperationListQuery,
+  STOCK_OPERATION_INSERT_SQL,
+  stockOperationInsertParams,
+  STOCK_DAMAGE_APPLY_SQL,
+  STOCK_RELEASE_DAMAGED_SQL,
+  STOCK_CONSUME_QOH_SQL,
+  STOCK_REVERSE_DAMAGE_SQL,
+  STOCK_OPERATION_CANCEL_SQL,
+  STOCK_OPERATION_FIND_FOR_RECEIVE_SQL,
+  STOCK_OPERATION_SET_STATUS_SQL,
+  PULLOUT_RECEIVE_STOCK_SQL,
+  pulloutReceiveStockParams,
+  buildCustomerDeviceListQuery,
+  CDR_DUPLICATE_CHECK_SQL,
+  CDR_EXISTING_STATUS_SQL,
+  CDR_FIND_NARROW_SQL,
+  CDR_UPDATE_STATUS_SQL,
+  CDR_FIND_ALL_BY_ID_SQL,
+  CDR_EXCHANGE_STATUS_SQL,
+  CDR_EXCHANGE_INSERT_SQL,
+  CDR_UPSERT_SQL,
+  customerDeviceInsertParams,
+  CDR_ASSIGNMENT_STOCK_SQL,
+  cdrAssignmentStockParams,
+  CDR_CUSTOMER_COUNT_UPSERT_SQL,
+  customerCountUpsertParams,
+  buildSerialLookupSql,
+  buildSerialLogQuery,
+  SERIAL_LOG_FIND_BY_DEVICE_SQL,
+  SERIAL_LOG_UPDATE_SQL,
+  serialLogUpdateParams,
+  SERIAL_LOG_INSERT_SQL,
+  serialLogInsertParams,
+} from '../models/inventory.repo';
 /** Forwarded from inventory.routes.ts (get_stock). */
 export async function get_stock(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel", last_updated AS "lastUpdated" FROM inventory_stock`;
-      const params: any[] = [];
-      if (branchId && branchId !== 'ALL') {
-        sql += ` WHERE branch_id = $1`;
-        params.push(branchId);
-      }
-      sql += ` ORDER BY branch_id, product_id`;
+      const { sql, params } = buildStockListQuery(branchId);
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
@@ -52,10 +102,7 @@ try {
     let stk = inventoryStock.find((s) => s.id === id);
 
     if (getPgConnected() && !stk) {
-      const r = await pgPool.query(
-        'SELECT id, product_id AS "productId", branch_id AS "branchId", quantity_on_hand AS "quantityOnHand", damaged_qty AS "damagedQty", reserved_qty AS "reservedQty", incoming_qty AS "incomingQty", min_reorder_level AS "minReorderLevel" FROM inventory_stock WHERE id = $1',
-        [id]
-      );
+      const r = await pgPool.query(STOCK_FIND_BY_ID_SQL, [id]);
       if (r.rows.length > 0) stk = r.rows[0];
     }
     if (!stk) return res.status(404).json({ message: 'Stock record not found' });
@@ -84,16 +131,7 @@ try {
     const prod = products.find((p) => p.id === stk.productId);
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level, last_updated)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           quantity_on_hand = EXCLUDED.quantity_on_hand,
-           damaged_qty = EXCLUDED.damaged_qty,
-           min_reorder_level = EXCLUDED.min_reorder_level,
-           last_updated = NOW();`,
-        [stk.id, stk.productId, stk.branchId, stk.quantityOnHand || 0, stk.damagedQty || 0, stk.reservedQty || 0, stk.incomingQty || 0, stk.minReorderLevel || 5]
-      );
+      await pgPool.query(STOCK_UPSERT_LEVELS_SQL, stockUpsertLevelsParams(stk));
     }
 
     const isDamageChange = changeType === 'DAMAGE' || (damagedQty !== undefined && stk.damagedQty !== oldDamaged);
@@ -119,11 +157,7 @@ try {
       setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
       if (getPgConnected()) {
-        await pgPool.query(
-          `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
-          [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
-        );
+        await pgPool.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn as TransactionLog));
       }
     }
 
@@ -144,28 +178,22 @@ try {
         try {
           if (getPgConnected()) {
             await pgPool.query(
-              `INSERT INTO damage_records (
-                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
-                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
-                 write_off_loss, approved_by, notes, is_demo, created_by
-               )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $11, $12, FALSE, $13)
-               ON CONFLICT (id) DO NOTHING`,
-              [
-                damageRecordId,
-                damageRef,
-                stk.productId,
-                stk.branchId,
-                absAffected,
-                prod?.costPrice || 0,
-                (prod?.costPrice || 0) * absAffected,
-                todayAD,
-                '2083-04-16 BS',
+              DAMAGE_RECORD_ADJUSTMENT_SQL,
+              damageAdjustmentParams({
+                id: damageRecordId,
+                damageReference: damageRef,
+                productId: stk.productId,
+                branchId: stk.branchId,
+                quantityDamaged: absAffected,
+                unitCost: prod?.costPrice || 0,
+                totalCost: (prod?.costPrice || 0) * absAffected,
+                damageDateAD: todayAD,
+                damageDateBS: '2083-04-16 BS',
                 damageReason,
-                getUserFromReq(req).name || 'Stock Manager',
-                reason || 'Damaged stock balance verification',
-                getUserFromReq(req).email || 'system',
-              ]
+                approvedBy: getUserFromReq(req).name || 'Stock Manager',
+                notes: reason || 'Damaged stock balance verification',
+                createdBy: getUserFromReq(req).email || 'system',
+              })
             );
           }
           const existingIdx = damageRecords.findIndex((dr) => dr.id === damageRecordId || dr.damageReference === damageRef);
@@ -224,11 +252,7 @@ try {
       setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
       if (getPgConnected()) {
-        await pgPool.query(
-          `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
-          [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
-        );
+        await pgPool.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn as TransactionLog));
       }
     }
   } catch (err: any) {
@@ -300,21 +324,7 @@ try {
     stk.lastUpdated = new Date().toISOString();
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO UPDATE SET min_reorder_level = $8`,
-        [
-          stk.id,
-          stk.productId,
-          stk.branchId,
-          stk.quantityOnHand || 0,
-          stk.damagedQty || 0,
-          stk.reservedQty || 0,
-          stk.incomingQty || 0,
-          stk.minReorderLevel,
-        ]
-      );
+      await pgPool.query(STOCK_UPSERT_REORDER_SQL, stockUpsertReorderParams(stk));
     }
     broadcastChange({ type: 'STOCK_UPDATED', entity: 'stock', branchId: stk.branchId });
     res.json(stk);
@@ -355,21 +365,7 @@ try {
               stk.minReorderLevel = Number(u.minReorderLevel);
               stk.lastUpdated = new Date().toISOString();
 
-              await client.query(
-                `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                 ON CONFLICT (id) DO UPDATE SET min_reorder_level = $8`,
-                [
-                  stk.id,
-                  stk.productId,
-                  stk.branchId,
-                  stk.quantityOnHand || 0,
-                  stk.damagedQty || 0,
-                  stk.reservedQty || 0,
-                  stk.incomingQty || 0,
-                  stk.minReorderLevel,
-                ]
-              );
+              await client.query(STOCK_UPSERT_REORDER_SQL, stockUpsertReorderParams(stk));
             }
           }
 
@@ -441,12 +437,7 @@ try {
 
           const prod = products.find((p) => p.id === item.productId);
 
-          await client.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (id) DO UPDATE SET quantity_on_hand = EXCLUDED.quantity_on_hand;`,
-            [stk.id, stk.productId, stk.branchId, stk.quantityOnHand, stk.damagedQty || 0, stk.reservedQty || 0, stk.incomingQty || 0]
-          );
+          await client.query(STOCK_RECONCILE_UPSERT_SQL, stockReconcileUpsertParams(stk));
 
           const newTxn: TransactionLog = {
             id: `txn-${Date.now()}-${item.productId}-aud`,
@@ -466,11 +457,7 @@ try {
           };
           setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
-          await client.query(
-            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
-            [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
-          );
+          await client.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn));
 
           // Physical audit reconciliation also records the damage lifecycle:
           // a negative shortage for a product that already has damaged stock is
@@ -478,27 +465,21 @@ try {
           if (delta < 0 && Number(item.damagedQty ?? stk.damagedQty ?? 0) > 0) {
             const damageQtyRec = Number(item.damagedQty ?? stk.damagedQty ?? 0);
             await client.query(
-              `INSERT INTO damage_records (
-                 id, damage_reference, product_id, branch_id, quantity_damaged, unit_cost, total_cost,
-                 damage_date_ad, damage_date_bs, damage_reason, status, salvage_value, gl_account_code,
-                 write_off_loss, approved_by, notes, is_demo, created_by
-               )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OTHER', 'IDENTIFIED', 0, 'GL-5120 (Loss on Inventory Scrap & Write-off)', 0, $10, $11, FALSE, $12)
-               ON CONFLICT (id) DO NOTHING`,
-              [
-                `dmr-audit-${auditRefNumber || 'AUD'}-${item.productId}`,
-                `AUDIT-${auditRefNumber || Date.now()}-${item.productId}`,
-                item.productId,
+              DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
+              damageAuditShortageParams({
+                id: `dmr-audit-${auditRefNumber || 'AUD'}-${item.productId}`,
+                damageReference: `AUDIT-${auditRefNumber || Date.now()}-${item.productId}`,
+                productId: item.productId,
                 branchId,
-                Math.min(damageQtyRec, Math.abs(delta)),
-                unitCost || prod?.costPrice || 0,
-                (unitCost || prod?.costPrice || 0) * Math.min(damageQtyRec, Math.abs(delta)),
-                new Date().toISOString().split('T')[0],
-                '2083-04-22 BS',
-                auditorName || userEmail || 'AUDITOR',
-                notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
-                userEmail || 'system',
-              ]
+                quantityDamaged: Math.min(damageQtyRec, Math.abs(delta)),
+                unitCost: unitCost || prod?.costPrice || 0,
+                totalCost: (unitCost || prod?.costPrice || 0) * Math.min(damageQtyRec, Math.abs(delta)),
+                damageDateAD: new Date().toISOString().split('T')[0],
+                damageDateBS: '2083-04-22 BS',
+                approvedBy: auditorName || userEmail || 'AUDITOR',
+                notes: notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
+                createdBy: userEmail || 'system',
+              })
             );
           }
         }
@@ -545,11 +526,7 @@ export async function get_assets(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const q =
-        'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
+      const { sql: q, params } = buildAssetListQuery(branchId);
       const r = await pgPool.query(q, params);
       return res.json(r.rows.map((asset: any) => ({
         ...asset,
@@ -623,46 +600,7 @@ try {
     setAssetRegister(idx >= 0 ? withReplaced(assetRegister, idx, newAsset as any) : withPrepended(assetRegister, newAsset as any));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO fixed_assets (
-           id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, placed_in_service_date_ad, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-         ON CONFLICT (id) DO UPDATE SET
-           tag_number = EXCLUDED.tag_number,
-           name = EXCLUDED.name,
-           category = EXCLUDED.category,
-           branch_id = EXCLUDED.branch_id,
-          purchase_invoice_date_ad = EXCLUDED.purchase_invoice_date_ad,
-          purchase_invoice_date_bs = EXCLUDED.purchase_invoice_date_bs,
-          capitalization_date_ad = EXCLUDED.capitalization_date_ad,
-          placed_in_service_date_ad = EXCLUDED.placed_in_service_date_ad,
-           acquisition_cost = EXCLUDED.acquisition_cost,
-           net_book_value = EXCLUDED.net_book_value,
-           status = EXCLUDED.status;`,
-        [
-          newAsset.id,
-          newAsset.tagNumber,
-          newAsset.name,
-          newAsset.category,
-          newAsset.branchId,
-          newAsset.acquisitionDateAD,
-          newAsset.acquisitionDateBS,
-          newAsset.purchaseInvoiceDateAD,
-          newAsset.purchaseInvoiceDateBS,
-          newAsset.capitalizationDateAD,
-          newAsset.placedInServiceDateAD,
-          newAsset.acquisitionCost,
-          newAsset.depreciationMethod,
-          newAsset.depreciationRatePercent,
-          newAsset.accumulatedDepreciation,
-          newAsset.netBookValue,
-          newAsset.status,
-          newAsset.supplierName,
-          newAsset.invoiceNo,
-          newAsset.purchaseInvoiceId,
-          newAsset.productId,
-        ]
-      );
+      await pgPool.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
     }
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}`);
     res.status(201).json(newAsset);
@@ -681,7 +619,7 @@ try {
     if (asset) Object.assign(asset, req.body);
 
     if (getPgConnected()) {
-      await pgPool.query('UPDATE fixed_assets SET status = $1 WHERE id = $2', [req.body.status || 'ACTIVE', id]);
+      await pgPool.query(ASSET_SET_STATUS_SQL, [req.body.status || 'ACTIVE', id]);
     }
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
@@ -697,11 +635,7 @@ export async function get_stockOperations(req: any, res: Response): Promise<any>
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const q =
-        'SELECT id, reference_number AS "referenceNumber", type, technician_name AS "technicianName", work_order_ref AS "workOrderRef", branch_id AS "branchId", branch_name AS "branchName", destination_warehouse_id AS "destinationWarehouseId", destination_warehouse_name AS "destinationWarehouseName", product_id AS "productId", quantity_changed AS "quantityChanged", cost_per_unit AS "costPerUnit", total_value AS "totalValue", reason, inspector_name AS "inspectorName", date_ad AS "dateAD", date_bs AS "dateBS", fiscal_year AS "fiscalYear", status, items FROM stock_operations' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1 OR destination_warehouse_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
+      const { sql: q, params } = buildStockOperationListQuery(branchId);
       const r = await pgPool.query(q, params);
       res.json(r.rows);
       return;
@@ -858,56 +792,22 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         await client.query(
-        `INSERT INTO stock_operations (
-           id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-         ON CONFLICT (id) DO UPDATE SET
-           status = EXCLUDED.status,
-           items = EXCLUDED.items;`,
-        [
-          newOp.id,
-          newOp.referenceNumber,
-          opType,
-          newOp.technicianName || null,
-          newOp.workOrderRef || null,
-          newOp.branchId || 'WH001',
-          newOp.branchName,
-          newOp.destinationWarehouseId,
-          newOp.destinationWarehouseName,
-          newOp.productId || null,
-          Number(newOp.quantityChanged) || 0,
-          Number(newOp.costPerUnit) || 0,
-          totalValue,
-          newOp.reason || '',
-          newOp.inspectorName || null,
-          newOp.dateAD,
-          newOp.dateBS,
-          newOp.fiscalYear,
-          newOp.status,
-          JSON.stringify(items),
-        ]
+          STOCK_OPERATION_INSERT_SQL,
+          stockOperationInsertParams(newOp, opType, totalValue, JSON.stringify(items))
         );
 
         for (const item of operationItems) {
           const qty = Number(item.quantity) || 1;
           let result;
           if (opType === 'DAMAGE') {
-            result = await client.query(
-            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, damaged_qty = damaged_qty + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
-            [qty, item.productId, newOp.branchId]
-            );
+            result = await client.query(STOCK_DAMAGE_APPLY_SQL, [qty, item.productId, newOp.branchId]);
           } else if (opType === 'PULLOUT') {
             result = await client.query(
-            item.condition === 'DAMAGED_STOCK'
-              ? `UPDATE inventory_stock SET damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`
-              : `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
+              item.condition === 'DAMAGED_STOCK' ? STOCK_RELEASE_DAMAGED_SQL : STOCK_CONSUME_QOH_SQL,
               [qty, item.productId, newOp.branchId]
             );
           } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
-            result = await client.query(
-            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
-              [qty, item.productId, newOp.branchId]
-            );
+            result = await client.query(STOCK_CONSUME_QOH_SQL, [qty, item.productId, newOp.branchId]);
           }
           if (stockConsumingType && result && result.rowCount !== 1) {
             throw new Error(`Stock changed before this operation could be posted for ${item.productName || item.productId}. Please retry.`);
@@ -915,12 +815,7 @@ try {
         }
 
         for (const txn of operationTransactions) {
-          await client.query(
-            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-             ON CONFLICT (id) DO NOTHING`,
-            [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
-          );
+          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
         }
 
         // Persist a damage_records lifecycle entry for every DAMAGE stock
@@ -1054,14 +949,14 @@ try {
           const qty = Number(item.quantity) || 0;
           if (qty <= 0) continue;
           const result = await client.query(
-            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`,
+            STOCK_REVERSE_DAMAGE_SQL,
             [qty, item.productId, op.branchId]
           );
           if (result.rowCount !== 1) {
             throw new Error(`Damaged stock changed before reversal could complete for ${item.productName || item.productId}.`);
           }
           await client.query(
-            `UPDATE damage_records SET status = 'CANCELLED', notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4 WHERE (damage_reference = $1 OR id = $2) AND status <> 'CANCELLED';`,
+            DAMAGE_RECORD_CANCEL_SQL,
             [`${op.referenceNumber}-${item.productId}`, `dmr-${op.id}-${item.productId}`, reason, reversedBy]
           );
 
@@ -1079,18 +974,10 @@ try {
           );
         }
 
-        await client.query(
-          `UPDATE stock_operations SET status = 'CANCELLED', updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
-          [reversedBy, op.id]
-        );
+        await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
 
         for (const txn of reversalLedger) {
-          await client.query(
-            `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-             ON CONFLICT (id) DO NOTHING`,
-            [txn.id, txn.transactionNumber, txn.productId, txn.productSku, txn.productName, txn.branchId, txn.changeType, txn.quantityBefore, txn.quantityChanged, txn.quantityAfter, txn.unitCost, txn.referenceDocId, txn.timestampAD, txn.timestampBS]
-          );
+          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
         }
       });
     }
@@ -1142,22 +1029,15 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        const current = await client.query('SELECT status, destination_warehouse_id AS "destinationWarehouseId", items FROM stock_operations WHERE id = $1 FOR UPDATE', [id]);
+        const current = await client.query(STOCK_OPERATION_FIND_FOR_RECEIVE_SQL, [id]);
         if (!current.rows[0]) throw new Error('Stock operation not found.');
         if (current.rows[0].status === 'RECEIVED') throw new Error('This stock operation has already been received.');
-        await client.query('UPDATE stock_operations SET status = $1 WHERE id = $2', ['RECEIVED', id]);
+        await client.query(STOCK_OPERATION_SET_STATUS_SQL, ['RECEIVED', id]);
         const whId = current.rows[0].destinationWarehouseId || op?.destinationWarehouseId || 'WH001';
         const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || op?.items || []);
         for (const item of items) {
           const qty = Number(item.quantity) || 1;
-          await client.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty)
-             VALUES ($1, $2, $3, $4, 0)
-             ON CONFLICT (product_id, branch_id) DO UPDATE SET
-               quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-               last_updated = CURRENT_TIMESTAMP;`,
-            [`stk-${whId.toLowerCase()}-${item.productId}`, item.productId, whId, qty]
-          );
+          await client.query(PULLOUT_RECEIVE_STOCK_SQL, pulloutReceiveStockParams(whId, item));
         }
       });
     }
@@ -1177,24 +1057,7 @@ const { branchId, query } = req.query;
 
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", contact_phone AS "contactPhone", installation_address AS "installationAddress", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", status, issued_date_ad AS "issuedDateAD", issued_date_bs AS "issuedDateBS", purchase_bill_ref AS "purchaseBillRef", notes FROM customer_device_records`;
-      const params: any[] = [];
-      const conditions: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conditions.push(`branch_id = $${params.length}`);
-      }
-
-      if (query && typeof query === 'string' && query.trim()) {
-        params.push(`%${query.trim().toLowerCase()}%`);
-        conditions.push(`(LOWER(device_serial) LIKE $${params.length} OR LOWER(pon_serial) LIKE $${params.length} OR LOWER(mac_address) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(customer_code) LIKE $${params.length} OR LOWER(contact_phone) LIKE $${params.length})`);
-      }
-
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
-      sql += ' ORDER BY created_at DESC';
+      const { sql, params } = buildCustomerDeviceListQuery(branchId, query);
 
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
@@ -1248,8 +1111,7 @@ try {
     if (duplicateLocal) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
     if (getPgConnected()) {
       const duplicateDb = await pgPool.query(
-        `SELECT 1 FROM customer_device_records
-         WHERE id <> $1 AND (UPPER(TRIM(device_serial)) = $2 OR UPPER(TRIM(pon_serial)) = $3) LIMIT 1`,
+        CDR_DUPLICATE_CHECK_SQL,
         [newRecord.id, normalizedDeviceSerial, normalizedPonSerial]
       );
       if (duplicateDb.rowCount) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
@@ -1260,7 +1122,7 @@ try {
     const previousRecord = customerDeviceRecords.find((c) => c.id === newRecord.id);
     let previousStatus = previousRecord?.status;
     if (getPgConnected() && !previousStatus) {
-      const existingRecord = await pgPool.query('SELECT status FROM customer_device_records WHERE id = $1', [newRecord.id]);
+      const existingRecord = await pgPool.query(CDR_EXISTING_STATUS_SQL, [newRecord.id]);
       previousStatus = existingRecord.rows[0]?.status;
     }
     const wasAssigned = Boolean(previousStatus && previousStatus !== 'IN_STOCK');
@@ -1274,57 +1136,37 @@ try {
         if (assignmentDelta !== 0 && product) {
           const stockChange = assignmentDelta < 0 ? 1 : -1;
           const stockResult = await client.query(
-            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
-             WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $4
-             RETURNING quantity_on_hand`,
-            [stockChange, product.id, branchId, assignmentDelta > 0 ? 1 : 0]
+            CDR_ASSIGNMENT_STOCK_SQL,
+            cdrAssignmentStockParams(stockChange, product.id, branchId, assignmentDelta > 0 ? 1 : 0)
           );
           if (stockResult.rowCount !== 1) throw new Error(`Insufficient available stock for ${newRecord.productName}.`);
         }
         await client.query(
-          `INSERT INTO customer_device_records (
-           id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         ON CONFLICT (id) DO UPDATE SET
-           status = EXCLUDED.status,
-           branch_id = EXCLUDED.branch_id,
-           notes = EXCLUDED.notes;`,
-          [
-          newRecord.id,
-          newRecord.customerId || custCode,
-          newRecord.customerName,
-          custCode,
-          newRecord.contactPhone || '',
-          newRecord.installationAddress || '',
-          branchId,
-          newRecord.productName,
-          newRecord.deviceSerial,
-          newRecord.ponSerial || newRecord.deviceSerial,
-          newRecord.macAddress || null,
-          nextStatus,
-          newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
-          newRecord.issuedDateBS || '2083-04-16 BS',
-          newRecord.purchaseBillRef || null,
-          newRecord.notes || '',
-          ]
+          CDR_UPSERT_SQL,
+          customerDeviceInsertParams({
+            ...newRecord,
+            customerId: newRecord.customerId || custCode,
+            customerCode: custCode,
+            branchId,
+            status: nextStatus,
+            issuedDateAD: newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
+            issuedDateBS: newRecord.issuedDateBS || '2083-04-16 BS',
+          } as CustomerDeviceRecord)
         );
 
         const countDelta = assignmentDelta;
         await client.query(
-        `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, status, assigned_devices_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)
-         ON CONFLICT (customer_id) DO UPDATE SET
-           assigned_devices_count = GREATEST(0, customer_records.assigned_devices_count + $8);`,
-        [
-          custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
-          custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
-          newRecord.customerName,
-          newRecord.customerName.toLowerCase().replace(/\s+/g, '.'),
-          newRecord.contactPhone || '9800000000',
-          newRecord.branchId || 'WH001',
-          newRecord.installationAddress || 'Nepal',
-          countDelta,
-        ]
+          CDR_CUSTOMER_COUNT_UPSERT_SQL,
+          customerCountUpsertParams({
+            id: custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+            customerId: custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+            customerName: newRecord.customerName,
+            username: newRecord.customerName.toLowerCase().replace(/\s+/g, '.'),
+            contactPhone: newRecord.contactPhone || '9800000000',
+            branchId: newRecord.branchId || 'WH001',
+            installationAddress: newRecord.installationAddress || 'Nepal',
+            countDelta,
+          })
         );
       });
     } else if (assignmentDelta !== 0 && product) {
@@ -1357,7 +1199,7 @@ try {
     let record = customerDeviceRecords.find((c) => c.id === id);
 
     if (getPgConnected() && !record) {
-      const r = await pgPool.query('SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode", branch_id AS "branchId", product_name AS "productName", device_serial AS "deviceSerial", status FROM customer_device_records WHERE id = $1', [id]);
+      const r = await pgPool.query(CDR_FIND_NARROW_SQL, [id]);
       if (r.rows.length > 0) record = r.rows[0];
     }
     if (!record) return res.status(404).json({ message: 'Customer device record not found' });
@@ -1369,7 +1211,7 @@ try {
     record.status = newStatusStr;
 
     if (getPgConnected()) {
-      await pgPool.query('UPDATE customer_device_records SET status = $1 WHERE id = $2', [newStatusStr, id]);
+      await pgPool.query(CDR_UPDATE_STATUS_SQL, [newStatusStr, id]);
     }
     logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
@@ -1392,60 +1234,24 @@ try {
     if (!value) return res.status(400).json({ message: 'value query parameter is required.' });
     if (!getPgConnected()) return res.status(503).json({ message: 'Database not connected.' });
 
-    const notSelf = exclude.length
-      ? ` AND NOT (${['lower(trim(device_serial))', 'lower(trim(pon_serial))', 'lower(trim(mac_address))']
-          .map((col) => `${col} IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')})`)
-          .join(' OR ')})`
-      : '';
-    // fixed_assets stores the device serial as tag_number and has no pon/mac
-    // columns, so it needs its own exclusion clause built on tag_number only.
-    const notSelfAsset = exclude.length
-      ? ` AND NOT (lower(trim(tag_number)) IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')}))`
-      : '';
-    const params = [value, ...exclude];
+    const { params, serialLogSql, customerDeviceSql, fixedAssetSql } = buildSerialLookupSql(value, exclude);
 
     // 1. serial_log (register — one row per serial)
-    const slRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_id AS "productId", product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM serial_log
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const slRes = await pgPool.query(serialLogSql, params);
     if (slRes.rows.length > 0) {
       res.json({ ...slRes.rows[0], source: 'SERIAL_LOG' });
       return;
     }
 
     // 2. customer_device_records (customer assignments)
-    const cdrRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM customer_device_records
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const cdrRes = await pgPool.query(customerDeviceSql, params);
     if (cdrRes.rows.length > 0) {
       res.json({ ...cdrRes.rows[0], source: 'CUSTOMER_DEVICE' });
       return;
     }
 
     // 3. fixed_assets (device serial stored as tag_number)
-    const faRes = await pgPool.query(
-      `SELECT tag_number AS "deviceSerial", name AS "productName", branch_id AS "branchId"
-       FROM fixed_assets
-       WHERE lower(trim(tag_number)) = lower(trim($1))${notSelfAsset}
-       LIMIT 1`,
-      params
-    );
+    const faRes = await pgPool.query(fixedAssetSql, params);
     if (faRes.rows.length > 0) {
       return res.json({
         deviceSerial: faRes.rows[0].deviceSerial,
@@ -1482,60 +1288,24 @@ try {
     if (!value) return res.status(400).json({ message: 'value query parameter is required.' });
     if (!getPgConnected()) return res.status(503).json({ message: 'Database not connected.' });
 
-    const notSelf = exclude.length
-      ? ` AND NOT (${['lower(trim(device_serial))', 'lower(trim(pon_serial))', 'lower(trim(mac_address))']
-          .map((col) => `${col} IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')})`)
-          .join(' OR ')})`
-      : '';
-    // fixed_assets stores the device serial as tag_number and has no pon/mac
-    // columns, so it needs its own exclusion clause built on tag_number only.
-    const notSelfAsset = exclude.length
-      ? ` AND NOT (lower(trim(tag_number)) IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')}))`
-      : '';
-    const params = [value, ...exclude];
+    const { params, serialLogSql, customerDeviceSql, fixedAssetSql } = buildSerialLookupSql(value, exclude);
 
     // 1. serial_log (register — one row per serial)
-    const slRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_id AS "productId", product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM serial_log
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const slRes = await pgPool.query(serialLogSql, params);
     if (slRes.rows.length > 0) {
       res.json({ ...slRes.rows[0], source: 'SERIAL_LOG' });
       return;
     }
 
     // 2. customer_device_records (customer assignments)
-    const cdrRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM customer_device_records
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const cdrRes = await pgPool.query(customerDeviceSql, params);
     if (cdrRes.rows.length > 0) {
       res.json({ ...cdrRes.rows[0], source: 'CUSTOMER_DEVICE' });
       return;
     }
 
     // 3. fixed_assets (device serial stored as tag_number)
-    const faRes = await pgPool.query(
-      `SELECT tag_number AS "deviceSerial", name AS "productName", branch_id AS "branchId"
-       FROM fixed_assets
-       WHERE lower(trim(tag_number)) = lower(trim($1))${notSelfAsset}
-       LIMIT 1`,
-      params
-    );
+    const faRes = await pgPool.query(fixedAssetSql, params);
     if (faRes.rows.length > 0) {
       return res.json({
         deviceSerial: faRes.rows[0].deviceSerial,
@@ -1572,60 +1342,24 @@ try {
     if (!value) return res.status(400).json({ message: 'value query parameter is required.' });
     if (!getPgConnected()) return res.status(503).json({ message: 'Database not connected.' });
 
-    const notSelf = exclude.length
-      ? ` AND NOT (${['lower(trim(device_serial))', 'lower(trim(pon_serial))', 'lower(trim(mac_address))']
-          .map((col) => `${col} IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')})`)
-          .join(' OR ')})`
-      : '';
-    // fixed_assets stores the device serial as tag_number and has no pon/mac
-    // columns, so it needs its own exclusion clause built on tag_number only.
-    const notSelfAsset = exclude.length
-      ? ` AND NOT (lower(trim(tag_number)) IN (${exclude.map((_, i) => `lower(trim($${i + 2}))`).join(', ')}))`
-      : '';
-    const params = [value, ...exclude];
+    const { params, serialLogSql, customerDeviceSql, fixedAssetSql } = buildSerialLookupSql(value, exclude);
 
     // 1. serial_log (register — one row per serial)
-    const slRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_id AS "productId", product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM serial_log
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const slRes = await pgPool.query(serialLogSql, params);
     if (slRes.rows.length > 0) {
       res.json({ ...slRes.rows[0], source: 'SERIAL_LOG' });
       return;
     }
 
     // 2. customer_device_records (customer assignments)
-    const cdrRes = await pgPool.query(
-      `SELECT device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
-              product_name AS "productName", branch_id AS "branchId",
-              customer_id AS "customerId", customer_name AS "customerName", status
-       FROM customer_device_records
-       WHERE (lower(trim(device_serial)) = lower(trim($1))
-           OR lower(trim(pon_serial)) = lower(trim($1))
-           OR lower(trim(mac_address)) = lower(trim($1)))${notSelf}
-       LIMIT 1`,
-      params
-    );
+    const cdrRes = await pgPool.query(customerDeviceSql, params);
     if (cdrRes.rows.length > 0) {
       res.json({ ...cdrRes.rows[0], source: 'CUSTOMER_DEVICE' });
       return;
     }
 
     // 3. fixed_assets (device serial stored as tag_number)
-    const faRes = await pgPool.query(
-      `SELECT tag_number AS "deviceSerial", name AS "productName", branch_id AS "branchId"
-       FROM fixed_assets
-       WHERE lower(trim(tag_number)) = lower(trim($1))${notSelfAsset}
-       LIMIT 1`,
-      params
-    );
+    const faRes = await pgPool.query(fixedAssetSql, params);
     if (faRes.rows.length > 0) {
       return res.json({
         deviceSerial: faRes.rows[0].deviceSerial,
@@ -1696,7 +1430,7 @@ try {
 
     let oldRecord = customerDeviceRecords.find((c) => c.id === oldDeviceId);
     if (getPgConnected() && !oldRecord) {
-      const r = await pgPool.query('SELECT * FROM customer_device_records WHERE id = $1', [oldDeviceId]);
+      const r = await pgPool.query(CDR_FIND_ALL_BY_ID_SQL, [oldDeviceId]);
       if (r.rows.length > 0) {
         const row = r.rows[0];
         oldRecord = {
@@ -1750,31 +1484,9 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        await client.query('UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3', ['EXCHANGED', oldRecord.notes, oldDeviceId]);
+        await client.query(CDR_EXCHANGE_STATUS_SQL, ['EXCHANGED', oldRecord.notes, oldDeviceId]);
 
-        await client.query(
-          `INSERT INTO customer_device_records (
-             id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);`,
-          [
-            newRecord.id,
-            newRecord.customerId,
-            newRecord.customerName,
-            newRecord.customerCode,
-            newRecord.contactPhone || '',
-            newRecord.installationAddress || '',
-            newRecord.branchId || 'WH001',
-            newRecord.productName,
-            newRecord.deviceSerial,
-            newRecord.ponSerial || newRecord.deviceSerial,
-            newRecord.macAddress || null,
-            newRecord.status,
-            newRecord.issuedDateAD,
-            newRecord.issuedDateBS,
-            newRecord.purchaseBillRef || null,
-            newRecord.notes,
-          ]
-        );
+        await client.query(CDR_EXCHANGE_INSERT_SQL, customerDeviceInsertParams(newRecord));
       });
     }
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
@@ -1791,10 +1503,9 @@ export async function get_serialLog(req: any, res: Response): Promise<any> {
 try {
     const { branchId, status, query } = req.query;
     const user = (req as any).user;
-    let sql = `SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log WHERE 1=1`;
-    const params: any[] = [];
-    let paramIdx = 0;
     // Branch scoping: non-global users may only read their own branches.
+    let branchScope: string[] | undefined;
+    let globalBranchId: unknown;
     if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'HEAD_OFFICE_ADMIN') {
       const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
       const requestedBranchId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
@@ -1806,20 +1517,11 @@ try {
         res.json([]);
         return;
       }
-      const scopedIds = requestedBranchId ? [requestedBranchId] : [...allowed];
-      const placeholders = scopedIds.map((_, i) => `$${params.length + i + 1}`).join(', ');
-      sql += ` AND branch_id IN (${placeholders})`;
-      params.push(...scopedIds);
-      paramIdx += scopedIds.length;
+      branchScope = requestedBranchId ? [requestedBranchId] : [...allowed];
+    } else {
+      globalBranchId = branchId;
     }
-    if (branchId && branchId !== 'ALL' && (user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN')) { params.push(branchId as string); paramIdx++; sql += ` AND branch_id = $${paramIdx}`; }
-    if (status && status !== 'ALL') { params.push(status as string); paramIdx++; sql += ` AND status = $${paramIdx}`; }
-    if (query && typeof query === 'string' && query.trim()) {
-      const like = `%${query.trim().toLowerCase()}%`;
-      params.push(like); paramIdx++;
-      sql += ` AND (LOWER(device_serial) LIKE $${paramIdx} OR LOWER(COALESCE(pon_serial, '')) LIKE $${paramIdx} OR LOWER(COALESCE(mac_address, '')) LIKE $${paramIdx} OR LOWER(product_name) LIKE $${paramIdx} OR LOWER(COALESCE(customer_name, '')) LIKE $${paramIdx})`;
-    }
-    sql += ` ORDER BY created_at DESC`;
+    const { sql, params } = buildSerialLogQuery({ branchScope, globalBranchId, status, query });
     const r = await pgPool.query(sql, params);
     res.json(r.rows);
   } catch (err) {
@@ -1840,7 +1542,7 @@ try {
     const now = new Date().toISOString();
     const historyEntry = { status: st, sourceType: src, sourceId: sourceId || null, dateAD: now.slice(0, 10), notes: notes || null };
     // Upsert keyed on the unique lower(device_serial) index so one serial = one row.
-    const existing = await pgPool.query('SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))', [serial]);
+    const existing = await pgPool.query(SERIAL_LOG_FIND_BY_DEVICE_SQL, [serial]);
     let id: string;
     let history: any[];
     if (existing.rows.length > 0) {
@@ -1848,21 +1550,44 @@ try {
       try { history = JSON.parse(existing.rows[0].history_json || '[]'); } catch { history = []; }
       history.push(historyEntry);
       await pgPool.query(
-        `UPDATE serial_log SET pon_serial = COALESCE($1, pon_serial), mac_address = COALESCE($2, mac_address),
-          product_id = COALESCE($3, product_id), product_name = COALESCE($4, product_name),
-          branch_id = COALESCE($5, branch_id),          customer_id = COALESCE($6, customer_id), customer_name = COALESCE($7, customer_name),
-          status = $8, source_type = $9, source_id = COALESCE($10, source_id),
-          history_json = $11, updated_at = $12 WHERE id = $13`,
-        [ponSerial || null, macAddress || null, productId || null, productName || null, branchId || null,
-          customerId || null, customerName || null, st, src, sourceId || null, JSON.stringify(history), now, id]
+        SERIAL_LOG_UPDATE_SQL,
+        serialLogUpdateParams({
+          ponSerial: ponSerial || null,
+          macAddress: macAddress || null,
+          productId: productId || null,
+          productName: productName || null,
+          branchId: branchId || null,
+          customerId: customerId || null,
+          customerName: customerName || null,
+          status: st,
+          sourceType: src,
+          sourceId: sourceId || null,
+          historyJson: JSON.stringify(history),
+          updatedAt: now,
+          id,
+        })
       );
     } else {
       id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       history = [historyEntry];
       await pgPool.query(
-        `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE)`,
-        [id, serial, ponSerial || null, macAddress || null, productId || null, productName || null, branchId || null, customerId || null, customerName || null, st, src, sourceId || null, JSON.stringify(history), now, now]
+        SERIAL_LOG_INSERT_SQL,
+        serialLogInsertParams({
+          id,
+          deviceSerial: serial,
+          ponSerial: ponSerial || null,
+          macAddress: macAddress || null,
+          productId: productId || null,
+          productName: productName || null,
+          branchId: branchId || null,
+          customerId: customerId || null,
+          customerName: customerName || null,
+          status: st,
+          sourceType: src,
+          sourceId: sourceId || null,
+          historyJson: JSON.stringify(history),
+          timestamp: now,
+        })
       );
     }
     const entry: SerialLog = { id, deviceSerial: serial, ponSerial, macAddress, productId, productName, branchId, customerId, customerName, status: st, sourceType: src, sourceId, history, createdAt: now, updatedAt: now };

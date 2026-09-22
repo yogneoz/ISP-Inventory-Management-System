@@ -17,3 +17,5 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm test
+      - name: Enforce repo-layer convention (no raw SQL in controllers)
+        run: npm run check:no-inline-sql

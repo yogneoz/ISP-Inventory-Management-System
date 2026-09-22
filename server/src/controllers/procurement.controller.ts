@@ -8,17 +8,24 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
+import {
+  buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
+  PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
+  buildPiListSql, PI_UPSERT_SQL, piUpsertParams, PI_RECEIVE_STOCK_SQL, piReceiveStockParams,
+  PI_TXN_LOG_SQL, piTxnLogParams, PI_DELETE_SQL, PI_RECORD_PAYMENT_SQL, PI_RESET_PAYMENT_SQL, PI_UNDO_PAYMENT_SQL,
+  PI_REVERSE_STOCK_SQL, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
+  VP_REVERSE_SQL, VP_INSERT_SQL, vpInsertParams, buildVendorPaymentWhere, VP_ORDER_BY, VP_BY_INVOICE_SQL_SUFFIX,
+  LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
+  PO_PATCH_STATUS_SQL, PI_EXISTS_SQL, PI_FIND_FOR_DELETE_SQL,
+  FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
+} from '../models/procurement.repo';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const q =
-        'SELECT id, po_number AS "poNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", order_date_ad AS "orderDateAD", order_date_bs AS "orderDateBS", expected_delivery_date_ad AS "expectedDeliveryDateAD", status, subtotal_amount AS "subtotalAmount", tax_amount AS "taxAmount", total_amount AS "totalAmount", notes, items FROM purchase_orders' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
+      const { sql: q, params } = buildPoListSql(branchId);
+      const r = await pgPool.query(q, params as any[]);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -60,45 +67,11 @@ try {
     setPurchaseOrders(idx >= 0 ? withReplaced(purchaseOrders, idx, newPO) : withPrepended(purchaseOrders, newPO));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO purchase_orders (
-           id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         ON CONFLICT (id) DO UPDATE SET
-           status = EXCLUDED.status,
-           subtotal_amount = EXCLUDED.subtotal_amount,
-           tax_amount = EXCLUDED.tax_amount,
-           total_amount = EXCLUDED.total_amount,
-           notes = EXCLUDED.notes,
-           items = EXCLUDED.items;`,
-        [
-          newPO.id,
-          newPO.poNumber,
-          newPO.supplierId || null,
-          newPO.supplierName || 'Vendor',
-          newPO.branchId || 'WH001',
-          newPO.orderDateAd,
-          newPO.orderDateBs,
-          newPO.expectedDeliveryDateAD || newPO.expectedDeliveryDateAd || null,
-          newPO.status || 'DRAFT',
-          newPO.subtotalAmount,
-          newPO.taxAmount,
-          newPO.totalAmount,
-          newPO.notes || '',
-          JSON.stringify(items),
-        ]
-      );
+      await pgPool.query(PO_UPSERT_SQL, poUpsertParams(newPO, JSON.stringify(items)));
 
       if (newPO.branchId && Array.isArray(items)) {
         for (const item of items) {
-          await pgPool.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
-             VALUES ($1, $2, $3, 0, $4)
-             ON CONFLICT (product_id, branch_id) DO UPDATE SET
-               incoming_qty = inventory_stock.incoming_qty + EXCLUDED.incoming_qty,
-               last_updated = CURRENT_TIMESTAMP;`,
-            [`stk-${newPO.branchId.toLowerCase()}-${item.productId}`, item.productId, newPO.branchId, Number(item.quantity) || 0]
-          );
+          await pgPool.query(PO_INCOMING_STOCK_SQL, poIncomingStockParams(newPO.branchId, item));
         }
       }
     }
@@ -144,22 +117,7 @@ try {
     if (index >= 0) setPurchaseOrders(withReplaced(purchaseOrders, index, updatedPO));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE purchase_orders SET
-           supplier_name = $1, branch_id = $2, status = $3, subtotal_amount = $4, tax_amount = $5, total_amount = $6, notes = $7, items = $8
-         WHERE id = $9;`,
-        [
-          updatedPO.supplierName,
-          updatedPO.branchId,
-          updatedPO.status,
-          updatedPO.subtotalAmount,
-          updatedPO.taxAmount,
-          updatedPO.totalAmount,
-          updatedPO.notes,
-          JSON.stringify(items),
-          id,
-        ]
-      );
+      await pgPool.query(PO_UPDATE_SQL, poUpdateParams(updatedPO, JSON.stringify(items), id));
     }
     logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
     res.json(updatedPO);
@@ -176,7 +134,7 @@ try {
     const { id } = req.params;
     let po: any = purchaseOrders.find((entry) => entry.id === id);
     if (getPgConnected() && !po) {
-      const result = await pgPool.query('SELECT id, po_number AS "poNumber", status, items, branch_id AS "branchId" FROM purchase_orders WHERE id = $1', [id]);
+      const result = await pgPool.query(PO_FIND_FOR_DELETE_SQL, [id]);
       po = result.rows[0];
     }
     if (!po) return res.status(404).json({ message: 'Purchase Order not found' });
@@ -192,13 +150,9 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         for (const item of items) {
-          await client.query(
-            `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP
-             WHERE product_id = $2 AND branch_id = $3`,
-            [Number(item.quantity) || 0, item.productId, po.branchId]
-          );
+          await client.query(PO_RELEASE_INCOMING_SQL, [Number(item.quantity) || 0, item.productId, po.branchId]);
         }
-        await client.query('DELETE FROM purchase_orders WHERE id = $1', [id]);
+        await client.query(PO_DELETE_SQL, [id]);
       });
     }
 
@@ -226,7 +180,7 @@ try {
     if (po) po.status = status;
 
     if (getPgConnected()) {
-      await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2', [status, id]);
+      await pgPool.query(PO_PATCH_STATUS_SQL, [status, id]);
     }
     logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
     res.json(po || req.body);
@@ -242,12 +196,8 @@ export async function get_purchaseInvoices(req: any, res: Response): Promise<any
 const { branchId } = req.query;
   if (getPgConnected()) {
     try {
-      const q =
-        'SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", supplier_id AS "supplierId", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", payment_method AS "paymentMethod", amount_paid AS "amountPaid", notes, items FROM purchase_invoices' +
-        (branchId && branchId !== 'ALL' ? ' WHERE branch_id = $1' : '') +
-        ' ORDER BY created_at DESC';
-      const params = branchId && branchId !== 'ALL' ? [branchId] : [];
-      const r = await pgPool.query(q, params);
+      const { sql: q, params } = buildPiListSql(branchId);
+      const r = await pgPool.query(q, params as any[]);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -285,10 +235,7 @@ try {
     if (poReference) {
       let linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
       if (!linkedPO && getPgConnected()) {
-        const poResult = await pgPool.query(
-          'SELECT id, po_number AS "poNumber", supplier_name AS "supplierName", branch_id AS "branchId", status, items FROM purchase_orders WHERE id = $1 OR po_number = $1 LIMIT 1',
-          [poReference]
-        );
+        const poResult = await pgPool.query(PO_FIND_BY_REF_SQL, [poReference]);
         linkedPO = poResult.rows[0];
         if (linkedPO && typeof linkedPO.items === 'string') linkedPO.items = JSON.parse(linkedPO.items);
       }
@@ -315,10 +262,7 @@ try {
 
     let invoiceAlreadyExists = purchaseInvoices.some((invoice) => invoice.id === newInv.id || invoice.invoiceNumber === newInv.invoiceNumber);
     if (getPgConnected() && !invoiceAlreadyExists) {
-      const existing = await pgPool.query(
-        'SELECT 1 FROM purchase_invoices WHERE id = $1 OR invoice_number = $2 LIMIT 1',
-        [newInv.id, newInv.invoiceNumber]
-      );
+      const existing = await pgPool.query(PI_EXISTS_SQL, [newInv.id, newInv.invoiceNumber]);
       invoiceAlreadyExists = existing.rowCount === 1;
     }
     const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
@@ -332,61 +276,24 @@ try {
     const resolvedSupplierId = supplierId || supLookup?.id || null;
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO purchase_invoices (
-           id, invoice_number, po_reference_id, vendor_bill_number, supplier_id, supplier_name, branch_id, invoice_date_ad, invoice_date_bs, due_date_ad, due_date_bs, taxable_amount, vat_amount, non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-         ON CONFLICT (id) DO UPDATE SET
-           payment_status = EXCLUDED.payment_status,
-           payment_method = EXCLUDED.payment_method,
-           amount_paid = EXCLUDED.amount_paid,
-           notes = EXCLUDED.notes,
-           items = EXCLUDED.items;`,
-        [
-          newInv.id,
-          newInv.invoiceNumber,
-          newInv.poReferenceId || newInv.poId || null,
-          newInv.vendorBillNumber || null,
-          resolvedSupplierId,
-          newInv.supplierName || 'Vendor',
-          targetBranchId,
-          newInv.invoiceDateAD,
-          newInv.invoiceDateBS,
-          newInv.dueDateAD || newInv.dueDateAd || null,
-          newInv.dueDateBS || newInv.dueDateBs || null,
-          Number(newInv.taxableAmount) || 0,
-          Number(newInv.vatAmount) || 0,
-          Number(newInv.nonTaxableAmount) || 0,
-          Number(newInv.grandTotal) || 0,
-          newInv.paymentStatus || 'UNPAID',
-          newInv.paymentMethod || 'CREDIT',
-          Number(newInv.amountPaid) || 0,
-          newInv.notes || '',
-          JSON.stringify(items),
-        ]
-      );
+      await pgPool.query(PI_UPSERT_SQL, piUpsertParams({
+        ...newInv,
+        poReferenceId: newInv.poReferenceId || newInv.poId,
+        supplierId: resolvedSupplierId,
+        supplierName: newInv.supplierName || 'Vendor',
+        branchId: targetBranchId,
+      }, JSON.stringify(items)));
 
       if (!invoiceAlreadyExists) for (const item of items) {
         const qtyToAdd = Number(item.quantity) || 0;
-        await pgPool.query(
-          `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, min_reorder_level)
-           VALUES ($1, $2, $3, $4, 5)
-           ON CONFLICT (product_id, branch_id) DO UPDATE SET
-             quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-             last_updated = CURRENT_TIMESTAMP;`,
-          [`stk-${targetBranchId.toLowerCase()}-${item.productId}`, item.productId, targetBranchId, qtyToAdd]
-        );
+        await pgPool.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
 
-        await pgPool.query(
-          `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`,
-          [`txn-${Date.now()}-${item.productId}`, `TXN-${Math.floor(10000 + Math.random() * 90000)}`, item.productId, item.sku || '', item.productName || 'Product', targetBranchId, 'PURCHASE_INVOICE', qtyToAdd, Number(item.unitPrice) || 0, newInv.invoiceNumber, newInv.invoiceDateAD || new Date().toISOString(), newInv.invoiceDateBS || '2083-04-16 BS']
-        );
+        await pgPool.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId));
       }
 
       const poRef = newInv.poReferenceId || req.body.poId;
       if (poRef) {
-        await pgPool.query('UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2', ['RECEIVED', poRef]);
+        await pgPool.query(PO_MARK_STATUS_SQL, ['RECEIVED', poRef]);
       }
     }
 
@@ -429,7 +336,7 @@ try {
     const { id } = req.params;
     let invoice: any = purchaseInvoices.find((entry) => entry.id === id);
     if (getPgConnected() && !invoice) {
-      const result = await pgPool.query('SELECT id, invoice_number AS "invoiceNumber", po_reference_id AS "poReferenceId", vendor_bill_number AS "vendorBillNumber", branch_id AS "branchId", notes, items FROM purchase_invoices WHERE id = $1', [id]);
+      const result = await pgPool.query(PI_FIND_FOR_DELETE_SQL, [id]);
       invoice = result.rows[0];
     }
     if (!invoice) return res.status(404).json({ message: 'Purchase Invoice not found' });
@@ -448,31 +355,19 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         if (serials.length > 0 && purchaseRefs.length > 0) {
-          const assigned = await client.query(
-            `SELECT 1 FROM customer_device_records
-             WHERE device_serial = ANY($1::text[]) AND purchase_bill_ref = ANY($2::text[]) AND status <> 'IN_STOCK' LIMIT 1`,
-            [serials, purchaseRefs]
-          );
+          const assigned = await client.query(CDR_ASSIGNED_CHECK_SQL, [serials, purchaseRefs]);
           if (assigned.rowCount) throw new Error('This invoice has serial devices that are already assigned or consumed and cannot be deleted.');
         }
         for (const [productId, quantity] of quantities) {
-          const updated = await client.query(
-            `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
-             WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`,
-            [quantity, productId, invoice.branchId]
-          );
+          const updated = await client.query(PI_REVERSE_STOCK_SQL, [quantity, productId, invoice.branchId]);
           if (updated.rowCount !== 1) throw new Error(`Insufficient stock to reverse invoice item ${productId}.`);
         }
         if (serials.length > 0 && purchaseRefs.length > 0) {
-          await client.query(
-            `DELETE FROM customer_device_records
-             WHERE device_serial = ANY($1::text[]) AND purchase_bill_ref = ANY($2::text[]) AND status = 'IN_STOCK'`,
-            [serials, purchaseRefs]
-          );
+          await client.query(CDR_IN_STOCK_DELETE_SQL, [serials, purchaseRefs]);
         }
-        await client.query('DELETE FROM purchase_invoices WHERE id = $1', [id]);
+        await client.query(PI_DELETE_SQL, [id]);
         if (invoice.poReferenceId) {
-          await client.query('UPDATE purchase_orders SET status = $1 WHERE id = $2 OR po_number = $2', ['APPROVED', invoice.poReferenceId]);
+          await client.query(PO_MARK_STATUS_SQL, ['APPROVED', invoice.poReferenceId]);
         }
       });
     }
@@ -509,13 +404,7 @@ try {
     }
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE purchase_invoices SET
-           amount_paid = amount_paid + $1,
-           payment_status = CASE WHEN (amount_paid + $1) >= grand_total THEN 'PAID' ELSE 'PARTIAL' END
-         WHERE id = $2;`,
-        [Number(amount), id]
-      );
+      await pgPool.query(PI_RECORD_PAYMENT_SQL, [Number(amount), id]);
     }
     logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${Number(amount).toLocaleString()} for Invoice`);
     res.json(inv || { message: 'Payment recorded' });
@@ -565,25 +454,10 @@ try {
       await withTransaction(async (client) => {
         // Reverse all payments for this invoice
         for (const payment of paymentsToReverse) {
-          await client.query(
-            `UPDATE vendor_payments SET
-               status = 'REVERSED',
-               reversal_reason = $1,
-               reversed_by = $2,
-               reversed_at_ad = CURRENT_TIMESTAMP,
-               updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
-            [reason, getUserFromReq(req).email || 'system', payment.id]
-          );
+          await client.query(VP_REVERSE_SQL, [reason, getUserFromReq(req).email || 'system', payment.id]);
         }
         // Reset the invoice amount_paid and payment_status
-        await client.query(
-          `UPDATE purchase_invoices SET
-             amount_paid = 0,
-             payment_status = 'UNPAID'
-           WHERE id = $1`,
-          [id]
-        );
+        await client.query(PI_RESET_PAYMENT_SQL, [id]);
       });
     }
 
@@ -624,29 +498,8 @@ export async function get_vendorPayments(req: any, res: Response): Promise<any> 
 const { supplierId, invoiceId, branchId, status, fromAd, toAd, fiscalYearId } = req.query;
   if (getPgConnected()) {
     try {
-      const conds: string[] = [];
-      const params: any[] = [];
-      const push = (sql: string, value: any) => {
-        if (value !== undefined && value !== null && value !== '') {
-          params.push(value);
-          conds.push(`${sql} = $${params.length}`);
-        }
-      };
-      push('supplier_id', supplierId);
-      push('invoice_id', invoiceId);
-      push('branch_id', branchId && branchId !== 'ALL' ? branchId : undefined);
-      push('status', status);
-      push('fiscal_year_id', fiscalYearId);
-      if (fromAd) {
-        params.push(String(fromAd).split('T')[0]);
-        conds.push(`payment_date_ad >= $${params.length}`);
-      }
-      if (toAd) {
-        params.push(String(toAd).split('T')[0]);
-        conds.push(`payment_date_ad <= $${params.length}`);
-      }
-      const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
-      const r = await pgPool.query(`${VENDOR_PAYMENT_SELECT}${where} ORDER BY payment_date_ad DESC, created_at DESC`, params);
+      const { where, params } = buildVendorPaymentWhere({ supplierId, invoiceId, branchId, status, fiscalYearId, fromAd, toAd });
+      const r = await pgPool.query(`${VENDOR_PAYMENT_SELECT}${where}${VP_ORDER_BY}`, params as any[]);
       res.json(r.rows);
       return;
     } catch (err: any) {
@@ -676,10 +529,7 @@ export async function get_payments(req: any, res: Response): Promise<any> {
 const { id } = req.params;
   if (getPgConnected()) {
     try {
-      const r = await pgPool.query(
-        `${VENDOR_PAYMENT_SELECT} WHERE invoice_id = $1 ORDER BY payment_date_ad DESC, created_at DESC`,
-        [id]
-      );
+      const r = await pgPool.query(`${VENDOR_PAYMENT_SELECT}${VP_BY_INVOICE_SQL_SUFFIX}`, [id]);
       res.json(r.rows);
       return;
     } catch (err: any) {
@@ -705,14 +555,7 @@ try {
       ? purchaseInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
       : undefined;
     if (!linkedInvoice && body.invoiceId && getPgConnected()) {
-      const invRes = await pgPool.query(
-        `SELECT id, invoice_number AS "invoiceNumber", supplier_name AS "supplierName",
-                branch_id AS "branchId",
-                invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS",
-                grand_total AS "grandTotal", amount_paid AS "amountPaid"
-         FROM purchase_invoices WHERE id = $1 OR invoice_number = $1 LIMIT 1`,
-        [body.invoiceId]
-      );
+      const invRes = await pgPool.query(PI_FIND_FOR_PAYMENT_SQL, [body.invoiceId]);
       linkedInvoice = invRes.rows[0];
     }
 
@@ -791,23 +634,7 @@ try {
     setVendorPayments(withPrepended(vendorPayments, newPayment));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO vendor_payments (
-           id, payment_number, supplier_id, supplier_name, branch_id, invoice_id, invoice_number,
-           payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
-           account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
-           notes, status, is_demo, created_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, FALSE, $21)
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          newPayment.id, newPayment.paymentNumber, newPayment.supplierId || null, newPayment.supplierName,
-          newPayment.branchId, newPayment.invoiceId, newPayment.invoiceNumber,
-          newPayment.paymentDateAD, newPayment.paymentDateBS, newPayment.amount, newPayment.paymentMethod,
-          newPayment.bankName, newPayment.bankBranch, newPayment.accountNumber, newPayment.chequeNumber,
-          newPayment.chequeDateAD, newPayment.chequeDateBS, newPayment.transactionReference,
-          newPayment.notes, newPayment.status, newPayment.createdBy,
-        ]
-      );
+      await pgPool.query(VP_INSERT_SQL, vpInsertParams(newPayment));
     }
     logAuditEvent(
       req,
@@ -847,27 +674,10 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         // Reverse the payment row.
-        await client.query(
-          `UPDATE vendor_payments SET
-             status = 'REVERSED',
-             reversal_reason = $1,
-             reversed_by = $2,
-             reversed_at_ad = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [reason, getUserFromReq(req).email || 'system', id]
-        );
+        await client.query(VP_REVERSE_SQL, [reason, getUserFromReq(req).email || 'system', id]);
         // Undo the amount from the linked invoice so its balance is restored.
         if (payment.invoiceId) {
-          await client.query(
-            `UPDATE purchase_invoices SET
-               amount_paid = GREATEST(0, amount_paid - $1),
-               payment_status = CASE WHEN (amount_paid - $1) >= grand_total THEN 'PAID'
-                                     WHEN (amount_paid - $1) > 0 THEN 'PARTIAL'
-                                     ELSE 'UNPAID' END
-             WHERE id = $2`,
-            [Number(payment.amount) || 0, payment.invoiceId]
-          );
+          await client.query(PI_UNDO_PAYMENT_SQL, [Number(payment.amount) || 0, payment.invoiceId]);
         }
       });
     }
@@ -936,19 +746,11 @@ try {
 
     if (getPgConnected()) {
       try {
-        const invRes = await pgPool.query(
-          `SELECT id, invoice_number AS "invoiceNumber", supplier_id AS "supplierId", supplier_name AS "supplierName",
-                  branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD",
-                  invoice_date_bs AS "invoiceDateBS", vat_amount AS "vatAmount",
-                  grand_total AS "grandTotal", notes
-           FROM purchase_invoices
-           WHERE supplier_id = $1 OR (supplier_id IS NULL AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3)))`,
-          [supplier.id, supplier.name, `%${supplier.name}%`]
-        );
+        const invRes = await pgPool.query(LEDGER_INVOICES_SQL, ledgerNameParams(supplier));
         invoices = invRes.rows;
         const payRes = await pgPool.query(
-          `${VENDOR_PAYMENT_SELECT} WHERE supplier_id = $1 OR (supplier_id IS NULL OR supplier_id = '') AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3))`,
-          [supplier.id, supplier.name, `%${supplier.name}%`]
+          `${VENDOR_PAYMENT_SELECT}${LEDGER_PAYMENTS_SQL_SUFFIX}`,
+          ledgerNameParams(supplier) as any[]
         );
         payments = payRes.rows;
       } catch (err: any) {
@@ -1015,32 +817,18 @@ try {
       try {
         let fyRow: any = null;
         if (fiscalYearId) {
-          const fyRes = await pgPool.query(
-            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1',
-            [fiscalYearId]
-          );
+          const fyRes = await pgPool.query(FY_BY_ID_SQL, [fiscalYearId]);
           fyRow = fyRes.rows[0] || null;
         } else if (from) {
-          const fyRes = await pgPool.query(
-            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE start_date_ad = $1::date LIMIT 1',
-            [from]
-          );
+          const fyRes = await pgPool.query(FY_BY_START_SQL, [from]);
           fyRow = fyRes.rows[0] || null;
         } else {
-          const fyRes = await pgPool.query(
-            'SELECT id, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE is_current = TRUE ORDER BY start_date_ad DESC LIMIT 1'
-          );
+          const fyRes = await pgPool.query(FY_CURRENT_SQL);
           fyRow = fyRes.rows[0] || null;
         }
         if (fyRow) {
           fyStartAD = String(fyRow.startDateAD || '').split('T')[0];
-          const obRes = await pgPool.query(
-            `SELECT COALESCE(SUM(opening_balance), 0)::float AS total
-             FROM vendor_opening_balances
-             WHERE fiscal_year_id = $1 AND supplier_id = $2
-               AND ($3::text IS NULL OR $3 = 'ALL' OR branch_id = $3)`,
-            [fyRow.id, supplier.id, branchId === 'ALL' ? null : branchId]
-          );
+          const obRes = await pgPool.query(VENDOR_OPENING_BALANCE_SQL, [fyRow.id, supplier.id, branchId === 'ALL' ? null : branchId]);
           persistedOpening = Number(obRes.rows[0]?.total) || 0;
           usedPersistedOpening = true;
         }

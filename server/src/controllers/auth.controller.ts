@@ -13,6 +13,18 @@ import type { Request, Response } from 'express';
 import { ApiError } from '../errors/ApiError';
 import { getPgConnected, setActiveUser, users, verifyPassword, issueAuthToken, branches, hashPassword, setUsers, withReplaced, withPrepended, logAuditEvent, withAppended, setAuditTrail, auditTrail } from '../app';
 import { pgPool } from '../app';
+import {
+  USER_FIND_BY_EMAIL_SQL,
+  USER_UPDATE_PASSWORD_SQL,
+  USER_COUNT_SQL,
+  USER_SUPER_ADMIN_EXISTS_SQL,
+  USER_FIND_FOR_SETUP_SQL,
+  USER_SUPER_ADMIN_UPDATE_SQL,
+  USER_SUPER_ADMIN_INSERT_SQL,
+  superAdminInsertParams,
+  USER_FIND_BY_ID_OR_EMAIL_SQL,
+  userUpdatePasswordParams,
+} from '../models/auth.repo';
 import type { AuditLog, User } from '../../../client/src/types';
 
 /**
@@ -24,10 +36,7 @@ export async function login(req: Request, res: Response): Promise<void> {
 
   try {
     if (getPgConnected()) {
-      const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE LOWER(email) = LOWER($1)',
-        [cleanEmail]
-      );
+      const dbRes = await pgPool.query(USER_FIND_BY_EMAIL_SQL, [cleanEmail]);
       const dbUser = dbRes.rows[0];
       const passwordCheck = dbUser ? verifyPassword(String(password || ''), dbUser.password) : { valid: false };
       if (!dbUser || !passwordCheck.valid) {
@@ -35,7 +44,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       }
 
       if (passwordCheck.upgradedHash) {
-        await pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [passwordCheck.upgradedHash, dbUser.id]);
+        await pgPool.query(USER_UPDATE_PASSWORD_SQL, userUpdatePasswordParams(passwordCheck.upgradedHash, dbUser.id));
         dbUser.password = passwordCheck.upgradedHash;
       }
       setActiveUser(dbUser);
@@ -67,7 +76,7 @@ export async function login(req: Request, res: Response): Promise<void> {
 export async function get_setupStatus(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const { rows } = await pgPool.query('SELECT COUNT(*) AS count, COUNT(CASE WHEN role = \'SUPER_ADMIN\' THEN 1 END) AS sa_count FROM users');
+      const { rows } = await pgPool.query(USER_COUNT_SQL);
       const count = parseInt(rows[0]?.count || '0', 10);
       const saCount = parseInt(rows[0]?.sa_count || '0', 10);
       return res.json({
@@ -102,65 +111,32 @@ const { name, email, password, branchId } = req.body;
 
   if (getPgConnected()) {
     try {
-      const existingAdmin = await pgPool.query("SELECT 1 FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1");
+      const existingAdmin = await pgPool.query(USER_SUPER_ADMIN_EXISTS_SQL);
       if (existingAdmin.rowCount) {
         res.status(409).json({ message: 'Super Admin setup is already complete. Please sign in instead.' });
         return;
       }
-      const dbCheck = await pgPool.query(
-        `SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"
-         FROM users
-         WHERE LOWER(email) = LOWER($1) OR role = 'SUPER_ADMIN'
-         ORDER BY created_at ASC LIMIT 1`,
-        [cleanEmail]
-      );
+      const dbCheck = await pgPool.query(USER_FIND_FOR_SETUP_SQL, [cleanEmail]);
 
       let savedUser: User;
       if (dbCheck.rows.length > 0) {
         targetId = dbCheck.rows[0].id;
         const upRes = await pgPool.query(
-          `UPDATE users SET
-             email = $1,
-             password = $2,
-             name = $3,
-             role = 'SUPER_ADMIN',
-             branch_id = $4,
-             allowed_branch_ids = $5,
-             can_switch_user = true
-           WHERE id = $6
-           RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
+          USER_SUPER_ADMIN_UPDATE_SQL,
           [cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches, targetId]
         );
         savedUser = upRes.rows[0];
         if (!savedUser) {
           const retryRes = await pgPool.query(
-            `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-             VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true)
-             ON CONFLICT (email) DO UPDATE SET
-               password = EXCLUDED.password,
-               name = EXCLUDED.name,
-               role = 'SUPER_ADMIN',
-               branch_id = EXCLUDED.branch_id,
-               allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-               can_switch_user = true
-             RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-            [targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches]
+            USER_SUPER_ADMIN_INSERT_SQL,
+            superAdminInsertParams(targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches)
           );
           savedUser = retryRes.rows[0];
         }
       } else {
         const insRes = await pgPool.query(
-          `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-           VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', $5, $6, true)
-           ON CONFLICT (email) DO UPDATE SET
-             password = EXCLUDED.password,
-             name = EXCLUDED.name,
-             role = 'SUPER_ADMIN',
-             branch_id = EXCLUDED.branch_id,
-             allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-             can_switch_user = true
-           RETURNING id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser"`,
-          [targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches]
+          USER_SUPER_ADMIN_INSERT_SQL,
+          superAdminInsertParams(targetId, cleanEmail, hashPassword(password), name.trim(), hqBranchId, allowedBranches)
         );
         savedUser = insRes.rows[0];
       }
@@ -280,7 +256,7 @@ export async function post_switchProfile(req: any, res: Response): Promise<any> 
   if (getPgConnected() && (targetUserId || targetEmail)) {
     try {
       const dbRes = await pgPool.query(
-        'SELECT id, email, password, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users WHERE id = $1 OR LOWER(email) = LOWER($2) LIMIT 1',
+        USER_FIND_BY_ID_OR_EMAIL_SQL,
         [String(targetUserId || ''), String(targetEmail || '')]
       );
       user = dbRes.rows[0] || null;
@@ -359,7 +335,7 @@ const authenticatedUser = (req as any).user;
     setActiveUser(users[idx]);
 
     if (newPassword && getPgConnected()) {
-      pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [users[idx].password, users[idx].id])
+      pgPool.query(USER_UPDATE_PASSWORD_SQL, userUpdatePasswordParams(users[idx].password || '', users[idx].id))
         .catch((err) => console.error('Error updating profile password:', err));
     }
   }

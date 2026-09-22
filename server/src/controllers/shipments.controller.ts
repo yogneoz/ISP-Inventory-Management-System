@@ -7,13 +7,17 @@
  */
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, logAuditEvent } from '../app';
+import {
+  SHIPMENT_LIST_SQL, SHIPMENT_EXISTS_SQL, SHIPMENT_UPSERT_SQL, shipmentUpsertParams,
+  shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
+  SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
+  SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
+} from '../models/shipments.repo';
 /** Forwarded from shipments.routes.ts (get_shipments). */
 export async function get_shipments(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query(
-        'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments ORDER BY created_at DESC'
-      );
+      const r = await pgPool.query(SHIPMENT_LIST_SQL);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -67,10 +71,7 @@ try {
 
     let shipmentAlreadyExists = shipments.some((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode);
     if (getPgConnected() && !shipmentAlreadyExists) {
-      const existing = await pgPool.query(
-        'SELECT 1 FROM shipments WHERE id = $1 OR tracking_code = $2 LIMIT 1',
-        [newShipment.id, newShipment.trackingCode]
-      );
+      const existing = await pgPool.query(SHIPMENT_EXISTS_SQL, [newShipment.id, newShipment.trackingCode]);
       shipmentAlreadyExists = existing.rowCount === 1;
     }
 
@@ -79,48 +80,21 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        await client.query(
-          `INSERT INTO shipments (
-             id, tracking_code, type, source_branch_id, source_branch_name, destination_branch_id, destination_branch_name, dispatch_date_ad, dispatch_date_bs, estimated_arrival_ad, status, notes, items
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           ON CONFLICT (id) DO UPDATE SET
-             status = EXCLUDED.status,
-             items = EXCLUDED.items;`,
-          [
-            newShipment.id,
-            newShipment.trackingCode,
-            newShipment.type || 'INTER_BRANCH',
-            newShipment.sourceBranchId,
-            newShipment.sourceBranchName,
-            newShipment.destinationBranchId,
-            newShipment.destinationBranchName,
-            newShipment.dispatchDateAD,
-            newShipment.dispatchDateBS,
-            newShipment.estimatedArrivalAD || newShipment.estimatedArrivalAd || null,
-            newShipment.status,
-            newShipment.notes || '',
-            JSON.stringify(newShipment.items),
-          ]
-        );
+        await client.query(SHIPMENT_UPSERT_SQL, shipmentUpsertParams(newShipment));
 
         if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
           for (const item of newShipment.items) {
-            const qtySent = Number(item.quantitySent || item.quantity || 1);
+            const qtySent = shipmentQtySent(item);
             const updated = await client.query(
-              `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
-               WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`,
+              SHIPMENT_DEDUCT_SOURCE_SQL,
               [qtySent, item.productId, newShipment.sourceBranchId]
             );
             if (updated.rowCount !== 1) throw new Error(`Insufficient stock for ${item.productName || item.productId}.`);
 
             if (newShipment.destinationBranchId) {
               await client.query(
-                `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
-                 VALUES ($1, $2, $3, 0, $4)
-                 ON CONFLICT (product_id, branch_id) DO UPDATE SET
-                   incoming_qty = inventory_stock.incoming_qty + $4,
-                   last_updated = CURRENT_TIMESTAMP;`,
-                [`stk-${newShipment.destinationBranchId.toLowerCase()}-${item.productId}`, item.productId, newShipment.destinationBranchId, qtySent]
+                SHIPMENT_INCOMING_DEST_SQL,
+                shipmentIncomingDestParams(newShipment.destinationBranchId, item)
               );
             }
           }
@@ -199,20 +173,15 @@ try {
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         await client.query(
-          `UPDATE shipments SET status = $1, received_by_notes = $2, received_date_ad = CURRENT_DATE, received_date_bs = $3, has_discrepancy = $4, items = $5 WHERE id = $6`,
+          SHIPMENT_RECEIVE_UPDATE_SQL,
           [sh.status, sh.receivedByNotes, receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
         );
 
         for (const item of sh.items) {
           const actualQtyReceived = item.quantityReceived || item.quantitySent || 1;
           await client.query(
-            `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, incoming_qty)
-             VALUES ($1, $2, $3, $4, 0)
-             ON CONFLICT (product_id, branch_id) DO UPDATE SET
-               incoming_qty = GREATEST(0, inventory_stock.incoming_qty - $4),
-               quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-               last_updated = CURRENT_TIMESTAMP;`,
-            [`stk-${sh.destinationBranchId.toLowerCase()}-${item.productId}`, item.productId, sh.destinationBranchId, actualQtyReceived]
+            SHIPMENT_RECEIVE_STOCK_SQL,
+            shipmentReceiveStockParams(sh.destinationBranchId, item)
           );
         }
       });
@@ -247,25 +216,25 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        const current = await client.query('SELECT status, source_branch_id AS "sourceBranchId", destination_branch_id AS "destinationBranchId", items, notes FROM shipments WHERE id = $1 OR tracking_code = $1 FOR UPDATE', [id]);
+        const current = await client.query(SHIPMENT_FIND_FOR_CANCEL_SQL, [id]);
         if (!current.rows[0]) throw new Error('Shipment / transfer not found.');
         if (['RECEIVED', 'DELIVERED'].includes(current.rows[0].status)) throw new Error('Transfers that have already been received cannot be cancelled.');
         if (current.rows[0].status === 'CANCELLED') throw new Error('This transfer is already cancelled.');
         const sourceBranchId = current.rows[0].sourceBranchId || sh.sourceBranchId;
         const destinationBranchId = current.rows[0].destinationBranchId || sh.destinationBranchId;
         const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || sh.items);
-        await client.query('UPDATE shipments SET status = $1, notes = $2 WHERE id = $3 OR tracking_code = $3', ['CANCELLED', cancellationNotes, id]);
+        await client.query(SHIPMENT_CANCEL_SQL, ['CANCELLED', cancellationNotes, id]);
         for (const item of items) {
-          const qtySent = Number(item.quantitySent || item.quantity) || 1;
+          const qtySent = shipmentQtySent(item);
           if (qtySent > 0 && sourceBranchId) {
             await client.query(
-              `UPDATE inventory_stock SET quantity_on_hand = inventory_stock.quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+              SHIPMENT_CANCEL_RESTORE_SOURCE_SQL,
               [qtySent, item.productId, sourceBranchId]
             );
           }
           if (qtySent > 0 && destinationBranchId) {
             await client.query(
-              `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
+              SHIPMENT_CANCEL_RELEASE_DEST_SQL,
               [qtySent, item.productId, destinationBranchId]
             );
           }

@@ -8,6 +8,29 @@
 import type { Request, Response } from 'express';
 import { ensurePostgresConnection, realPoolInstance, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
+import {
+  DB_STATUS_PROBE_SQL,
+  buildAuditTrailQuery,
+  buildTransactionLogQuery,
+  buildApprovalRequestQuery,
+  AR_INSERT_SQL,
+  arInsertParams,
+  AR_FIND_BY_ID_SQL,
+  AR_FIND_BY_ANY_ID_SQL,
+  AR_CLOSE_OUT_SQL,
+  arCloseOutParams,
+  AR_APPROVE_SQL,
+  AR_SHIPMENT_CANCEL_SQL,
+  AR_SHIPMENT_RESTORE_SOURCE_SQL,
+  AR_SHIPMENT_RELEASE_DEST_SQL,
+  CDR_SET_STATUS_SQL,
+  MISC_PULLOUT_STOCK_UPSERT_SQL,
+  miscPulloutStockParams,
+  MISC_PULLOUT_TXN_SQL,
+  miscPulloutTxnParams,
+  AUDIT_RECONCILE_STOCK_SQL,
+  auditReconcileStockParams,
+} from '../models/misc.repo';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -17,7 +40,7 @@ let isConnected = await ensurePostgresConnection();
   if (isConnected && realPoolInstance) {
     try {
       const client = await realPoolInstance.connect();
-      const testRes = await client.query('SELECT current_database(), version(), (SELECT count(*) FROM information_schema.tables WHERE table_schema = \'public\') as tables');
+      const testRes = await client.query(DB_STATUS_PROBE_SQL);
       client.release();
       isConnected = true;
       setPgConnected(true);
@@ -48,17 +71,7 @@ export async function get_auditTrail(req: any, res: Response): Promise<any> {
 const { branchId, limit } = req.query;
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs`;
-      const params: any[] = [];
-      if (branchId && branchId !== 'ALL') {
-        sql += ` WHERE branch_id = $1`;
-        params.push(branchId);
-      }
-      sql += ` ORDER BY timestamp_ad DESC`;
-      if (limit) {
-        params.push(Number(limit));
-        sql += ` LIMIT $${params.length}`;
-      }
+      const { sql, params } = buildAuditTrailQuery(branchId, limit);
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
@@ -79,26 +92,7 @@ export async function get_transactionLogs(req: any, res: Response): Promise<any>
 const { branchId, productId, limit } = req.query;
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, transaction_number AS "transactionNumber", product_id AS "productId", product_sku AS "productSku", product_name AS "productName", branch_id AS "branchId", change_type AS "changeType", quantity_before AS "quantityBefore", quantity_changed AS "quantityChanged", quantity_after AS "quantityAfter", unit_cost AS "unitCost", reference_doc_id AS "referenceDocId", timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS" FROM transaction_logs`;
-      const params: any[] = [];
-      const conds: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conds.push(`branch_id = $${params.length}`);
-      }
-      if (productId && productId !== 'ALL') {
-        params.push(productId);
-        conds.push(`product_id = $${params.length}`);
-      }
-      if (conds.length > 0) {
-        sql += ` WHERE ` + conds.join(' AND ');
-      }
-      sql += ` ORDER BY timestamp_ad DESC`;
-      if (limit) {
-        params.push(Number(limit));
-        sql += ` LIMIT $${params.length}`;
-      }
+      const { sql, params } = buildTransactionLogQuery(branchId, productId, limit);
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
@@ -122,22 +116,7 @@ export async function get_approvalRequests(req: any, res: Response): Promise<any
 const { branchId, status } = req.query;
   if (getPgConnected()) {
     try {
-      let sql = `SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status, requested_at_ad AS "requestedAtAD", requested_at_bs AS "requestedAtBS", processed_by_email AS "processedByEmail", processed_by_name AS "processedByName", processed_by_role AS "processedByRole", processed_at_ad AS "processedAtAD", processed_at_bs AS "processedAtBS", rejection_reason AS "rejectionReason" FROM approval_requests`;
-      const params: any[] = [];
-      const conds: string[] = [];
-
-      if (branchId && branchId !== 'ALL') {
-        params.push(branchId);
-        conds.push(`branch_id = $${params.length}`);
-      }
-      if (status && typeof status === 'string' && status !== 'ALL') {
-        params.push(status);
-        conds.push(`status = $${params.length}`);
-      }
-      if (conds.length > 0) {
-        sql += ` WHERE ` + conds.join(' AND ');
-      }
-      sql += ` ORDER BY requested_at_ad DESC`;
+      const { sql, params } = buildApprovalRequestQuery(branchId, status);
       const r = await pgPool.query(sql, params);
       res.json(r.rows);
       return;
@@ -175,32 +154,7 @@ try {
     setApprovalRequests(withPrepended(approvalRequests, newRequest));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO approval_requests (id, request_number, type, target_id, customer_name, customer_code, device_serial, pon_serial, product_name, current_status, requested_status, requested_by_role, requested_by_email, requested_by_name, branch_id, branch_name, reason, restock_qty_on_approval, status, requested_at_ad, requested_at_bs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20)`,
-        [
-          newRequest.id,
-          newRequest.requestNumber,
-          newRequest.type,
-          newRequest.targetId || null,
-          newRequest.customerName || '',
-          newRequest.customerCode || '',
-          newRequest.deviceSerial || '',
-          newRequest.ponSerial || '',
-          newRequest.productName || '',
-          newRequest.currentStatus || 'ACTIVE',
-          newRequest.requestedStatus || '',
-          newRequest.requestedByRole || '',
-          newRequest.requestedByEmail || '',
-          newRequest.requestedByName || '',
-          newRequest.branchId || null,
-          newRequest.branchName || '',
-          newRequest.reason || '',
-          !!newRequest.restockQtyOnApproval,
-          'PENDING',
-          newRequest.requestedAtBS,
-        ]
-      );
+      await pgPool.query(AR_INSERT_SQL, arInsertParams(newRequest));
     }
 
     // Log in Audit Trail
@@ -234,10 +188,7 @@ try {
 
     let request = approvalRequests.find((r) => r.id === id);
     if (getPgConnected() && !request) {
-      const r = await pgPool.query(
-        'SELECT id, request_number AS "requestNumber", type, target_id AS "targetId", customer_name AS "customerName", customer_code AS "customerCode", device_serial AS "deviceSerial", pon_serial AS "ponSerial", product_name AS "productName", current_status AS "currentStatus", requested_status AS "requestedStatus", requested_by_role AS "requestedByRole", requested_by_email AS "requestedByEmail", requested_by_name AS "requestedByName", branch_id AS "branchId", branch_name AS "branchName", reason, restock_qty_on_approval AS "restockQtyOnApproval", status FROM approval_requests WHERE id = $1',
-        [id]
-      );
+      const r = await pgPool.query(AR_FIND_BY_ID_SQL, [id]);
       if (r.rows.length > 0) request = r.rows[0];
     }
     if (!request) return res.status(404).json({ message: 'Approval request not found' });
@@ -255,10 +206,7 @@ try {
 
       if (getPgConnected()) {
         await withTransaction(async (client) => {
-          await client.query(
-            `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5, rejection_reason = $6 WHERE id = $7`,
-            [status, request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, request.rejectionReason, id]
-          );
+          await client.query(AR_CLOSE_OUT_SQL, arCloseOutParams(request));
         });
       }
 
@@ -269,20 +217,14 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        await client.query(
-          `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5 WHERE id = $6`,
-          [status, request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, id]
-        );
+        await client.query(AR_APPROVE_SQL, [status, request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, id]);
 
         // IF APPROVED: execute the requested status change on customer device record
         if (request.type === 'CUSTOMER_DEVICE_STATUS') {
           const isDisconnectReq = request.requestedStatus === 'DISCONNECTED' || request.requestedStatus === 'ROUTER_COLLECTED';
           const targetStatus = isDisconnectReq ? 'ROUTER_COLLECTED' : request.requestedStatus;
 
-          await client.query(
-            `UPDATE customer_device_records SET status = $1 WHERE id = $2 OR device_serial = $3`,
-            [targetStatus, request.targetId || '', request.deviceSerial || '']
-          );
+          await client.query(CDR_SET_STATUS_SQL, [targetStatus, request.targetId || '', request.deviceSerial || '']);
 
           if (request.restockQtyOnApproval || isDisconnectReq) {
             const prod = products.find((p) => p.name.toLowerCase() === request.productName?.toLowerCase()) || products[0];
@@ -306,12 +248,7 @@ try {
             stk.quantityOnHand += 1;
             stk.lastUpdated = new Date().toISOString();
 
-            await client.query(
-              `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT (id) DO UPDATE SET quantity_on_hand = inventory_stock.quantity_on_hand + 1, last_updated = NOW();`,
-              [stk.id, stk.productId, stk.branchId, stk.quantityOnHand, stk.damagedQty || 0, stk.reservedQty || 0, stk.incomingQty || 0]
-            );
+            await client.query(MISC_PULLOUT_STOCK_UPSERT_SQL, miscPulloutStockParams(stk));
 
             const newTxn: TransactionLog = {
               id: `txn-${Date.now()}`,
@@ -331,11 +268,7 @@ try {
             };
             setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
-            await client.query(
-              `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13);`,
-              [newTxn.id, newTxn.transactionNumber, newTxn.productId, newTxn.productSku, newTxn.productName, newTxn.branchId, newTxn.changeType, newTxn.quantityBefore, newTxn.quantityChanged, newTxn.quantityAfter, newTxn.unitCost, newTxn.referenceDocId, newTxn.timestampBS]
-            );
+            await client.query(MISC_PULLOUT_TXN_SQL, miscPulloutTxnParams(newTxn));
           }
         }
 
@@ -369,23 +302,17 @@ try {
             for (const item of sh.items) {
               const qtySent = Number(item.quantitySent || (item as any).quantity) || 1;
               if (qtySent > 0 && srcBranchId) {
-                await client.query(
-                  `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
-                  [qtySent, item.productId, srcBranchId]
-                );
+                await client.query(AR_SHIPMENT_RESTORE_SOURCE_SQL, [qtySent, item.productId, srcBranchId]);
               }
               if (qtySent > 0 && destBranchId) {
-                await client.query(
-                  `UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`,
-                  [qtySent, item.productId, destBranchId]
-                );
+                await client.query(AR_SHIPMENT_RELEASE_DEST_SQL, [qtySent, item.productId, destBranchId]);
               }
             }
 
             sh.status = 'CANCELLED';
             sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Stock restored to source branch.`;
 
-            await client.query('UPDATE shipments SET status = $1, notes = $2 WHERE id = $3', ['CANCELLED', sh.notes, sh.id]);
+            await client.query(AR_SHIPMENT_CANCEL_SQL, ['CANCELLED', sh.notes, sh.id]);
           }
         }
 
@@ -397,12 +324,7 @@ try {
           if (auditData.varianceItems && Array.isArray(auditData.varianceItems)) {
             for (const item of auditData.varianceItems) {
               const targetCounted = Number(item.countedQty) || 0;
-              await client.query(
-                `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (id) DO UPDATE SET quantity_on_hand = EXCLUDED.quantity_on_hand;`,
-                [`stk-${targetBranchId.toLowerCase()}-${item.productId}`, item.productId, targetBranchId, targetCounted]
-              );
+              await client.query(AUDIT_RECONCILE_STOCK_SQL, auditReconcileStockParams(targetBranchId, item));
             }
           }
         }
@@ -434,7 +356,7 @@ try {
 
     let request = approvalRequests.find((r) => r.id === id);
     if (getPgConnected() && !request) {
-      const r = await pgPool.query('SELECT * FROM approval_requests WHERE id = $1', [id]);
+      const r = await pgPool.query(AR_FIND_BY_ANY_ID_SQL, [id]);
       if (r.rows.length > 0) request = r.rows[0];
     }
     if (!request) return res.status(404).json({ message: 'Approval request not found' });
@@ -454,10 +376,7 @@ try {
     request.rejectionReason = reason?.trim() || 'Request cancelled by user';
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE approval_requests SET status = $1, processed_by_email = $2, processed_by_name = $3, processed_by_role = $4, processed_at_ad = NOW(), processed_at_bs = $5, rejection_reason = $6 WHERE id = $7`,
-        ['CANCELLED', request.processedByEmail, request.processedByName, request.processedByRole, request.processedAtBS, request.rejectionReason, id]
-      );
+      await pgPool.query(AR_CLOSE_OUT_SQL, arCloseOutParams(request));
     }
 
     logAuditEvent(req, 'APPROVAL_REQUEST_CANCELLED', 'OPERATIONS', `Cancelled approval request #${request.requestNumber} for ${request.customerName || id} (${request.deviceSerial || id}). Reason: ${request.rejectionReason}`, request.branchId);

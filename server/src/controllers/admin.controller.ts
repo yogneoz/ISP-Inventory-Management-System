@@ -7,35 +7,76 @@
  */
 import type { Request, Response } from 'express';
 import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, setInMemoryBsDayRecords, broadcastChange } from '../app';
-import { Branch, Asset, DocumentNumberConfig } from '../../../client/src/types';
+import { Branch, Asset, DocumentNumberConfig, CompanyProfile, FiscalYear, User } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
+import {
+  DEMO_DATA_TABLES,
+  demoDataDeleteSql,
+  COMPANY_PROFILE_SELECT_SQL,
+  COMPANY_PROFILE_UPSERT_SQL,
+  companyProfileUpsertParams,
+  COMPANY_PROFILE_UPSERT_NO_STAMP_SQL,
+  companyProfileUpsertNoStampParams,
+  BRANCH_SELECT_SQL,
+  BRANCH_UPSERT_SQL,
+  branchUpsertParams,
+  BRANCH_UPDATE_SQL,
+  branchUpdateParams,
+  BRANCH_DELETE_SQL,
+  USER_SELECT_SQL,
+  USER_EXISTS_SQL,
+  USER_UPSERT_SQL,
+  userUpsertParams,
+  USER_UPDATE_SQL,
+  userUpdateParams,
+  USER_DELETE_SQL,
+  USER_RESET_PASSWORD_SQL,
+  ASSET_RECALC_SELECT_SQL,
+  ASSET_RECALC_UPDATE_SQL,
+  LIVE_STOCK_RECALC_SQL,
+  BS_CALENDAR_YEARS_SELECT_SQL,
+  BS_CALENDAR_YEAR_UPSERT_SQL,
+  BS_CALENDAR_YEAR_SET_START_SQL,
+  BS_DAY_RECORDS_DELETE_BY_YEARS_SQL,
+  BS_DAY_RECORD_UPSERT_SQL,
+  BS_DAY_RECORD_UPSERT_WITH_FY_SQL,
+  bsDayRecordParams,
+  buildBsDayRecordsQuery,
+  COLUMN_EXISTS_SQL,
+  FISCAL_YEAR_LINK_TARGETS,
+  buildFiscalYearLinkRepairSql,
+  DOC_NUMBER_CONFIGS_SELECT_SQL,
+  DOC_NUMBER_CONFIG_BY_ID_SQL,
+  DOC_NUMBER_CONFIG_UPDATE_SQL,
+  DOC_NUMBER_CONFIG_UPSERT_SQL,
+  docNumberConfigUpsertParams,
+  DOC_NUMBER_CONFIG_INCREMENT_SQL,
+  FY_LIST_SQL,
+  FY_OVERLAP_CHECK_SQL,
+  FY_INSERT_SQL,
+  fiscalYearInsertParams,
+  FY_SET_CURRENT_CLEAR_SQL,
+  FY_SET_CURRENT_SQL,
+  FY_UPDATE_SQL,
+  FY_CLOSE_SQL,
+  FY_END_DATE_SQL,
+  FY_REOPEN_SQL,
+  FY_FIND_FOR_INIT_SQL,
+  FY_NEXT_AFTER_SQL,
+  FY_FIND_FOR_DELETE_SQL,
+  FY_DELETE_SQL,
+  FY_OPENING_STOCK_COUNTS_SQL,
+  FY_OPENING_STOCK_INIT_SQL,
+  fiscalYearOpeningStockInitParams,
+  FY_REFERENCE_TABLES,
+  fiscalYearReferenceCountSql,
+} from '../models/admin.repo';
 /** Forwarded from admin.routes.ts (post_clearDemoData). */
 export async function post_clearDemoData(req: any, res: Response): Promise<any> {
 try {
-    // Child/detail tables first so their is_demo rows are counted before
-    // parent rows are removed (FK cascades would otherwise hide them).
-    const demoTables = [
-      'transaction_logs',
-      'audit_logs',
-      'vendor_payments',
-      'stock_operations',
-      'approval_requests',
-      'customer_device_records',
-      'serial_log',
-      'purchase_invoices',
-      'shipments',
-      'inventory_stock',
-      'fixed_assets',
-      'purchase_orders',
-      'customer_records',
-      'products',
-      'categories',
-      'suppliers',
-      'fiscal_years',
-    ];
     const removed: Record<string, number> = {};
-    for (const table of demoTables) {
-      const result = await pgPool.query(`DELETE FROM ${table} WHERE is_demo = TRUE`);
+    for (const table of DEMO_DATA_TABLES) {
+      const result = await pgPool.query(demoDataDeleteSql(table));
       removed[table] = result.rowCount || 0;
     }
 
@@ -74,7 +115,7 @@ try {
 export async function get_companyProfile(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query('SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1');
+      const r = await pgPool.query(COMPANY_PROFILE_SELECT_SQL);
       if (r.rows.length > 0) {
         setCompanyProfile(r.rows[0]);
         res.json(r.rows[0]);
@@ -95,57 +136,7 @@ try {
     if (!companyProfile.id) companyProfile.id = 'COMP-001';
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           legal_name = EXCLUDED.legal_name,
-           tagline = EXCLUDED.tagline,
-           address = EXCLUDED.address,
-           city = EXCLUDED.city,
-           country = EXCLUDED.country,
-           postal_code = EXCLUDED.postal_code,
-           phone = EXCLUDED.phone,
-           email = EXCLUDED.email,
-           website = EXCLUDED.website,
-           pan_vat_number = EXCLUDED.pan_vat_number,
-           registration_number = EXCLUDED.registration_number,
-           logo_url = EXCLUDED.logo_url,
-           logo_preset = EXCLUDED.logo_preset,
-           currency_symbol = EXCLUDED.currency_symbol,
-           currency_code = EXCLUDED.currency_code,
-           currency_locale = EXCLUDED.currency_locale,
-           currency_position = EXCLUDED.currency_position,
-           currency_decimals = EXCLUDED.currency_decimals,
-           default_tax_rate = EXCLUDED.default_tax_rate,
-           notes = EXCLUDED.notes,
-           updated_at = CURRENT_TIMESTAMP;`,
-        [
-          companyProfile.id,
-          companyProfile.name,
-          companyProfile.legalName || '',
-          companyProfile.tagline || '',
-          companyProfile.address,
-          companyProfile.city || '',
-          companyProfile.country || '',
-          companyProfile.postalCode || '',
-          companyProfile.phone || '',
-          companyProfile.email || '',
-          companyProfile.website || '',
-          companyProfile.panVatNumber || '',
-          companyProfile.registrationNumber || '',
-          companyProfile.logoUrl || '',
-          companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'NPR',
-          companyProfile.currencyCode || 'NPR',
-          companyProfile.currencyLocale || 'en-IN',
-          companyProfile.currencyPosition || 'before',
-          companyProfile.currencyDecimals ?? 2,
-          companyProfile.defaultTaxRate ?? 13,
-          companyProfile.notes || '',
-        ]
-      );
+      await pgPool.query(COMPANY_PROFILE_UPSERT_SQL, companyProfileUpsertParams(companyProfile as CompanyProfile));
     }
     logAuditEvent(req, 'UPDATE_COMPANY_PROFILE', 'MASTER_DATA', `Updated Company Master Details: ${companyProfile.name}`);
     setDataVersion(getDataVersion() + 1);
@@ -161,7 +152,7 @@ try {
 export async function get_branches(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query('SELECT id, code, name, location, phone, is_headquarters AS "isHeadquarters", active, allow_procurement AS "allowProcurement", allow_warehouse_transfer AS "allowWarehouseTransfer" FROM branches ORDER BY name ASC');
+      const r = await pgPool.query(BRANCH_SELECT_SQL);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -190,20 +181,7 @@ try {
     setBranches(idx >= 0 ? withReplaced(branches, idx, newBranch) : withAppended(branches, newBranch));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO branches (id, code, name, location, phone, is_headquarters, active, allow_procurement, allow_warehouse_transfer)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (id) DO UPDATE SET
-           code = EXCLUDED.code,
-           name = EXCLUDED.name,
-           location = EXCLUDED.location,
-           phone = EXCLUDED.phone,
-           is_headquarters = EXCLUDED.is_headquarters,
-           active = EXCLUDED.active,
-           allow_procurement = EXCLUDED.allow_procurement,
-           allow_warehouse_transfer = EXCLUDED.allow_warehouse_transfer;`,
-        [newBranch.id, newBranch.code, newBranch.name, newBranch.location, newBranch.phone, newBranch.isHeadquarters, newBranch.active, newBranch.allowProcurement, newBranch.allowWarehouseTransfer]
-      );
+      await pgPool.query(BRANCH_UPSERT_SQL, branchUpsertParams(newBranch as Branch));
     }
     logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
     res.status(201).json(newBranch);
@@ -224,12 +202,7 @@ try {
     const b = branches[idx];
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE branches SET
-           code = $1, name = $2, location = $3, phone = $4, is_headquarters = $5, active = $6, allow_procurement = $7, allow_warehouse_transfer = $8
-         WHERE id = $9;`,
-        [b.code, b.name, b.location, b.phone || '', Boolean(b.isHeadquarters), b.active !== false, b.allowProcurement !== false, b.allowWarehouseTransfer !== false, id]
-      );
+      await pgPool.query(BRANCH_UPDATE_SQL, branchUpdateParams({ ...branches[idx], ...req.body, id }));
     }
     logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${b.name} (${b.id})`);
     res.json(b);
@@ -248,7 +221,7 @@ try {
     setBranches(branches.filter((b) => b.id !== id));
 
     if (getPgConnected()) {
-      await pgPool.query('DELETE FROM branches WHERE id = $1', [id]);
+      await pgPool.query(BRANCH_DELETE_SQL, [id]);
     }
     logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
     res.json({ success: true });
@@ -263,9 +236,7 @@ try {
 export async function get_users(req: any, res: Response): Promise<any> {
 if (getPgConnected()) {
     try {
-      const r = await pgPool.query(
-        'SELECT id, email, name, role, branch_id AS "branchId", allowed_branch_ids AS "allowedBranchIds", can_switch_user AS "canSwitchUser" FROM users ORDER BY created_at ASC'
-      );
+      const r = await pgPool.query(USER_SELECT_SQL);
       res.json(r.rows);
       return;
     } catch (err) {
@@ -291,27 +262,7 @@ try {
     setUsers(idx >= 0 ? withReplaced(users, idx, newUser) : withAppended(users, newUser));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO users (id, email, password, name, role, branch_id, allowed_branch_ids, can_switch_user)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (email) DO UPDATE SET
-           name = EXCLUDED.name,
-           role = EXCLUDED.role,
-           branch_id = EXCLUDED.branch_id,
-           allowed_branch_ids = EXCLUDED.allowed_branch_ids,
-           can_switch_user = EXCLUDED.can_switch_user,
-           password = EXCLUDED.password;`,
-        [
-          newUser.id,
-          newUser.email,
-          newUser.password,
-          newUser.name,
-          newUser.role,
-          newUser.branchId || null,
-          newUser.allowedBranchIds || null,
-          !!newUser.canSwitchUser,
-        ]
-      );
+      await pgPool.query(USER_UPSERT_SQL, userUpsertParams(newUser as User));
     }
     logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
     const { password: _, ...userWithoutPass } = newUser;
@@ -330,7 +281,7 @@ try {
     let idx = users.findIndex((u) => u.id === id);
 
     if (idx === -1 && getPgConnected()) {
-      const r = await pgPool.query('SELECT * FROM users WHERE id = $1', [id]);
+      const r = await pgPool.query(USER_EXISTS_SQL, [id]);
       if (r.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     }
 
@@ -346,27 +297,7 @@ try {
     if (idx !== -1) setUsers(withReplaced(users, idx, updatedUser));
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `UPDATE users SET
-           email = $1,
-           name = $2,
-           role = $3,
-           branch_id = $4,
-           allowed_branch_ids = $5,
-           can_switch_user = $6,
-           password = COALESCE($7, password)
-         WHERE id = $8`,
-        [
-          updatedUser.email,
-          updatedUser.name,
-          updatedUser.role,
-          updatedUser.branchId || null,
-          updatedUser.allowedBranchIds || null,
-          !!updatedUser.canSwitchUser,
-          req.body.password ? updatedUser.password : null,
-          id,
-        ]
-      );
+      await pgPool.query(USER_UPDATE_SQL, userUpdateParams(updatedUser as User, req.body.password ? updatedUser.password : null));
     }
     logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${updatedUser.name} (${updatedUser.email})`);
     const { password: _, ...userWithoutPass } = updatedUser;
@@ -393,7 +324,7 @@ try {
     }
 
     if (getPgConnected()) {
-      const r = await pgPool.query('DELETE FROM users WHERE id = $1 RETURNING email, name', [id]);
+      const r = await pgPool.query(USER_DELETE_SQL, [id]);
       if (r.rows.length > 0) {
         deletedEmail = r.rows[0].email;
         deletedName = r.rows[0].name;
@@ -428,7 +359,7 @@ try {
     let targetName = users[userIdx]?.name || id;
 
     if (getPgConnected()) {
-      const r = await pgPool.query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING email, name', [hashPassword(newPassword.trim()), id]);
+      const r = await pgPool.query(USER_RESET_PASSWORD_SQL, [hashPassword(newPassword.trim()), id]);
       if (r.rows.length > 0) {
         targetEmail = r.rows[0].email;
         targetName = r.rows[0].name;
@@ -455,15 +386,7 @@ try {
     const asOfDateAD = new Date().toISOString().slice(0, 10);
     let assetsToUpdate = assetRegister;
     if (getPgConnected()) {
-      const result = await pgPool.query(
-        `SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId",
-          acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS",
-          purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS",
-          capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD",
-                acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod",
-                depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation",
-                net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo"
-         FROM fixed_assets`);
+      const result = await pgPool.query(ASSET_RECALC_SELECT_SQL);
       assetsToUpdate = result.rows as Asset[];
     }
 
@@ -472,12 +395,7 @@ try {
       asset.accumulatedDepreciation = values.accumulatedDepreciation;
       asset.netBookValue = values.netBookValue;
       if (getPgConnected()) {
-        await pgPool.query(
-          `UPDATE fixed_assets
-           SET accumulated_depreciation = $1, net_book_value = $2, updated_at = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [values.accumulatedDepreciation, values.netBookValue, asset.id]
-        );
+        await pgPool.query(ASSET_RECALC_UPDATE_SQL, [values.accumulatedDepreciation, values.netBookValue, asset.id]);
       }
     }
     logAuditEvent(req, 'RECALCULATE_FIXED_ASSETS', 'SYSTEM', `Recalculated ${assetsToUpdate.length} fixed asset record(s) as of ${asOfDateAD}.`);
@@ -505,18 +423,7 @@ try {
 
     let updated = 0;
     if (getPgConnected()) {
-      const result = await pgPool.query(
-        `WITH latest AS (
-           SELECT DISTINCT ON (product_id, branch_id) product_id, branch_id, GREATEST(quantity_after, 0) AS quantity_after
-           FROM transaction_logs
-           WHERE change_type <> 'DAMAGE'
-           ORDER BY product_id, branch_id, timestamp_ad DESC, id DESC
-         )
-         UPDATE inventory_stock s
-         SET quantity_on_hand = latest.quantity_after, last_updated = CURRENT_TIMESTAMP
-         FROM latest
-         WHERE s.product_id = latest.product_id AND s.branch_id = latest.branch_id
-         RETURNING s.id`);
+      const result = await pgPool.query(LIVE_STOCK_RECALC_SQL);
       updated = result.rowCount || 0;
     } else {
       inventoryStock.forEach((stock) => {
@@ -545,15 +452,13 @@ try {
     let sourceYears = inMemoryBsCalendarYears;
 
     if (getPgConnected()) {
-      const cfgRes = await pgPool.query(
-        'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC'
-      );
+      const cfgRes = await pgPool.query(BS_CALENDAR_YEARS_SELECT_SQL);
       if (cfgRes.rows.length > 0) sourceYears = cfgRes.rows;
 
       await withTransaction(async (client) => {
         // Delete stale rows for every configured year, then rebuild from config.
         const yearList = sourceYears.map((y: any) => Number(y.yearBS));
-        await client.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [yearList]);
+        await client.query(BS_DAY_RECORDS_DELETE_BY_YEARS_SQL, [yearList]);
 
         let count = 0;
         for (const y of sourceYears) {
@@ -563,43 +468,7 @@ try {
             : y.daysInMonths;
           const records = buildBsDayRecordsForYear(yearBS, daysInMonths, String(y.startAD));
           for (const rec of records) {
-            await client.query(
-              `INSERT INTO bs_day_records (
-                 ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-                 bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend, fiscal_year_id
-               )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                       (SELECT fy.id FROM fiscal_years fy
-                        WHERE fy.start_date_ad <= $1::date AND fy.end_date_ad >= $1::date
-                        ORDER BY fy.start_date_ad DESC LIMIT 1))
-               ON CONFLICT (ad_date) DO UPDATE SET
-                 bs_date = EXCLUDED.bs_date,
-                 bs_year = EXCLUDED.bs_year,
-                 bs_month = EXCLUDED.bs_month,
-                 bs_month_name = EXCLUDED.bs_month_name,
-                 bs_month_name_np = EXCLUDED.bs_month_name_np,
-                 bs_day = EXCLUDED.bs_day,
-                 day_of_week_name = EXCLUDED.day_of_week_name,
-                 day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-                 fiscal_year = EXCLUDED.fiscal_year,
-                 quarter = EXCLUDED.quarter,
-                 is_weekend = EXCLUDED.is_weekend,
-                 fiscal_year_id = EXCLUDED.fiscal_year_id;`,
-              [
-                rec.adDate,
-                rec.bsDate,
-                rec.bsYear,
-                rec.bsMonth,
-                rec.bsMonthName,
-                rec.bsMonthNameNp,
-                rec.bsDay,
-                rec.dayOfWeekName,
-                rec.dayOfWeekNameNp,
-                rec.fiscalYear,
-                rec.quarter,
-                rec.isWeekend,
-              ]
-            );
+            await client.query(BS_DAY_RECORD_UPSERT_WITH_FY_SQL, bsDayRecordParams(rec));
           }
           count += records.length;
         }
@@ -642,73 +511,19 @@ try {
       return;
     }
 
-    const reparse: Array<{ table: string; column: string; dateColumn: string; dateType: 'date' | 'timestamptz' | 'timestamp'; keyColumn: string }> = [
-      { table: 'fixed_assets', column: 'fiscal_year_id', dateColumn: 'acquisition_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'damage_records', column: 'fiscal_year_id', dateColumn: 'damage_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'purchase_orders', column: 'fiscal_year_id', dateColumn: 'order_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'purchase_invoices', column: 'fiscal_year_id', dateColumn: 'invoice_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'shipments', column: 'fiscal_year_id', dateColumn: 'dispatch_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'stock_operations', column: 'fiscal_year_id', dateColumn: 'date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'customer_device_records', column: 'fiscal_year_id', dateColumn: 'issued_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'approval_requests', column: 'fiscal_year_id', dateColumn: 'requested_at_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'vendor_payments', column: 'fiscal_year_id', dateColumn: 'payment_date_ad', dateType: 'date', keyColumn: 'id' },
-      { table: 'audit_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
-      { table: 'transaction_logs', column: 'fiscal_year_id', dateColumn: 'timestamp_ad', dateType: 'timestamptz', keyColumn: 'id' },
-      { table: 'bs_day_records', column: 'fiscal_year_id', dateColumn: 'ad_date', dateType: 'date', keyColumn: 'ad_date' },
-    ];
-
     const results: Record<string, number> = {};
     let totalFixed = 0;
 
     await withTransaction(async (client) => {
-      for (const entry of reparse) {
+      for (const entry of FISCAL_YEAR_LINK_TARGETS) {
         // Only attempt when the column exists (older schemas may not have it).
-        const colCheck = await client.query(
-          `SELECT 1 FROM information_schema.columns
-           WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
-          [entry.table, entry.column]
-        );
+        const colCheck = await client.query(COLUMN_EXISTS_SQL, [entry.table, entry.column]);
         if (colCheck.rowCount === 0) {
           results[entry.table] = 0;
           continue;
         }
 
-        const tableName = `"${entry.table}"`;
-        const keyColumn = entry.keyColumn;
-        const dateExpr = entry.dateType === 'date'
-          ? entry.dateColumn
-          : `(${entry.dateColumn})::date`;
-
-        // Fix NULL references and stale references in one pass: every row whose
-        // current fiscal_year_id does not actually contain its own date is
-        // re-linked to the fiscal year that does contain it (latest matching
-        // period wins; the schema forbids overlapping periods anyway). Rows
-        // whose date is not inside any fiscal period are left untouched.
-        const result = await client.query(
-          `WITH wrong AS (
-             SELECT t2.${keyColumn} AS row_key
-             FROM ${tableName} t2
-             WHERE t2.fiscal_year_id IS NULL
-                OR NOT EXISTS (
-                     SELECT 1 FROM fiscal_years cur
-                     WHERE cur.id = t2.fiscal_year_id
-                       AND cur.start_date_ad <= ${dateExpr}
-                       AND cur.end_date_ad >= ${dateExpr}
-                   )
-           ),
-           matched AS (
-             SELECT w.row_key, fy.id AS fy_id
-             FROM wrong w
-             JOIN ${tableName} t3 ON t3.${keyColumn} = w.row_key
-             JOIN fiscal_years fy
-               ON fy.start_date_ad <= ${dateExpr} AND fy.end_date_ad >= ${dateExpr}
-           )
-           UPDATE ${tableName} t
-           SET fiscal_year_id = m.fy_id
-           FROM matched m
-           WHERE t.${keyColumn} = m.row_key
-             AND t.fiscal_year_id IS DISTINCT FROM m.fy_id`
-        );
+        const result = await client.query(buildFiscalYearLinkRepairSql(entry));
         results[entry.table] = result.rowCount || 0;
         totalFixed += results[entry.table];
       }
@@ -736,12 +551,7 @@ try {
 /** Forwarded from admin.routes.ts (get_documentNumberConfigs). */
 export async function get_documentNumberConfigs(req: any, res: Response): Promise<any> {
 try {
-    const result = await pgPool.query(
-      `SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits",
-              starting_number AS "startingNumber", next_number AS "nextNumber",
-              reset_every_fiscal_year AS "resetEveryFiscalYear", notes
-       FROM document_number_configs ORDER BY id ASC;`
-    );
+    const result = await pgPool.query(DOC_NUMBER_CONFIGS_SELECT_SQL);
     if (result.rows.length > 0) {
       setDocNumberConfigs(result.rows);
       res.json(result.rows);
@@ -761,13 +571,7 @@ export async function put_Id3(req: any, res: Response): Promise<any> {
 const { id } = req.params;
   const cfg = req.body;
   try {
-    await pgPool.query(
-      `UPDATE document_number_configs
-       SET prefix = $1, suffix = $2, min_digits = $3, starting_number = $4,
-           next_number = $5, reset_every_fiscal_year = $6, notes = $7, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8;`,
-      [cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '', id]
-    );
+    await pgPool.query(DOC_NUMBER_CONFIG_UPDATE_SQL, [cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '', id]);
   } catch (e: any) {
     console.warn('PostgreSQL update document_number_configs notice:', e.message);
   }
@@ -788,20 +592,7 @@ const configs: DocumentNumberConfig[] = req.body;
   if (Array.isArray(configs)) {
     for (const cfg of configs) {
       try {
-        await pgPool.query(
-          `INSERT INTO document_number_configs (id, document_type, prefix, suffix, min_digits, starting_number, next_number, reset_every_fiscal_year, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (id) DO UPDATE SET
-             prefix = EXCLUDED.prefix,
-             suffix = EXCLUDED.suffix,
-             min_digits = EXCLUDED.min_digits,
-             starting_number = EXCLUDED.starting_number,
-             next_number = EXCLUDED.next_number,
-             reset_every_fiscal_year = EXCLUDED.reset_every_fiscal_year,
-             notes = EXCLUDED.notes,
-             updated_at = CURRENT_TIMESTAMP;`,
-          [cfg.id, cfg.documentType, cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '']
-        );
+        await pgPool.query(DOC_NUMBER_CONFIG_UPSERT_SQL, docNumberConfigUpsertParams(cfg));
       } catch (e: any) {
         console.warn(`PostgreSQL bulk update document_number_configs notice for ${cfg.id}:`, e.message);
       }
@@ -818,13 +609,7 @@ const { docTypeId, autoIncrement } = req.body;
   let config = docNumberConfigs.find((c) => c.id === docTypeId);
 
   try {
-    const dbRes = await pgPool.query(
-      `SELECT id, document_type AS "documentType", prefix, suffix, min_digits AS "minDigits",
-              starting_number AS "startingNumber", next_number AS "nextNumber",
-              reset_every_fiscal_year AS "resetEveryFiscalYear", notes
-       FROM document_number_configs WHERE id = $1;`,
-      [docTypeId]
-    );
+    const dbRes = await pgPool.query(DOC_NUMBER_CONFIG_BY_ID_SQL, [docTypeId]);
     if (dbRes.rows.length > 0) {
       config = dbRes.rows[0];
     }
@@ -845,10 +630,7 @@ const { docTypeId, autoIncrement } = req.body;
   if (autoIncrement !== false) {
     const nextSeq = seqNum + 1;
     try {
-      await pgPool.query(
-        `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
-        [nextSeq, docTypeId]
-        );
+      await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [nextSeq, docTypeId]);
     } catch (e: any) {
       console.warn('PostgreSQL increment document_number_config notice:', e.message);
     }
@@ -867,10 +649,7 @@ const { docTypeId, newStartNumber } = req.body;
   const startNum = newStartNumber !== undefined ? Number(newStartNumber) : (idx !== -1 ? docNumberConfigs[idx].startingNumber : 1);
 
   try {
-    await pgPool.query(
-      `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
-      [startNum, docTypeId]
-    );
+    await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [startNum, docTypeId]);
   } catch (e: any) {
     console.warn('PostgreSQL reset counter document_number_config notice:', e.message);
   }
@@ -886,12 +665,7 @@ const { docTypeId, newStartNumber } = req.body;
 /** Forwarded from admin.routes.ts (get_fiscalYears). */
 export async function get_fiscalYears(req: any, res: Response): Promise<any> {
 try {
-    const result = await pgPool.query(
-            `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-              start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                    is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo"
-             FROM fiscal_years ORDER BY start_date_ad DESC;`
-    );
+    const result = await pgPool.query(FY_LIST_SQL);
     if (result.rows.length > 0) {
       res.json(result.rows);
       return;
@@ -923,11 +697,7 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
     // Prevent overlapping fiscal periods so every AD date belongs to exactly one
     // fiscal year (the assign_fiscal_year_id_from_date trigger relies on this).
     const overlapCheck = await pgPool.query(
-      `SELECT code FROM fiscal_years
-       WHERE ($1::date BETWEEN start_date_ad AND end_date_ad)
-          OR ($2::date BETWEEN start_date_ad AND end_date_ad)
-          OR (start_date_ad BETWEEN $1::date AND $2::date)
-       LIMIT 1;`,
+      FY_OVERLAP_CHECK_SQL,
       [startDateAD, endDateAD]
     );
     if (overlapCheck.rows[0]) {
@@ -938,12 +708,8 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
 
     const id = `fy-${crypto.randomUUID()}`;
     const result = await pgPool.query(
-      `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, FALSE)
-       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                 is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo";`,
-      [id, cleanCode, startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim()]
+      FY_INSERT_SQL,
+      fiscalYearInsertParams({ id, code: cleanCode, startDateAD, endDateAD, startDateBS: startDateBS.trim(), endDateBS: endDateBS.trim() })
     );
     const newFiscalYear = result.rows[0];
     setFiscalYears(withSorted(
@@ -969,8 +735,8 @@ const { id } = req.params;
     // One transaction: clear the old flag first, then set the new one, so the
     // uq_fiscal_years_single_current index can never be violated mid-flight.
     await withTransaction(async (client) => {
-      await client.query('UPDATE fiscal_years SET is_current = FALSE;');
-      const result = await client.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1 RETURNING id;', [id]);
+      await client.query(FY_SET_CURRENT_CLEAR_SQL);
+      const result = await client.query(FY_SET_CURRENT_SQL, [id]);
       if (!result.rowCount) {
         const error: any = new Error('Fiscal year not found.');
         error.statusCode = 404;
@@ -1006,12 +772,7 @@ const { id } = req.params;
 
   try {
     const result = await pgPool.query(
-      `UPDATE fiscal_years
-       SET code = $1, start_date_ad = $2, end_date_ad = $3, start_date_bs = $4, end_date_bs = $5
-       WHERE id = $6
-       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                 is_current AS "isCurrent", is_closed AS "isClosed";`,
+      FY_UPDATE_SQL,
       [code.trim(), startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim(), id]
     );
     const fiscalYear = result.rows[0];
@@ -1037,18 +798,10 @@ const { id } = req.params;
   const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
   if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
-    const result = await pgPool.query(
-      `UPDATE fiscal_years
-       SET is_closed = TRUE
-       WHERE id = $1 AND end_date_ad < CURRENT_DATE
-       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                 is_current AS "isCurrent", is_closed AS "isClosed";`,
-      [id]
-    );
+    const result = await pgPool.query(FY_CLOSE_SQL, [id]);
     const fiscalYear = result.rows[0];
     if (!fiscalYear) {
-      const existing = await pgPool.query('SELECT end_date_ad::text AS "endDateAD" FROM fiscal_years WHERE id = $1;', [id]);
+      const existing = await pgPool.query(FY_END_DATE_SQL, [id]);
       if (!existing.rows[0]) return res.status(404).json({ message: 'Fiscal year not found.' });
       res.status(400).json({ message: `Fiscal year closing is available only after ${existing.rows[0].endDateAD}.` });
       return;
@@ -1073,13 +826,7 @@ const { id } = req.params;
   const authCheck = await verifySuperAdminCredentials(req.body?.adminEmail, req.body?.adminPassword);
   if (!authCheck.ok) return res.status(403).json({ message: authCheck.message });
   try {
-    const result = await pgPool.query(
-      `UPDATE fiscal_years SET is_closed = FALSE WHERE id = $1
-       RETURNING id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-                 start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                 is_current AS "isCurrent", is_closed AS "isClosed";`,
-      [id]
-    );
+    const result = await pgPool.query(FY_REOPEN_SQL, [id]);
     const fiscalYear = result.rows[0];
     if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
     const index = fiscalYears.findIndex((item) => item.id === id);
@@ -1100,10 +847,7 @@ export async function post_initializeOpeningStock(req: any, res: Response): Prom
 const { id } = req.params;
   try {
     const result = await withTransaction(async (client) => {
-      const sourceResult = await client.query(
-        'SELECT id, code, end_date_ad, is_closed FROM fiscal_years WHERE id = $1 FOR UPDATE;',
-        [id]
-      );
+      const sourceResult = await client.query(FY_FIND_FOR_INIT_SQL, [id]);
       const sourceFiscalYear = sourceResult.rows[0];
       if (!sourceFiscalYear) {
         const error: any = new Error('Source fiscal year not found.');
@@ -1116,13 +860,7 @@ const { id } = req.params;
         throw error;
       }
 
-      const targetResult = await client.query(
-        `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
-                start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                is_current AS "isCurrent", is_closed AS "isClosed"
-         FROM fiscal_years WHERE start_date_ad > $1 ORDER BY start_date_ad ASC LIMIT 1 FOR UPDATE;`,
-        [sourceFiscalYear.end_date_ad]
-      );
+      const targetResult = await client.query(FY_NEXT_AFTER_SQL, [sourceFiscalYear.end_date_ad]);
       const targetFiscalYear = targetResult.rows[0];
       if (!targetFiscalYear) {
         const error: any = new Error('Create the next fiscal year before initializing its opening stock.');
@@ -1133,42 +871,12 @@ const { id } = req.params;
       // Enterprise rule: rows that were manually adjusted after the original close
       // (source_type = 'MANUAL_ADJUSTMENT') are posted, corrected opening balances and
       // must survive a re-initialization. Only closing-generated rows get refreshed.
-      const existingRes = await client.query(
-        `SELECT COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE source_type = 'MANUAL_ADJUSTMENT')::int AS manual
-         FROM fiscal_year_opening_stock WHERE fiscal_year_id = $1`,
-        [targetFiscalYear.id]
-      );
+      const existingRes = await client.query(FY_OPENING_STOCK_COUNTS_SQL, [targetFiscalYear.id]);
       const manualRowsPreserved = existingRes.rows[0]?.manual || 0;
 
       const inserted = await client.query(
-        `INSERT INTO fiscal_year_opening_stock (
-           id, fiscal_year_id, product_id, branch_id, quantity_on_hand, damaged_qty, unit_cost, source_type, source_reference, posted_by
-         )
-         SELECT
-           'open-' || $1 || '-' || products.id || '-' || branches.id,
-           $1, products.id, branches.id,
-           COALESCE(inventory_stock.quantity_on_hand, 0),
-           COALESCE(inventory_stock.damaged_qty, 0),
-           COALESCE(products.cost_price, 0),
-           'FISCAL_CLOSE', $2, $3
-         FROM products
-         CROSS JOIN branches
-         LEFT JOIN inventory_stock
-           ON inventory_stock.product_id = products.id
-          AND inventory_stock.branch_id = branches.id
-         WHERE branches.active = TRUE
-         ON CONFLICT (fiscal_year_id, product_id, branch_id) DO UPDATE SET
-           quantity_on_hand = EXCLUDED.quantity_on_hand,
-           damaged_qty = EXCLUDED.damaged_qty,
-           unit_cost = EXCLUDED.unit_cost,
-           source_type = EXCLUDED.source_type,
-           source_reference = EXCLUDED.source_reference,
-           posted_at = CURRENT_TIMESTAMP,
-           posted_by = EXCLUDED.posted_by
-         WHERE fiscal_year_opening_stock.source_type <> 'MANUAL_ADJUSTMENT'
-         RETURNING id;`,
-        [targetFiscalYear.id, sourceFiscalYear.code, getUserFromReq(req).email || 'system']
+        FY_OPENING_STOCK_INIT_SQL,
+        fiscalYearOpeningStockInitParams(targetFiscalYear.id, sourceFiscalYear.code, getUserFromReq(req).email || 'system')
       );
       return { targetFiscalYear, recordsCreated: inserted.rowCount || 0, manualRowsPreserved };
     });
@@ -1198,10 +906,7 @@ const { id } = req.params;
 
   try {
     const result = await withTransaction(async (client) => {
-      const fiscalYearResult = await client.query(
-        'SELECT id, code, is_current AS "isCurrent", is_closed AS "isClosed" FROM fiscal_years WHERE id = $1 FOR UPDATE;',
-        [id]
-      );
+      const fiscalYearResult = await client.query(FY_FIND_FOR_DELETE_SQL, [id]);
       const fiscalYear = fiscalYearResult.rows[0];
 
       if (!fiscalYear) {
@@ -1222,29 +927,11 @@ const { id } = req.params;
       // period created by mistake can be removed. bs_day_records are excluded:
       // they are auto-generated calendar reference rows (FK ON DELETE SET NULL)
       // that exist for every period, not business records belonging to the FY.
-      const referenceTables: Array<[table: string, label: string]> = [
-        ['purchase_invoices', 'purchase invoices'],
-        ['purchase_orders', 'purchase orders'],
-        ['shipments', 'shipments'],
-        ['stock_operations', 'stock operations'],
-        ['damage_records', 'damage records'],
-        ['fixed_assets', 'fixed assets'],
-        ['vendor_payments', 'vendor payments'],
-        ['audit_logs', 'audit logs'],
-        ['transaction_logs', 'transaction logs'],
-        ['customer_device_records', 'customer device records'],
-        ['approval_requests', 'approval requests'],
-        ['fiscal_year_opening_stock', 'opening-stock records'],
-        ['vendor_opening_balances', 'vendor opening-balance records'],
-      ];
       const tableCounts: Array<{ label: string; count: number }> = [];
 
-      for (const [table, label] of referenceTables) {
+      for (const [table, label] of FY_REFERENCE_TABLES) {
         try {
-          const countResult = await client.query(
-            `SELECT COUNT(*)::int AS count FROM ${table} WHERE fiscal_year_id = $1;`,
-            [id]
-          );
+          const countResult = await client.query(fiscalYearReferenceCountSql(table), [id]);
           const count = Number(countResult.rows[0]?.count || 0);
           if (count > 0) tableCounts.push({ label, count });
         } catch (countError: any) {
@@ -1263,7 +950,7 @@ const { id } = req.params;
         throw error;
       }
 
-      await client.query('DELETE FROM fiscal_years WHERE id = $1;', [id]);
+      await client.query(FY_DELETE_SQL, [id]);
       return fiscalYear;
     });
 
@@ -1286,9 +973,7 @@ const { id } = req.params;
 /** Forwarded from admin.routes.ts (get_years). */
 export async function get_years(req: any, res: Response): Promise<any> {
 try {
-    const result = await pgPool.query(
-      'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC;'
-    );
+    const result = await pgPool.query(BS_CALENDAR_YEARS_SELECT_SQL);
     if (result.rows.length > 0) {
       res.json(result.rows);
       return;
@@ -1326,34 +1011,7 @@ try {
 export async function get_days(req: any, res: Response): Promise<any> {
 const { yearBS, monthBS, search } = req.query;
   try {
-    let querySql = `
-      SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
-             bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
-             day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
-             fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
-      FROM bs_day_records
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-    if (yearBS && yearBS !== 'ALL') {
-      params.push(parseInt(yearBS as string, 10));
-      querySql += ` AND bs_year = $${params.length}`;
-    }
-    if (monthBS && monthBS !== 'ALL') {
-      params.push(parseInt(monthBS as string, 10));
-      querySql += ` AND bs_month = $${params.length}`;
-    }
-    if (search && typeof search === 'string' && search.trim()) {
-      params.push(`%${search.trim().toLowerCase()}%`);
-      querySql += ` AND (
-        LOWER(ad_date::text) LIKE $${params.length} OR
-        LOWER(bs_date) LIKE $${params.length} OR
-        LOWER(bs_month_name) LIKE $${params.length} OR
-        LOWER(day_of_week_name) LIKE $${params.length} OR
-        LOWER(fiscal_year) LIKE $${params.length}
-      )`;
-    }
-    querySql += ` ORDER BY ad_date ASC LIMIT 500;`;
+    const { sql: querySql, params } = buildBsDayRecordsQuery(yearBS, monthBS, search);
 
     const result = await pgPool.query(querySql, params);
     if (result.rows.length > 0) {
@@ -1420,14 +1078,7 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
   // unreachable, so it is refreshed after the database write attempt.
   let pgSynced = false;
   try {
-    await pgPool.query(
-      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (year_bs) DO UPDATE SET
-         days_in_months = EXCLUDED.days_in_months,
-         start_ad = EXCLUDED.start_ad;`,
-      [yearBS, daysInMonths, startAD]
-    );
+    await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [yearBS, daysInMonths, startAD]);
 
     let runningDate = new Date(startAD);
     for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
@@ -1452,23 +1103,7 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
         else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
 
         await pgPool.query(
-          `INSERT INTO bs_day_records (
-             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           ON CONFLICT (ad_date) DO UPDATE SET
-             bs_date = EXCLUDED.bs_date,
-             bs_year = EXCLUDED.bs_year,
-             bs_month = EXCLUDED.bs_month,
-             bs_month_name = EXCLUDED.bs_month_name,
-             bs_month_name_np = EXCLUDED.bs_month_name_np,
-             bs_day = EXCLUDED.bs_day,
-             day_of_week_name = EXCLUDED.day_of_week_name,
-             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-             fiscal_year = EXCLUDED.fiscal_year,
-             quarter = EXCLUDED.quarter,
-             is_weekend = EXCLUDED.is_weekend;`,
+          BS_DAY_RECORD_UPSERT_SQL,
           [
             adDateStr,
             bsDateStr,
@@ -1544,14 +1179,7 @@ const { years, onlyIfNew } = req.body;
         continue;
       }
 
-      await pgPool.query(
-        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (year_bs) DO UPDATE SET
-           days_in_months = EXCLUDED.days_in_months,
-           start_ad = EXCLUDED.start_ad;`,
-        [yearBS, daysInMonths, startAD]
-      );
+      await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [yearBS, daysInMonths, startAD]);
 
       let runningDate = new Date(startAD);
       for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
@@ -1576,23 +1204,7 @@ const { years, onlyIfNew } = req.body;
           else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
 
           await pgPool.query(
-            `INSERT INTO bs_day_records (
-               ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-               bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-             ON CONFLICT (ad_date) DO UPDATE SET
-               bs_date = EXCLUDED.bs_date,
-               bs_year = EXCLUDED.bs_year,
-               bs_month = EXCLUDED.bs_month,
-               bs_month_name = EXCLUDED.bs_month_name,
-               bs_month_name_np = EXCLUDED.bs_month_name_np,
-               bs_day = EXCLUDED.bs_day,
-               day_of_week_name = EXCLUDED.day_of_week_name,
-               day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-               fiscal_year = EXCLUDED.fiscal_year,
-               quarter = EXCLUDED.quarter,
-               is_weekend = EXCLUDED.is_weekend;`,
+            BS_DAY_RECORD_UPSERT_SQL,
             [
               adDateStr,
               bsDateStr,
@@ -1730,14 +1342,7 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
     await pgPool.query('BEGIN');
 
     // 1. Upsert the edited year's config.
-    await pgPool.query(
-      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (year_bs) DO UPDATE SET
-         days_in_months = EXCLUDED.days_in_months,
-         start_ad = EXCLUDED.start_ad;`,
-      [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]
-    );
+    await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]);
 
     // 2. Rewrite the subsequent years' start_ad when the running calendar
     //    requires it (keeps bs_calendar_years config consistent with the
@@ -1748,53 +1353,18 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
       if (dbIdx < 0) continue;
       const prevConfig = inMemoryBsCalendarYears[dbIdx];
       if (prevConfig.startAD !== y.startAD) {
-        await pgPool.query(
-          `UPDATE bs_calendar_years SET start_ad = $2 WHERE year_bs = $1;`,
-          [y.yearBS, y.startAD]
-        );
+        await pgPool.query(BS_CALENDAR_YEAR_SET_START_SQL, [y.yearBS, y.startAD]);
       }
     }
 
     // 3. Delete stale day records for every affected year, then regenerate.
     const affectedNumList = affectedYears.map((y) => y.yearBS);
-    await pgPool.query('DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);', [affectedNumList]);
+    await pgPool.query(BS_DAY_RECORDS_DELETE_BY_YEARS_SQL, [affectedNumList]);
 
     for (const y of affectedYears) {
       const records = buildBsDayRecordsForYear(y.yearBS, y.daysInMonths, y.startAD);
       for (const rec of records) {
-        await pgPool.query(
-          `INSERT INTO bs_day_records (
-             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           ON CONFLICT (ad_date) DO UPDATE SET
-             bs_date = EXCLUDED.bs_date,
-             bs_year = EXCLUDED.bs_year,
-             bs_month = EXCLUDED.bs_month,
-             bs_month_name = EXCLUDED.bs_month_name,
-             bs_month_name_np = EXCLUDED.bs_month_name_np,
-             bs_day = EXCLUDED.bs_day,
-             day_of_week_name = EXCLUDED.day_of_week_name,
-             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-             fiscal_year = EXCLUDED.fiscal_year,
-             quarter = EXCLUDED.quarter,
-             is_weekend = EXCLUDED.is_weekend;`,
-          [
-            rec.adDate,
-            rec.bsDate,
-            rec.bsYear,
-            rec.bsMonth,
-            rec.bsMonthName,
-            rec.bsMonthNameNp,
-            rec.bsDay,
-            rec.dayOfWeekName,
-            rec.dayOfWeekNameNp,
-            rec.fiscalYear,
-            rec.quarter,
-            rec.isWeekend,
-          ]
-        );
+        await pgPool.query(BS_DAY_RECORD_UPSERT_SQL, bsDayRecordParams(rec));
       }
     }
 
@@ -1843,39 +1413,7 @@ const { dayRecords } = req.body;
   let pgSynced = false;
   try {
     for (const rec of dayRecords) {
-      await pgPool.query(
-        `INSERT INTO bs_day_records (
-           ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
-           bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (ad_date) DO UPDATE SET
-           bs_date = EXCLUDED.bs_date,
-           bs_year = EXCLUDED.bs_year,
-           bs_month = EXCLUDED.bs_month,
-           bs_month_name = EXCLUDED.bs_month_name,
-           bs_month_name_np = EXCLUDED.bs_month_name_np,
-           bs_day = EXCLUDED.bs_day,
-           day_of_week_name = EXCLUDED.day_of_week_name,
-           day_of_week_name_np = EXCLUDED.day_of_week_name_np,
-           fiscal_year = EXCLUDED.fiscal_year,
-           quarter = EXCLUDED.quarter,
-           is_weekend = EXCLUDED.is_weekend;`,
-        [
-          rec.adDate,
-          rec.bsDate,
-          rec.bsYear,
-          rec.bsMonth,
-          rec.bsMonthName,
-          rec.bsMonthNameNp,
-          rec.bsDay,
-          rec.dayOfWeekName,
-          rec.dayOfWeekNameNp,
-          rec.fiscalYear,
-          rec.quarter,
-          rec.isWeekend,
-        ]
-      );
+      await pgPool.query(BS_DAY_RECORD_UPSERT_SQL, bsDayRecordParams(rec));
     }
     pgSynced = true;
   } catch (_err) {
@@ -1907,9 +1445,7 @@ const { dayRecords } = req.body;
 export async function get_companyProfile2(req: any, res: Response): Promise<any> {
 try {
     if (getPgConnected()) {
-      const dbRes = await pgPool.query(
-        `SELECT id, name, legal_name AS "legalName", tagline, address, city, country, postal_code AS "postalCode", phone, email, website, pan_vat_number AS "panVatNumber", registration_number AS "registrationNumber", logo_url AS "logoUrl", logo_preset AS "logoPreset", currency_symbol AS "currencySymbol", currency_code AS "currencyCode", currency_locale AS "currencyLocale", currency_position AS "currencyPosition", currency_decimals AS "currencyDecimals", default_tax_rate AS "defaultTaxRate", notes FROM company_profile LIMIT 1`
-      );
+      const dbRes = await pgPool.query(COMPANY_PROFILE_SELECT_SQL);
       if (dbRes.rows.length > 0) {
         res.json(dbRes.rows[0]);
         return;
@@ -1933,56 +1469,7 @@ try {
     });
 
     if (getPgConnected()) {
-      await pgPool.query(
-        `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           legal_name = EXCLUDED.legal_name,
-           tagline = EXCLUDED.tagline,
-           address = EXCLUDED.address,
-           city = EXCLUDED.city,
-           country = EXCLUDED.country,
-           postal_code = EXCLUDED.postal_code,
-           phone = EXCLUDED.phone,
-           email = EXCLUDED.email,
-           website = EXCLUDED.website,
-           pan_vat_number = EXCLUDED.pan_vat_number,
-           registration_number = EXCLUDED.registration_number,
-           logo_url = EXCLUDED.logo_url,
-           logo_preset = EXCLUDED.logo_preset,
-           currency_symbol = EXCLUDED.currency_symbol,
-           currency_code = EXCLUDED.currency_code,
-           currency_locale = EXCLUDED.currency_locale,
-           currency_position = EXCLUDED.currency_position,
-           currency_decimals = EXCLUDED.currency_decimals,
-           default_tax_rate = EXCLUDED.default_tax_rate,
-           notes = EXCLUDED.notes`,
-        [
-          companyProfile.id || 'COMP-001',
-          companyProfile.name,
-          companyProfile.legalName || '',
-          companyProfile.tagline || '',
-          companyProfile.address,
-          companyProfile.city || '',
-          companyProfile.country || 'Nepal',
-          companyProfile.postalCode || '',
-          companyProfile.phone || '',
-          companyProfile.email || '',
-          companyProfile.website || '',
-          companyProfile.panVatNumber || '',
-          companyProfile.registrationNumber || '',
-          companyProfile.logoUrl || '',
-          companyProfile.logoPreset || 'telecom',
-          companyProfile.currencySymbol || 'NPR',
-          companyProfile.currencyCode || 'NPR',
-          companyProfile.currencyLocale || 'en-IN',
-          companyProfile.currencyPosition || 'before',
-          companyProfile.currencyDecimals ?? 2,
-          companyProfile.defaultTaxRate || 13,
-          companyProfile.notes || '',
-        ]
-      );
+      await pgPool.query(COMPANY_PROFILE_UPSERT_NO_STAMP_SQL, companyProfileUpsertNoStampParams(companyProfile as CompanyProfile));
     }
 
     logAuditEvent(

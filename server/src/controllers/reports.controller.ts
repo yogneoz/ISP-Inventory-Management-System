@@ -7,6 +7,16 @@
  */
 import type { Request, Response } from 'express';
 import { getPgConnected, pickCurrentFiscalYear, mutable, fiscalYears, pgPool, inventoryStock, assetRegister, purchaseInvoices, stockOperations, products, computeTradingFromOps } from '../app';
+import {
+  buildInventoryValueQuery,
+  buildFixedAssetValueQuery,
+  buildPurchaseInvoiceTotalsQuery,
+  buildVendorOpeningBalanceQuery,
+  buildVendorPaymentsQuery,
+  buildDamageLossQuery,
+  buildStockOutOpsQuery,
+  PRODUCT_COST_PRICE_SQL,
+} from '../models/reports.repo';
 /** Forwarded from reports.routes.ts (get_financialSummary). */
 export async function get_financialSummary(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -27,94 +37,43 @@ const { branchId, fiscalYearId } = req.query;
       const useOpeningStock = Boolean(requestedFy && currentFy && requestedFy.id !== currentFy.id);
 
       // Inventory Asset Value: SUM(quantity * cost_price)
-      const invParams: any[] = [];
-      let invSql: string;
-      if (useOpeningStock) {
-        invSql = `SELECT SUM(os.quantity_on_hand * p.cost_price) AS total
-                  FROM fiscal_year_opening_stock os
-                  JOIN products p ON os.product_id = p.id
-                  WHERE os.fiscal_year_id = $1`;
-        invParams.push(requestedFy!.id);
-        if (hasBranch) {
-          invParams.push(branchId);
-          invSql += ` AND os.branch_id = $${invParams.length}`;
-        }
-      } else {
-        invSql = `SELECT SUM(s.quantity_on_hand * p.cost_price) AS total
-                  FROM inventory_stock s
-                  JOIN products p ON s.product_id = p.id`;
-        const conds: string[] = [];
-        if (hasBranch) {
-          invParams.push(branchId);
-          conds.push(`s.branch_id = $${invParams.length}`);
-        }
-        if (conds.length) invSql += ` WHERE ${conds.join(' AND ')}`;
-      }
+      const { sql: invSql, params: invParams } = buildInventoryValueQuery({
+        useOpeningStock,
+        fiscalYearId: requestedFy?.id,
+        branchId: hasBranch ? branchId : undefined,
+      });
       const invRes = await pgPool.query(invSql, invParams);
       const totalInventoryAssetValue = Number(invRes.rows[0]?.total || 0);
 
       // Fixed Asset Value (net book value is a live snapshot; the system does
       // not track per-fiscal-year NBV history)
-      const assetRes = await pgPool.query(
-        `SELECT SUM(net_book_value) AS total FROM fixed_assets` + (hasBranch ? ' WHERE branch_id = $1' : ''),
-        hasBranch ? [branchId] : []
-      );
+      const { sql: assetSql, params: assetParams } = buildFixedAssetValueQuery(hasBranch, branchId);
+      const assetRes = await pgPool.query(assetSql, assetParams);
       const totalFixedAssetValue = Number(assetRes.rows[0]?.total || 0);
 
       // Accounts Payable & VAT Input Tax (scoped to the selected fiscal year)
       // AP = opening balance (from vendor_opening_balances, i.e. the carry-forward
       // from the prior FY close) + current-period unpaid invoices − posted payments.
-      const piConds: string[] = [];
-      const piParams: any[] = [];
-      if (requestedFy) {
-        piParams.push(requestedFy.id);
-        piConds.push(`fiscal_year_id = $${piParams.length}`);
-      }
-      if (hasBranch) {
-        piParams.push(branchId);
-        piConds.push(`branch_id = $${piParams.length}`);
-      }
-      const invPayRes = await pgPool.query(
-        `SELECT SUM(grand_total) AS total_invoiced, SUM(vat_amount) AS total_vat FROM purchase_invoices` +
-          (piConds.length ? ` WHERE ${piConds.join(' AND ')}` : ''),
-        piParams
-      );
+      const invPayQuery = buildPurchaseInvoiceTotalsQuery({
+        fiscalYearId: requestedFy?.id,
+        branchId: hasBranch ? branchId : undefined,
+      });
+      const invPayRes = await pgPool.query(invPayQuery.sql, invPayQuery.params);
       // Opening balance carry-forward (same FY + branch scope)
-      const obParams: any[] = [];
-      const obConds: string[] = [];
-      if (requestedFy) {
-        obParams.push(requestedFy.id);
-        obConds.push(`fiscal_year_id = $${obParams.length}`);
-      }
-      if (hasBranch) {
-        obParams.push(branchId);
-        obConds.push(`branch_id = $${obParams.length}`);
-      }
-      const obRes = await pgPool.query(
-        `SELECT COALESCE(SUM(opening_balance), 0)::float AS total_ob FROM vendor_opening_balances` +
-          (obConds.length ? ` WHERE ${obConds.join(' AND ')}` : ''),
-        obParams
-      );
+      const obQuery = buildVendorOpeningBalanceQuery({
+        fiscalYearId: requestedFy?.id,
+        branchId: hasBranch ? branchId : undefined,
+      });
+      const obRes = await pgPool.query(obQuery.sql, obQuery.params);
       // Posted vendor payments in the same scope. Note: vendor payments are
       // scoped by payment_date_ad date range (like the bootstrap endpoint),
       // because older payments may have a NULL fiscal_year_id.
-      const vpConds: string[] = [];
-      const vpParams: any[] = [];
-      if (requestedFy) {
-        vpParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
-        vpConds.push(`payment_date_ad >= $${vpParams.length - 1}`);
-        vpConds.push(`payment_date_ad <= $${vpParams.length}`);
-      }
-      if (hasBranch) {
-        vpParams.push(branchId);
-        vpConds.push(`branch_id = $${vpParams.length}`);
-      }
-      vpConds.push(`status = 'POSTED'`);
-      const vpPayRes = await pgPool.query(
-        `SELECT COALESCE(SUM(amount), 0)::float AS total_paid FROM vendor_payments` +
-          (vpConds.length ? ` WHERE ${vpConds.join(' AND ')}` : ''),
-        vpParams
-      );
+      const vpQuery = buildVendorPaymentsQuery({
+        startDateAD: requestedFy?.startDateAD,
+        endDateAD: requestedFy?.endDateAD,
+        branchId: hasBranch ? branchId : undefined,
+      });
+      const vpPayRes = await pgPool.query(vpQuery.sql, vpQuery.params);
       const vendorOpeningBal = Number(obRes.rows[0]?.total_ob || 0);
       const currentPeriodInvoiced = Number(invPayRes.rows[0]?.total_invoiced || 0);
       const postedPayments = Number(vpPayRes.rows[0]?.total_paid || 0);
@@ -122,42 +81,22 @@ const { branchId, fiscalYearId } = req.query;
       const totalVatInputTax = Number(invPayRes.rows[0]?.total_vat || 0);
 
       // Damage Loss Value (scoped to the selected fiscal year)
-      const opConds: string[] = [];
-      const opParams: any[] = [];
-      if (requestedFy) {
-        opParams.push(requestedFy.id);
-        opConds.push(`fiscal_year_id = $${opParams.length}`);
-      }
-      if (hasBranch) {
-        opParams.push(branchId);
-        opConds.push(`branch_id = $${opParams.length}`);
-      }
-      const opRes = await pgPool.query(
-        `SELECT SUM(total_value) AS total FROM stock_operations` +
-          (opConds.length ? ` WHERE ${opConds.join(' AND ')}` : ''),
-        opParams
-      );
+      const opQuery = buildDamageLossQuery({
+        fiscalYearId: requestedFy?.id,
+        branchId: hasBranch ? branchId : undefined,
+      });
+      const opRes = await pgPool.query(opQuery.sql, opQuery.params);
       const totalDamageLossValue = Number(opRes.rows[0]?.total || 0);
 
       // Sales Revenue + Cost of Goods Sold: fetch the priced STOCK_OUT sale
       // operations in the same FY/branch scope as inventory, then derive both
       // numbers from the sale lines (identical logic to the bootstrap helper).
-      const saleConds: string[] = [`type = 'STOCK_OUT'`];
-      const saleParams: any[] = [];
-      if (requestedFy) {
-        saleParams.push(requestedFy.startDateAD, requestedFy.endDateAD);
-        saleConds.push(`date_ad >= $${saleParams.length - 1}`);
-        saleConds.push(`date_ad <= $${saleParams.length}`);
-      }
-      if (hasBranch) {
-        saleParams.push(branchId);
-        saleConds.push(`branch_id = $${saleParams.length}`);
-      }
-      const saleRes = await pgPool.query(
-        `SELECT items FROM stock_operations` +
-          (saleConds.length ? ` WHERE ${saleConds.join(' AND ')}` : ''),
-        saleParams
-      );
+      const saleQuery = buildStockOutOpsQuery({
+        startDateAD: requestedFy?.startDateAD,
+        endDateAD: requestedFy?.endDateAD,
+        branchId: hasBranch ? branchId : undefined,
+      });
+      const saleRes = await pgPool.query(saleQuery.sql, saleQuery.params);
       const saleResRows: any[] = saleRes.rows || [];
       const saleLines = saleResRows.flatMap((r: any) => {
         const lines = Array.isArray(r.items) ? r.items : [];
@@ -167,9 +106,7 @@ const { branchId, fiscalYearId } = req.query;
       });
 
       // Products are needed to resolve cost for lines that don't carry unitCost.
-      const prodResForCogs = await pgPool.query(
-        'SELECT id, cost_price AS "costPrice" FROM products'
-      );
+      const prodResForCogs = await pgPool.query(PRODUCT_COST_PRICE_SQL);
       const productsForCogs = prodResForCogs.rows;
       let totalSalesRevenue = 0;
       let totalCostOfGoodsSold = 0;
