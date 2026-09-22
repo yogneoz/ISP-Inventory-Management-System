@@ -147,7 +147,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         { key: 'GrossAcquisitionCost', label: 'Gross Cost' },
         { key: 'AccumulatedDepreciation', label: 'Accumulated Depreciation' },
         { key: 'NetBookValue', label: 'Net Book Value' },
-      ]);
+      ], companyProfile);
     } else {
       const data = sortedDatewiseAssets.map((a) => {
         const bObj = branches.find((b) => b.id === a.branchId);
@@ -191,7 +191,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
 
   return (
     <div className="printable-document space-y-6">
-      {/* Official Company Letterhead */}
+      {/* Company letterhead — print/export only (hidden on screen) */}
       <DocumentLetterhead
         companyProfile={companyProfile}
         title="Fixed Asset Depreciation Register"

@@ -111,7 +111,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         { key: 'Category', label: 'Category' },
         { key: 'Account', label: 'Account Name' },
         { key: 'Amount', label: 'Amount (NPR)' },
-      ]);
+      ], companyProfile);
     } else {
       const data = [
         { Section: 'Revenue', Item: 'Posted Sales Revenue', Amount: trackedSalesRevenue, Status: 'From customer product sales (STOCK_OUT)' },
@@ -124,7 +124,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         { key: 'Item', label: 'Line Item' },
         { key: 'Amount', label: 'Amount (NPR)' },
         { key: 'Status', label: 'Source / Status' },
-      ]);
+      ], companyProfile);
     }
   };
 
@@ -189,13 +189,13 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
       {statementType === 'BALANCE_SHEET' ? (
         <div className="space-y-3">
-          {/* Official Company Letterhead + Statement Title */}
+          {/* Official Company Letterhead (print/export only) + Statement Title */}
           <div className="text-center border-b-2 border-slate-300 dark:border-slate-700 pb-4">
-            <h2 className="text-xl font-serif font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <h2 className="text-xl font-serif font-extrabold text-slate-900 dark:text-white tracking-tight hidden print:block">
               {companyProfile?.legalName || companyProfile?.name || 'Inventory Management System'}
             </h2>
             {(companyProfile?.address || companyProfile?.city || companyProfile?.phone || companyProfile?.email) && (
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 hidden print:block">
                 {[companyProfile?.address, companyProfile?.city, companyProfile?.country]
                   .filter(Boolean)
                   .join(', ')}
@@ -204,7 +204,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
               </p>
             )}
             {companyProfile?.panVatNumber && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden print:block">
                 PAN / VAT No: {companyProfile.panVatNumber}
               </p>
             )}
@@ -410,7 +410,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             className={`p-4 rounded-2xl border space-y-4 max-w-3xl mx-auto bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
           >
             <div className="text-center border-b border-slate-200 dark:border-slate-800 pb-4">
-              <h3 className="text-lg font-serif font-bold text-slate-900 dark:text-white">
+              <h3 className="text-lg font-serif font-bold text-slate-900 dark:text-white hidden print:block">
                 {companyProfile?.name || 'Inventory Management System'}
               </h3>
               <h4 className="text-base font-serif font-bold text-slate-800 dark:text-slate-200 mt-1">

@@ -78,7 +78,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       { key: 'VAT13Percent', label: 'VAT 13%' },
       { key: 'GrandTotal', label: 'Grand Total' },
       { key: 'PaymentStatus', label: 'Status' },
-    ]);
+    ], companyProfile);
   };
 
   const handlePrint = () => {
@@ -87,7 +87,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
 
   return (
     <div className="printable-document space-y-6">
-      {/* Official Company Letterhead */}
+      {/* Company letterhead — print/export only (hidden on screen) */}
       <DocumentLetterhead
         companyProfile={companyProfile}
         title="Value Added Tax (VAT) Register"
