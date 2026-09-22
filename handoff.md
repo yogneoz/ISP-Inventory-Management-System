@@ -348,8 +348,7 @@ ISP-Inventory-Management-System/
 ├── vite.config.ts                     # Vite build config with manual chunks
 ├── ecosystem.config.js                # PM2 production process manager config
 ├── Dockerfile                         # Multi-stage Docker build
-├── UPDATEPROCESS.md                   # Update/change log
-└── USER_MANUAL.md                     # End-user documentation
+├── UPDATEPROCESS.md                   # Update/change log & production maintenance guide
 ```
 
 ---

@@ -9,8 +9,7 @@ This guide details the standard operating procedures for patching production upd
 2. [Patching Production Updates (Docker Container Host)](#2-patching-production-updates-docker-container-host)
 3. [Database Schema Updates & Migrations](#3-database-schema-updates--migrations)
 4. [Rollback Procedures (Zero-Downtime)](#4-rollback-procedures-zero-downtime)
-5. [Changing Repository Branding & Template Tags](#5-changing-repository-branding--template-tags)
-6. [Architecture Convention: Repository Layer & SQL Guard](#6-architecture-convention-repository-layer--sql-guard)
+5. [Architecture Convention: Repository Layer & SQL Guard](#5-architecture-convention-repository-layer--sql-guard)
 
 ---
 
@@ -128,69 +127,9 @@ PGPASSWORD="YourPassword" psql -h localhost -U inventory_user -d inventory_db < 
 
 ---
 
-## 5. Changing Repository Branding & Template Tags
+## 5. Architecture Convention: Repository Layer & SQL Guard
 
-When exporting or pushing this repository from AI Studio to your own GitHub organization, follow these steps to replace the default `google-gemini/aistudio-repository-template` tags and naming.
-
-### Step 1: Update `package.json`
-Open `package.json` and customize the project metadata:
-
-```json
-{
-  "name": "inventory-management-system",
-  "version": "1.0.0",
-  "description": "Enterprise Multi-Branch Inventory Management System",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/your-org/inventory-management-system.git"
-  },
-  "author": "Your Company Name",
-  "license": "MIT"
-}
-```
-
-### Step 2: Update `metadata.json`
-Open `metadata.json` and set your application title and description:
-
-```json
-{
-  "name": "Inventory Management System",
-  "description": "Multi-Branch Inventory Management System, Hardware Serial Tracking, VAT Register & Fiscal Closing",
-  "requestFramePermissions": [
-    "camera"
-  ],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
-```
-
-### Step 3: Update GitHub Repository Settings (GitHub Web UI)
-After pushing the code to your GitHub organization:
-
-1. **Rename Repository**:
-   - Go to your repository on GitHub: `https://github.com/your-username/aistudio-repository-template`
-   - Navigate to **Settings -> General**.
-   - Under **Repository name**, change `aistudio-repository-template` to `inventory-management-system` and click **Rename**.
-
-2. **Update About & Topics (Tags)**:
-   - On your GitHub repository homepage, click the **⚙️ (Gear Icon)** next to the **About** section on the right sidebar.
-   - **Description**: Update description to your system name.
-   - **Website**: Set your live production domain (e.g., `https://erp.yourdomain.com`).
-   - **Topics**: Remove generic template tags and add relevant topic tags:
-     - `erp`, `inventory-management`, `react`, `typescript`, `postgresql`, `express`, `nepal-vat`, `bs-calendar`.
-
-3. **Update Remote Git Origin (on local or server)**:
-   ```bash
-   git remote set-url origin https://github.com/your-username/inventory-management-system.git
-   git remote -v
-   ```
-
----
-
-## 6. Architecture Convention: Repository Layer & SQL Guard
-
-> Added 2026-09-22 (branch `refactor/psql-only-reads`, PR #5). This is a code-architecture change only: **no schema changes, no new runtime dependencies, and no API contract changes** — existing patch/rollback procedures in sections 1–4 apply unchanged.
+> Added 2026-09-22 (branch `refactor/psql-only-reads`, PR #5). This is a code-architecture change only: **no schema changes, no new runtime dependencies, and no API contract changes** — existing patch/rollback procedures in sections 1–4 apply unchanged. (The former branding/template-tags section was removed: it described a one-time AI Studio export flow that no longer applies to this repository.)
 
 ### What Changed
 
