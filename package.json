@@ -15,7 +15,8 @@
     "setup:pg": "node scripts/setup_db.js",
     "setup:postgres": "bash scripts/setup_postgres.sh",
     "lint": "tsc --noEmit",
-    "test": "tsc --noEmit && tsx --test tests/*.test.ts"
+    "test": "tsc --noEmit && tsx --test tests/*.test.ts",
+    "check:no-inline-sql": "tsx scripts/check_no_inline_sql.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
