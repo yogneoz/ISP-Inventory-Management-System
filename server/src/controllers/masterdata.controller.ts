@@ -163,7 +163,7 @@ try {
           loc.contactPerson,
           loc.contactPhone,
           loc.notes,
-          loc.activeAssetsCount,
+          Number(loc.activeAssetsCount) || 0,
           id,
         ]);
     }
@@ -335,13 +335,17 @@ try {
       newStockItems.push(stkItem);
     });
 
-    // PostgreSQL database insertion
+    // PostgreSQL database insertion. Product row + per-branch zero-stock rows
+    // commit atomically: a mid-loop failure would otherwise leave stock rows
+    // referencing a product that was never inserted (or vice versa).
     if (getPgConnected()) {
-      await pgPool.query(PRODUCT_UPSERT_SQL, productUpsertParams(newProd as any));
+      await withTransaction(async (client) => {
+        await client.query(PRODUCT_UPSERT_SQL, productUpsertParams(newProd as any));
 
-      for (const stk of newStockItems) {
-        await pgPool.query(STOCK_INIT_SQL, stockInitParams(stk));
-      }
+        for (const stk of newStockItems) {
+          await client.query(STOCK_INIT_SQL, stockInitParams(stk));
+        }
+      });
     }
     logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
     res.status(201).json(newProd);

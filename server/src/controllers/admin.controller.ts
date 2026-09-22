@@ -573,7 +573,7 @@ const { id } = req.params;
   try {
     await pgPool.query(DOC_NUMBER_CONFIG_UPDATE_SQL, [cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '', id]);
   } catch (e: any) {
-    console.warn('PostgreSQL update document_number_configs notice:', e.message);
+    console.error('PostgreSQL update document_number_configs failed:', id, e?.message || e);
   }
 
   const idx = docNumberConfigs.findIndex((c) => c.id === id);
@@ -594,7 +594,7 @@ const configs: DocumentNumberConfig[] = req.body;
       try {
         await pgPool.query(DOC_NUMBER_CONFIG_UPSERT_SQL, docNumberConfigUpsertParams(cfg));
       } catch (e: any) {
-        console.warn(`PostgreSQL bulk update document_number_configs notice for ${cfg.id}:`, e.message);
+        console.error(`PostgreSQL bulk update document_number_configs failed for ${cfg.id}:`, e?.message || e);
       }
     }
     setDocNumberConfigs(configs);
@@ -614,7 +614,7 @@ const { docTypeId, autoIncrement } = req.body;
       config = dbRes.rows[0];
     }
   } catch (e: any) {
-    console.warn('PostgreSQL read document_number_config notice:', e.message);
+    console.warn('PostgreSQL read document_number_config notice:', e?.message || e);
   }
 
   if (!config) {
@@ -629,11 +629,11 @@ const { docTypeId, autoIncrement } = req.body;
 
   if (autoIncrement !== false) {
     const nextSeq = seqNum + 1;
-    try {
-      await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [nextSeq, docTypeId]);
-    } catch (e: any) {
-      console.warn('PostgreSQL increment document_number_config notice:', e.message);
-    }
+  try {
+    await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [nextSeq, docTypeId]);
+  } catch (e: any) {
+    console.error('PostgreSQL increment document_number_config failed:', docTypeId, e?.message || e);
+  }
     const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
     if (idx !== -1) docNumberConfigs[idx].nextNumber = nextSeq;
   }
@@ -651,7 +651,7 @@ const { docTypeId, newStartNumber } = req.body;
   try {
     await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [startNum, docTypeId]);
   } catch (e: any) {
-    console.warn('PostgreSQL reset counter document_number_config notice:', e.message);
+    console.error('PostgreSQL reset counter document_number_config failed:', docTypeId, e?.message || e);
   }
 
   if (idx !== -1) {

@@ -226,6 +226,17 @@ export const CDR_IN_STOCK_DELETE_SQL =
   `DELETE FROM customer_device_records
    WHERE device_serial = ANY($1::text[]) AND purchase_bill_ref = ANY($2::text[]) AND status = 'IN_STOCK'`;
 
+/** Locks an invoice row (FOR UPDATE) for read-modify-write payment updates. */
+export const PI_LOCK_FOR_UPDATE_SQL =
+  'SELECT amount_paid AS "amountPaid", grand_total AS "grandTotal" FROM purchase_invoices WHERE id = $1 FOR UPDATE';
+
+/** Reads the post-update balance of an invoice inside the same transaction. */
+export const PI_BALANCE_AFTER_SQL =
+  'SELECT amount_paid AS "amountPaid", payment_status AS "paymentStatus" FROM purchase_invoices WHERE id = $1';
+
+/** Locks a vendor-payment row (FOR UPDATE) before a status transition. */
+export const VP_LOCK_STATUS_SQL = 'SELECT status FROM vendor_payments WHERE id = $1 FOR UPDATE';
+
 export const PI_FIND_FOR_PAYMENT_SQL =
   `SELECT id, invoice_number AS "invoiceNumber", supplier_name AS "supplierName",
           branch_id AS "branchId",

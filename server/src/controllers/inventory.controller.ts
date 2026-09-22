@@ -62,6 +62,7 @@ import {
   buildSerialLookupSql,
   buildSerialLogQuery,
   SERIAL_LOG_FIND_BY_DEVICE_SQL,
+  SERIAL_LOG_LOCK_HISTORY_SQL,
   SERIAL_LOG_UPDATE_SQL,
   serialLogUpdateParams,
   SERIAL_LOG_INSERT_SQL,
@@ -1542,54 +1543,63 @@ try {
     const now = new Date().toISOString();
     const historyEntry = { status: st, sourceType: src, sourceId: sourceId || null, dateAD: now.slice(0, 10), notes: notes || null };
     // Upsert keyed on the unique lower(device_serial) index so one serial = one row.
-    const existing = await pgPool.query(SERIAL_LOG_FIND_BY_DEVICE_SQL, [serial]);
-    let id: string;
-    let history: any[];
-    if (existing.rows.length > 0) {
-      id = existing.rows[0].id;
-      try { history = JSON.parse(existing.rows[0].history_json || '[]'); } catch { history = []; }
-      history.push(historyEntry);
-      await pgPool.query(
-        SERIAL_LOG_UPDATE_SQL,
-        serialLogUpdateParams({
-          ponSerial: ponSerial || null,
-          macAddress: macAddress || null,
-          productId: productId || null,
-          productName: productName || null,
-          branchId: branchId || null,
-          customerId: customerId || null,
-          customerName: customerName || null,
-          status: st,
-          sourceType: src,
-          sourceId: sourceId || null,
-          historyJson: JSON.stringify(history),
-          updatedAt: now,
-          id,
-        })
-      );
-    } else {
-      id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      history = [historyEntry];
-      await pgPool.query(
-        SERIAL_LOG_INSERT_SQL,
-        serialLogInsertParams({
-          id,
-          deviceSerial: serial,
-          ponSerial: ponSerial || null,
-          macAddress: macAddress || null,
-          productId: productId || null,
-          productName: productName || null,
-          branchId: branchId || null,
-          customerId: customerId || null,
-          customerName: customerName || null,
-          status: st,
-          sourceType: src,
-          sourceId: sourceId || null,
-          historyJson: JSON.stringify(history),
-          timestamp: now,
-        })
-      );
-    }
+    // Read-modify-write runs inside a transaction with the history row locked
+    // FOR UPDATE so two concurrent log entries for the same serial append to
+    // the history JSON without losing entries, and the insert/update branch is
+    // decided under the same lock that applies it.
+    const result = await withTransaction(async (client) => {
+      const existing = await pgPool.query(SERIAL_LOG_FIND_BY_DEVICE_SQL, [serial]);
+      let id: string;
+      let history: any[];
+      if (existing.rows.length > 0) {
+        id = existing.rows[0].id;
+        const locked = await client.query(SERIAL_LOG_LOCK_HISTORY_SQL, [id]);
+        try { history = JSON.parse(locked.rows[0]?.history_json || '[]'); } catch { history = []; }
+        history.push(historyEntry);
+        await client.query(
+          SERIAL_LOG_UPDATE_SQL,
+          serialLogUpdateParams({
+            ponSerial: ponSerial || null,
+            macAddress: macAddress || null,
+            productId: productId || null,
+            productName: productName || null,
+            branchId: branchId || null,
+            customerId: customerId || null,
+            customerName: customerName || null,
+            status: st,
+            sourceType: src,
+            sourceId: sourceId || null,
+            historyJson: JSON.stringify(history),
+            updatedAt: now,
+            id,
+          })
+        );
+      } else {
+        id = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        history = [historyEntry];
+        await client.query(
+          SERIAL_LOG_INSERT_SQL,
+          serialLogInsertParams({
+            id,
+            deviceSerial: serial,
+            ponSerial: ponSerial || null,
+            macAddress: macAddress || null,
+            productId: productId || null,
+            productName: productName || null,
+            branchId: branchId || null,
+            customerId: customerId || null,
+            customerName: customerName || null,
+            status: st,
+            sourceType: src,
+            sourceId: sourceId || null,
+            historyJson: JSON.stringify(history),
+            timestamp: now,
+          })
+        );
+      }
+      return { id, history };
+    });
+    const { id, history } = result;
     const entry: SerialLog = { id, deviceSerial: serial, ponSerial, macAddress, productId, productName, branchId, customerId, customerName, status: st, sourceType: src, sourceId, history, createdAt: now, updatedAt: now };
     const idx = serialLogs.findIndex((s) => s.id === id);
     setSerialLogs(idx >= 0 ? withReplaced(serialLogs, idx, entry) : withPrepended(serialLogs, entry));

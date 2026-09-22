@@ -178,7 +178,6 @@ try {
         );
 
         for (const item of sh.items) {
-          const actualQtyReceived = item.quantityReceived || item.quantitySent || 1;
           await client.query(
             SHIPMENT_RECEIVE_STOCK_SQL,
             shipmentReceiveStockParams(sh.destinationBranchId, item)

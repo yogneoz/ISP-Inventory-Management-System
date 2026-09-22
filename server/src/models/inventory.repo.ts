@@ -600,6 +600,10 @@ export function buildSerialLogQuery(opts: SerialLogQueryOptions): { sql: string;
   return { sql, params };
 }
 
+/** Locks a serial_log history row (FOR UPDATE) for the upsert read-modify-write. */
+export const SERIAL_LOG_LOCK_HISTORY_SQL =
+  'SELECT history_json FROM serial_log WHERE id = $1 FOR UPDATE';
+
 /** Idempotent upsert probe: one serial = one row (case/trim-insensitive). */
 export const SERIAL_LOG_FIND_BY_DEVICE_SQL =
   'SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))';

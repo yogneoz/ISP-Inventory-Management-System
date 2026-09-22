@@ -89,7 +89,14 @@ export const SHIPMENT_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, prod
    last_updated = CURRENT_TIMESTAMP;`;
 
 export function shipmentReceiveStockParams(destBranchId: string, item: Record<string, any>): unknown[] {
-  return [`stk-${destBranchId.toLowerCase()}-${item.productId}`, item.productId, destBranchId, item.quantityReceived || item.quantitySent || 1];
+  // quantityReceived = 0 must stay 0 (full-loss receipt); only fall back when
+  // the field is nullish or non-numeric.
+  const received = item.quantityReceived;
+  const qty =
+    received !== undefined && received !== null && received !== '' && !Number.isNaN(Number(received))
+      ? Number(received)
+      : Number(item.quantitySent) || 1;
+  return [`stk-${destBranchId.toLowerCase()}-${item.productId}`, item.productId, destBranchId, qty];
 }
 
 // ---------------------------------------------------------------------------

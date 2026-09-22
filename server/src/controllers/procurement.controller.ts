@@ -13,6 +13,7 @@ import {
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
   buildPiListSql, PI_UPSERT_SQL, piUpsertParams, PI_RECEIVE_STOCK_SQL, piReceiveStockParams,
   PI_TXN_LOG_SQL, piTxnLogParams, PI_DELETE_SQL, PI_RECORD_PAYMENT_SQL, PI_RESET_PAYMENT_SQL, PI_UNDO_PAYMENT_SQL,
+  PI_LOCK_FOR_UPDATE_SQL, PI_BALANCE_AFTER_SQL, VP_LOCK_STATUS_SQL,
   PI_REVERSE_STOCK_SQL, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
   VP_REVERSE_SQL, VP_INSERT_SQL, vpInsertParams, buildVendorPaymentWhere, VP_ORDER_BY, VP_BY_INVOICE_SQL_SUFFIX,
   LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
@@ -67,13 +68,17 @@ try {
     setPurchaseOrders(idx >= 0 ? withReplaced(purchaseOrders, idx, newPO) : withPrepended(purchaseOrders, newPO));
 
     if (getPgConnected()) {
-      await pgPool.query(PO_UPSERT_SQL, poUpsertParams(newPO, JSON.stringify(items)));
+      // PO header + reserved incoming stock commit atomically: a failure after
+      // the upsert would otherwise leave incoming_qty reserved with no PO.
+      await withTransaction(async (client) => {
+        await client.query(PO_UPSERT_SQL, poUpsertParams(newPO, JSON.stringify(items)));
 
-      if (newPO.branchId && Array.isArray(items)) {
-        for (const item of items) {
-          await pgPool.query(PO_INCOMING_STOCK_SQL, poIncomingStockParams(newPO.branchId, item));
+        if (newPO.branchId && Array.isArray(items)) {
+          for (const item of items) {
+            await client.query(PO_INCOMING_STOCK_SQL, poIncomingStockParams(newPO.branchId, item));
+          }
         }
-      }
+      });
     }
 
     if (newPO.branchId && Array.isArray(items)) {
@@ -276,25 +281,28 @@ try {
     const resolvedSupplierId = supplierId || supLookup?.id || null;
 
     if (getPgConnected()) {
-      await pgPool.query(PI_UPSERT_SQL, piUpsertParams({
-        ...newInv,
-        poReferenceId: newInv.poReferenceId || newInv.poId,
-        supplierId: resolvedSupplierId,
-        supplierName: newInv.supplierName || 'Vendor',
-        branchId: targetBranchId,
-      }, JSON.stringify(items)));
+      // All-or-nothing: invoice upsert + per-item stock receive + txn log + PO
+      // status flip must commit together or not at all.
+      await withTransaction(async (client) => {
+        await client.query(PI_UPSERT_SQL, piUpsertParams({
+          ...newInv,
+          poReferenceId: newInv.poReferenceId || newInv.poId,
+          supplierId: resolvedSupplierId,
+          supplierName: newInv.supplierName || 'Vendor',
+          branchId: targetBranchId,
+        }, JSON.stringify(items)));
 
-      if (!invoiceAlreadyExists) for (const item of items) {
-        const qtyToAdd = Number(item.quantity) || 0;
-        await pgPool.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
+        if (!invoiceAlreadyExists) for (const item of items) {
+          await client.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
 
-        await pgPool.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId));
-      }
+          await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId));
+        }
 
-      const poRef = newInv.poReferenceId || req.body.poId;
-      if (poRef) {
-        await pgPool.query(PO_MARK_STATUS_SQL, ['RECEIVED', poRef]);
-      }
+        const poRef = newInv.poReferenceId || req.body.poId;
+        if (poRef) {
+          await client.query(PO_MARK_STATUS_SQL, ['RECEIVED', poRef]);
+        }
+      });
     }
 
     // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory mirror for non-DB mode; DB mode is updated above)
@@ -353,6 +361,9 @@ try {
     if (localAssignedSerial) return res.status(409).json({ message: 'This invoice has serial devices that are already assigned or consumed and cannot be deleted.' });
 
     if (getPgConnected()) {
+      // Invoice deletion + stock reversal + PO status restore commit atomically.
+      // Serials is checked before the transaction as a fast path; the guarded
+      // re-check inside runs under the same tx as the mutations.
       await withTransaction(async (client) => {
         if (serials.length > 0 && purchaseRefs.length > 0) {
           const assigned = await client.query(CDR_ASSIGNED_CHECK_SQL, [serials, purchaseRefs]);
@@ -397,17 +408,49 @@ export async function post_pay(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
     const { amount } = req.body;
-    const inv = purchaseInvoices.find((i) => i.id === id);
-    if (inv) {
-      inv.amountPaid += Number(amount);
-      inv.paymentStatus = inv.amountPaid >= inv.grandTotal ? 'PAID' : 'PARTIAL';
+
+    const paymentAmount = Number(amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      res.status(400).json({ message: 'Payment amount must be a number greater than 0.' });
+      return;
     }
 
-    if (getPgConnected()) {
-      await pgPool.query(PI_RECORD_PAYMENT_SQL, [Number(amount), id]);
+    if (!getPgConnected()) {
+      // Demo mode: keep the legacy in-memory balance update.
+      const inv = purchaseInvoices.find((i) => i.id === id);
+      if (inv) {
+        inv.amountPaid += paymentAmount;
+        inv.paymentStatus = inv.amountPaid >= inv.grandTotal ? 'PAID' : 'PARTIAL';
+      }
+      logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`);
+      res.json(inv || { message: 'Payment recorded' });
+      return;
     }
-    logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${Number(amount).toLocaleString()} for Invoice`);
-    res.json(inv || { message: 'Payment recorded' });
+
+    const invRes = await pgPool.query(PI_FIND_FOR_PAYMENT_SQL, [id]);
+    const inv = invRes.rows[0];
+    if (!inv) {
+      res.status(404).json({ message: 'Purchase invoice not found' });
+      return;
+    }
+
+    // Read-modify-write against the authoritative row inside a transaction so
+    // concurrent payments cannot interleave and corrupt the balance (the
+    // UPDATE itself re-derives payment_status from the final amount_paid).
+    const finalRes = await withTransaction(async (client) => {
+      const locked = await client.query(PI_LOCK_FOR_UPDATE_SQL, [id]);
+      if (!locked.rows[0]) {
+        const notFound: any = new Error('Purchase invoice not found');
+        notFound.statusCode = 404;
+        throw notFound;
+      }
+      await client.query(PI_RECORD_PAYMENT_SQL, [paymentAmount, id]);
+      const after = await client.query(PI_BALANCE_AFTER_SQL, [id]);
+      return after.rows[0];
+    });
+
+    logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${paymentAmount.toLocaleString()} for Invoice`);
+    res.json({ ...inv, amountPaid: Number(finalRes.amountPaid), paymentStatus: finalRes.paymentStatus, message: 'Payment recorded' });
   } catch (err: any) {
     console.error('Error recording payment:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
@@ -452,8 +495,14 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        // Reverse all payments for this invoice
         for (const payment of paymentsToReverse) {
+          // Guarded per-row reversal: a payment concurrently reversed (or
+          // voided) between the pre-check and this write aborts the whole
+          // transaction, leaving the invoice balance untouched.
+          const current = await client.query(VP_LOCK_STATUS_SQL, [payment.id]);
+          if (!current.rows[0] || current.rows[0].status !== 'POSTED') {
+            throw new Error(`Payment #${payment.paymentNumber} is no longer POSTED and cannot be reversed.`);
+          }
           await client.query(VP_REVERSE_SQL, [reason, getUserFromReq(req).email || 'system', payment.id]);
         }
         // Reset the invoice amount_paid and payment_status
@@ -672,7 +721,21 @@ try {
     }
 
     if (getPgConnected()) {
+      // Payment row + invoice-balance adjustment commit atomically; the
+      // guarded re-check inside the tx closes the TOCTOU window between the
+      // pre-check above and the write.
       await withTransaction(async (client) => {
+        const current = await client.query(VP_LOCK_STATUS_SQL, [id]);
+        if (!current.rows[0]) {
+          const notFound: any = new Error('Vendor payment not found.');
+          notFound.statusCode = 404;
+          throw notFound;
+        }
+        if (current.rows[0].status !== 'POSTED') {
+          const conflict: any = new Error(`Payment #${payment.paymentNumber} is already ${String(current.rows[0].status).toLowerCase()}.`);
+          conflict.statusCode = 409;
+          throw conflict;
+        }
         // Reverse the payment row.
         await client.query(VP_REVERSE_SQL, [reason, getUserFromReq(req).email || 'system', id]);
         // Undo the amount from the linked invoice so its balance is restored.

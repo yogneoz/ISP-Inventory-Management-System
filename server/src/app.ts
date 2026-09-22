@@ -492,7 +492,7 @@ export function generateNextDocNumberForServer(docTypeId: string): string {
         `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
         [seqNum + 1, docTypeId]
       )
-      .catch((e: any) => console.warn('PostgreSQL increment document_number_config notice:', e?.message));
+      .catch((e: any) => console.error('document_number_configs increment failed:', docTypeId, e?.message || e));
   }
 
   return docNum;
@@ -570,7 +570,9 @@ export function logAuditEvent(
     branchId: auditItem.branchId,
   });
 
-  // Async persist to Postgres if available
+  // Async persist to Postgres if available. Failures are logged (never
+  // silently dropped) — the audit trail is a compliance record and must be
+  // observable when it cannot be written.
   pgPool
     .query(
       `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
@@ -589,7 +591,7 @@ export function logAuditEvent(
         auditItem.branchId && auditItem.branchId !== 'ALL' ? auditItem.branchId : null,
       ]
     )
-    .catch(() => {});
+    .catch((e: any) => console.error('audit_logs persist failed:', auditItem.action, e?.message || e));
 
   return auditItem;
 }
@@ -938,7 +940,7 @@ export async function verifySuperAdminCredentials(
             check.upgradedHash,
             dbUser.id,
           ])
-          .catch(() => undefined);
+          .catch((e: any) => console.error('users password hash upgrade failed:', e?.message || e));
       }
       return { ok: true, email: dbUser.email };
     } catch (_err) {
