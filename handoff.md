@@ -1,7 +1,7 @@
 # Project Handoff Document — Inventory Management System
 
 > **Full project analysis, architecture, database relationships, and developer guide.**  
-> Updated: 2026-09-20 | Version: 1.2
+> Updated: 2026-09-22 | Version: 1.3
 
 ---
 
@@ -63,7 +63,7 @@
 | **Process Manager** | PM2 (production) | ecosystem.config.js |
 | **Containerization** | Docker (multi-stage) | Dockerfile |
 
-**No ORM is used** — all database queries are hand-written SQL via `pg.Pool` for maximum control and transparency.
+**No ORM is used** — all database queries are hand-written SQL via `pg.Pool` for maximum control and transparency. Every SQL string and param builder lives in the repository layer (`server/src/models/*.repo.ts`); controllers contain no SQL text (enforced by CI — see §15.8).
 
 ---
 
@@ -119,6 +119,7 @@
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
+- **Repository layer**: all SQL lives in `server/src/models/*.repo.ts`; controllers execute repo-owned constants and builders only. Enforced in CI by the no-inline-SQL guard (§15.8).
 
 ---
 
@@ -167,18 +168,23 @@ ISP-Inventory-Management-System/
 │       ├── middleware/                # Middleware chain
 │       │   ├── auth.ts                # scrypt hashing, HMAC tokens, session helpers
 │       │   └── index.ts               # auth, PG gate, fiscal lock, RBAC, matrix perms, branch scope
-│       ├── models/                    # Schema blueprints / data access — per-domain SQL query builders
+│       ├── models/                    # Repository layer — every SQL string + param builder lives here
 │       │   ├── bootstrap.repo.ts      # Bootstrap fetches + serial history parsing
 │       │   ├── columnMappings.ts      # Per-table column mappings (single source)
-│       │   ├── masterdata.repo.ts     # Master-data SQL (products, suppliers, branches, …)
+│       │   ├── masterdata.repo.ts     # Master-data SQL (products, suppliers, branches, customers, …)
 │       │   ├── procurement.repo.ts    # PO / purchase-invoice / vendor-payment / ledger SQL
 │       │   ├── shipments.repo.ts      # Inter-branch transfer, receipt and cancel-restore SQL
-│       │   └── misc.repo.ts           # Audit trail, txn logs, approval-request lifecycle SQL
+│       │   ├── misc.repo.ts           # Audit trail, txn logs, approval-request lifecycle SQL
+│       │   ├── admin.repo.ts          # Admin maintenance, BS-calendar, doc numbering, company profile SQL
+│       │   ├── inventory.repo.ts      # Stock, stock ops, assets, CPE devices, serial lookup/log SQL
+│       │   ├── auth.repo.ts           # User lookup / super-admin setup / password SQL
+│       │   ├── reports.repo.ts        # Financial-summary SQL + composable FY/branch WHERE-scope builders
+│       │   └── permissions.repo.ts    # Permission-matrix transaction SQL
 │       ├── routes/                    # Endpoint layout — every route is a thin forwarder
 │       │   ├── auth.routes.ts / bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
 │       │   ├── shipments.routes.ts / masterdata.routes.ts / admin.routes.ts /
 │       │   └── reports.routes.ts / sync.routes.ts / permissions.routes.ts / misc.routes.ts
-│       ├── services/                  # Core business logic — unit-tested (174 tests)
+│       ├── services/                  # Core business logic — unit-tested (see tests/)
 │       │   ├── damage.service.ts
 │       │   ├── serialEditCapture.service.ts
 │       │   └── serials.service.ts
@@ -188,8 +194,8 @@ ISP-Inventory-Management-System/
 ├── server.ts                          # Root shim → re-exports server/src/app
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit tests (node:test) for services + repo query
-                                       #   builders — 174 tests; CI runs tsc + npm test on
-                                       #   every push/PR (.github/workflows/ci.yml)
+                                       #   builders — 296 tests; CI runs tsc + npm test + the
+                                       #   no-inline-SQL guard on every push/PR (.github/workflows/ci.yml)
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
@@ -334,6 +340,7 @@ ISP-Inventory-Management-System/
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
 │   ├── integrity_check.mjs            # Database integrity verification
+│   ├── check_no_inline_sql.ts         # CI guard: fails the build if controllers contain raw SQL
 │   └── reset_fresh_demo.mjs           # Full reset & re-seed script (preserves BS calendar)
 │
 ├── package.json                       # Project manifest
@@ -951,6 +958,16 @@ Serial uniqueness is enforced case-insensitively everywhere — DB unique indexe
 - Document numbers are issued from `document_sequence_daily` as `{DOC_TYPE}-{BRANCH}-{YYYYMMDD}{NNNN}` (atomic, per-branch, daily)
 - Serial-log rows use stable ids derived from the device serial for idempotent seeding
 
+### 15.8 Repository Layer (models/*.repo.ts) and the No-Inline-SQL Guard
+
+Every SQL string, column list, and param builder lives in a per-domain repository under `server/src/models/` (bootstrap, masterdata, procurement, shipments, misc, admin, inventory, auth, reports, permissions). Controllers keep only HTTP concerns and execute repo-owned constants and builders.
+
+- Param builders are typed against `client/src/types` interfaces where they exist (e.g. `auth.repo.ts` types returned rows as `User`)
+- Shared SQL is **re-exported** between repos instead of duplicated (e.g. `inventory.repo.ts` re-exports `misc.repo`'s transaction-log insert)
+- `reports.repo.ts` provides composable WHERE-scope accumulators (`appendFiscalYearScope`, `appendBranchScope`, `appendAdDateRangeScope`) used by the financial-summary builders
+
+The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:no-inline-sql`), a lexical scan of `server/src/controllers` that fails the build when a controller contains SQL-looking string literals. It deliberately skips comments, template interpolations, and English prose that merely starts with a keyword (it requires structural pairs like `UPDATE … SET` / `DELETE … FROM`), and executing `pgPool.query(REPO_CONSTANT, params)` is the expected pattern. CI runs it as a dedicated step after `npm test`.
+
 ---
 
 ## 16. Quick Reference for New Developers
@@ -1007,7 +1024,8 @@ All demo users share password: `Demo@123`
 
 | Task | Files to Modify |
 |---|---|
-| Add new API endpoint | The matching `server/src/routes/<domain>.routes.ts` (+ `server/src/controllers/` for orchestration) + `client/src/services/api.ts` |
+| Add new API endpoint | `server/src/routes/<domain>.routes.ts` → `server/src/controllers/<domain>.controller.ts` (HTTP only) + SQL in `server/src/models/<domain>.repo.ts` + `client/src/services/api.ts` |
+| Add or change a SQL query | `server/src/models/<domain>.repo.ts` — controllers must not contain SQL text (CI guard: `npm run check:no-inline-sql`) |
 | Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx` |
 | Add new database table | `scripts/schema.sql` (CREATE TABLE) + `server/src/models/` + route/service wiring + `scripts/setup_db.js` if seeded |
 | Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/app.ts` (matrix seed) + `requirePermission` on routes |

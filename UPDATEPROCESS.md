@@ -10,6 +10,7 @@ This guide details the standard operating procedures for patching production upd
 3. [Database Schema Updates & Migrations](#3-database-schema-updates--migrations)
 4. [Rollback Procedures (Zero-Downtime)](#4-rollback-procedures-zero-downtime)
 5. [Changing Repository Branding & Template Tags](#5-changing-repository-branding--template-tags)
+6. [Architecture Convention: Repository Layer & SQL Guard](#6-architecture-convention-repository-layer--sql-guard)
 
 ---
 
@@ -184,6 +185,56 @@ After pushing the code to your GitHub organization:
    git remote set-url origin https://github.com/your-username/inventory-management-system.git
    git remote -v
    ```
+
+---
+
+## 6. Architecture Convention: Repository Layer & SQL Guard
+
+> Added 2026-09-22 (branch `refactor/psql-only-reads`, PR #5). This is a code-architecture change only: **no schema changes, no new runtime dependencies, and no API contract changes** — existing patch/rollback procedures in sections 1–4 apply unchanged.
+
+### What Changed
+
+All SQL was consolidated into a dedicated repository layer. Every SQL string, column list, and param builder now lives in a per-domain file under `server/src/models/*.repo.ts`:
+
+| Repo file | Domain |
+|---|---|
+| `bootstrap.repo.ts` | Atomic bootstrap data loading, serial history |
+| `masterdata.repo.ts` | Products, suppliers, branches, categories, UOMs, locations, customers |
+| `procurement.repo.ts` | Purchase orders, purchase invoices, vendor payments, vendor ledger |
+| `shipments.repo.ts` | Inter-branch transfers, receiving, cancel/restore |
+| `misc.repo.ts` | Audit trail, transaction logs, approval requests |
+| `admin.repo.ts` | Maintenance/recalculation, BS calendar, document numbering, company profile |
+| `inventory.repo.ts` | Stock, stock operations, damage, fixed assets, CPE devices, serial lookup/log |
+| `auth.repo.ts` | Login, super-admin setup, profile switch, password persistence |
+| `reports.repo.ts` | Financial-summary report (composable FY/branch WHERE-scope builders) |
+| `permissions.repo.ts` | Permission-matrix persistence |
+
+Controllers (`server/src/controllers/*.controller.ts`) now contain **HTTP concerns only** — request validation, session/authorization, cache updates, audit logging, and response shaping. They execute repo-owned constants, e.g. `pgPool.query(REPO_CONSTANT, params)`, but define no SQL text themselves.
+
+### The No-Inline-SQL Guard
+
+The convention is enforced so it cannot regress:
+
+- **CI**: `.github/workflows/ci.yml` runs `npm run check:no-inline-sql` as a dedicated step after `npm test`. A build fails if any controller contains raw SQL.
+- **Locally**: run the same check any time:
+  ```bash
+  npm run check:no-inline-sql
+  # ✅ No raw SQL literals in 11 controller file(s).
+  ```
+- **When it fails**: the output lists `file:line` for each SQL-looking literal. Move the statement (and its param builder) into the matching `server/src/models/<domain>.repo.ts`, import it in the controller, and re-run the check.
+
+The scanner is lexical: it ignores SQL text inside comments and template interpolations, and it does not flag English prose that merely starts with a keyword (it requires SQL structure like `UPDATE … SET` / `DELETE … FROM`).
+
+### Verification Performed
+
+- `npx tsc --noEmit` clean; unit tests grew from 174 to **296** (every repo has a dedicated `tests/<domain>.repo.test.ts` verifying SQL text and param ordering without a live database)
+- API smoke test (**15/15**, including live DB constraint probes) re-run against a live server after each domain extraction
+
+### Maintenance Impact
+
+- **New SQL goes in a repo file, not a controller.** Controllers are still the right place for orchestration.
+- Query text moved byte-identically from controllers; behavior is unchanged, so no data migration or downtime accompanies this change.
+- Docs: architecture details live in `handoff.md` §15.8; developer task routing in §16.
 
 ---
 

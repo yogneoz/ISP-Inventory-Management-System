@@ -64,7 +64,21 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   └── App.tsx                       # Root application shell (state, routing, SSE)
 │
 ├── server/
-│   └── db.ts                         # PostgreSQL pool (DATE columns parsed as 'YYYY-MM-DD')
+│   ├── db.ts                         # PostgreSQL pool (DATE columns parsed as 'YYYY-MM-DD')
+│   ├── index.ts                      # Network bootstrap (app creation, routes, listen)
+│   └── src/
+│       ├── app.ts                    # App composition, shared runtime state, caches, SSE
+│       ├── routes/                   # Thin route forwarders (no business logic)
+│       ├── controllers/              # HTTP orchestration only — no SQL text (CI-enforced)
+│       ├── services/                 # Core business logic (serial editing, damage lifecycle)
+│       ├── models/                   # Repository layer — every SQL string + param builder
+│       │   └── *.repo.ts             #   per domain: bootstrap, masterdata, procurement,
+│       │                             #   shipments, misc, admin, inventory, auth,
+│       │                             #   reports, permissions
+│       ├── middleware/               # Auth, PG gate, fiscal lock, RBAC, branch scope
+│       ├── errors/                   # ApiError + central error handler
+│       ├── config/                   # BS calendar + seed data
+│       └── utils/                    # Shared server helpers
 │
 ├── scripts/                          # Database Automation Scripts
 │   ├── schema.sql                    # Full PostgreSQL schema — 30 tables, idempotent, safe to re-run
@@ -72,6 +86,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
 │   ├── integrity_check.mjs           # Database integrity verification
+│   ├── check_no_inline_sql.ts        # CI guard: fails if controllers contain raw SQL
 │   └── reset_fresh_demo.mjs          # Full reset & re-seed while preserving the BS calendar
 │
 ├── server/                           # Backend (Node.js + Express) — index.ts bootstrap,
@@ -403,6 +418,8 @@ docker run -d \
 | :--- | :--- |
 | **Development Server** | `npm run dev` |
 | **Type Check & Lint** | `npm run lint` |
+| **Unit Tests** | `npm test` |
+| **Repo-Layer Guard (no SQL in controllers)** | `npm run check:no-inline-sql` |
 | **Production Build** | `npm run build` |
 | **Start Production Server** | `npm start` |
 | **Automated DB Setup (Node)** | `npm run setup:pg` |
