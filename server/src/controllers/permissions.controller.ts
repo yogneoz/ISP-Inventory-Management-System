@@ -7,6 +7,12 @@
  */
 import type { Request, Response } from 'express';
 import { permissionMatrix, pgPool, setPermissionMatrix, getUserFromReq } from '../app';
+import {
+  PERMISSION_MATRIX_DELETE_ALL_SQL,
+  PERMISSION_MATRIX_UPSERT_SQL,
+  permissionMatrixEntries,
+  permissionMatrixUpsertParams,
+} from '../models/permissions.repo';
 /** Forwarded from permissions.routes.ts (get_permissions). */
 export async function get_permissions(req: any, res: Response): Promise<any> {
 res.json({ matrix: permissionMatrix });
@@ -25,20 +31,10 @@ try {
     const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM permission_matrix');
-      const entries: Array<[string, string, boolean]> = [];
-      for (const [opId, roles] of Object.entries(matrix)) {
-        if (roles && typeof roles === 'object') {
-          for (const [role, allowed] of Object.entries(roles as Record<string, boolean>)) {
-            entries.push([opId, role, Boolean(allowed)]);
-          }
-        }
-      }
-      for (const [opId, role, allowed] of entries) {
-        await client.query(
-          'INSERT INTO permission_matrix (operation_id, role, allowed) VALUES ($1, $2, $3) ON CONFLICT (operation_id, role) DO UPDATE SET allowed = EXCLUDED.allowed',
-          [opId, role, allowed]
-        );
+      await client.query(PERMISSION_MATRIX_DELETE_ALL_SQL);
+      const entries = permissionMatrixEntries(matrix);
+      for (const entry of entries) {
+        await client.query(PERMISSION_MATRIX_UPSERT_SQL, permissionMatrixUpsertParams(entry));
       }
       await client.query('COMMIT');
       setPermissionMatrix(JSON.parse(JSON.stringify(matrix)));
