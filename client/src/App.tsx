@@ -1345,6 +1345,7 @@ export default function App() {
                   stock={stock}
                   damageRecords={damageRecords}
                   selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateOperation={handleCreateOperation}
                   onNavigateTab={setActiveTab}

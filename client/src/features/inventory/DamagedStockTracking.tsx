@@ -6,6 +6,7 @@ import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/perm
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import {
   AlertTriangle,
   Building2,
@@ -45,6 +46,8 @@ interface DamagedStockTrackingProps {
   stock: InventoryStock[];
   damageRecords?: DamageRecord[];
   selectedBranchId: string;
+  /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
+  dateMode?: 'BS' | 'AD';
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string, damagedQty?: number, changeType?: string) => Promise<void>;
   onCreateOperation?: (op: Partial<StockOperation>) => Promise<void>;
   onNavigateTab?: (tab: NavTab) => void;
@@ -57,6 +60,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   stock,
   damageRecords = [],
   selectedBranchId,
+  dateMode = 'BS',
   onUpdateStockLevel,
   onCreateOperation,
   onNavigateTab,
@@ -201,6 +205,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   const [showZeroDamaged, setShowZeroDamaged] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');
+  // Report date range (canonical AD values; DateField converts BS picks). A
+  // range narrows the damage records counted in the matrix by damageDateAD;
+  // an empty bound is open-ended.
+  const [reportDateFromAD, setReportDateFromAD] = useState('');
+  const [reportDateToAD, setReportDateToAD] = useState('');
+  const hasDateRange = Boolean(reportDateFromAD || reportDateToAD);
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
 
@@ -214,9 +224,16 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     const branchData = activeBranches.map((b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
 
-      // Get damage records for this product + branch
+      // Get damage records for this product + branch, narrowed by the report
+      // date range when one is set.
       const prodDamageRecords = (damageRecords || []).filter(
-        (dr) => dr.productId === prod.id && dr.branchId === b.id
+        (dr) => {
+          if (dr.productId !== prod.id || dr.branchId !== b.id) return false;
+          const d = (dr.damageDateAD || '').split('T')[0];
+          if (reportDateFromAD && d < reportDateFromAD) return false;
+          if (reportDateToAD && d > reportDateToAD) return false;
+          return true;
+        }
       );
 
       // Calculate quantities by status
@@ -227,8 +244,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         .filter((dr) => dr.status === 'DISPOSED' || dr.status === 'WRITTEN_OFF')
         .reduce((sum, dr) => sum + Number(dr.quantityDamaged), 0);
 
-      // Use damage_records if available, otherwise fallback to stock.damagedQty
-      const damagedQty = prodDamageRecords.length > 0
+      // Use damage_records if available, otherwise fallback to stock.damagedQty.
+      // The undated fallback is skipped while a date range is active so the
+      // matrix only counts records whose damage date is inside the range.
+      const damagedQty = (!hasDateRange && prodDamageRecords.length > 0)
+        ? identifiedOrUnderReview
+        : hasDateRange
         ? identifiedOrUnderReview
         : Number(item?.damagedQty) || 0;
 
@@ -266,7 +287,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   // Summary metrics
   const displayProducts = (filterCategory !== 'ALL' || localSearch.trim()) ? visibleProducts : productsWithDamaged;
 
-  const damagedPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch]);
+  const damagedPagination = useClientPagination(visibleProducts, 20, [filterCategory, localSearch, reportDateFromAD, reportDateToAD]);
   const grandTotalDamagedUnits = displayProducts.reduce((sum, item) => sum + item.totalDamagedQty, 0);
   const grandTotalLossValuation = displayProducts.reduce((sum, item) => sum + item.totalLossValuation, 0);
   const affectedSKUsCount = displayProducts.filter((item) => item.totalDamagedQty > 0).length;
@@ -675,8 +696,8 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       {/* Filter & Search Bar */}
       <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-        <div className="flex flex-1 items-center gap-2">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-xs">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+ <div className="relative w-full md:w-64 lg:w-72 shrink-0 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
@@ -699,6 +720,37 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               </option>
             ))}
           </select>
+
+          {/* Report date range (inclusive) — follows the global BS/AD mode */}
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={reportDateFromAD}
+              onChange={setReportDateFromAD}
+              compact
+              max={reportDateToAD || undefined}
+            />
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">→</span>
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={reportDateToAD}
+              onChange={setReportDateToAD}
+              compact
+              min={reportDateFromAD || undefined}
+            />
+          </div>
+          {hasDateRange && (
+            <button
+              type="button"
+              onClick={() => { setReportDateFromAD(''); setReportDateToAD(''); }}
+              title="Clear date range"
+              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
