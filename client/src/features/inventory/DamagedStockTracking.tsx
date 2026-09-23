@@ -37,6 +37,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface DamagedStockTrackingProps {
@@ -694,77 +695,76 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-        <div className="flex flex-1 flex-wrap items-center gap-2">
- <div className="relative w-full md:w-64 lg:w-72 shrink-0 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
-              placeholder="Search product name, SKU..."
-              className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
-            />
-          </div>
-
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className={`px-3 py-1.5 text-xs rounded-xl border bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
-          >
-            <option value="ALL">All Categories ({categories.length})</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          {/* Report date range (inclusive) — follows the global BS/AD mode */}
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={reportDateFromAD}
-              onChange={setReportDateFromAD}
-              compact
-              max={reportDateToAD || undefined}
-            />
-          </div>
-          <span className="text-[10px] font-bold text-slate-400">→</span>
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={reportDateToAD}
-              onChange={setReportDateToAD}
-              compact
-              min={reportDateFromAD || undefined}
-            />
-          </div>
-          {hasDateRange && (
-            <button
-              type="button"
-              onClick={() => { setReportDateFromAD(''); setReportDateToAD(''); }}
-              title="Clear date range"
-              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showZeroDamaged}
-              onChange={(e) => setShowZeroDamaged(e.target.checked)}
-              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-            />
-            <span>Show SKUs with 0 Damaged</span>
-          </label>
-        </div>
-      </div>
+      {/* Filter & Search Card — shared inline card */}
+      <FilterCard
+        searchPlaceholder="Search product name, SKU..."
+        searchValue={localSearch}
+        onSearchApply={setLocalSearch}
+        hasActiveFilters={
+          Boolean(localSearch) || filterCategory !== 'ALL' || hasDateRange || showZeroDamaged
+        }
+        onClearAll={() => {
+          setLocalSearch('');
+          setFilterCategory('ALL');
+          setReportDateFromAD('');
+          setReportDateToAD('');
+          setShowZeroDamaged(false);
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className={`w-44 px-3 py-2 text-xs rounded-xl border bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 cursor-pointer`}
+              >
+                <option value="ALL">All Categories ({categories.length})</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Damage From</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={reportDateFromAD}
+                  onChange={setReportDateFromAD}
+                  compact
+                  showHint={false}
+                  max={reportDateToAD || undefined}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Damage To</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={reportDateToAD}
+                  onChange={setReportDateToAD}
+                  compact
+                  showHint={false}
+                  min={reportDateFromAD || undefined}
+                />
+              </div>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 cursor-pointer pb-2">
+              <input
+                type="checkbox"
+                checked={showZeroDamaged}
+                onChange={(e) => setShowZeroDamaged(e.target.checked)}
+                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span>Show SKUs with 0 Damaged</span>
+            </label>
+          </>
+        }
+      />
 
       {/* MATRIX TABLE */}
       <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>

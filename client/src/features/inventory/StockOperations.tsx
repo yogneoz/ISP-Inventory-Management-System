@@ -19,6 +19,7 @@ import {
 } from '../../types';
 import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
+import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
@@ -3690,70 +3691,83 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </span>
           </div>
 
-          {/* Toolbar row 1: search + branch/status filters + export */}
-          <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center gap-2 mb-2">
-            <div className="relative lg:max-w-xs">
-              <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={consumableRegisterQuery}
-                onChange={(e) => setConsumableRegisterQuery(e.target.value)}
-                placeholder="Search reference, technician, work order, product, POP location or customer..."
-                className={`w-full rounded-xl border py-2 pl-9 pr-3 text-xs bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-              />
-            </div>
-            <select
-              value={consumableRegisterBranch}
-              onChange={(e) => setConsumableRegisterBranch(e.target.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-            >
-              <option value="ALL">All Branches</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-            <select
-              value={consumableRegisterStatus}
-              onChange={(e) => setConsumableRegisterStatus(e.target.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="LOGGED">Logged</option>
-              <option value="CANCELLED">Reversed</option>
-            </select>
-            <div className="w-36 sm:w-40">
-              <DateField
-                mode={dateMode}
-                value={consumableRegisterDateFrom}
-                onChange={setConsumableRegisterDateFrom}
-                compact
-                max={consumableRegisterDateTo || undefined}
-              />
-            </div>
-            <span className="text-[10px] font-bold text-slate-400">→</span>
-            <div className="w-36 sm:w-40">
-              <DateField
-                mode={dateMode}
-                value={consumableRegisterDateTo}
-                onChange={setConsumableRegisterDateTo}
-                compact
-                min={consumableRegisterDateFrom || undefined}
-              />
-            </div>
-            {(consumableRegisterDateFrom || consumableRegisterDateTo) && (
-              <button
-                type="button"
-                onClick={() => { setConsumableRegisterDateFrom(''); setConsumableRegisterDateTo(''); }}
-                title="Clear date range"
-                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer self-start mt-1"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() =>
-                exportToCSV(
+          {/* Toolbar: shared inline FilterCard (search + branch/status/dates) */}
+          <div className="mb-2">
+            <FilterCard
+              searchPlaceholder="Search reference, technician, work order, product, POP location or customer..."
+              searchValue={consumableRegisterQuery}
+              onSearchApply={setConsumableRegisterQuery}
+              hasActiveFilters={
+                Boolean(consumableRegisterQuery) || consumableRegisterBranch !== 'ALL' || consumableRegisterStatus !== 'ALL' ||
+                Boolean(consumableRegisterDateFrom) || Boolean(consumableRegisterDateTo)
+              }
+              onClearAll={() => {
+                setConsumableRegisterQuery('');
+                setConsumableRegisterBranch('ALL');
+                setConsumableRegisterStatus('ALL');
+                setConsumableRegisterDateFrom('');
+                setConsumableRegisterDateTo('');
+              }}
+              filterChildren={
+                <>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+                    <select
+                      value={consumableRegisterBranch}
+                      onChange={(e) => setConsumableRegisterBranch(e.target.value)}
+                      className={`w-44 rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
+                    >
+                      <option value="ALL">All Branches</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Status</label>
+                    <select
+                      value={consumableRegisterStatus}
+                      onChange={(e) => setConsumableRegisterStatus(e.target.value)}
+                      className={`w-36 rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white cursor-pointer`}
+                    >
+                      <option value="ALL">All Statuses</option>
+                      <option value="LOGGED">Logged</option>
+                      <option value="CANCELLED">Reversed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Issue Date From</label>
+                    <div className="w-40">
+                      <DateField
+                        mode={dateMode}
+                        value={consumableRegisterDateFrom}
+                        onChange={setConsumableRegisterDateFrom}
+                        compact
+                        showHint={false}
+                        max={consumableRegisterDateTo || undefined}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Issue Date To</label>
+                    <div className="w-40">
+                      <DateField
+                        mode={dateMode}
+                        value={consumableRegisterDateTo}
+                        onChange={setConsumableRegisterDateTo}
+                        compact
+                        showHint={false}
+                        min={consumableRegisterDateFrom || undefined}
+                      />
+                    </div>
+                  </div>
+                </>
+              }
+              rightChildren={
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportToCSV(
                   'Consumables_Issue_Register',
                   consumableRegisterOps.map((op) => ({
                     referenceNumber: op.referenceNumber,
@@ -3779,13 +3793,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     { key: 'status', label: 'Status' },
                     { key: 'reason', label: 'Remarks / Reason' },
                   ]
-                )
+                  )
+                }
+                className="px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+              >
+                <Download className="h-4 w-4" />
+                <span>Export CSV</span>
+              </button>
               }
-              className="px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export CSV</span>
-            </button>
+            />
           </div>
 
           {consumableRegisterOps.length === 0 ? (

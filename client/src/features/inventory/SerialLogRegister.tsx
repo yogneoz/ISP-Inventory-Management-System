@@ -24,6 +24,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
 
 interface SerialLogRegisterProps {
   serialLogs: SerialLog[];
@@ -481,71 +482,85 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         ))}
       </div>
 
-      <div className="p-3 rounded-xl border flex flex-wrap items-center gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search serial, PON, MAC, product, customer, branch..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400"
-          />
-        </div>
-        <select
-          value={filterBranch}
-          onChange={(e) => setFilterBranch(e.target.value)}
-          className="px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-        >
-          <option value="ALL">All Branches</option>
-          {branches.map((branch) => (
-            <option key={branch.id} value={branch.id}>
-              {branch.name} ({branch.code})
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-        >
-          <option value="ALL">All Status</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-          ))}
-        </select>
-
-        {/* Activity date range (inclusive) — follows the global BS/AD mode */}
-        <div className="w-36 sm:w-40">
-          <DateField
-            mode={dateMode}
-            value={dateFromAD}
-            onChange={setDateFromAD}
-            compact
-            max={dateToAD || undefined}
-          />
-        </div>
-        <span className="text-[10px] font-bold text-slate-400">→</span>
-        <div className="w-36 sm:w-40">
-          <DateField
-            mode={dateMode}
-            value={dateToAD}
-            onChange={setDateToAD}
-            compact
-            min={dateFromAD || undefined}
-          />
-        </div>
-        {(dateFromAD || dateToAD) && (
-          <button
-            type="button"
-            onClick={() => { setDateFromAD(''); setDateToAD(''); }}
-            title="Clear date range"
-            className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      {/* Search & Filter Card — shared inline card */}
+      <FilterCard
+        searchPlaceholder="Search serial, PON, MAC, product, customer, branch..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={
+          Boolean(searchQuery) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(dateFromAD) || Boolean(dateToAD)
+        }
+        onClearAll={() => {
+          setSearchQuery('');
+          setFilterBranch('ALL');
+          setFilterStatus('ALL');
+          setDateFromAD('');
+          setDateToAD('');
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+              <select
+                value={filterBranch}
+                onChange={(e) => setFilterBranch(e.target.value)}
+                className="w-44 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Branches</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} ({branch.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Status</label>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="w-40 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Status</option>
+                {ALL_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity From</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={dateFromAD}
+                  onChange={setDateFromAD}
+                  compact
+                  showHint={false}
+                  max={dateToAD || undefined}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity To</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={dateToAD}
+                  onChange={setDateToAD}
+                  compact
+                  showHint={false}
+                  min={dateFromAD || undefined}
+                />
+              </div>
+            </div>
+          </>
+        }
+        rightChildren={
+          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+            Showing <strong className="text-slate-900 dark:text-white font-mono">{filtered.length}</strong> serials
+          </span>
+        }
+      />
 
       <div className="flex-1 min-h-0 rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800">
         <div className="h-full overflow-auto">

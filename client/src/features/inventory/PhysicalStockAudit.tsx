@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { convertADToBS, formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
+import { FilterCard } from '../../components/common/FilterCard';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -1460,66 +1461,62 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         </div>
       )}
 
-      {/* FILTER & SEARCH TOOLBAR */}
-      <div
-        className={`p-4 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
-      >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Search Input */}
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by SKU, Barcode, Product Name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-9 pr-4 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Category Filter */}
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
-            >
-              <option value="ALL">All Categories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-
-            {/* Variance Filter */}
-            <select
-              value={filterVariance}
-              onChange={(e) => setFilterVariance(e.target.value as any)}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
-            >
-              <option value="ALL">All Stock Rows ({auditRows.length})</option>
-              <option value="DISCREPANCY">Discrepancies Only ({stats.discrepancyCount})</option>
-              <option value="MATCHED">Matched Only ({auditRows.length - stats.discrepancyCount})</option>
-              <option value="SHORTAGE">Shortages (-) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) < 0).length})</option>
-              <option value="EXCESS">Excess (+) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) > 0).length})</option>
-            </select>
-
-            <div className={`h-5 w-[1px] mx-1 hidden sm:block bg-slate-200 dark:bg-slate-800`} />
-
-            {/* Bulk Quick Fill buttons */}
+      {/* FILTER & SEARCH TOOLBAR — shared inline filter card */}
+      <FilterCard
+        searchPlaceholder="Search by SKU, Barcode, Product Name..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={
+          Boolean(searchQuery) || selectedCategory !== 'ALL' || filterVariance !== 'ALL'
+        }
+        onClearAll={() => {
+          setSearchQuery('');
+          setSelectedCategory('ALL');
+          setFilterVariance('ALL');
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className={`w-44 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Variance</label>
+              <select
+                value={filterVariance}
+                onChange={(e) => setFilterVariance(e.target.value as any)}
+                className={`w-52 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+              >
+                <option value="ALL">All Stock Rows ({auditRows.length})</option>
+                <option value="DISCREPANCY">Discrepancies Only ({stats.discrepancyCount})</option>
+                <option value="MATCHED">Matched Only ({auditRows.length - stats.discrepancyCount})</option>
+                <option value="SHORTAGE">Shortages (-) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) < 0).length})</option>
+                <option value="EXCESS">Excess (+) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) > 0).length})</option>
+              </select>
+            </div>
             <button
               type="button"
               onClick={handleSetZeroAll}
               disabled={isTableLocked}
-              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-200 hover:bg-slate-200 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
+              className={`px-3 py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-slate-300 hover:bg-slate-200 text-rose-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:text-rose-400`}
               title="Zero out all physical counts for fresh manual stock count"
             >
               Zero All Counts
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* REDESIGNED AUDIT DATA TABLE */}
       <div
@@ -1807,62 +1804,64 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
           )}
 
-          {/* Consolidated Matrix Toolbar */}
-          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:flex-wrap md:items-center justify-start gap-3 bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}>
-            <div className="relative w-full md:w-64 lg:w-72 shrink-0">
-              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search matrix by SKU, Product Name, or Category..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full pl-9 pr-4 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
-              >
-                <option value="ALL">All Categories</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-
-              {/* Audit-submission date range (inclusive) — follows the global BS/AD mode */}
-              <div className="w-36 sm:w-40">
-                <DateField
-                  mode={dateMode}
-                  value={auditDateFromAD}
-                  onChange={setAuditDateFromAD}
-                  compact
-                  max={auditDateToAD || undefined}
-                />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400">→</span>
-              <div className="w-36 sm:w-40">
-                <DateField
-                  mode={dateMode}
-                  value={auditDateToAD}
-                  onChange={setAuditDateToAD}
-                  compact
-                  min={auditDateFromAD || undefined}
-                />
-              </div>
-              {(auditDateFromAD || auditDateToAD) && (
-                <button
-                  type="button"
-                  onClick={() => { setAuditDateFromAD(''); setAuditDateToAD(''); }}
-                  title="Clear date range"
-                  className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-
+          {/* Consolidated Matrix Toolbar — shared inline filter card */}
+          <FilterCard
+            searchPlaceholder="Search matrix by SKU, Product Name, or Category..."
+            searchValue={searchQuery}
+            onSearchApply={setSearchQuery}
+            hasActiveFilters={
+              Boolean(searchQuery) || selectedCategory !== 'ALL' || Boolean(auditDateFromAD) || Boolean(auditDateToAD)
+            }
+            onClearAll={() => {
+              setSearchQuery('');
+              setSelectedCategory('ALL');
+              setAuditDateFromAD('');
+              setAuditDateToAD('');
+            }}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className={`w-44 px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                  >
+                    <option value="ALL">All Categories</option>
+                    {categories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Audit Submitted From</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={auditDateFromAD}
+                      onChange={setAuditDateFromAD}
+                      compact
+                      showHint={false}
+                      max={auditDateToAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Audit Submitted To</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={auditDateToAD}
+                      onChange={setAuditDateToAD}
+                      compact
+                      showHint={false}
+                      min={auditDateFromAD || undefined}
+                    />
+                  </div>
+                </div>
+              </>
+            }
+            rightChildren={
               <button
                 type="button"
                 onClick={handleExportBranchCSV}
@@ -1871,8 +1870,8 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
                 <span>Export Full Company Matrix CSV</span>
               </button>
-            </div>
-          </div>
+            }
+          />
 
           {/* Consolidated Matrix Table */}
           <div className={`rounded-3xl border overflow-hidden bg-white border-slate-200 shadow-sm dark:bg-slate-900/60 dark:border-slate-800`}>

@@ -11,6 +11,7 @@ import {
 } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
+import { FilterCard } from '../../components/common/FilterCard';
 import { exportToCSV } from '../../utils/exportUtils';
 import { getAllowedBranches, isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
@@ -1102,81 +1103,88 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             </div>
           </div>
 
-          {/* Report Filters & Export Toolbar */}
-          <div className={`flex flex-wrap items-end gap-3 rounded-2xl border p-3.5 shadow-sm ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}>
-            <div>
-              <DateField
-                label="Dispatch From"
-                mode={dateMode}
-                value={startDateAD}
-                onChange={setStartDateAD}
-                max={endDateAD || undefined}
-              />
-            </div>
-            <div>
-              <DateField
-                label="Dispatch To"
-                mode={dateMode}
-                value={endDateAD}
-                onChange={setEndDateAD}
-                min={startDateAD || undefined}
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                Status
-              </label>
-              <select
-                value={shipmentStatusFilter}
-                onChange={(e) => setShipmentStatusFilter(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
+          {/* Report Filters & Export Toolbar — shared inline filter card */}
+          <FilterCard
+            searchPlaceholder="Search Tracking Code..."
+            searchValue={searchQuery}
+            onSearchApply={setSearchQuery}
+            hasActiveFilters={
+              Boolean(searchQuery) || shipmentStatusFilter !== 'ALL' || shipmentMode !== 'ALL' || Boolean(startDateAD) || Boolean(endDateAD)
+            }
+            onClearAll={handleResetShipmentFilters}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Dispatch From</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={startDateAD}
+                      onChange={setStartDateAD}
+                      compact
+                      showHint={false}
+                      max={endDateAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Dispatch To</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={endDateAD}
+                      onChange={setEndDateAD}
+                      compact
+                      showHint={false}
+                      min={startDateAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Status</label>
+                  <select
+                    value={shipmentStatusFilter}
+                    onChange={(e) => setShipmentStatusFilter(e.target.value)}
+                    className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+                    }`}
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="DISPATCHED">Dispatched</option>
+                    <option value="IN_TRANSIT">In Transit</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="RECEIVED">Received</option>
+                    <option value="DISCREPANCY">Discrepancy</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Direction</label>
+                  <select
+                    value={shipmentMode}
+                    onChange={(e) => setShipmentMode(e.target.value as 'ALL' | 'CREATED' | 'RECEIVED')}
+                    className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none cursor-pointer w-40 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+                    }`}
+                  >
+                    <option value="ALL">All Directions</option>
+                    <option value="CREATED">Outbound (Dispatched From)</option>
+                    <option value="RECEIVED">Inbound (Received At)</option>
+                  </select>
+                </div>
+              </>
+            }
+            rightChildren={
+              <button
+                type="button"
+                onClick={exportShipmentsCSV}
+                className="flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
               >
-                <option value="ALL">All Statuses</option>
-                <option value="DISPATCHED">Dispatched</option>
-                <option value="IN_TRANSIT">In Transit</option>
-                <option value="DELIVERED">Delivered</option>
-                <option value="RECEIVED">Received</option>
-                <option value="DISCREPANCY">Discrepancy</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                Direction
-              </label>
-              <select
-                value={shipmentMode}
-                onChange={(e) => setShipmentMode(e.target.value as 'ALL' | 'CREATED' | 'RECEIVED')}
-                className={`rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
-              >
-                <option value="ALL">All Directions</option>
-                <option value="CREATED">Outbound (Dispatched From)</option>
-                <option value="RECEIVED">Inbound (Received At)</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={handleResetShipmentFilters}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Clear Filters</span>
-            </button>
-            <button
-              type="button"
-              onClick={exportShipmentsCSV}
-              className="ml-auto flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500 shadow-md shadow-amber-900/20 transition-all cursor-pointer"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>Export History CSV ({filteredShipments.length})</span>
-            </button>
-          </div>
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Export History CSV ({filteredShipments.length})</span>
+              </button>
+            }
+          />
 
           {/* Shipment Table */}
           <div className={`rounded-2xl border shadow-lg overflow-hidden ${

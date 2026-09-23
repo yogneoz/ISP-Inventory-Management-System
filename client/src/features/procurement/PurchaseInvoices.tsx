@@ -61,6 +61,7 @@ import {
 } from 'lucide-react';
 import { formCardClass } from '../../components/common/FormCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { api } from '../../services/api';
 
@@ -162,6 +163,10 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [reversalReason, setReversalReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [vendorFilter, setVendorFilter] = useState('ALL');
+  // Register date range on the bill date (canonical AD values; DateField
+  // converts BS picks). Empty bound = open-ended.
+  const [billDateFromAD, setBillDateFromAD] = useState('');
+  const [billDateToAD, setBillDateToAD] = useState('');
 
   // Sync the internal page with the sidebar menu that opened this component
   useEffect(() => {
@@ -302,10 +307,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       (inv?.invoiceNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
       (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
       (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    return matchesBranch && matchesVendor && matchesSearch;
+    // Bill-date range (inclusive); empty bound = open-ended.
+    const day = (inv?.invoiceDateAD || '').split('T')[0];
+    const matchesDate =
+      (!billDateFromAD || (day && day >= billDateFromAD)) &&
+      (!billDateToAD || (day && day <= billDateToAD));
+    return matchesBranch && matchesVendor && matchesSearch && matchesDate;
   }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''));
 
-  const invoicePagination = useClientPagination(filteredInvoices, 15, [searchQuery, vendorFilter, selectedBranchId]);
+  const invoicePagination = useClientPagination(filteredInvoices, 15, [searchQuery, vendorFilter, selectedBranchId, billDateFromAD, billDateToAD]);
   const allowedBranches = getAllowedBranches(currentUser, branches).sort((a, b) => {
     const aIsWarehouse = `${a.id} ${a.code} ${a.name}`.toLowerCase().includes('warehouse') || a.id.toLowerCase().startsWith('wh');
     const bIsWarehouse = `${b.id} ${b.code} ${b.name}`.toLowerCase().includes('warehouse') || b.id.toLowerCase().startsWith('wh');
@@ -969,43 +979,71 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
           </div>
 
-          {/* Search bar & Vendor Filter */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search Invoice #, Bill # or Supplier..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                <span className={`text-xs font-semibold whitespace-nowrap text-slate-500 dark:text-slate-400`}>
-                  Filter Vendor:
-                </span>
-                <select
-                  value={vendorFilter}
-                  onChange={(e) => setVendorFilter(e.target.value)}
-                  className={`px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none transition-all cursor-pointer bg-white border-slate-200 text-slate-800 focus:border-blue-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 dark:focus:border-blue-500`}
-                >
-                  <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
-                  {Array.from(new Set([...availableSuppliers.map((s) => s.name), ...invoices.map((i) => i.supplierName)])).map((supp) => (
-                    <option key={supp} value={supp}>
-                      🏢 {supp}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-              Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredInvoices.length}</strong> purchase bills
-            </div>
-          </div>
+          {/* Search & Vendor Filter Card — shared inline card */}
+          <FilterCard
+            searchPlaceholder="Search Invoice #, Bill # or Supplier..."
+            searchValue={searchQuery}
+            onSearchApply={setSearchQuery}
+            hasActiveFilters={
+              Boolean(searchQuery) || vendorFilter !== 'ALL' || Boolean(billDateFromAD) || Boolean(billDateToAD)
+            }
+            onClearAll={() => {
+              setSearchQuery('');
+              setVendorFilter('ALL');
+              setBillDateFromAD('');
+              setBillDateToAD('');
+            }}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Vendor / Supplier</label>
+                  <select
+                    value={vendorFilter}
+                    onChange={(e) => setVendorFilter(e.target.value)}
+                    className={`w-52 px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                  >
+                    <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
+                    {Array.from(new Set([...availableSuppliers.map((s) => s.name), ...invoices.map((i) => i.supplierName)])).map((supp) => (
+                      <option key={supp} value={supp}>
+                        🏢 {supp}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Bill Date From</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={billDateFromAD}
+                      onChange={setBillDateFromAD}
+                      compact
+                      showHint={false}
+                      max={billDateToAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Bill Date To</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={billDateToAD}
+                      onChange={setBillDateToAD}
+                      compact
+                      showHint={false}
+                      min={billDateFromAD || undefined}
+                    />
+                  </div>
+                </div>
+              </>
+            }
+            rightChildren={
+              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredInvoices.length}</strong> purchase bills
+              </span>
+            }
+          />
 
           {/* Invoices Table */}
           <div

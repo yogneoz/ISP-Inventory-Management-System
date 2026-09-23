@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
 
 interface WarrantyProductsProps {
   customerDevices: CustomerDeviceRecord[];
@@ -182,79 +183,82 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
         </div>
       </div>
 
-      {/* Search & Filter Controls */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-          <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by Device Serial, Tag #, Customer, Product Name, Branch..."
-            className="w-full pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-slate-100 font-medium bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Warranty:</span>
-            <select
-              value={warrantyFilter}
-              onChange={(e) => setWarrantyFilter(e.target.value as any)}
-              className={`rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200`}
-            >
-              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Statuses</option>
-              <option value="VALID" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-emerald-400 dark:font-semibold">VALID (Active)</option>
-              <option value="EXPIRING_SOON" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 dark:font-semibold">EXPIRING SOON (&lt;30 Days)</option>
-              <option value="EXPIRED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400 dark:font-semibold">EXPIRED</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Type:</span>
-            <select
-              value={categoryType}
-              onChange={(e) => setCategoryType(e.target.value as any)}
-              className={`rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200`}
-            >
-              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Types</option>
-              <option value="CPE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-blue-400 dark:font-semibold">Customer CPE Devices</option>
-              <option value="FIXED_ASSET" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400 dark:font-semibold">Fixed Assets</option>
-            </select>
-          </div>
-
-          {/* Commissioned date range (inclusive) — follows the global BS/AD mode */}
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={issuedFromAD}
-              onChange={setIssuedFromAD}
-              compact
-              max={issuedToAD || undefined}
-            />
-          </div>
-          <span className="text-[10px] font-bold text-slate-400">→</span>
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={issuedToAD}
-              onChange={setIssuedToAD}
-              compact
-              min={issuedFromAD || undefined}
-            />
-          </div>
-          {(issuedFromAD || issuedToAD) && (
-            <button
-              type="button"
-              onClick={() => { setIssuedFromAD(''); setIssuedToAD(''); }}
-              title="Clear date range"
-              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Search & Filter Card — shared inline card */}
+      <FilterCard
+        searchPlaceholder="Search by Device Serial, Tag #, Customer, Product Name, Branch..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={
+          Boolean(searchQuery) || warrantyFilter !== 'ALL' || categoryType !== 'ALL' || Boolean(issuedFromAD) || Boolean(issuedToAD)
+        }
+        onClearAll={() => {
+          setSearchQuery('');
+          setWarrantyFilter('ALL');
+          setCategoryType('ALL');
+          setIssuedFromAD('');
+          setIssuedToAD('');
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Warranty</label>
+              <select
+                value={warrantyFilter}
+                onChange={(e) => setWarrantyFilter(e.target.value as any)}
+                className={`w-44 rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200`}
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="VALID">VALID (Active)</option>
+                <option value="EXPIRING_SOON">EXPIRING SOON (&lt;30 Days)</option>
+                <option value="EXPIRED">EXPIRED</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Type</label>
+              <select
+                value={categoryType}
+                onChange={(e) => setCategoryType(e.target.value as any)}
+                className={`w-44 rounded-xl border px-3 py-2 text-xs font-semibold focus:outline-none cursor-pointer border-slate-300 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200`}
+              >
+                <option value="ALL">All Types</option>
+                <option value="CPE">Customer CPE Devices</option>
+                <option value="FIXED_ASSET">Fixed Assets</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Commissioned From</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={issuedFromAD}
+                  onChange={setIssuedFromAD}
+                  compact
+                  showHint={false}
+                  max={issuedToAD || undefined}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Commissioned To</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={issuedToAD}
+                  onChange={setIssuedToAD}
+                  compact
+                  showHint={false}
+                  min={issuedFromAD || undefined}
+                />
+              </div>
+            </div>
+          </>
+        }
+        rightChildren={
+          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+            Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredItems.length}</strong> items
+          </span>
+        }
+      />
 
       {/* Warranty Data Table */}
       <div className={`rounded-2xl border shadow-xs overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>

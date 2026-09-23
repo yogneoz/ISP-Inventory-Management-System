@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { DateField } from '../../components/DateField';
+import { FilterCard } from '../../components/common/FilterCard';
 
 interface StockValuationProps {
   products: Product[];
@@ -339,78 +340,98 @@ export const StockValuation: React.FC<StockValuationProps> = ({
           </button>
         </div>
 
-        {/* Search & Filter Controls */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-end">
-          {/* Branch Filter */}
-          <select
-            value={activeBranchId}
-            onChange={(e) => setActiveBranchId(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-          >
-            <option value="ALL">All Branch Locations</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.code})
-              </option>
-            ))}
-          </select>
-
-          {/* Category Filter */}
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-          >
-            <option value="ALL">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-
-          {/* Stock-activity date range (inclusive) — follows the global BS/AD mode */}
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={activityFromAD}
-              onChange={setActivityFromAD}
-              compact
-              max={activityToAD || undefined}
-            />
-          </div>
-          <span className="text-[10px] font-bold text-slate-400">→</span>
-          <div className="w-36 sm:w-40">
-            <DateField
-              mode={dateMode}
-              value={activityToAD}
-              onChange={setActivityToAD}
-              compact
-              min={activityFromAD || undefined}
-            />
-          </div>
-          {(activityFromAD || activityToAD) && (
-            <button
-              type="button"
-              onClick={() => { setActivityFromAD(''); setActivityToAD(''); }}
-              title="Clear date range"
-              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-
-          {/* Search Box */}
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 min-w-[200px]">
-            <Search className="absolute left-3 top-2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
-              className={`w-full rounded-xl border pl-8 pr-3 py-1.5 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
-            />
-          </div>
+        {/* Search & Filter Card — shared inline card */}
+        <div className="w-full md:w-auto md:ml-auto">
+          <FilterCard
+            searchPlaceholder="Scan Barcode or Search & Enter Product Name / SKU:"
+            searchValue={searchQuery}
+            onSearchApply={setSearchQuery}
+            hasActiveFilters={
+              Boolean(searchQuery) || activeBranchId !== 'ALL' || selectedCategory !== 'ALL' || stockStatusFilter !== 'ALL' ||
+              Boolean(activityFromAD) || Boolean(activityToAD)
+            }
+            onClearAll={() => {
+              setSearchQuery('');
+              setActiveBranchId('ALL');
+              setSelectedCategory('ALL');
+              setStockStatusFilter('ALL');
+              setActivityFromAD('');
+              setActivityToAD('');
+            }}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+                  <select
+                    value={activeBranchId}
+                    onChange={(e) => setActiveBranchId(e.target.value)}
+                    className={`w-44 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                  >
+                    <option value="ALL">All Branch Locations</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className={`w-40 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                  >
+                    <option value="ALL">All Categories</option>
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Stock Status</label>
+                  <select
+                    value={stockStatusFilter}
+                    onChange={(e) => setStockStatusFilter(e.target.value as any)}
+                    className={`w-36 rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                  >
+                    <option value="ALL">All</option>
+                    <option value="LOW">Low Stock</option>
+                    <option value="NORMAL">Normal</option>
+                    <option value="OUT_OF_STOCK">Out of Stock</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity From</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={activityFromAD}
+                      onChange={setActivityFromAD}
+                      compact
+                      showHint={false}
+                      max={activityToAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Activity To</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={activityToAD}
+                      onChange={setActivityToAD}
+                      compact
+                      showHint={false}
+                      min={activityFromAD || undefined}
+                    />
+                  </div>
+                </div>
+              </>
+            }
+          />
         </div>
       </div>
 

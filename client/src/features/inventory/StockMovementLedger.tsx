@@ -559,6 +559,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               value={startDateAD}
               onChange={setStartDateAD}
               compact
+              showHint={false}
               max={endDateAD || undefined}
             />
           </div>
@@ -571,6 +572,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               value={endDateAD}
               onChange={setEndDateAD}
               compact
+              showHint={false}
               min={startDateAD || undefined}
             />
           </div>
