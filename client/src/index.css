@@ -50,7 +50,7 @@
 
   .responsive-sidebar-panel {
     left: 64px;
-    width: 16rem;
+    width: 15rem;
   }
 
   :root {
@@ -163,4 +163,80 @@
 /* Firefox global app scrollbar color (already set via scrollbar-color above). */
 ::-webkit-scrollbar {
   scrollbar-width: thin;
+}
+
+/* =====================================================================
+   SIDEBAR PUSH MODE (desktop only)
+   ---------------------------------------------------------------------
+   When the secondary submenu flyout panel is expanded, the main content
+   viewport shifts right by the panel width instead of being overlaid.
+   Applied only at md+ (768px), where the sidebar stops being a drawer.
+   Widths mirror .responsive-sidebar-panel exactly:
+     - >= 1367px -> panel is w-64 = calc(var(--spacing) * 64), rail is 76px
+       (spacing-derived so it stays in sync with the panel when the
+       responsive --spacing compression tiers change its computed width)
+     - 768..1366px -> panel is 15rem, rail is 64px
+   The class is toggled by App.tsx when the panel expands/collapses.
+   ===================================================================== */
+@media screen and (min-width: 768px) {
+  .sidebar-push-main {
+    margin-left: calc(var(--spacing) * 64);
+    transition: margin-left 0.2s ease;
+  }
+}
+
+@media screen and (min-width: 768px) and (max-width: 1366px) {
+  .sidebar-push-main {
+    margin-left: 15rem;
+  }
+}
+
+/* =====================================================================
+   HOVER-REVEAL SCROLLBAR (sidebar scroll areas)
+   ---------------------------------------------------------------------
+   The sidebar rail and submenu panel keep their scrollbar completely
+   hidden (transparent) until the mouse hovers over the scroll container.
+   Hovering anywhere in the container fades the thumb in; the thumb keeps
+   the same theme-aware colors as the global slim scrollbar.
+
+   Note: scrolling still works while hidden — this is purely visual, and
+   the thumb also appears while actively scrolling in supporting engines.
+   ===================================================================== */
+.sidebar-hover-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.sidebar-hover-scrollbar:hover {
+  scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+}
+
+.sidebar-hover-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184 / 0.55);
+  background-clip: content-box;
+}
+
+.sidebar-hover-scrollbar::-webkit-scrollbar-thumb:hover,
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.85);
+  background-clip: content-box;
+}
+
+:root.dark .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgb(71 85 105 / 0.7);
+  background-clip: content-box;
+}
+
+:root.dark .sidebar-hover-scrollbar::-webkit-scrollbar-thumb:hover,
+:root.dark .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.9);
+  background-clip: content-box;
 }
