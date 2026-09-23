@@ -1358,6 +1358,7 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
                 />
               )}
 

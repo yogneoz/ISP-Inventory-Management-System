@@ -37,6 +37,7 @@ import {
   Edit3,
 } from 'lucide-react';
 import { convertADToBS, formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -146,6 +147,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  // Audit-submission date range (canonical AD values; DateField converts BS
+  // picks). Narrows pending/approved audit submissions in the consolidated
+  // matrix by requestedAtAD / processedAtAD; an empty bound is open-ended.
+  const [auditDateFromAD, setAuditDateFromAD] = useState('');
+  const [auditDateToAD, setAuditDateToAD] = useState('');
+  const auditDateInRange = (ad?: string) => {
+    const day = String(ad || '').split('T')[0];
+    if (!day) return false;
+    if (auditDateFromAD && day < auditDateFromAD) return false;
+    if (auditDateToAD && day > auditDateToAD) return false;
+    return true;
+  };
   const [filterVariance, setFilterVariance] = useState<
     'ALL' | 'DISCREPANCY' | 'MATCHED' | 'SHORTAGE' | 'EXCESS' | 'UNCOUNTED'
   >('ALL');
@@ -206,6 +219,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     );
   }, [approvalRequests]);
 
+  // Pending audit submissions whose request date falls inside the report
+  // date range (when one is set).
+  const dateFilteredPendingAuditRequests = useMemo(() => {
+    if (!auditDateFromAD && !auditDateToAD) return allPendingAuditRequests;
+    return allPendingAuditRequests.filter((r) => auditDateInRange(r.requestedAtAD));
+  }, [allPendingAuditRequests, auditDateFromAD, auditDateToAD]);
+
   // Branch visibility in Consolidated Matrix & Approver View: Branch user type specific
   const visibleBranches = useMemo(() => {
     if (!isExecutiveUser && currentUser?.branchId && currentUser.branchId !== 'ALL') {
@@ -217,10 +237,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   // Pending audit requests filtered by branch for branch staff users
   const visiblePendingAuditRequests = useMemo(() => {
     if (!isExecutiveUser && currentUser?.branchId && currentUser.branchId !== 'ALL') {
-      return allPendingAuditRequests.filter((r) => r.branchId === currentUser.branchId);
+      return dateFilteredPendingAuditRequests.filter((r) => r.branchId === currentUser.branchId);
     }
-    return allPendingAuditRequests;
-  }, [allPendingAuditRequests, currentUser, isExecutiveUser]);
+    return dateFilteredPendingAuditRequests;
+  }, [dateFilteredPendingAuditRequests, currentUser, isExecutiveUser]);
 
   // Reset local submission state when branch changes
   useEffect(() => {
@@ -1788,8 +1808,8 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           )}
 
           {/* Consolidated Matrix Toolbar */}
-          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}>
-            <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
+          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:flex-wrap md:items-center justify-start gap-3 bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}>
+            <div className="relative w-full md:w-64 lg:w-72 shrink-0">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -1811,6 +1831,37 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
+
+              {/* Audit-submission date range (inclusive) — follows the global BS/AD mode */}
+              <div className="w-36 sm:w-40">
+                <DateField
+                  mode={dateMode}
+                  value={auditDateFromAD}
+                  onChange={setAuditDateFromAD}
+                  compact
+                  max={auditDateToAD || undefined}
+                />
+              </div>
+              <span className="text-[10px] font-bold text-slate-400">→</span>
+              <div className="w-36 sm:w-40">
+                <DateField
+                  mode={dateMode}
+                  value={auditDateToAD}
+                  onChange={setAuditDateToAD}
+                  compact
+                  min={auditDateFromAD || undefined}
+                />
+              </div>
+              {(auditDateFromAD || auditDateToAD) && (
+                <button
+                  type="button"
+                  onClick={() => { setAuditDateFromAD(''); setAuditDateToAD(''); }}
+                  title="Clear date range"
+                  className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
 
               <button
                 type="button"

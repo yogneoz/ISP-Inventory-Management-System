@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CustomerDeviceRecord, Asset, Branch, Product } from '../../types';
 import { getWarrantyInfo } from '../../utils/warranty';
 import { formatDualDate } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   Tag,
   Info,
+  X,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 
@@ -37,6 +39,10 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [warrantyFilter, setWarrantyFilter] = useState<'ALL' | 'VALID' | 'EXPIRING_SOON' | 'EXPIRED'>('VALID');
   const [categoryType, setCategoryType] = useState<'ALL' | 'CPE' | 'FIXED_ASSET'>('ALL');
+  // Commissioned date range (canonical AD values; DateField converts BS picks).
+  // Narrows items by issuedDateAD; an empty bound is open-ended.
+  const [issuedFromAD, setIssuedFromAD] = useState('');
+  const [issuedToAD, setIssuedToAD] = useState('');
 
   // Build combined list of warranty-tracked items (CPE customer devices + fixed assets)
   const cpeItems = customerDevices.map((c) => {
@@ -89,8 +95,12 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
     const matchesWarranty =
       warrantyFilter === 'ALL' || item.warrantyInfo.status === warrantyFilter;
     const matchesCat = categoryType === 'ALL' || item.type === categoryType;
+    const day = (item.issuedDateAD || '').split('T')[0];
+    const matchesDate =
+      (!issuedFromAD || (day && day >= issuedFromAD)) &&
+      (!issuedToAD || (day && day <= issuedToAD));
 
-    if (!searchQuery.trim()) return matchesBranch && matchesWarranty && matchesCat;
+    if (!searchQuery.trim()) return matchesBranch && matchesWarranty && matchesCat && matchesDate;
 
     const q = (searchQuery || '').toLowerCase().trim();
     const matchesQuery =
@@ -100,7 +110,7 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
       (item?.assignedTo || '').toLowerCase().includes(q) ||
       (item?.branchName || '').toLowerCase().includes(q);
 
-    return matchesBranch && matchesWarranty && matchesCat && matchesQuery;
+    return matchesBranch && matchesWarranty && matchesCat && matchesDate && matchesQuery;
   });
 
   // Metrics
@@ -113,6 +123,8 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
     warrantyFilter,
     categoryType,
     selectedBranchId,
+    issuedFromAD,
+    issuedToAD,
   ]);
 
   return (
@@ -210,6 +222,37 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
               <option value="FIXED_ASSET" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400 dark:font-semibold">Fixed Assets</option>
             </select>
           </div>
+
+          {/* Commissioned date range (inclusive) — follows the global BS/AD mode */}
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={issuedFromAD}
+              onChange={setIssuedFromAD}
+              compact
+              max={issuedToAD || undefined}
+            />
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">→</span>
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={issuedToAD}
+              onChange={setIssuedToAD}
+              compact
+              min={issuedFromAD || undefined}
+            />
+          </div>
+          {(issuedFromAD || issuedToAD) && (
+            <button
+              type="button"
+              onClick={() => { setIssuedFromAD(''); setIssuedToAD(''); }}
+              title="Clear date range"
+              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

@@ -14,15 +14,19 @@ import {
   ArrowUpRight,
   Package,
   Layers,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { DateField } from '../../components/DateField';
 
 interface StockValuationProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
   selectedBranchId: string;
+  /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
+  dateMode?: 'BS' | 'AD';
 }
 
 export const StockValuation: React.FC<StockValuationProps> = ({
@@ -30,11 +34,17 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   branches,
   stock,
   selectedBranchId,
+  dateMode = 'BS',
 }) => {
   const [activeBranchId, setActiveBranchId] = useState<string>(selectedBranchId);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [stockStatusFilter, setStockStatusFilter] = useState<'ALL' | 'LOW' | 'NORMAL' | 'OUT_OF_STOCK'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // Stock-activity date range (canonical AD values; DateField converts BS
+  // picks). Narrows rows by the latest stock movement date (lastUpdated);
+  // an empty bound is open-ended.
+  const [activityFromAD, setActivityFromAD] = useState('');
+  const [activityToAD, setActivityToAD] = useState('');
   const [subView, setSubView] = useState<'ITEMIZED' | 'CATEGORY' | 'BRANCH'>('ITEMIZED');
 
   React.useEffect(() => {
@@ -92,6 +102,18 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   const filteredItemized = itemizedValuationData.filter(({ prod, totalOnHand, isLow, isOutOfStock }) => {
     if (selectedCategory !== 'ALL' && prod.category !== selectedCategory) return false;
 
+    // Latest stock movement for this product across the visible branches.
+    if (activityFromAD || activityToAD) {
+      const latestDay = visibleBranches.reduce((latest: string, b) => {
+        const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
+        const day = String(item?.lastUpdated || '').split('T')[0];
+        return day && day > latest ? day : latest;
+      }, '');
+      if (!latestDay) return false;
+      if (activityFromAD && latestDay < activityFromAD) return false;
+      if (activityToAD && latestDay > activityToAD) return false;
+    }
+
     if (stockStatusFilter === 'LOW' && !isLow) return false;
     if (stockStatusFilter === 'OUT_OF_STOCK' && !isOutOfStock) return false;
     if (stockStatusFilter === 'NORMAL' && (isLow || isOutOfStock)) return false;
@@ -119,6 +141,8 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     selectedCategory,
     stockStatusFilter,
     searchQuery,
+    activityFromAD,
+    activityToAD,
   ]);
 
   // Category Breakdown Data
@@ -344,6 +368,37 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               </option>
             ))}
           </select>
+
+          {/* Stock-activity date range (inclusive) — follows the global BS/AD mode */}
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={activityFromAD}
+              onChange={setActivityFromAD}
+              compact
+              max={activityToAD || undefined}
+            />
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">→</span>
+          <div className="w-36 sm:w-40">
+            <DateField
+              mode={dateMode}
+              value={activityToAD}
+              onChange={setActivityToAD}
+              compact
+              min={activityFromAD || undefined}
+            />
+          </div>
+          {(activityFromAD || activityToAD) && (
+            <button
+              type="button"
+              onClick={() => { setActivityFromAD(''); setActivityToAD(''); }}
+              title="Clear date range"
+              className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
 
           {/* Search Box */}
  <div className="relative w-full md:w-80 lg:w-96 shrink-0 min-w-[200px]">
