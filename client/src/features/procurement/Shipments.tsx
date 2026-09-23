@@ -43,6 +43,7 @@ import {
   Lock,
   FileSpreadsheet,
 } from 'lucide-react';
+import { FormCard } from '../../components/common/FormCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -785,9 +786,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
       {/* CREATE SUBTAB: Embedded Inline Form View */}
       {internalTab === 'CREATE_SHIPMENT' && (
-        <div className={`rounded-2xl border shadow-xl overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
+        <FormCard className="p-0 space-y-0 overflow-hidden">
           <div className={`flex items-center justify-between border-b p-4 ${
             isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
           }`}>
@@ -1064,7 +1063,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               </div>
             </div>
           </form>
-        </div>
+        </FormCard>
       )}
 
       {/* REGISTER SUBTAB: Table view */}

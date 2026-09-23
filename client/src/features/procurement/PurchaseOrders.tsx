@@ -39,6 +39,7 @@ import {
   Check,
   Download,
 } from 'lucide-react';
+import { formCardClass } from '../../components/common/FormCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -928,7 +929,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       {internalTab === 'CREATE_PO' && (
         <div
           id="po-inline-form-container"
-          className={`rounded-2xl border p-5 sm:p-7 shadow-lg space-y-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}
+          className={`${formCardClass} space-y-6`}
         >
           {/* Form Banner Header */}
           <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800`}>
