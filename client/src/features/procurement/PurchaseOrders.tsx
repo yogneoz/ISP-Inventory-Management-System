@@ -736,6 +736,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       value={orderDateFromAD}
                       onChange={setOrderDateFromAD}
                       compact
+                      showHint={false}
                       max={orderDateToAD || undefined}
                     />
                   </div>
@@ -748,6 +749,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       value={orderDateToAD}
                       onChange={setOrderDateToAD}
                       compact
+                      showHint={false}
                       min={orderDateFromAD || undefined}
                     />
                   </div>

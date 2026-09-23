@@ -29,11 +29,17 @@ interface DateFieldProps {
   /** Inclusive upper bound (AD ISO YYYY-MM-DD). */
   max?: string;
   disabled?: boolean;
-  id?: string;
-  /** Extra classes for the control (e.g. red border for cross-field validation). */
+  id?: string;  /** Extra classes for the control (e.g. red border for cross-field validation). */
   controlClassName?: string;
   /** Tighter padding for filter toolbars. */
-  compact?: boolean;}
+  compact?: boolean;
+  /**
+   * Hide the BS/AD equivalent hint line under the input (default false).
+   * Used in filter cards so picking a date cannot change the card height;
+   * the conversion moves into the input's hover tooltip instead.
+   */
+  showHint?: boolean;
+}
 
 function normalizeAD(v: string | null | undefined): string {
   if (!v) return '';
@@ -61,11 +67,12 @@ export function DateField({
   label,
   required,
   min,
-  max,
-  disabled,
+  max,  disabled,
   id,
   controlClassName = '',
-  compact,}: DateFieldProps) {
+  compact,
+  showHint = true,
+}: DateFieldProps) {
   const adValue = normalizeAD(value);
 
   // BS calendar data (localStorage mirror of the seeded bs_calendar_years DB table).
@@ -177,6 +184,7 @@ export function DateField({
               required={required}
               disabled={disabled}
               aria-label="BS date (click to open the Nepali calendar)"
+              title={adValue && !showHint ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
               className={`${baseCls} cursor-pointer pr-9`}
               value={derivedBS ? derivedBS.formattedBSShort : ''}
               placeholder="Select BS date"
@@ -238,13 +246,14 @@ export function DateField({
           max={max}
           required={required}
           disabled={disabled}
+          title={adValue && !showHint ? `${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
           onChange={(e) => {
             onChange(e.target.value);
           }}
         />
       )}
 
-      {adValue && (
+      {adValue && showHint && (
         <div className="mt-1 text-[10px] font-mono text-slate-500 dark:text-slate-400">
           {mode === 'BS' ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : bsHint ? `Nepali: ${bsHint}` : ''}
         </div>
