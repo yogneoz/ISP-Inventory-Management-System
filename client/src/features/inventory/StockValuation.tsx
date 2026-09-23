@@ -5,17 +5,10 @@ import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
 import {
   Coins,
   TrendingUp,
-  Building2,
-  PieChart,
-  Search,
   Filter,
   Download,
   AlertTriangle,
-  ArrowUpRight,
-  Package,
-  Layers,
-  Sparkles,
-  X
+  ArrowUpRight
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { DateField } from '../../components/DateField';

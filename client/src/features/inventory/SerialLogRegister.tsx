@@ -6,7 +6,6 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
 import { DateField } from '../../components/DateField';
 import {
-  Search,
   Download,
   Barcode,
   Wifi,

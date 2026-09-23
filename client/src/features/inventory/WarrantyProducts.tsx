@@ -7,17 +7,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Clock,
-  Search,
-  Building2,
   Barcode,
-  Wifi,
   MapPin,
-  Calendar,
   Filter,
-  CheckCircle2,
   Tag,
-  Info,
-  X,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
