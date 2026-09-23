@@ -22,17 +22,24 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 
 interface SerialLogRegisterProps {
-  serialLogs: SerialLog[];
+  /**
+   * The register fetches its own filtered/paged data from /api/serial-log
+   * (server-side pagination), so this prop is unused — kept for interface
+   * compatibility until every App.tsx call site is updated.
+   */
+  serialLogs?: SerialLog[];
   branches: Branch[];
   selectedBranchId: string;
   currentUser?: User | null;
   /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
   dateMode?: 'BS' | 'AD';
   onRefreshData?: () => void;
+  /** Bumped by the parent to trigger a re-fetch of the current page. */
+  refreshKey?: number;
 }
 
 type DisplayLog = SerialLog & { branchName?: string };
@@ -73,15 +80,25 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   currentUser,
   dateMode = 'BS',
   onRefreshData,
+  refreshKey = 0,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterBranch, setFilterBranch] = useState<string>('ALL');
   // Register date range (canonical AD values; DateField converts BS picks).
-  // Narrows rows by their latest activity date (updatedAt, falling back to
-  // createdAt); an empty bound is open-ended.
+  // Applied server-side against the latest-activity day (updated_at falling
+  // back to created_at); an empty bound is open-ended.
   const [dateFromAD, setDateFromAD] = useState('');
   const [dateToAD, setDateToAD] = useState('');
+  // Applied (debounced) search text — the server filters on this, not the
+  // keystroke-level draft the FilterCard holds.
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [serverPage, setServerPage] = useState(1);
+  const [serverPageSize, setServerPageSize] = useState(20);
+  const [rows, setRows] = useState<DisplayLog[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<DisplayLog | null>(null);
   const [editForm, setEditForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
@@ -94,80 +111,91 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   const [lookupLoading, setLookupLoading] = useState(false);
   const [bForm, setBForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
 
-  const register = useMemo<DisplayLog[]>(() => {
-    const bySerial = new Map<string, DisplayLog>();
-    for (const row of serialLogs) {
-      const rawHistory: unknown = (row as any).history ?? (row as any).historyJson ?? [];
-      let history: SerialLog['history'] = [];
-      if (Array.isArray(rawHistory)) history = rawHistory;
-      else if (typeof rawHistory === 'string') {
-        try {
-          const parsed = JSON.parse(rawHistory || '[]');
-          history = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          history = [];
-        }
-      }
-      const key = String(row.deviceSerial || '').trim().toLowerCase();
-      if (!key) continue;
-      const entry: DisplayLog = {
+  // ---------------------------------------------------------------------------
+  // Server-side paged fetch. The register no longer receives the whole ledger
+  // — it asks /api/serial-log for exactly one page of filtered rows, plus the
+  // filtered total and per-status counts for the KPI cards.
+  // ---------------------------------------------------------------------------
+  const scopeBranch = filterBranch !== 'ALL' ? filterBranch : selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL';
+  const fetchSeq = useRef(0);
+  const loadPage = async () => {
+    const seq = ++fetchSeq.current;
+    setLoading(true);
+    setLoadError('');
+    try {
+      const envelope = await api.getSerialLogs({
+        branchId: scopeBranch,
+        status: filterStatus,
+        query: appliedSearch,
+        dateFromAD: dateFromAD || undefined,
+        dateToAD: dateToAD || undefined,
+        page: serverPage,
+        pageSize: serverPageSize,
+      }) as { data: SerialLog[]; totalItems: number; statusCounts: Record<string, number> };
+      if (seq !== fetchSeq.current) return; // a newer request superseded this one
+      setRows((envelope.data || []).map((row) => ({
         ...row,
-        history,
         branchName: branches.find((b) => b.id === row.branchId)?.name,
-      };
-      const prev = bySerial.get(key);
-      if (!prev || String(entry.updatedAt || entry.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
-        bySerial.set(key, entry);
-      }
+      })));
+      setTotalItems(envelope.totalItems || 0);
+      setStatusCounts(envelope.statusCounts || {});
+    } catch (err: any) {
+      if (seq === fetchSeq.current) setLoadError(err?.message || 'Failed to load serial log register');
+    } finally {
+      if (seq === fetchSeq.current) setLoading(false);
     }
-    return [...bySerial.values()].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
-  }, [serialLogs, branches]);
+  };
 
-  const filtered = useMemo(() => {
-    let result = register;
-    const scopeBranch = filterBranch !== 'ALL' ? filterBranch : selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL';
-    if (scopeBranch !== 'ALL') result = result.filter((d) => d.branchId === scopeBranch);
-    if (filterStatus !== 'ALL') result = result.filter((d) => d.status === filterStatus);
-    // Latest-activity date (updatedAt || createdAt), AD YYYY-MM-DD prefix.
-    if (dateFromAD || dateToAD) {
-      result = result.filter((d) => {
-        const day = String(d.updatedAt || d.createdAt || '').split('T')[0];
-        if (!day) return false;
-        if (dateFromAD && day < dateFromAD) return false;
-        if (dateToAD && day > dateToAD) return false;
-        return true;
-      });
+  useEffect(() => {
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeBranch, filterStatus, appliedSearch, dateFromAD, dateToAD, serverPage, serverPageSize, refreshKey]);
+
+  // Deduplication by serial is now the server's one-row-per-serial upsert
+  // guarantee; rows arrive already sorted newest-first.
+  const register = rows;
+  const filtered = rows;
+
+  const pagination = {
+    page: serverPage,
+    pageCount: Math.max(1, Math.ceil(totalItems / serverPageSize)),
+    pageSize: serverPageSize,
+    totalItems,
+    rangeStart: totalItems === 0 ? 0 : (serverPage - 1) * serverPageSize + 1,
+    rangeEnd: Math.min(serverPage * serverPageSize, totalItems),
+    pagedItems: rows,
+    setPage: (p: number) => setServerPage(Math.max(1, p)),
+    setPageSize: (s: number) => {
+      setServerPageSize(s);
+      setServerPage(1);
+    },
+  };
+
+  const handleExportCSV = async () => {
+    // Fetch every filtered row (not just the current page) for the export.
+    let exportRows: DisplayLog[] = filtered;
+    try {
+      const envelope = await api.getSerialLogs({
+        branchId: scopeBranch,
+        status: filterStatus,
+        query: appliedSearch,
+        dateFromAD: dateFromAD || undefined,
+        dateToAD: dateToAD || undefined,
+        all: true,
+      }) as { data: SerialLog[] };
+      exportRows = (envelope.data || []).map((row) => ({
+        ...row,
+        branchName: branches.find((b) => b.id === row.branchId)?.name,
+      }));
+    } catch {
+      // Fall back to the rows already on screen rather than failing silently.
     }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (d) =>
-          d.deviceSerial.toLowerCase().includes(q) ||
-          (d.ponSerial?.toLowerCase() || '').includes(q) ||
-          (d.macAddress?.toLowerCase() || '').includes(q) ||
-          (d.productName || '').toLowerCase().includes(q) ||
-          (d.customerName?.toLowerCase() || '').includes(q) ||
-          (d.branchName?.toLowerCase() || '').includes(q)
-      );
-    }
-    return result;
-  }, [register, filterBranch, filterStatus, searchQuery, selectedBranchId, dateFromAD, dateToAD]);
-
-  const pagination = useClientPagination(filtered, 20, [searchQuery, filterBranch, filterStatus, selectedBranchId, dateFromAD, dateToAD]);
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const s of ALL_STATUSES) counts[s] = register.filter((d) => d.status === s).length;
-    return counts;
-  }, [register]);
-
-  const handleExportCSV = () => {
     exportToCSV({
       filename: 'Serial_Log_Register',
       reportTitle: 'Serial Log Register (one row per serial)',
       branchName: filterBranch === 'ALL' ? 'All Branches' : branches.find((b) => b.id === filterBranch)?.name || filterBranch,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: filtered.map((d) => ({
+      data: exportRows.map((d) => ({
         deviceSerial: d.deviceSerial,
         ponSerial: d.ponSerial || '-',
         macAddress: d.macAddress || '-',
@@ -191,6 +219,11 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       ],
     });
   };
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setServerPage(1);
+  }, [scopeBranch, filterStatus, appliedSearch, dateFromAD, dateToAD]);
 
   const canEditSerials = isOperationAllowed('edit-device-serials', currentUser?.role);
 
@@ -432,6 +465,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       }
       handleEditCancel();
       onRefreshData?.();
+      loadPage();
     } catch (err: any) {
       setEditError(err?.message || 'Failed to update serial information');
     } finally {
@@ -484,13 +518,13 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       {/* Search & Filter Card — shared inline card */}
       <FilterCard
         searchPlaceholder="Search serial, PON, MAC, product, customer, branch..."
-        searchValue={searchQuery}
-        onSearchApply={setSearchQuery}
+        searchValue={appliedSearch}
+        onSearchApply={setAppliedSearch}
         hasActiveFilters={
-          Boolean(searchQuery) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(dateFromAD) || Boolean(dateToAD)
+          Boolean(appliedSearch) || filterBranch !== 'ALL' || filterStatus !== 'ALL' || Boolean(dateFromAD) || Boolean(dateToAD)
         }
         onClearAll={() => {
-          setSearchQuery('');
+          setAppliedSearch('');
           setFilterBranch('ALL');
           setFilterStatus('ALL');
           setDateFromAD('');
@@ -556,7 +590,9 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
         }
         rightChildren={
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            Showing <strong className="text-slate-900 dark:text-white font-mono">{filtered.length}</strong> serials
+            {loading ? 'Loading…' : loadError ? <span className="text-rose-500">{loadError}</span> : (
+              <>Showing <strong className="text-slate-900 dark:text-white font-mono">{totalItems}</strong> serials</>
+            )}
           </span>
         }
       />

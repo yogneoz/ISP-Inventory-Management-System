@@ -559,6 +559,12 @@ export function buildSerialLookupSql(value: string, exclude: string[]): {
 export const SERIAL_LOG_SELECT_PREFIX =
   'SELECT id, device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress", product_id AS "productId", product_name AS "productName", branch_id AS "branchId", customer_id AS "customerId", customer_name AS "customerName", status, source_type AS "sourceType", source_id AS "sourceId", history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM serial_log';
 
+/** Counts serial_log rows with the same filter fragment (pagination totals). */
+export const SERIAL_LOG_COUNT_PREFIX = 'SELECT COUNT(*)::int AS count FROM serial_log';
+
+/** Per-status counts with the same filter fragment (register KPI cards). */
+export const SERIAL_LOG_STATUS_COUNT_SQL = 'SELECT status, COUNT(*)::int AS count FROM serial_log';
+
 export interface SerialLogQueryOptions {
   /** Non-global roles: explicit branch IN-list (already auth-resolved). */
   branchScope?: string[];
@@ -566,41 +572,82 @@ export interface SerialLogQueryOptions {
   globalBranchId?: unknown;
   status?: unknown;
   query?: unknown;
+  /** Inclusive lower bound on latest-activity day (updated_at/created_at), AD YYYY-MM-DD. */
+  dateFromAD?: unknown;
+  /** Inclusive upper bound on latest-activity day, AD YYYY-MM-DD. */
+  dateToAD?: unknown;
+}
+
+/**
+ * Builds the serial-log WHERE fragment (starting with ' WHERE 1=1') and its
+ * positional parameters. Branch scoping for non-global users (the 403/empty-
+ * set decisions) is resolved by the controller and passed in as `branchScope`;
+ * the SQL here stays purely textural.
+ *
+ * Date bounds apply to the latest-activity day — updated_at falling back to
+ * created_at for untouched rows — matching the register's previous in-memory
+ * filtering.
+ */
+export function buildSerialLogWhere(opts: SerialLogQueryOptions): { whereSql: string; params: unknown[] } {
+  let whereSql = ' WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.branchScope && opts.branchScope.length > 0) {
+    const placeholders = opts.branchScope.map((_, i) => `$${params.length + i + 1}`).join(', ');
+    whereSql += ` AND branch_id IN (${placeholders})`;
+    params.push(...opts.branchScope);
+  }
+  if (opts.globalBranchId && opts.globalBranchId !== 'ALL') {
+    params.push(opts.globalBranchId as string);
+    whereSql += ` AND branch_id = $${params.length}`;
+  }
+  if (opts.status && opts.status !== 'ALL') {
+    params.push(opts.status as string);
+    whereSql += ` AND status = $${params.length}`;
+  }
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    const like = `%${opts.query.trim().toLowerCase()}%`;
+    params.push(like);
+    whereSql += ` AND (LOWER(device_serial) LIKE $${params.length} OR LOWER(COALESCE(pon_serial, '')) LIKE $${params.length} OR LOWER(COALESCE(mac_address, '')) LIKE $${params.length} OR LOWER(product_name) LIKE $${params.length} OR LOWER(COALESCE(customer_name, '')) LIKE $${params.length})`;
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    whereSql += ` AND COALESCE(updated_at::date, created_at::date) >= $${params.length}::date`;
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    whereSql += ` AND COALESCE(updated_at::date, created_at::date) <= $${params.length}::date`;
+  }
+  return { whereSql, params };
 }
 
 /**
  * Builds the serial-log register query. Branch scoping for non-global users
  * (the 403/empty-set decisions) is resolved by the controller and passed in
- * as `branchScope`; the SQL here stays purely textural.
+ * as `branchScope`; the SQL here stays purely textural. When `paging` is
+ * provided a LIMIT/OFFSET clause is appended (1-indexed page) so the register
+ * can be served page-by-page instead of shipping the whole ledger.
  */
-export function buildSerialLogQuery(opts: SerialLogQueryOptions): { sql: string; params: unknown[] } {
-  let sql = SERIAL_LOG_SELECT_PREFIX + ' WHERE 1=1';
-  const params: unknown[] = [];
-  let paramIdx = 0;
-  if (opts.branchScope && opts.branchScope.length > 0) {
-    const placeholders = opts.branchScope.map((_, i) => `$${params.length + i + 1}`).join(', ');
-    sql += ` AND branch_id IN (${placeholders})`;
-    params.push(...opts.branchScope);
-    paramIdx += opts.branchScope.length;
+export function buildSerialLogQuery(opts: SerialLogQueryOptions, paging?: { page: number; pageSize: number }): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildSerialLogWhere(opts);
+  let sql = SERIAL_LOG_SELECT_PREFIX + whereSql + ' ORDER BY created_at DESC';
+  if (paging) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
+    const page = Math.max(1, Math.floor(paging.page));
+    sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
   }
-  if (opts.globalBranchId && opts.globalBranchId !== 'ALL') {
-    params.push(opts.globalBranchId as string);
-    paramIdx++;
-    sql += ` AND branch_id = $${paramIdx}`;
-  }
-  if (opts.status && opts.status !== 'ALL') {
-    params.push(opts.status as string);
-    paramIdx++;
-    sql += ` AND status = $${paramIdx}`;
-  }
-  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
-    const like = `%${opts.query.trim().toLowerCase()}%`;
-    params.push(like);
-    paramIdx++;
-    sql += ` AND (LOWER(device_serial) LIKE $${paramIdx} OR LOWER(COALESCE(pon_serial, '')) LIKE $${paramIdx} OR LOWER(COALESCE(mac_address, '')) LIKE $${paramIdx} OR LOWER(product_name) LIKE $${paramIdx} OR LOWER(COALESCE(customer_name, '')) LIKE $${paramIdx})`;
-  }
-  sql += ` ORDER BY created_at DESC`;
   return { sql, params };
+}
+
+/** Counts serial_log rows with the same filter fragment (pagination totals). */
+export function buildSerialLogCountQuery(opts: SerialLogQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildSerialLogWhere(opts);
+  return { sql: SERIAL_LOG_COUNT_PREFIX + whereSql, params };
+}
+
+/** Per-status counts with the same filter fragment (register KPI cards). */
+export function buildSerialLogStatusCountQuery(opts: SerialLogQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildSerialLogWhere(opts);
+  return { sql: SERIAL_LOG_STATUS_COUNT_SQL + whereSql + ' GROUP BY status', params };
 }
 
 /** Locks a serial_log history row (FOR UPDATE) for the upsert read-modify-write. */

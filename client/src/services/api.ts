@@ -908,17 +908,38 @@ export const api = {
   },
 
   // Serial Log Register (one row per unique serial)
-  async getSerialLogs(params?: { branchId?: string; status?: string; query?: string }): Promise<SerialLog[]> {
+  //
+  // Paged mode (params.page set): returns a { data, page, pageSize, totalItems,
+  // statusCounts } envelope so the register never loads the whole ledger.
+  // params.all: fetch every filtered row (CSV export). Without page/all the
+  // legacy full-array shape is returned.
+  async getSerialLogs(params?: {
+    branchId?: string; status?: string; query?: string;
+    dateFromAD?: string; dateToAD?: string;
+    page?: number; pageSize?: number; all?: boolean;
+  }): Promise<SerialLog[] | { data: SerialLog[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number> }> {
     const search = new URLSearchParams();
     if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
     if (params?.status && params.status !== 'ALL') search.append('status', params.status);
     if (params?.query) search.append('query', params.query);
+    if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+    if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+    if (params?.all) search.append('all', '1');
+    if (params?.page !== undefined) {
+      search.append('page', String(params.page));
+      if (params.pageSize) search.append('pageSize', String(params.pageSize));
+    }
     const queryString = search.toString() ? `?${search.toString()}` : '';
-    const rows = await fetchJson<any[]>(`/api/serial-log${queryString}`);
-    return (rows || []).map((r) => ({
+    const parseRow = (r: any) => ({
       ...r,
       history: typeof r.history === 'string' ? safeParseHistory(r.history) : (r.historyJson ? safeParseHistory(r.historyJson) : (r.history || [])),
-    }));
+    });
+    if (params?.page !== undefined || params?.all) {
+      const envelope = await fetchJson<any>(`/api/serial-log${queryString}`);
+      return { ...envelope, data: (envelope.data || []).map(parseRow) };
+    }
+    const rows = await fetchJson<any[]>(`/api/serial-log${queryString}`);
+    return (rows || []).map(parseRow);
   },
 
   async createSerialLogEntry(data: {

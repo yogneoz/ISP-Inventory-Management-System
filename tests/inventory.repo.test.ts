@@ -51,6 +51,8 @@ import {
   customerCountUpsertParams,
   buildSerialLookupSql,
   buildSerialLogQuery,
+  buildSerialLogCountQuery,
+  buildSerialLogStatusCountQuery,
   SERIAL_LOG_FIND_BY_DEVICE_SQL,
   SERIAL_LOG_UPDATE_SQL,
   serialLogUpdateParams,
@@ -356,6 +358,35 @@ describe('serial log register', () => {
     const { sql, params } = buildSerialLogQuery({ globalBranchId: 'ALL', status: 'ALL', query: 42 as unknown as string });
     assert.match(sql, /WHERE 1=1 ORDER BY created_at DESC$/);
     assert.deepEqual(params, []);
+  });
+
+  test('date bounds filter the latest-activity day inclusively; malformed dates are ignored', () => {
+    const { sql, params } = buildSerialLogQuery({ dateFromAD: '2026-09-01', dateToAD: '2026-09-30' });
+    assert.match(sql, /COALESCE\(updated_at::date, created_at::date\) >= \$1::date/);
+    assert.match(sql, /COALESCE\(updated_at::date, created_at::date\) <= \$2::date/);
+    assert.deepEqual(params, ['2026-09-01', '2026-09-30']);
+    const bad = buildSerialLogQuery({ dateFromAD: '09/01/2026', dateToAD: 42 as unknown as string });
+    assert.ok(!bad.sql.includes('::date'));
+    assert.deepEqual(bad.params, []);
+  });
+
+  test('paging appends clamped LIMIT/OFFSET after the ORDER BY', () => {
+    const { sql } = buildSerialLogQuery({ globalBranchId: 'ALL' }, { page: 3, pageSize: 20 });
+    assert.match(sql, / ORDER BY created_at DESC LIMIT 20 OFFSET 40$/);
+    const big = buildSerialLogQuery({}, { page: 0, pageSize: 9999 });
+    assert.match(big.sql, /LIMIT 500 OFFSET 0$/);
+    const plain = buildSerialLogQuery({});
+    assert.ok(!plain.sql.includes('LIMIT'));
+  });
+
+  test('count and status-count queries reuse the same filter fragment', () => {
+    const opts = { branchScope: ['WH001'], status: 'DAMAGED' };
+    const count = buildSerialLogCountQuery(opts);
+    assert.match(count.sql, /^SELECT COUNT\(\*\)::int AS count FROM serial_log WHERE 1=1 AND branch_id IN \(\$1\) AND status = \$2$/);
+    assert.deepEqual(count.params, ['WH001', 'DAMAGED']);
+    const statusCount = buildSerialLogStatusCountQuery(opts);
+    assert.match(statusCount.sql, /^SELECT status, COUNT\(\*\)::int AS count FROM serial_log WHERE 1=1 AND branch_id IN \(\$1\) AND status = \$2 GROUP BY status$/);
+    assert.deepEqual(statusCount.params, ['WH001', 'DAMAGED']);
   });
 
   test('upsert probe matches lower(trim(device_serial)) for one-row-per-serial semantics', () => {

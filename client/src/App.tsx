@@ -1464,7 +1464,6 @@ export default function App() {
 
               {activeTab === 'complete-serial-inventory' && (
                 <SerialLogRegister
-                  serialLogs={serialLogs}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   currentUser={currentUser}

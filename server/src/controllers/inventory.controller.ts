@@ -62,6 +62,8 @@ import {
   customerCountUpsertParams,
   buildSerialLookupSql,
   buildSerialLogQuery,
+  buildSerialLogCountQuery,
+  buildSerialLogStatusCountQuery,
   SERIAL_LOG_FIND_BY_DEVICE_SQL,
   SERIAL_LOG_LOCK_HISTORY_SQL,
   SERIAL_LOG_UPDATE_SQL,
@@ -1630,7 +1632,7 @@ try {
 /** Forwarded from inventory.routes.ts (get_serialLog). */
 export async function get_serialLog(req: any, res: Response): Promise<any> {
 try {
-    const { branchId, status, query } = req.query;
+    const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
     const user = (req as any).user;
     // Branch scoping: non-global users may only read their own branches.
     let branchScope: string[] | undefined;
@@ -1650,7 +1652,32 @@ try {
     } else {
       globalBranchId = branchId;
     }
-    const { sql, params } = buildSerialLogQuery({ branchScope, globalBranchId, status, query });
+    const opts = { branchScope, globalBranchId, status, query, dateFromAD, dateToAD };
+    // Paged mode: ?page=N (with optional pageSize) returns an envelope with
+    // the page slice, the filtered total, and per-status counts for the KPI
+    // cards. ?all=1 returns every filtered row (CSV export). No page param
+    // keeps the legacy full-array shape for existing callers.
+    const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+    if (wantsPaged) {
+      const n = Math.max(1, Number(page) || 1);
+      const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+      const countR = await pgPool.query(buildSerialLogCountQuery(opts).sql, buildSerialLogCountQuery(opts).params);
+      const totalItems = Number(countR.rows[0]?.count || 0);
+      const statusQ = buildSerialLogStatusCountQuery(opts);
+      const statusR = await pgPool.query(statusQ.sql, statusQ.params);
+      const statusCounts: Record<string, number> = {};
+      for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+      const listQ = buildSerialLogQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+      const r = await pgPool.query(listQ.sql, listQ.params);
+      return res.json({
+        data: r.rows,
+        page: all === '1' ? 1 : n,
+        pageSize: all === '1' ? totalItems : size,
+        totalItems,
+        statusCounts,
+      });
+    }
+    const { sql, params } = buildSerialLogQuery(opts);
     const r = await pgPool.query(sql, params);
     res.json(r.rows);
   } catch (err) {

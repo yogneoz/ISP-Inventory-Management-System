@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, parseSerialHistory, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -50,7 +50,6 @@ const { branchId, fiscalYearId } = req.query;
       const pgAuditLogs = data.auditLogs;
       const pgTransactionLogs = data.transactionLogs;
       const pgApprovalRequests = data.approvalRequests;
-      const pgSerialLogs = parseSerialHistory(data.serialLogsRaw);
 
       const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
         const prod = pgProducts.find((p: any) => p.id === item.productId);
@@ -117,7 +116,9 @@ const { branchId, fiscalYearId } = req.query;
         companyProfile: data.companyProfile[0] || companyProfile,
         damageRecords: data.damageRecords,
         vendorPayments: data.vendorPayments,
-        serialLogs: pgSerialLogs,
+        // serialLogs are no longer shipped in the bootstrap payload — the
+        // Serial Log Register fetches its own filtered/paged data from
+        // /api/serial-log so large ledgers aren't loaded wholesale.
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
