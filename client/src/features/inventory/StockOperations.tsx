@@ -18,6 +18,7 @@ import {
   ApprovalRequest,
 } from '../../types';
 import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { DateField } from '../../components/DateField';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
@@ -414,6 +415,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
   const [consumableRegisterBranch, setConsumableRegisterBranch] = useState('ALL');
   const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
+  const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
+  const [consumableRegisterDateTo, setConsumableRegisterDateTo] = useState('');
   const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
 
   // 7. Receive Stock Physical Verification Modal State
@@ -1784,6 +1787,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     return consumableOperations.filter((op) => {
       if (consumableRegisterBranch !== 'ALL' && op.branchId !== consumableRegisterBranch) return false;
       if (consumableRegisterStatus !== 'ALL' && (op.status || 'LOGGED') !== consumableRegisterStatus) return false;
+      // AD date range (inclusive): an op matches when dateAD falls between
+      // the bounds; a bound left empty is open-ended.
+      if (consumableRegisterDateFrom && (op.dateAD || '') < consumableRegisterDateFrom) return false;
+      if (consumableRegisterDateTo && (op.dateAD || '') > consumableRegisterDateTo) return false;
       if (!q) return true;
       const items = (op.items || []) as ConsumableIssueItem[];
       const haystack = [
@@ -1801,7 +1808,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [consumableOperations, consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus]);
+  }, [consumableOperations, consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus, consumableRegisterDateFrom, consumableRegisterDateTo]);
 
   // Fetch Customer Devices for Exchange Tab
   useEffect(() => {
@@ -3683,9 +3690,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </span>
           </div>
 
-          {/* Toolbar: search + branch filter + export */}
-          <div className="flex flex-col sm:flex-row gap-2 mb-3">
-            <div className="relative flex-1">
+          {/* Toolbar row 1: search + branch/status filters + export */}
+          <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center gap-2 mb-2">
+            <div className="relative lg:max-w-xs">
               <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -3714,6 +3721,35 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <option value="LOGGED">Logged</option>
               <option value="CANCELLED">Reversed</option>
             </select>
+            <div className="w-36 sm:w-40">
+              <DateField
+                mode={dateMode}
+                value={consumableRegisterDateFrom}
+                onChange={setConsumableRegisterDateFrom}
+                compact
+                max={consumableRegisterDateTo || undefined}
+              />
+            </div>
+            <span className="text-[10px] font-bold text-slate-400">→</span>
+            <div className="w-36 sm:w-40">
+              <DateField
+                mode={dateMode}
+                value={consumableRegisterDateTo}
+                onChange={setConsumableRegisterDateTo}
+                compact
+                min={consumableRegisterDateFrom || undefined}
+              />
+            </div>
+            {(consumableRegisterDateFrom || consumableRegisterDateTo) && (
+              <button
+                type="button"
+                onClick={() => { setConsumableRegisterDateFrom(''); setConsumableRegisterDateTo(''); }}
+                title="Clear date range"
+                className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer self-start mt-1"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() =>
