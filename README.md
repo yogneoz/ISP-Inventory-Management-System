@@ -436,6 +436,56 @@ docker run -d \
 
 ---
 
+## 📡 Paged Register Endpoints
+
+Large ledgers are **not** shipped wholesale through `GET /api/bootstrap`. Each
+register below is served by its own list endpoint with server-side filtering
+and pagination, so the client loads exactly one page of rows at a time.
+
+| Register | Endpoint | Status |
+| :--- | :--- | :--- |
+| Serial Log Register | `GET /api/serial-log` | **Trimmed from bootstrap** — the register is the endpoint's only consumer, so the table no longer ships in the bootstrap payload at all |
+| Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Purchase Orders Register | `GET /api/purchase-orders` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Purchase Invoices Register | `GET /api/purchase-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+
+### Request parameters (all optional)
+
+| Parameter | Meaning |
+| :--- | :--- |
+| `page`, `pageSize` | 1-indexed page and page size (clamped to 1–500). Omit `page` to get the legacy full-array response. |
+| `query` | Free-text search — covers document/reference numbers, names, remarks, and the JSONB `items` blob. |
+| `branchId` | Branch filter (scoped reads are enforced server-side per role). |
+| `status` / `paymentStatus` | Register-specific status filter. |
+| `dateFromAD`, `dateToAD` | Inclusive AD date bounds (`YYYY-MM-DD`) on the register's date column. |
+| `all=1` | Return **every** filtered row (used by CSV export). |
+
+### Response envelope (paged mode)
+
+```json
+{
+  "data": [ ...rows for this page... ],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 1234,
+  "statusCounts": { "IN_STOCK": 7, "DAMAGED": 2 },
+  "pendingValue": 141250,
+  "receivedValue": 0,
+  "sums": { "taxable": 197500, "vat": 25675, "grand": 223175, "unpaid": 147750 }
+}
+```
+
+- `statusCounts` powers the register's KPI cards; `pendingValue`/`receivedValue`
+  (purchase orders) and `sums` (purchase invoices) are SQL aggregates over the
+  **full filtered set**, so metrics stay exact even when one page is displayed.
+- Omitting `page` returns the legacy plain array — older consumers (dashboard,
+  movement ledger, FY closing wizard) keep working unchanged.
+- New SQL for these endpoints lives in the repo layer (`server/src/models/*.repo.ts`);
+  controllers only assemble the envelope. Filters are validated (date format,
+  page clamping) before they reach SQL.
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License.

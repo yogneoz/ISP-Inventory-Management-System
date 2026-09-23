@@ -164,12 +164,10 @@ export async function fetchOperationalData(
   approvalRequests: any[];
   categories: any[];
   uom: any[];
-  locations: any[];
-  companyProfile: any[];
-  damageRecords: any[];
-  vendorPayments: any[];
-  serialLogsRaw: any[];
-  vendorOpeningBalanceTotal: number;
+  locations: any[];    companyProfile: any[];
+    damageRecords: any[];
+    vendorPayments: any[];
+    vendorOpeningBalanceTotal: number;
 }> {
   const [
     branches,
@@ -194,7 +192,6 @@ export async function fetchOperationalData(
     damageRecords,
     vendorPayments,
     vendorOpeningBalanceTotal,
-    serialLogsRaw,
   ] = await Promise.all([
     fetchTable(pool, BOOTSTRAP_TABLES.branches, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.products, scopeParams),
@@ -221,7 +218,9 @@ export async function fetchOperationalData(
     // handler dereferenced selectedFiscalYear.id the same way (a missing year
     // fails the query and surfaces through the handler's catch → 503).
     fetchVendorOpeningBalanceTotal(pool, scopeParams.fiscalYearId as string, scopeParams.branchId),
-    fetchTable(pool, BOOTSTRAP_TABLES.serialLogs, scopeParams),
+    // NOTE: the serial_log fetch was removed — the register is served by the
+    // paged GET /api/serial-log endpoint instead (see SerialLogQueryOptions),
+    // so bootstrapping no longer loads the whole ledger.
   ]);
 
   return {
@@ -246,7 +245,6 @@ export async function fetchOperationalData(
     companyProfile,
     damageRecords,
     vendorPayments,
-    serialLogsRaw,
     vendorOpeningBalanceTotal,
   };
 }

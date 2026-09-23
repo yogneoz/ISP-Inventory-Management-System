@@ -116,9 +116,17 @@ const { branchId, fiscalYearId } = req.query;
         companyProfile: data.companyProfile[0] || companyProfile,
         damageRecords: data.damageRecords,
         vendorPayments: data.vendorPayments,
-        // serialLogs are no longer shipped in the bootstrap payload — the
-        // Serial Log Register fetches its own filtered/paged data from
-        // /api/serial-log so large ledgers aren't loaded wholesale.
+        // Tables trimmed from the bootstrap payload (each is served by its
+        // own paged/filterable list endpoint instead, so large ledgers are
+        // never loaded wholesale into the client):
+        //   - serialLogs        → GET /api/serial-log        (paged envelope)
+        //   - stockOperations   → GET /api/stock-operations   (paged envelope)  [register only; consumers still use bootstrap]
+        //   - purchaseOrders    → GET /api/purchase-orders    (paged envelope)  [register only; consumers still use bootstrap]
+        //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope)  [register only; consumers still use bootstrap]
+        // serialLogs is the only one fully removed so far — the other three
+        // still ship because non-register consumers (dashboard KPIs, the FY
+        // closing wizard, the PI PO dropdown, the movement ledger) read them
+        // from bootstrap state. See README "Paged Register Endpoints".
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',
