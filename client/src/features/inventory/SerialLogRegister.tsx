@@ -4,6 +4,7 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
+import { DateField } from '../../components/DateField';
 import {
   Search,
   Download,
@@ -29,6 +30,8 @@ interface SerialLogRegisterProps {
   branches: Branch[];
   selectedBranchId: string;
   currentUser?: User | null;
+  /** Global calendar mode from the header toggle (BS Nepali picker / AD native picker). */
+  dateMode?: 'BS' | 'AD';
   onRefreshData?: () => void;
 }
 
@@ -68,11 +71,17 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   branches = [],
   selectedBranchId,
   currentUser,
+  dateMode = 'BS',
   onRefreshData,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterBranch, setFilterBranch] = useState<string>('ALL');
+  // Register date range (canonical AD values; DateField converts BS picks).
+  // Narrows rows by their latest activity date (updatedAt, falling back to
+  // createdAt); an empty bound is open-ended.
+  const [dateFromAD, setDateFromAD] = useState('');
+  const [dateToAD, setDateToAD] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<DisplayLog | null>(null);
   const [editForm, setEditForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
@@ -119,6 +128,16 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
     const scopeBranch = filterBranch !== 'ALL' ? filterBranch : selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL';
     if (scopeBranch !== 'ALL') result = result.filter((d) => d.branchId === scopeBranch);
     if (filterStatus !== 'ALL') result = result.filter((d) => d.status === filterStatus);
+    // Latest-activity date (updatedAt || createdAt), AD YYYY-MM-DD prefix.
+    if (dateFromAD || dateToAD) {
+      result = result.filter((d) => {
+        const day = String(d.updatedAt || d.createdAt || '').split('T')[0];
+        if (!day) return false;
+        if (dateFromAD && day < dateFromAD) return false;
+        if (dateToAD && day > dateToAD) return false;
+        return true;
+      });
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -132,9 +151,9 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       );
     }
     return result;
-  }, [register, filterBranch, filterStatus, searchQuery, selectedBranchId]);
+  }, [register, filterBranch, filterStatus, searchQuery, selectedBranchId, dateFromAD, dateToAD]);
 
-  const pagination = useClientPagination(filtered, 20, [searchQuery, filterBranch, filterStatus, selectedBranchId]);
+  const pagination = useClientPagination(filtered, 20, [searchQuery, filterBranch, filterStatus, selectedBranchId, dateFromAD, dateToAD]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -495,6 +514,37 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
             <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
           ))}
         </select>
+
+        {/* Activity date range (inclusive) — follows the global BS/AD mode */}
+        <div className="w-36 sm:w-40">
+          <DateField
+            mode={dateMode}
+            value={dateFromAD}
+            onChange={setDateFromAD}
+            compact
+            max={dateToAD || undefined}
+          />
+        </div>
+        <span className="text-[10px] font-bold text-slate-400">→</span>
+        <div className="w-36 sm:w-40">
+          <DateField
+            mode={dateMode}
+            value={dateToAD}
+            onChange={setDateToAD}
+            compact
+            min={dateFromAD || undefined}
+          />
+        </div>
+        {(dateFromAD || dateToAD) && (
+          <button
+            type="button"
+            onClick={() => { setDateFromAD(''); setDateToAD(''); }}
+            title="Clear date range"
+            className="px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800">

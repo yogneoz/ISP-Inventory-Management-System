@@ -1467,6 +1467,7 @@ export default function App() {
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   currentUser={currentUser}
+                  dateMode={dateMode}
                   onRefreshData={refreshAllData}
                 />
               )}
