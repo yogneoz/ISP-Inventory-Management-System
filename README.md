@@ -33,7 +33,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
 - **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded).
 - **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
-- **Real-Time Multi-User Sync**: Server-Sent Events (SSE) broadcast every mutation to all connected clients, which re-sync through a single atomic bootstrap endpoint.
+- **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
 
 ---
@@ -57,7 +57,16 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   │   ├── finance/                  # Assets, financial statements, VAT, fiscal years, vendor ledger
 │   │   └── settings/                 # Branches, users, permissions, approvals, maintenance
 │   ├── services/
-│   │   └── api.ts                    # Typed API client (fetch + SSE subscription)
+│   │   └── api/                      # Typed API client split by domain:
+│   │       ├── http.ts               #   request pipeline (auth headers, GET dedup, 401 handling)
+│   │       ├── auth.ts               #   login, setup, profiles
+│   │       ├── bootstrap.ts          #   unified bootstrap + targeted local-slice fetch
+│   │       ├── inventory.ts          #   stock, serials, customers, approvals
+│   │       ├── procurement.ts        #   POs, invoices, vendor payments, shipments
+│   │       ├── finance.ts            #   fiscal years, BS calendar, summaries
+│   │       ├── admin.ts              #   company profile, permissions, master data
+│   │       ├── sync.ts               #   SSE subscription
+│   │       └── index.ts              #   barrel assembling the single `api` object
 │   ├── types/
 │   │   └── index.ts                  # Shared TypeScript interfaces
 │   ├── utils/                        # BS/AD calendar, depreciation, document numbering,
@@ -69,6 +78,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── index.ts                      # Network bootstrap (app creation, routes, listen)
 │   └── src/
 │       ├── app.ts                    # App composition, shared runtime state, caches, SSE
+│       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
 │       ├── routes/                   # Thin route forwarders (no business logic)
 │       ├── controllers/              # HTTP orchestration only — no SQL text (CI-enforced)
 │       ├── services/                 # Core business logic (serial editing, damage lifecycle)
@@ -483,6 +493,49 @@ and pagination, so the client loads exactly one page of rows at a time.
 - New SQL for these endpoints lives in the repo layer (`server/src/models/*.repo.ts`);
   controllers only assemble the envelope. Filters are validated (date format,
   page clamping) before they reach SQL.
+
+---
+
+## ⚡ Targeted Real-Time Refresh
+
+Every mutation broadcast carries a `domain` tag (resolved in
+`server/src/syncDomains.ts` from the audit module or the explicit event type,
+e.g. `CREATE_PURCHASE_ORDER` → `PROCUREMENT`, `STOCK_UPDATED` → `STOCK`).
+
+On a known domain the client re-fetches only the affected bootstrap slice(s)
+through `GET /api/bootstrap/local?key=<slice>[&branchId=…][&fiscalYearId=…]`,
+which returns `{ dataVersion, <slice>: rows }` — company-wide slices are served
+from the runtime caches, branch/fiscal-year-scoped slices re-run the same
+operational-data query as the full bootstrap. Unknown domains, mixed event
+bursts, and slice-fetch failures fall back to the full bootstrap, so the UI can
+never be left stale.
+
+The mapping is pinned by unit tests (`tests/syncDomains.test.ts`): a new audit
+module without a domain mapping fails the suite instead of silently degrading
+to full-bootstrap refreshes.
+
+---
+
+## 🧱 Architecture Notes
+
+- **API client**: split into per-domain modules under `client/src/services/api/`
+  (`http`, `auth`, `bootstrap`, `inventory`, `procurement`, `finance`, `admin`,
+  `sync`) and assembled by a barrel that preserves the original `api` object —
+  feature work no longer funnels through a single file.
+- **Reversal transactions**: damage and consumable-issue reversals restore
+  stock, cancel damage records, and insert reversal ledger rows in **set-based
+  batch statements** (unnest-driven), keeping the transaction span constant
+  regardless of line-item count instead of holding a pooled connection through
+  per-item loops.
+- **Runtime state**: `app.ts` keeps module-level mirrors of business tables
+  (hydrated from PostgreSQL at boot and refreshed after every committed write)
+  that serve as read caches and the PostgreSQL-down fallback. The full audit —
+  which mirrors are load-bearing guards vs. pure caches vs. vestigial, and the
+  safe order for retiring them — is documented in
+  [`docs/mirror-audit.md`](docs/mirror-audit.md).
+- **Port binding**: `PORT` is validated as a positive integer; ambient
+  `PORT=0` or empty values fall back to 3000 instead of binding an ephemeral
+  port.
 
 ---
 
