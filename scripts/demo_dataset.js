@@ -598,6 +598,87 @@ export function buildDemoDataset(branches) {
       isDemo: true,
     }));
 
+  // ---------------------------------------------------------------------------
+  // Demo CONSUMABLE_ISSUE stock operations (is_demo = TRUE) — populates the
+  // Consumables Issue Register out of the box with per-line POP / customer
+  // destinations so the table and the reverse flow can be evaluated immediately.
+  // ---------------------------------------------------------------------------
+  const consumableProducts = demoProducts.filter((p) => p.productGroup === 'Consumable Item');
+  const pickConsumable = (i) => consumableProducts[i % consumableProducts.length];
+
+  const demoConsumableIssueLines = [
+    // [productIdx, qty, usedAtType, usedAtName, remarks]
+    [0, 4, 'POP', 'Example Location 1 - Server Room', 'Splitter install in Server Room rack A'],
+    [1, 2, 'POP', 'Example Location 1 - Server Room', '16-port splitter replacement, bay 2'],
+    [3, 10, 'CUSTOMER', 'Example Customer 1 (CUS-10291)', 'Customer drop re-termination'],
+    [4, 6, 'CUSTOMER', 'Example Customer 2 (CUS-10292)', 'Fast connector swap at customer premises'],
+    [5, 3, 'FIELD', null, 'Fiber patch cords for temporary event link'],
+    [2, 1, 'FIELD', null, 'Sleeve box consumed during splicing job'],
+    [8, 40, 'POP', 'Example Location 1 - Server Room', '4-core fiber pulled to new ODF frame'],
+    [7, 1, 'CUSTOMER', 'Example Customer 3 (CUS-10293)', 'Drop cable roll for new customer trench'],
+  ];
+
+  const demoTechnicians = ['Ram Bahadur (Splicing Tech)', 'Suman Shrestha (Field Tech)', 'Anil Tamang (OSP Tech)'];
+  const demoWorkOrders = ['WO-2083-NET-014', 'WO-2083-FTTH-021', 'WO-2083-REPAIR-008'];
+
+  const demoStockOperations = demoConsumableIssueLines.map(([prodIdx, qty, usedAtType, usedAtName, remarks], i) => {
+    const prod = pickConsumable(prodIdx);
+    const technician = demoTechnicians[i % demoTechnicians.length];
+    const workOrder = demoWorkOrders[i % demoWorkOrders.length];
+    const totalValue = qty * prod.costPrice;
+    const dateAD = i % 2 === 0 ? '2026-08-14' : '2026-08-18';
+    const dateBS = i % 2 === 0 ? '2083-04-30 BS' : '2083-05-02 BS';
+    // Make the last record a reversed one so the Reversed badge is visible.
+    const isReversed = i === demoConsumableIssueLines.length - 1;
+
+    const item = {
+      id: `cni-demo-${i + 1}`,
+      productId: prod.id,
+      productName: prod.name,
+      sku: prod.sku,
+      unit: prod.unit,
+      quantity: qty,
+      unitCost: prod.costPrice,
+      totalValue,
+      usedAtType,
+      remarks,
+    };
+    if (usedAtType === 'POP') {
+      item.usedAtLocationId = 'LOC-001';
+      item.usedAtLocationName = usedAtName;
+    } else if (usedAtType === 'CUSTOMER') {
+      item.usedAtCustomerId = i === 7 ? 'CUS-10293' : (i === 2 ? 'CUS-10291' : 'CUS-10292');
+      item.usedAtCustomerName = usedAtName;
+    }
+
+    return {
+      id: `demo-con-${String(i + 1).padStart(3, '0')}`,
+      referenceNumber: `CON-2083-${String(1001 + i)}`,
+      type: 'CONSUMABLE_ISSUE',
+      technicianName: technician,
+      workOrderRef: workOrder,
+      branchId: i % 3 === 2 ? BRANCH2_ID : HQ_BRANCH_ID,
+      branchName: i % 3 === 2 ? branch2?.name : hqBranch?.name,
+      totalValue,
+      reason: `Consumable Field Issue: WO ${workOrder} (${technician}) - Demo field usage — ${remarks}${isReversed ? ' | REVERSED (Issued to wrong work order — re-issued under WO-2083-REPAIR-009.) by demo@example.com' : ''}`,
+      inspectorName: 'Store Supervisor (Demo)',
+      dateAD,
+      dateBS,
+      fiscalYear: '2083/84',
+      status: isReversed ? 'CANCELLED' : 'LOGGED',
+      items: [item],
+      ...(isReversed
+        ? {
+            reversalReason: 'Issued to wrong work order — quantities re-issued under WO-2083-REPAIR-009.',
+            reversedBy: 'demo@example.com',
+            reversedAtAD: '2026-08-19',
+            reversedAtBS: '2083-05-03 BS',
+          }
+        : {}),
+      isDemo: true,
+    };
+  });
+
   return {
     suppliers: demoSuppliers,
     categories: demoCategories,
@@ -609,7 +690,7 @@ export function buildDemoDataset(branches) {
     purchaseInvoices: demoPurchaseInvoices,
     vendorPayments: demoVendorPayments,
     shipments: [],
-    stockOperations: [],
+    stockOperations: demoStockOperations,
     auditTrail: [],
     transactionLogs: [],
     customerMasterRecords: [],

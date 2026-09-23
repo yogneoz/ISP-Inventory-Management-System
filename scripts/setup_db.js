@@ -549,6 +549,27 @@ async function seedDemoData(client) {
     summary.damage_records = (dataset.damageRecords || []).length;
   }
 
+  // Seed stock_operations demo rows (CONSUMABLE_ISSUE register entries)
+  if (!(await skipTable('stock_operations'))) {
+    const demoOps = dataset.stockOperations || [];
+    for (const op of demoOps) {
+      await client.query(
+        `INSERT INTO stock_operations (
+           id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name,
+           total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          op.id, op.referenceNumber, op.type, op.technicianName || null, op.workOrderRef || null,
+          op.branchId, op.branchName || null, op.totalValue || 0, op.reason || '',
+          op.inspectorName || null, op.dateAD, op.dateBS, op.fiscalYear || '2083/84',
+          op.status || 'LOGGED', JSON.stringify(op.items || []),
+        ]
+      );
+    }
+    summary.stock_operations = demoOps.length;
+  }
+
   // Seed locations table
   if (!(await skipTable('locations'))) {
     for (const loc of (dataset.locations || [])) {
