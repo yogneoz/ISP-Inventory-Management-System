@@ -40,6 +40,7 @@ import {
   STOCK_RELEASE_DAMAGED_SQL,
   STOCK_CONSUME_QOH_SQL,
   STOCK_REVERSE_DAMAGE_SQL,
+  STOCK_RETURN_QOH_SQL,
   STOCK_OPERATION_CANCEL_SQL,
   STOCK_OPERATION_FIND_FOR_RECEIVE_SQL,
   STOCK_OPERATION_SET_STATUS_SQL,
@@ -1013,6 +1014,133 @@ try {
     res.json({ message: 'Damage record reversed successfully. Units restored to available stock.', operation: updatedOp });
   } catch (err: any) {
     console.error('Error reversing stock operation:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+
+}
+
+/**
+ * Reverse a CONSUMABLE_ISSUE stock operation. Permission 'consumable-issue-reverse'
+ * is enforced by the route middleware; the reason is mandatory and kept on the
+ * audit trail. Issued units are returned to usable stock at the original branch,
+ * a CONSUMABLE_ISSUE-reversal ledger entry is written, and the operation status
+ * flips to CANCELLED with reversal metadata attached.
+ */
+export async function post_reverseConsumable(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body.reason || '').trim();
+    const reversedBy =
+      (req.body.user && (req.body.user.name || req.body.user.email)) ||
+      req.body.reversedBy ||
+      'Super Admin';
+    if (!reason) {
+      res.status(400).json({ message: 'A reversal reason is required as a safeguard before undoing a consumable issue.' });
+      return;
+    }
+
+    const opIndex = stockOperations.findIndex((o) => o.id === id);
+    if (opIndex < 0) {
+      res.status(404).json({ message: 'Stock operation not found.' });
+      return;
+    }
+    const op: any = stockOperations[opIndex];
+    if (op.type !== 'CONSUMABLE_ISSUE') {
+      res.status(400).json({ message: 'Only CONSUMABLE_ISSUE stock operations can be reversed here.' });
+      return;
+    }
+    if (op.status === 'CANCELLED') {
+      res.status(400).json({ message: 'This consumable issue has already been reversed.' });
+      return;
+    }
+
+    const operationItems: any[] = Array.isArray(op.items) && op.items.length > 0
+      ? op.items
+      : op.productId
+        ? [{ productId: op.productId, productName: op.productName || '', quantity: Math.abs(Number(op.quantityChanged) || 0), unitCost: op.costPerUnit }]
+        : [];
+    if (operationItems.length === 0) {
+      res.status(400).json({ message: 'No items were found on this consumable issue to reverse.' });
+      return;
+    }
+
+    // Reversal ledger date (today), with the same BS calendar gate used on creation.
+    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
+    const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
+
+    const reversalLedger: TransactionLog[] = operationItems.map((item: any) => {
+      const qty = Number(item.quantity) || 0;
+      const product = products.find((p) => p.id === item.productId);
+      const stockRecord = inventoryStock.find((s) => s.productId === item.productId && s.branchId === op.branchId);
+      const unitCost = Number(item.unitCost ?? item.costPerUnit ?? op.costPerUnit) || product?.costPrice || 0;
+      const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+      return {
+        id: `txn-${op.id}-crev-${item.productId}`,
+        transactionNumber: `${op.referenceNumber}-CREV`,
+        productId: item.productId,
+        productSku: item.sku || product?.sku || '',
+        productName: product?.name || item.productName || 'Product',
+        branchId: op.branchId,
+        changeType: 'CONSUMABLE_ISSUE',
+        quantityBefore,
+        quantityChanged: qty,
+        quantityAfter: quantityBefore + qty,
+        unitCost,
+        referenceDocId: op.referenceNumber,
+        timestampAD: new Date(`${reversalDateAD}T00:00:00.000Z`).toISOString(),
+        timestampBS: reversalDateBS,
+      } as TransactionLog;
+    });
+
+    const updatedOp: any = {
+      ...op,
+      status: 'CANCELLED',
+      reversalReason: reason,
+      reversedBy,
+      reversedAtAD: reversalDateAD,
+      reversedAtBS: reversalDateBS,
+    };
+
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        for (const item of operationItems) {
+          const qty = Number(item.quantity) || 0;
+          if (qty <= 0) continue;
+          await client.query(STOCK_RETURN_QOH_SQL, [qty, item.productId, op.branchId]);
+        }
+        await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
+        for (const txn of reversalLedger) {
+          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
+        }
+      });
+    }
+
+    // In-memory mirrors so the UI reflects the reversal immediately.
+    const stockRows = [...inventoryStock];
+    for (const item of operationItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const stockIdx = stockRows.findIndex((s) => s.productId === item.productId && s.branchId === op.branchId);
+      if (stockIdx >= 0) {
+        stockRows[stockIdx] = {
+          ...stockRows[stockIdx],
+          quantityOnHand: (stockRows[stockIdx].quantityOnHand || 0) + qty,
+          lastUpdated: new Date().toISOString(),
+        };
+      }
+    }
+    setInventoryStock(stockRows);
+    setStockOperations(withReplaced(stockOperations, opIndex, updatedOp));
+    setTransactionLogs([
+      ...reversalLedger.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
+      ...transactionLogs,
+    ]);
+
+    logAuditEvent(req, 'REVERSE_CONSUMABLE_ISSUE', 'STOCK_OPERATIONS', `Reversed consumable issue ${op.referenceNumber} — ${reason}`);
+    res.json({ message: 'Consumable issue reversed successfully. Units returned to available stock.', operation: updatedOp });
+  } catch (err: any) {
+    console.error('Error reversing consumable issue:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 

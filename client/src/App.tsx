@@ -203,6 +203,8 @@ export default function App() {
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  /** Whether the sidebar's secondary submenu flyout panel is expanded (desktop push-mode). */
+  const [isSubPanelExpanded, setIsSubPanelExpanded] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
 
@@ -1171,13 +1173,17 @@ export default function App() {
               (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
             ).length}
             onCloseMobile={() => setIsSidebarOpen(false)}
+            onSubPanelExpandChange={setIsSubPanelExpanded}
             permissionsVersion={permissionsVersion}
           />
         </div>
 
-        {/* Main Content Viewport */}
+        {/* Main Content Viewport — on desktop (md+) the open submenu panel pushes
+            content right instead of overlaying it; on mobile the panel is a drawer. */}
         <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10] ${
+            isSubPanelExpanded ? 'sidebar-push-main' : ''
+          }`}
         >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-3">
@@ -1891,6 +1897,42 @@ export default function App() {
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onReverseOperation={handleReverseStockOperation}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                />
+              )}
+
+              {activeTab === 'consumables-register' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  locations={locations}
+                  customerDevices={customerDevices}
+                  customers={customers}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="CONSUMABLES_REGISTER"
+                  autoOpenModal={false}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  approvalRequests={approvalRequests}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                  onReverseOperation={handleReverseStockOperation}
+                  onReverseConsumableIssue={async (id, reason) => {
+                    await api.reverseConsumableIssue(id, reason, currentUser);
+                    refreshAllData();
+                  }}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}

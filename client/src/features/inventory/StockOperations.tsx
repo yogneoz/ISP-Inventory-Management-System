@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StockOperation,
   Product,
@@ -21,6 +21,7 @@ import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalY
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
+import { exportToCSV } from '../../utils/exportUtils';
 import {
   AlertOctagon,
   Plus,
@@ -61,9 +62,11 @@ import {
   XCircle,
   Clock,
   Undo2,
+  Download,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
 import { BarcodeScannerModal } from '../../components/common/BarcodeScannerModal';
+import { FormCard } from '../../components/common/FormCard';
 import { ProductSearchBar } from './ProductSearchBar';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -107,6 +110,7 @@ interface StockOperationsProps {
   ) => Promise<void>;
   onCancelApproval?: (id: string) => Promise<void>;
   onReverseOperation?: (id: string, reason?: string) => Promise<void>;
+  onReverseConsumableIssue?: (id: string, reason?: string) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
@@ -160,6 +164,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onRequestApproval,
   onCancelApproval,
   onReverseOperation,
+  onReverseConsumableIssue,
   onUpdateAssetStatus,
 }) => {
   const { isDarkMode } = useDarkMode();
@@ -171,8 +176,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
+  const getInitialTab = (): 'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
     if (initialType === 'DEVICE_EXCHANGE') return 'DEVICE_EXCHANGE';
+    if (initialType === 'CONSUMABLES_REGISTER') return 'CONSUMABLES_REGISTER';
     if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
     if (initialType === 'DAMAGE') return 'LABEL_DAMAGE';
     if (initialType === 'PULLOUT_REPORT') return 'PULLOUT_BINS';
@@ -186,7 +192,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
+    'PULLOUT_BINS' | 'CREATE_PULLOUT' | 'DAMAGE_TRACKING' | 'LABEL_DAMAGE' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'CONSUMABLES_REGISTER' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
   >(getInitialTab());
 
   useEffect(() => {
@@ -403,6 +409,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
   const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
   const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
+
+  // Consumables Register (Serial-Log-Register-style ledger) view state
+  const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
+  const [consumableRegisterBranch, setConsumableRegisterBranch] = useState('ALL');
+  const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
+  const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
 
   // 7. Receive Stock Physical Verification Modal State
   const [receivingShipmentModal, setReceivingShipmentModal] = useState<Shipment | null>(null);
@@ -1039,6 +1051,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         quantity: 5,
         unitCost: selProd.costPrice,
         totalValue: 5 * selProd.costPrice,
+        usedAtType: 'FIELD',
       },
     ]);
   };
@@ -1274,6 +1287,41 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         await api.reverseStockOperation(op.id, reason.trim(), currentUser);
       }
       showToast(`Damage record ${op.referenceNumber} reversed. Units restored to available stock.`);
+    } catch (err: any) {
+      showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  // Reverse a logged consumable issue (guarded by 'consumable-issue-reverse').
+  // Returns the issued units to branch stock and marks the record CANCELLED.
+  const handleReverseConsumableIssue = async (op: StockOperation) => {
+    const reason = await promptDialog(
+      `You are about to reverse consumable issue ${op.referenceNumber}.\n\n` +
+        `● Items: ${(op.items || []).length} line item(s)\n` +
+        `● Valuation: ${formatNPR(op.totalValue)}\n` +
+        `● Branch: ${op.branchId}\n` +
+        `● Technician: ${op.technicianName || 'N/A'}\n\n` +
+        `Reversing returns the units to available branch stock and marks this record CANCELLED. ` +
+        `This action is irreversible and is logged to the audit trail under your credentials.`,
+      {
+        title: 'Reverse Consumable Issue — Safeguard',
+        confirmLabel: 'Reverse & Return Stock',
+        cancelLabel: 'Keep Record',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      showToast('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    try {
+      if (onReverseConsumableIssue) {
+        await onReverseConsumableIssue(op.id, reason.trim());
+      } else {
+        await api.reverseConsumableIssue(op.id, reason.trim(), currentUser);
+      }
+      showToast(`Consumable issue ${op.referenceNumber} reversed. Units returned to available stock.`);
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -1600,6 +1648,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     const grandTotal = consumableItems.reduce((sum, item) => sum + item.totalValue, 0);
 
+    // Compact per-line destination summary embedded in the reason (shown in
+    // registers that render only the operation-level reason text).
+    const usedAtSummary = consumableItems
+      .map((item) => {
+        if (item.usedAtType === 'POP' && item.usedAtLocationName) return `${item.productName} @ POP ${item.usedAtLocationName}`;
+        if (item.usedAtType === 'CUSTOMER' && item.usedAtCustomerName) return `${item.productName} @ ${item.usedAtCustomerName}`;
+        return null;
+      })
+      .filter(Boolean)
+      .join('; ');
+
     await onCreateOperation({
       type: 'CONSUMABLE_ISSUE',
       branchId: consumableBranchId,
@@ -1608,7 +1667,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       totalValue: grandTotal,
       technicianName: consumableTechnician,
       workOrderRef: consumableWorkOrder,
-      reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}`,
+      reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
       inspectorName: currentUser?.name || 'Store Supervisor',
       status: 'LOGGED',
     });
@@ -1718,6 +1777,31 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT' && isOpInAllowedBranch(op));
   const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
   const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
+
+  // Consumables Register: filtered CONSUMABLE_ISSUE ledger rows (search + branch + status)
+  const consumableRegisterOps = useMemo(() => {
+    const q = consumableRegisterQuery.trim().toLowerCase();
+    return consumableOperations.filter((op) => {
+      if (consumableRegisterBranch !== 'ALL' && op.branchId !== consumableRegisterBranch) return false;
+      if (consumableRegisterStatus !== 'ALL' && (op.status || 'LOGGED') !== consumableRegisterStatus) return false;
+      if (!q) return true;
+      const items = (op.items || []) as ConsumableIssueItem[];
+      const haystack = [
+        op.referenceNumber,
+        op.technicianName,
+        op.workOrderRef,
+        op.reason,
+        ...items.map((i) => i.productName),
+        ...items.map((i) => i.sku),
+        ...items.map((i) => i.usedAtLocationName),
+        ...items.map((i) => i.usedAtCustomerName),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [consumableOperations, consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus]);
 
   // Fetch Customer Devices for Exchange Tab
   useEffect(() => {
@@ -2060,6 +2144,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             >
               <Wrench className="h-4 w-4 text-amber-300" />
               <span>Issue Consumables ({consumableOperations.length})</span>
+            </button>
+          );
+        })()}
+
+        {(() => {
+          return (
+            <button
+              title="Consumables Register — log of every consumable issue with per-line POP/customer destinations"
+              onClick={() => setActiveTab('CONSUMABLES_REGISTER')}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'CONSUMABLES_REGISTER' ? 'bg-amber-600 text-white shadow-sm cursor-pointer' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 cursor-pointer dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 dark:cursor-pointer'}`}
+            >
+              <ClipboardList className="h-4 w-4 text-amber-300" />
+              <span>Consumables Register</span>
             </button>
           );
         })()}
@@ -2796,7 +2893,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 4: CREATE TRANSFER (Multi-Item Inter-Branch Dispatch) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
+        <FormCard className="space-y-4">
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
               <Send className="h-5 w-5 text-sky-500" />
@@ -3058,7 +3155,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </FormCard>
       )}
 
       {/* ------------------------------------------------------------- */}
@@ -3250,7 +3347,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
+        <FormCard className="space-y-4">
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
               <Wrench className={`h-5 w-5 text-amber-500 dark:text-amber-400`} />
@@ -3348,6 +3445,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="px-2.5 py-1.5">Consumable Material</th>
                         <th className="px-2.5 py-1.5 text-center">Store Stock</th>
                         <th className="px-2.5 py-1.5 text-center">Issue Qty</th>
+                        <th className="px-2.5 py-1.5">Used At (POP / Customer)</th>
+                        <th className="px-2.5 py-1.5">Remarks</th>
                         <th className="px-2.5 py-1.5 text-right">Unit Cost (NPR)</th>
                         <th className="px-2.5 py-1.5 text-right">Total Cost (NPR)</th>
                         <th className="px-2.5 py-1.5 text-center">Action</th>
@@ -3385,6 +3484,83 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateConsumableItem(item.id, { quantity: Number(e.target.value) })}
                                 className={`w-20 rounded-lg border p-1 text-center font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                              />
+                            </td>
+
+                            {/* Per-line Used-At destination: Field / POP Location / Customer */}
+                            <td className="p-2.5">
+                              <div className="space-y-1 min-w-[180px]">
+                                <select
+                                  value={item.usedAtType || 'FIELD'}
+                                  onChange={(e) => {
+                                    const t = e.target.value as ConsumableIssueItem['usedAtType'];
+                                    handleUpdateConsumableItem(item.id, {
+                                      usedAtType: t,
+                                      usedAtLocationId: t === 'POP' ? item.usedAtLocationId : undefined,
+                                      usedAtLocationName: t === 'POP' ? item.usedAtLocationName : undefined,
+                                      usedAtCustomerId: t === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
+                                      usedAtCustomerName: t === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
+                                    });
+                                  }}
+                                  className={`w-full rounded-lg border p-1 text-[10px] font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                                >
+                                  <option value="FIELD">Field / Work Order</option>
+                                  <option value="POP">POP Location</option>
+                                  <option value="CUSTOMER">Customer</option>
+                                </select>
+                                {item.usedAtType === 'POP' && (
+                                  <select
+                                    value={item.usedAtLocationId || ''}
+                                    onChange={(e) => {
+                                      const loc = locations.find((l) => l.id === e.target.value);
+                                      handleUpdateConsumableItem(item.id, {
+                                        usedAtLocationId: loc?.id,
+                                        usedAtLocationName: loc?.name,
+                                      });
+                                    }}
+                                    className={`w-full rounded-lg border p-1 text-[10px] bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                                  >
+                                    <option value="">Select POP location...</option>
+                                    {locations
+                                      .filter((l) => l.type === 'POP_SERVER_ROOM' || l.type === 'FIBER_NETWORK_NODE' || !l.type)
+                                      .map((l) => (
+                                        <option key={l.id} value={l.id}>
+                                          {l.name}{l.address ? ` — ${l.address}` : ''}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )}
+                                {item.usedAtType === 'CUSTOMER' && (
+                                  <select
+                                    value={item.usedAtCustomerId || ''}
+                                    onChange={(e) => {
+                                      const cust = customers.find((c) => c.id === e.target.value);
+                                      handleUpdateConsumableItem(item.id, {
+                                        usedAtCustomerId: cust?.id,
+                                        usedAtCustomerName: cust ? `${cust.customerName} (${cust.customerId})` : undefined,
+                                      });
+                                    }}
+                                    className={`w-full rounded-lg border p-1 text-[10px] bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                                  >
+                                    <option value="">Select customer...</option>
+                                    {customers.map((c) => (
+                                      <option key={c.id} value={c.id}>
+                                        {c.customerName} ({c.customerId})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Per-line remarks */}
+                            <td className="p-2.5">
+                              <input
+                                type="text"
+                                value={item.remarks || ''}
+                                onChange={(e) => handleUpdateConsumableItem(item.id, { remarks: e.target.value })}
+                                placeholder="Circuit ID, notes..."
+                                className={`w-full min-w-[120px] rounded-lg border p-1 text-[10px] bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
 
@@ -3489,6 +3665,225 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             )}
           </div>
+        </FormCard>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 6b: CONSUMABLES REGISTER (Serial-Log-Register style ledger) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'CONSUMABLES_REGISTER' && (
+        <div className="rounded-2xl border p-4 shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-serif font-bold flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-amber-500" />
+              <span>Consumables Issue Register</span>
+            </h3>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+              {consumableRegisterOps.length} Record(s)
+            </span>
+          </div>
+
+          {/* Toolbar: search + branch filter + export */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <div className="relative flex-1">
+              <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={consumableRegisterQuery}
+                onChange={(e) => setConsumableRegisterQuery(e.target.value)}
+                placeholder="Search reference, technician, work order, product, POP location or customer..."
+                className={`w-full rounded-xl border py-2 pl-9 pr-3 text-xs bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+              />
+            </div>
+            <select
+              value={consumableRegisterBranch}
+              onChange={(e) => setConsumableRegisterBranch(e.target.value)}
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+            >
+              <option value="ALL">All Branches</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+            <select
+              value={consumableRegisterStatus}
+              onChange={(e) => setConsumableRegisterStatus(e.target.value)}
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="LOGGED">Logged</option>
+              <option value="CANCELLED">Reversed</option>
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                exportToCSV(
+                  'Consumables_Issue_Register',
+                  consumableRegisterOps.map((op) => ({
+                    referenceNumber: op.referenceNumber,
+                    dateAD: op.dateAD,
+                    dateBS: op.dateBS,
+                    branchId: op.branchId,
+                    technician: op.technicianName || '',
+                    workOrder: op.workOrderRef || '',
+                    itemCount: (op.items || []).length,
+                    totalValue: op.totalValue,
+                    status: op.status || 'LOGGED',
+                    reason: op.reason,
+                  })),
+                  [
+                    { key: 'referenceNumber', label: 'Reference #' },
+                    { key: 'dateAD', label: 'Date (AD)' },
+                    { key: 'dateBS', label: 'Date (BS)' },
+                    { key: 'branchId', label: 'Branch' },
+                    { key: 'technician', label: 'Field Technician' },
+                    { key: 'workOrder', label: 'Work Order' },
+                    { key: 'itemCount', label: 'Line Items' },
+                    { key: 'totalValue', label: 'Total Value (NPR)' },
+                    { key: 'status', label: 'Status' },
+                    { key: 'reason', label: 'Remarks / Reason' },
+                  ]
+                )
+              }
+              className="px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export CSV</span>
+            </button>
+          </div>
+
+          {consumableRegisterOps.length === 0 ? (
+            <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
+              <ClipboardList className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+              <p>No consumable issue records match the current filters.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs">
+                <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
+                  <tr>
+                    <th className="px-2.5 py-2 w-8"></th>
+                    <th className="px-2.5 py-2">Date</th>
+                    <th className="px-2.5 py-2">Reference #</th>
+                    <th className="px-2.5 py-2">Product(s) / Used Location / Customer</th>
+                    <th className="px-2.5 py-2 text-center">Quantity</th>
+                    <th className="px-2.5 py-2">Field Technician</th>
+                    <th className="px-2.5 py-2">Remarks</th>
+                    <th className="px-2.5 py-2 text-right">Value (NPR)</th>
+                    <th className="px-2.5 py-2 text-center">Status</th>
+                    <th className="px-2.5 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
+                  {consumableRegisterOps.map((op) => {
+                    const items = (op.items || []) as ConsumableIssueItem[];
+                    const isReversed = op.status === 'CANCELLED';
+                    const canReverseHere =
+                      isOperationAllowed('consumable-issue-reverse', currentUser?.role) &&
+                      !isReversed &&
+                      !op.id.startsWith('syn-');
+                    const isExpanded = consumableRegisterExpandedId === op.id;
+
+                    return (
+                      <React.Fragment key={op.id}>
+                        <tr className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 ${isReversed ? 'opacity-60' : ''}`}>
+                          <td className="p-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setConsumableRegisterExpandedId(isExpanded ? null : op.id)}
+                              className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                              title={isExpanded ? 'Collapse line items' : 'Expand line items'}
+                            >
+                              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </button>
+                          </td>
+                          <td className="p-2.5 font-mono text-slate-400 text-[11px] whitespace-nowrap">
+                            {dateMode === 'BS' ? op.dateBS : op.dateAD}
+                          </td>
+                          <td className="p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">{op.referenceNumber}</td>
+                          <td className="p-2.5 font-medium text-slate-900 dark:text-white">
+                            {items.length === 1
+                              ? items[0].productName
+                              : `${items.length} line items — ${items[0]?.productName || 'Multiple'}${items.length > 1 ? ' + more' : ''}`}
+                          </td>
+                          <td className="p-2.5 text-center font-mono font-bold text-rose-600 dark:text-rose-400">
+                            -{items.reduce((s, i) => s + (Number(i.quantity) || 0), 0)}
+                          </td>
+                          <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
+                          <td className="p-2.5 text-slate-500 dark:text-slate-400 max-w-[220px] truncate" title={op.reason}>{op.workOrderRef || op.reason}</td>
+                          <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">{formatNPR(op.totalValue)}</td>
+                          <td className="p-2.5 text-center">
+                            {isReversed ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400" title={`Reversed by ${op.reversedBy || '—'}: ${op.reversalReason || ''}`}>
+                                Reversed
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                Logged
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            {canReverseHere ? (
+                              <button
+                                type="button"
+                                onClick={() => handleReverseConsumableIssue(op)}
+                                className="px-2.5 py-1 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-bold text-[10px] cursor-pointer flex items-center gap-1 mx-auto"
+                                title="Reverse this consumable issue — return units to branch stock"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                <span>Reverse</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Expanded per-line detail: product / used-at / remarks */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50 dark:bg-slate-900/60">
+                            <td colSpan={10} className="px-6 py-3">
+                              <div className="space-y-1.5">
+                                {items.map((item) => (
+                                  <div key={item.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] border-b border-dashed border-slate-200 dark:border-slate-800 pb-1.5 last:border-0">
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">[{item.sku}] {item.productName}</span>
+                                    <span className="font-mono text-slate-500">× {item.quantity} {item.unit || ''}</span>
+                                    <span className="font-mono">{formatNPR(item.totalValue)}</span>
+                                    {item.usedAtType === 'POP' && item.usedAtLocationName && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold">
+                                        POP: {item.usedAtLocationName}
+                                      </span>
+                                    )}
+                                    {item.usedAtType === 'CUSTOMER' && item.usedAtCustomerName && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold">
+                                        Customer: {item.usedAtCustomerName}
+                                      </span>
+                                    )}
+                                    {item.usedAtType === 'FIELD' && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-semibold">
+                                        Field / Work Order
+                                      </span>
+                                    )}
+                                    {item.remarks && <span className="text-slate-400 italic">“{item.remarks}”</span>}
+                                  </div>
+                                ))}
+                                {isReversed && op.reversalReason && (
+                                  <p className="text-[11px] text-rose-500 pt-1">
+                                    Reversed by {op.reversedBy || '—'} on {op.reversedAtAD || '—'}: {op.reversalReason}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -3496,7 +3891,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 7: PRODUCT SALE TO CUSTOMER (Multi-Item Sales Invoice) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
-        <div className={`p-4 rounded-2xl border max-w-4xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
+        <FormCard className="space-y-4">
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-base font-serif font-bold flex items-center gap-2">
               <PackageMinus className="h-5 w-5 text-purple-500" />
@@ -3796,14 +4191,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </FormCard>
       )}
 
       {/* ------------------------------------------------------------- */}
       {/* TAB 8: DEVICE EXCHANGE / REPLACEMENT SWAP */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'DEVICE_EXCHANGE' && (
-        <div className={`p-4 rounded-2xl border max-w-5xl mx-auto shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
+        <FormCard className="space-y-4">
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-2xl bg-indigo-600 text-white">
@@ -4109,7 +4504,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </FormCard>
       )}
 
       {/* ------------------------------------------------------------- */}
@@ -4155,8 +4550,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* MODAL 1: Create Pullout Bin */}
       {/* ============================================================ */}
       {(isPulloutModalOpen || activeTab === 'CREATE_PULLOUT') && (
-        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className={`w-full max-w-4xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+        <FormCard className="animate-fadeIn">
+          <div className="w-full">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <Truck className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
@@ -4427,15 +4822,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </FormCard>
       )}
 
       {/* ============================================================ */}
       {/* MODAL 2: Label Local Damaged Stock */}
       {/* ============================================================ */}
       {(isDamageModalOpen || activeTab === 'LABEL_DAMAGE') && (
-        <div className={`p-4 sm:p-6 rounded-2xl border animate-fadeIn bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className={`w-full max-w-3xl mx-auto rounded-2xl border shadow-lg overflow-hidden p-6 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+        <FormCard className="animate-fadeIn">
+          <div className="w-full">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <AlertTriangle className={`h-5 w-5 text-rose-500 dark:text-rose-400`} />
@@ -4561,7 +4956,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </FormCard>
       )}
 
       {/* ============================================================ */}

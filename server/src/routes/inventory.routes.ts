@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, get_assets, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_lookup2, get_lookup3, post_dual, post_exchange, get_serialLog, post_serialLog } from '../controllers/inventory.controller';
+import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, get_assets, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_lookup2, get_lookup3, post_dual, post_exchange, get_serialLog, post_serialLog } from '../controllers/inventory.controller';
 import {
   assetRegister,
   branches,
@@ -75,6 +75,8 @@ app.get('/api/stock-operations', async (req, res, next) => { get_stockOperations
 app.post('/api/stock-operations', requireStockOperationPermission, async (req, res, next) => { post_stockOperations(req as any, res as any).catch(next); });
 
 app.post('/api/stock-operations/:id/reverse', requireRole('SUPER_ADMIN', 'INVENTORY_MANAGER'), requirePermission('branch-damage-mark'), async (req, res, next) => { post_reverse(req as any, res as any).catch(next); });
+
+app.post('/api/stock-operations/:id/reverse-consumable', requirePermission('consumable-issue-reverse'), async (req, res, next) => { post_reverseConsumable(req as any, res as any).catch(next); });
 
 app.post('/api/stock-operations/:id/receive', async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
 

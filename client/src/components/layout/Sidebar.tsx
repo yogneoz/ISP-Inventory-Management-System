@@ -96,6 +96,7 @@ export type NavTab =
   | 'stock-out'
   | 'assign-asset'
   | 'consumable-issue'
+  | 'consumables-register'
   | 'device-exchange'
   | 'branches'
   | 'suppliers'
@@ -157,6 +158,7 @@ export const NAV_TABS: NavTab[] = [
   'stock-out',
   'assign-asset',
   'consumable-issue',
+  'consumables-register',
   'device-exchange',
   'branches',
   'suppliers',
@@ -191,6 +193,12 @@ interface SidebarProps {
   inTransitShipmentCount: number;
   pendingApprovalCount?: number;
   onCloseMobile?: () => void;
+  /**
+   * Optional callback invoked whenever the secondary submenu flyout panel
+   * expands or collapses. Used by App.tsx to implement desktop push-mode:
+   * shifting the main content right instead of letting the panel overlay it.
+   */
+  onSubPanelExpandChange?: (expanded: boolean) => void;
   /**
    * Opional revision counter bumped whenever the permission matrix is
    * saved/imported. Forces the Sidebar to recompute visible nav groups so
@@ -228,6 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   inTransitShipmentCount,
   pendingApprovalCount,
   onCloseMobile,
+  onSubPanelExpandChange,
   permissionsVersion,
 }) => {
   const { isDarkMode } = useDarkMode();
@@ -425,6 +434,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus }]
       : []),
     { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench },
+    { id: 'consumables-register' as NavTab, label: 'Consumables Register', icon: ClipboardList },
     ...(isOperationAllowed('branch-damage-mark', currentUser?.role)
       ? [{ id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff }]
       : []),
@@ -588,8 +598,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const [activeGroup, setActiveGroup] = useState<string>(() => getParentGroupId(activeTab));
-  const [isSubPanelExpanded, setIsSubPanelExpanded] = useState<boolean>(true);
+  // Persisted across reloads via localStorage (default: expanded)
+  const [isSubPanelExpanded, setIsSubPanelExpanded] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sidebar.subPanelExpanded') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [menuFilter, setMenuFilter] = useState<string>('');
+
+  // Persist expansion state and report it to the parent (desktop push-mode support)
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebar.subPanelExpanded', String(isSubPanelExpanded));
+    } catch {
+      /* localStorage unavailable (private mode etc.) — non-fatal */
+    }
+    onSubPanelExpandChange?.(isSubPanelExpanded);
+  }, [isSubPanelExpanded, onSubPanelExpandChange]);
 
   const sidebarRef = useRef<HTMLElement>(null);
 
@@ -652,7 +679,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`responsive-sidebar-rail w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 border-slate-200 bg-slate-50/90 dark:border-slate-800/80 dark:bg-[#0f1218]`}
       >
         {/* Primary Main Menu Header Stack */}
-        <div className="flex-1 w-full space-y-1 overflow-y-auto custom-scrollbar px-1.5 py-2">
+        <div className="flex-1 w-full space-y-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar px-1.5 py-2">
           {groups.map((group) => {
             const isActive = activeGroup === group.id;
             const GroupIcon = group.icon;
@@ -704,7 +731,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* SECONDARY SUBMENU FLYOUT PANEL (responsive overlay) */}
       {isSubPanelExpanded && (
         <div
-          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 border-slate-200/90 bg-white/98 backdrop-blur-md dark:border-slate-800/90 dark:bg-[#0c0e13]/98`}
+          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-64 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 border-slate-200/90 bg-white/98 backdrop-blur-md dark:border-slate-800/90 dark:bg-[#0c0e13]/98`}
         >
           {/* Mobile Header bar with close button */}
           {onCloseMobile && (
@@ -767,7 +794,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Sub-menu Nav Items List */}
-          <div className="py-2.5 px-2.5 flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+          <div className="py-2.5 px-2.5 flex-1 overflow-y-auto space-y-1 custom-scrollbar sidebar-hover-scrollbar">
             {filteredSubItems.map((child, idx) => {
               const isActive = activeTab === child.id;
               const ItemIcon = child.icon;

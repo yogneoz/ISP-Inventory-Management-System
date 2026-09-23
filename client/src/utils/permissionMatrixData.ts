@@ -45,6 +45,7 @@ export const INVENTORY_OPERATIONS = [
   'stock-disposal-writeoff',
   'branch-asset-assign',
   'stock-out',
+  'consumable-issue-reverse',
   'prod-view',
   'prod-edit',
   'uom-manage',
@@ -93,6 +94,7 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'stock-disposal-writeoff': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'branch-asset-assign': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'stock-out': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: false },
+  'consumable-issue-reverse': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
 
   'prod-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: true },
   'prod-edit': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },

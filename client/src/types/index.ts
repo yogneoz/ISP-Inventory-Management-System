@@ -472,6 +472,23 @@ export interface ConsumableIssueItem {
   // Present on some stock-operation item payloads (e.g. serialized consumable lines)
   condition?: PulloutItem['condition'];
   deviceSerials?: DeviceSerialPair[];
+  /**
+   * Per-line "used at" destination of the issued material.
+   *  - 'FIELD'      → generic field/work-order usage (no destination entity)
+   *  - 'POP'        → issued to a POP server room / fiber network node
+   *  - 'CUSTOMER'   → issued at a specific customer site
+   */
+  usedAtType?: 'FIELD' | 'POP' | 'CUSTOMER';
+  /** LocationRecord.id when usedAtType === 'POP'. */
+  usedAtLocationId?: string;
+  /** LocationRecord.name when usedAtType === 'POP' (denormalized for the register). */
+  usedAtLocationName?: string;
+  /** CustomerRecord.id when usedAtType === 'CUSTOMER'. */
+  usedAtCustomerId?: string;
+  /** CustomerRecord name/code when usedAtType === 'CUSTOMER' (denormalized for the register). */
+  usedAtCustomerName?: string;
+  /** Free-text remarks for this line (installation notes, circuit ID, etc.). */
+  remarks?: string;
 }
 
 export interface StockOperation {

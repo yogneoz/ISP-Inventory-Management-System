@@ -654,6 +654,20 @@ export const api = {
     });
   },
 
+  // Reverse a CONSUMABLE_ISSUE stock operation: returns issued units to
+  // branch stock, marks the record CANCELLED, and writes a reversal ledger
+  // entry. Guarded by the 'consumable-issue-reverse' permission server-side.
+  async reverseConsumableIssue(
+    id: string,
+    reason?: string,
+    user?: User | null
+  ): Promise<{ message: string; operation: StockOperation }> {
+    return fetchJson(`/api/stock-operations/${id}/reverse-consumable`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, user }),
+    });
+  },
+
   // Fiscal Years
   async getFiscalYears(): Promise<FiscalYear[]> {
     return fetchJson('/api/fiscal-years');

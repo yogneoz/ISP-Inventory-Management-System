@@ -193,6 +193,12 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Record customer sales, stock reduction, and counter dispatches',
         permissions: DEFAULT_PERMISSIONS_MATRIX['stock-out'],
       },
+      {
+        id: 'consumable-issue-reverse',
+        operationName: 'Reverse Consumable Issue Record',
+        description: 'Undo a logged consumable issue — returns the issued units to branch stock, marks the record CANCELLED and writes a reversal to the audit trail',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['consumable-issue-reverse'],
+      },
     ],
   },
   {
