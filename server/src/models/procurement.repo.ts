@@ -32,6 +32,84 @@ export function buildPoListSql(branchId?: unknown): { sql: string; params: unkno
   };
 }
 
+export interface PurchaseOrderQueryOptions {
+  branchId?: unknown;
+  status?: unknown;
+  /** Exact case-insensitive supplier-name match (register vendor filter). */
+  supplier?: unknown;
+  /** Free-text search across PO number, supplier name and the items blob. */
+  query?: unknown;
+  /** Inclusive lower bound on order_date_ad, AD YYYY-MM-DD. */
+  dateFromAD?: unknown;
+  /** Inclusive upper bound on order_date_ad, AD YYYY-MM-DD. */
+  dateToAD?: unknown;
+}
+
+/**
+ * Builds the purchase-orders WHERE fragment (starting with ' WHERE 1=1')
+ * shared by the paged list, the aggregate (count + value sums) and the
+ * per-status count queries.
+ */
+export function buildPurchaseOrderWhere(opts: PurchaseOrderQueryOptions): { whereSql: string; params: unknown[] } {
+  let whereSql = ' WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId as string);
+    whereSql += ` AND branch_id = $${params.length}`;
+  }
+  if (opts.status && opts.status !== 'ALL') {
+    params.push(opts.status as string);
+    whereSql += ` AND status = $${params.length}`;
+  }
+  if (opts.supplier && typeof opts.supplier === 'string' && opts.supplier.trim() && opts.supplier !== 'ALL') {
+    params.push(opts.supplier.trim().toLowerCase());
+    whereSql += ` AND LOWER(supplier_name) = $${params.length}`;
+  }
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    const like = `%${opts.query.trim().toLowerCase()}%`;
+    params.push(like);
+    whereSql += ` AND (LOWER(po_number) LIKE $${params.length} OR LOWER(supplier_name) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    whereSql += ` AND order_date_ad >= $${params.length}::date`;
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    whereSql += ` AND order_date_ad <= $${params.length}::date`;
+  }
+  return { whereSql, params };
+}
+
+/** Count + pending/received value sums over the same filter (register KPIs). */
+export function buildPurchaseOrderAggregateQuery(opts: PurchaseOrderQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseOrderWhere(opts);
+  const sql =
+    'SELECT COUNT(*)::int AS count, ' +
+    "COALESCE(SUM(total_amount) FILTER (WHERE status <> 'RECEIVED' AND status <> 'CANCELLED'), 0)::float AS pending_value, " +
+    "COALESCE(SUM(total_amount) FILTER (WHERE status = 'RECEIVED'), 0)::float AS received_value " +
+    'FROM purchase_orders' + whereSql;
+  return { sql, params };
+}
+
+/** Per-status counts with the same filter fragment (register KPI cards). */
+export function buildPurchaseOrderStatusCountQuery(opts: PurchaseOrderQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseOrderWhere(opts);
+  return { sql: 'SELECT status, COUNT(*)::int AS count FROM purchase_orders' + whereSql + ' GROUP BY status', params };
+}
+
+/** Paged purchase-orders list query (1-indexed page, clamped LIMIT/OFFSET). */
+export function buildPurchaseOrderPagedQuery(opts: PurchaseOrderQueryOptions, paging?: { page: number; pageSize: number }): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseOrderWhere(opts);
+  let sql = `SELECT ${PO_SELECT_COLUMNS} FROM purchase_orders` + whereSql + ' ORDER BY created_at DESC';
+  if (paging) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
+    const page = Math.max(1, Math.floor(paging.page));
+    sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  }
+  return { sql, params };
+}
+
 export const PO_UPSERT_SQL = `INSERT INTO purchase_orders (
    id, po_number, supplier_id, supplier_name, branch_id, order_date_ad, order_date_bs, expected_delivery_date_ad, status, subtotal_amount, tax_amount, total_amount, notes, items
  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -121,6 +199,86 @@ export function buildPiListSql(branchId?: unknown): { sql: string; params: unkno
       ' ORDER BY created_at DESC',
     params: filter ? [branchId] : [],
   };
+}
+
+export interface PurchaseInvoiceQueryOptions {
+  branchId?: unknown;
+  paymentStatus?: unknown;
+  /** Exact case-insensitive supplier-name match (register vendor filter). */
+  supplier?: unknown;
+  /** Free-text search across invoice #, vendor bill #, supplier and items. */
+  query?: unknown;
+  /** Inclusive lower bound on invoice_date_ad, AD YYYY-MM-DD. */
+  dateFromAD?: unknown;
+  /** Inclusive upper bound on invoice_date_ad, AD YYYY-MM-DD. */
+  dateToAD?: unknown;
+}
+
+/**
+ * Builds the purchase-invoices WHERE fragment (starting with ' WHERE 1=1')
+ * shared by the paged list, the aggregate (count + amount sums) and the
+ * per-payment-status count queries.
+ */
+export function buildPurchaseInvoiceWhere(opts: PurchaseInvoiceQueryOptions): { whereSql: string; params: unknown[] } {
+  let whereSql = ' WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId as string);
+    whereSql += ` AND branch_id = $${params.length}`;
+  }
+  if (opts.paymentStatus && opts.paymentStatus !== 'ALL') {
+    params.push(opts.paymentStatus as string);
+    whereSql += ` AND payment_status = $${params.length}`;
+  }
+  if (opts.supplier && typeof opts.supplier === 'string' && opts.supplier.trim() && opts.supplier !== 'ALL') {
+    params.push(opts.supplier.trim().toLowerCase());
+    whereSql += ` AND LOWER(supplier_name) = $${params.length}`;
+  }
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    const like = `%${opts.query.trim().toLowerCase()}%`;
+    params.push(like);
+    whereSql += ` AND (LOWER(invoice_number) LIKE $${params.length} OR LOWER(COALESCE(vendor_bill_number, '')) LIKE $${params.length} OR LOWER(supplier_name) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    whereSql += ` AND invoice_date_ad >= $${params.length}::date`;
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    whereSql += ` AND invoice_date_ad <= $${params.length}::date`;
+  }
+  return { whereSql, params };
+}
+
+/** Count + taxable/VAT/grand/unpaid sums over the same filter (register KPIs). */
+export function buildPurchaseInvoiceAggregateQuery(opts: PurchaseInvoiceQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseInvoiceWhere(opts);
+  const sql =
+    'SELECT COUNT(*)::int AS count, ' +
+    'COALESCE(SUM(taxable_amount), 0)::float AS taxable_sum, ' +
+    'COALESCE(SUM(vat_amount), 0)::float AS vat_sum, ' +
+    'COALESCE(SUM(grand_total), 0)::float AS grand_sum, ' +
+    'COALESCE(SUM(grand_total - amount_paid), 0)::float AS unpaid_sum ' +
+    'FROM purchase_invoices' + whereSql;
+  return { sql, params };
+}
+
+/** Per-payment-status counts with the same filter fragment. */
+export function buildPurchaseInvoiceStatusCountQuery(opts: PurchaseInvoiceQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseInvoiceWhere(opts);
+  return { sql: 'SELECT payment_status AS status, COUNT(*)::int AS count FROM purchase_invoices' + whereSql + ' GROUP BY payment_status', params };
+}
+
+/** Paged purchase-invoices list query (1-indexed page, clamped LIMIT/OFFSET). */
+export function buildPurchaseInvoicePagedQuery(opts: PurchaseInvoiceQueryOptions, paging?: { page: number; pageSize: number }): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseInvoiceWhere(opts);
+  let sql = `SELECT ${PI_SELECT_COLUMNS} FROM purchase_invoices` + whereSql + ' ORDER BY created_at DESC';
+  if (paging) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
+    const page = Math.max(1, Math.floor(paging.page));
+    sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  }
+  return { sql, params };
 }
 
 export const PI_UPSERT_SQL = `INSERT INTO purchase_invoices (

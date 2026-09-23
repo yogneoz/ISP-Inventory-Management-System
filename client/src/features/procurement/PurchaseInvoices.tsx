@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   PurchaseInvoice,
   PurchaseInvoiceItem,
@@ -158,6 +158,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   // converts BS picks). Empty bound = open-ended.
   const [billDateFromAD, setBillDateFromAD] = useState('');
   const [billDateToAD, setBillDateToAD] = useState('');
+  // Server-side paged fetch state: the register asks /api/purchase-invoices
+  // for one page of filtered rows instead of filtering the whole prop array.
+  const [piRows, setPiRows] = useState<PurchaseInvoice[]>([]);
+  const [piTotalItems, setPiTotalItems] = useState(0);
+  const [piSums, setPiSums] = useState({ taxable: 0, vat: 0, grand: 0, unpaid: 0 });
+  const [piPage, setPiPage] = useState(1);
+  const [piPageSize, setPiPageSize] = useState(15);
+  const [piLoading, setPiLoading] = useState(true);
+  const [piLoadError, setPiLoadError] = useState('');
+  const [piRefreshKey, setPiRefreshKey] = useState(0);
 
   // Sync the internal page with the sidebar menu that opened this component
   useEffect(() => {
@@ -289,38 +299,89 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       (po?.supplierName || '').toLowerCase().includes((poSearchQuery || '').toLowerCase())
   );
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesBranch = selectedBranchId === 'ALL' || inv.branchId === selectedBranchId;
-    const matchesVendor =
-      vendorFilter === 'ALL' ||
-      (inv?.supplierName || '').toLowerCase() === (vendorFilter || '').toLowerCase();
-    const matchesSearch =
-      (inv?.invoiceNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
-      (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    // Bill-date range (inclusive); empty bound = open-ended.
-    const day = (inv?.invoiceDateAD || '').split('T')[0];
-    const matchesDate =
-      (!billDateFromAD || (day && day >= billDateFromAD)) &&
-      (!billDateToAD || (day && day <= billDateToAD));
-    return matchesBranch && matchesVendor && matchesSearch && matchesDate;
-  }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''));
+  // Server-side paged fetch: one page of filtered invoice rows plus sums.
+  const piFetchSeq = useRef(0);
+  const loadPiPage = useCallback(async () => {
+    const seq = ++piFetchSeq.current;
+    setPiLoading(true);
+    setPiLoadError('');
+    try {
+      const envelope = await api.getPurchaseInvoices({
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+        supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
+        query: searchQuery.trim() || undefined,
+        dateFromAD: billDateFromAD || undefined,
+        dateToAD: billDateToAD || undefined,
+        page: piPage,
+        pageSize: piPageSize,
+      }) as { data: PurchaseInvoice[]; totalItems: number; sums: { taxable: number; vat: number; grand: number; unpaid: number } };
+      if (seq !== piFetchSeq.current) return; // superseded
+      setPiRows(envelope.data || []);
+      setPiTotalItems(envelope.totalItems || 0);
+      setPiSums(envelope.sums || { taxable: 0, vat: 0, grand: 0, unpaid: 0 });
+    } catch (err: any) {
+      if (seq !== piFetchSeq.current) return;
+      setPiLoadError(err?.message || 'Failed to load the register');
+    } finally {
+      if (seq === piFetchSeq.current) setPiLoading(false);
+    }
+  }, [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD, piPage, piPageSize]);
 
-  const invoicePagination = useClientPagination(filteredInvoices, 15, [searchQuery, vendorFilter, selectedBranchId, billDateFromAD, billDateToAD]);
+  useEffect(() => {
+    loadPiPage();
+  }, [loadPiPage, piRefreshKey]);
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setPiPage(1);
+  }, [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD]);
+
+  // Rows on screen: the server page, or (on fetch failure) the client-side
+  // filtered prop array so the register degrades instead of breaking.
+  const filteredInvoices = piLoadError
+    ? invoices.filter((inv) => {
+        const matchesBranch = selectedBranchId === 'ALL' || inv.branchId === selectedBranchId;
+        const matchesVendor =
+          vendorFilter === 'ALL' ||
+          (inv?.supplierName || '').toLowerCase() === (vendorFilter || '').toLowerCase();
+        const matchesSearch =
+          (inv?.invoiceNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+          (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
+          (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
+        const day = (inv?.invoiceDateAD || '').split('T')[0];
+        const matchesDate =
+          (!billDateFromAD || (day && day >= billDateFromAD)) &&
+          (!billDateToAD || (day && day <= billDateToAD));
+        return matchesBranch && matchesVendor && matchesSearch && matchesDate;
+      }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''))
+    : piRows;
+
+  const invoicePagination = {
+    page: piPage,
+    pageCount: Math.max(1, Math.ceil(piTotalItems / piPageSize)),
+    pageSize: piPageSize,
+    totalItems: piTotalItems,
+    rangeStart: piTotalItems === 0 ? 0 : (piPage - 1) * piPageSize + 1,
+    rangeEnd: Math.min(piPage * piPageSize, piTotalItems),
+    setPage: (p: number) => setPiPage(Math.max(1, p)),
+    setPageSize: (s: number) => {
+      setPiPageSize(s);
+      setPiPage(1);
+    },
+  };
   const allowedBranches = getAllowedBranches(currentUser, branches).sort((a, b) => {
     const aIsWarehouse = `${a.id} ${a.code} ${a.name}`.toLowerCase().includes('warehouse') || a.id.toLowerCase().startsWith('wh');
     const bIsWarehouse = `${b.id} ${b.code} ${b.name}`.toLowerCase().includes('warehouse') || b.id.toLowerCase().startsWith('wh');
     return Number(bIsWarehouse) - Number(aIsWarehouse);
   });
 
-  // Financial Metrics
-  const totalTaxable = filteredInvoices.reduce((s, i) => s + (Number(i.taxableAmount) || 0), 0);
-  const totalVAT = filteredInvoices.reduce((s, i) => s + (Number(i.vatAmount) || 0), 0);
-  const totalGrand = filteredInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
-  const totalUnpaid = filteredInvoices.reduce(
-    (s, i) => s + ((Number(i.grandTotal) || 0) - (Number(i.amountPaid) || 0)),
-    0
-  );
+  // Financial Metrics — server aggregate over the full filtered set (falls
+  // back to page rows only when the paged fetch failed).
+  const sumOr = (fn: (list: PurchaseInvoice[]) => number) => (piLoadError ? fn(filteredInvoices) : 0);
+  const totalTaxable = piLoadError ? sumOr((l) => l.reduce((s, i) => s + (Number(i.taxableAmount) || 0), 0)) : piSums.taxable;
+  const totalVAT = piLoadError ? sumOr((l) => l.reduce((s, i) => s + (Number(i.vatAmount) || 0), 0)) : piSums.vat;
+  const totalGrand = piLoadError ? sumOr((l) => l.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0)) : piSums.grand;
+  const totalUnpaid = piLoadError ? sumOr((l) => l.reduce((s, i) => s + ((Number(i.grandTotal) || 0) - (Number(i.amountPaid) || 0)), 0)) : piSums.unpaid;
 
   // Payment status render helpers
   const paymentStatusBadge = (inv: PurchaseInvoice) => {
@@ -752,10 +813,28 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     window.setTimeout(() => setSaveMessage(''), 3000);
     handleResetForm();
     window.setTimeout(() => setInternalTab('INVOICE_LIST'), 3000);
+    setPiRefreshKey((k) => k + 1);
   };
 
-  const handleExportCSV = () => {
-    exportToCSV('Inventory_Purchase_Invoices', filteredInvoices, [
+  const handleExportCSV = async () => {
+    // Export every filtered invoice, not just the current page.
+    let exportRows = filteredInvoices;
+    if (!piLoadError) {
+      try {
+        const envelope = await api.getPurchaseInvoices({
+          branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+          supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
+          query: searchQuery.trim() || undefined,
+          dateFromAD: billDateFromAD || undefined,
+          dateToAD: billDateToAD || undefined,
+          all: true,
+        }) as { data: PurchaseInvoice[] };
+        exportRows = envelope.data || [];
+      } catch {
+        // Fall back to the rows already on screen.
+      }
+    }
+    exportToCSV('Inventory_Purchase_Invoices', exportRows, [
       { label: 'System Invoice #', key: 'invoiceNumber' },
       { label: 'Vendor Bill #', key: 'vendorBillNumber' },
       { label: 'Supplier Name', key: 'supplierName' },
@@ -1068,7 +1147,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    invoicePagination.pagedItems.map((inv) => {
+                    piRows.map((inv) => {
                       const branch = branches.find((b) => b.id === inv.branchId);
                       const linkedPO = purchaseOrders.find((po) => po.id === inv.poReferenceId || po.poNumber === inv.poReferenceId);
                       return (
@@ -1163,6 +1242,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   if (!onDeleteInvoice || !(await confirmDialog(`Delete Purchase Invoice #${inv.invoiceNumber}? This will reverse its stock and remove its unassigned serial records.`))) return;
                                   try {
                                     await onDeleteInvoice(inv.id);
+                                    setPiRefreshKey((k) => k + 1);
                                   } catch (error: any) {
                                     alert(error?.message || 'Unable to delete this purchase invoice.');
                                   }

@@ -402,8 +402,29 @@ export const api = {
   },
 
   // Purchase Orders
-  async getPurchaseOrders(branchId?: string): Promise<PurchaseOrder[]> {
-    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+  //
+  // Paged mode (params.page set): returns a { data, page, pageSize,
+  // totalItems, statusCounts, pendingValue, receivedValue } envelope so the
+  // register never loads the whole ledger. params.all: every filtered row
+  // (CSV export). Without page/all the legacy full-array shape is returned.
+  async getPurchaseOrders(params?: {
+    branchId?: string; status?: string; supplier?: string; query?: string;
+    dateFromAD?: string; dateToAD?: string;
+    page?: number; pageSize?: number; all?: boolean;
+  }): Promise<PurchaseOrder[] | { data: PurchaseOrder[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number>; pendingValue: number; receivedValue: number }> {
+    const search = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+    if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+    if (params?.supplier && params.supplier !== 'ALL') search.append('supplier', params.supplier);
+    if (params?.query) search.append('query', params.query);
+    if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+    if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+    if (params?.all) search.append('all', '1');
+    if (params?.page !== undefined) {
+      search.append('page', String(params.page));
+      if (params.pageSize) search.append('pageSize', String(params.pageSize));
+    }
+    const query = search.toString() ? `?${search.toString()}` : '';
     return fetchJson(`/api/purchase-orders${query}`);
   },
 
@@ -435,8 +456,29 @@ export const api = {
   },
 
   // Purchase Invoices
-  async getPurchaseInvoices(branchId?: string): Promise<PurchaseInvoice[]> {
-    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+  //
+  // Paged mode (params.page set): returns a { data, page, pageSize,
+  // totalItems, statusCounts, sums } envelope so the register never loads the
+  // whole ledger. params.all: every filtered row (CSV export). Without
+  // page/all the legacy full-array shape is returned.
+  async getPurchaseInvoices(params?: {
+    branchId?: string; paymentStatus?: string; supplier?: string; query?: string;
+    dateFromAD?: string; dateToAD?: string;
+    page?: number; pageSize?: number; all?: boolean;
+  }): Promise<PurchaseInvoice[] | { data: PurchaseInvoice[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number>; sums: { taxable: number; vat: number; grand: number; unpaid: number } }> {
+    const search = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+    if (params?.paymentStatus && params.paymentStatus !== 'ALL') search.append('paymentStatus', params.paymentStatus);
+    if (params?.supplier && params.supplier !== 'ALL') search.append('supplier', params.supplier);
+    if (params?.query) search.append('query', params.query);
+    if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+    if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+    if (params?.all) search.append('all', '1');
+    if (params?.page !== undefined) {
+      search.append('page', String(params.page));
+      if (params.pageSize) search.append('pageSize', String(params.pageSize));
+    }
+    const query = search.toString() ? `?${search.toString()}` : '';
     return fetchJson(`/api/purchase-invoices${query}`);
   },
 

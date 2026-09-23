@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PurchaseOrder, PurchaseInvoice, Product, Branch, POLineItem, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
+import { api } from '../../services/api';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -105,6 +106,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   // DateField converts BS picks). Empty bound = open-ended.
   const [orderDateFromAD, setOrderDateFromAD] = useState('');
   const [orderDateToAD, setOrderDateToAD] = useState('');
+  // Server-side paged fetch state: the register asks /api/purchase-orders
+  // for one page of filtered rows instead of filtering the whole prop array.
+  const [poRows, setPoRows] = useState<PurchaseOrder[]>([]);
+  const [poTotalItems, setPoTotalItems] = useState(0);
+  const [poStatusCounts, setPoStatusCounts] = useState<Record<string, number>>({});
+  const [poPendingValue, setPoPendingValue] = useState(0);
+  const [poReceivedValue, setPoReceivedValue] = useState(0);
+  const [poPage, setPoPage] = useState(1);
+  const [poPageSize, setPoPageSize] = useState(15);
+  const [poLoading, setPoLoading] = useState(true);
+  const [poLoadError, setPoLoadError] = useState('');
+  const [poRefreshKey, setPoRefreshKey] = useState(0);
 
   // Sync the internal page with the sidebar menu that opened this component
   useEffect(() => {
@@ -319,38 +332,113 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     });
   };
 
-  const filteredPOs = purchaseOrders.filter((po) => {
-    const matchesBranch = selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
-    const matchesSupplier =
-      selectedSupplierFilter === 'ALL' ||
-      (po?.supplierName || '').toLowerCase() === (selectedSupplierFilter || '').toLowerCase() ||
-      availableSuppliers.find((s) => s.id === selectedSupplierFilter)?.name.toLowerCase() === (po?.supplierName || '').toLowerCase();
-    const matchesSearch =
-      (po?.poNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-      (po?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    // Order-date range (inclusive); empty bound = open-ended.
-    const day = (po?.orderDateAD || '').split('T')[0];
-    const matchesDate =
-      (!orderDateFromAD || (day && day >= orderDateFromAD)) &&
-      (!orderDateToAD || (day && day <= orderDateToAD));
-    return matchesBranch && matchesSupplier && matchesSearch && matchesDate;
-  }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''));
+  const matchesBranchLocal = (po: PurchaseOrder) => selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
+  const matchesSupplierLocal = (po: PurchaseOrder) =>
+    selectedSupplierFilter === 'ALL' ||
+    (po?.supplierName || '').toLowerCase() === (selectedSupplierFilter || '').toLowerCase() ||
+    availableSuppliers.find((s) => s.id === selectedSupplierFilter)?.name.toLowerCase() === (po?.supplierName || '').toLowerCase();
 
-  const poPagination = useClientPagination(filteredPOs, 15, [searchQuery, selectedBranchId, selectedSupplierFilter, orderDateFromAD, orderDateToAD]);
+  // Server-side paged fetch: one page of filtered PO rows plus aggregate KPIs.
+  const poFetchSeq = useRef(0);
+  const supplierFilterName = selectedSupplierFilter === 'ALL' || !availableSuppliers.find((s) => s.id === selectedSupplierFilter)
+    ? selectedSupplierFilter === 'ALL' ? undefined : selectedSupplierFilter
+    : availableSuppliers.find((s) => s.id === selectedSupplierFilter)!.name;
+  const loadPoPage = useCallback(async () => {
+    const seq = ++poFetchSeq.current;
+    setPoLoading(true);
+    setPoLoadError('');
+    try {
+      const envelope = await api.getPurchaseOrders({
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+        supplier: supplierFilterName,
+        query: searchQuery.trim() || undefined,
+        dateFromAD: orderDateFromAD || undefined,
+        dateToAD: orderDateToAD || undefined,
+        page: poPage,
+        pageSize: poPageSize,
+      }) as { data: PurchaseOrder[]; totalItems: number; statusCounts: Record<string, number>; pendingValue: number; receivedValue: number };
+      if (seq !== poFetchSeq.current) return; // superseded
+      setPoRows(envelope.data || []);
+      setPoTotalItems(envelope.totalItems || 0);
+      setPoStatusCounts(envelope.statusCounts || {});
+      setPoPendingValue(envelope.pendingValue || 0);
+      setPoReceivedValue(envelope.receivedValue || 0);
+    } catch (err: any) {
+      if (seq !== poFetchSeq.current) return;
+      setPoLoadError(err?.message || 'Failed to load the register');
+    } finally {
+      if (seq === poFetchSeq.current) setPoLoading(false);
+    }
+  }, [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD, poPage, poPageSize]);
 
-  // Export the currently visible (filtered) Purchase Orders register to CSV
-  const handleExportPOCSV = () => {
+  useEffect(() => {
+    loadPoPage();
+  }, [loadPoPage, poRefreshKey]);
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setPoPage(1);
+  }, [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD]);
+
+  // Rows on screen: the server page, or (on fetch failure) the client-side
+  // filtered prop array so the register degrades instead of breaking.
+  const filteredPOs = poLoadError
+    ? purchaseOrders.filter((po) => {
+        const matchesSearch =
+          (po?.poNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+          (po?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
+        const day = (po?.orderDateAD || '').split('T')[0];
+        const matchesDate =
+          (!orderDateFromAD || (day && day >= orderDateFromAD)) &&
+          (!orderDateToAD || (day && day <= orderDateToAD));
+        return matchesBranchLocal(po) && matchesSupplierLocal(po) && matchesSearch && matchesDate;
+      }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''))
+    : poRows;
+
+  const poPagination = {
+    page: poPage,
+    pageCount: Math.max(1, Math.ceil(poTotalItems / poPageSize)),
+    pageSize: poPageSize,
+    totalItems: poTotalItems,
+    rangeStart: poTotalItems === 0 ? 0 : (poPage - 1) * poPageSize + 1,
+    rangeEnd: Math.min(poPage * poPageSize, poTotalItems),
+    setPage: (p: number) => setPoPage(Math.max(1, p)),
+    setPageSize: (s: number) => {
+      setPoPageSize(s);
+      setPoPage(1);
+    },
+  };
+
+  // Export all filtered Purchase Orders (not just the current page) to CSV
+  const handleExportPOCSV = async () => {
     const branchName =
       selectedBranchId === 'ALL'
         ? 'All Branches (Consolidated)'
         : branches.find((b) => b.id === selectedBranchId)?.name || selectedBranchId;
+
+    let exportRows = filteredPOs;
+    if (!poLoadError) {
+      try {
+        const envelope = await api.getPurchaseOrders({
+          branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+          supplier: supplierFilterName,
+          query: searchQuery.trim() || undefined,
+          dateFromAD: orderDateFromAD || undefined,
+          dateToAD: orderDateToAD || undefined,
+          all: true,
+        }) as { data: PurchaseOrder[] };
+        exportRows = envelope.data || [];
+      } catch {
+        // Fall back to the rows already on screen.
+      }
+    }
 
     exportToCSV({
       filename: 'Purchase_Orders_Register',
       reportTitle: 'Procurement Purchase Orders Register Report',
       branchName,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: filteredPOs,
+      data: exportRows,
       columns: [
         { key: 'poNumber', label: 'PO Number' },
         { key: 'supplierName', label: 'Vendor / Supplier' },
@@ -497,6 +585,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
     handleResetForm();
     setInternalTab('PO_LIST');
+    setPoRefreshKey((k) => k + 1);
   };
 
   return (
@@ -663,25 +752,21 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-amber-600 dark:text-amber-400`}>Pending Deliveries</span>
               <div className={`text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1`}>
-                {filteredPOs.filter((p) => p.status === 'SENT' || p.status === 'APPROVED' || p.status === 'IN_PROGRESS' || (p.status as string) === 'INPROGRESS').length} Orders
+                {(poStatusCounts['SENT'] || 0) + (poStatusCounts['APPROVED'] || 0) + (poStatusCounts['IN_PROGRESS'] || 0) + (poStatusCounts['INPROGRESS'] || 0)} Orders
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-indigo-600 dark:text-indigo-400`}>Pending Order Value</span>
               <div className={`text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1`}>
-                {formatNPR(filteredPOs
-                  .filter((p) => p.status !== 'RECEIVED' && p.status !== 'CANCELLED')
-                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0))}
+                {formatNPR(poPendingValue)}
               </div>
             </div>
 
             <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/10 shadow-xs">
               <span className={`text-xs font-semibold text-emerald-600 dark:text-emerald-400`}>Received Stock Value</span>
               <div className={`text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1`}>
-                {formatNPR(filteredPOs
-                  .filter((p) => p.status === 'RECEIVED')
-                  .reduce((s, p) => s + (Number(p.totalAmount) || 0), 0))}
+                {formatNPR(poReceivedValue)}
               </div>
             </div>
           </div>
@@ -785,7 +870,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    poPagination.pagedItems.map((po) => {
+                    poRows.map((po) => {
                       const branch = branches.find((b) => b.id === po.branchId);
                       const linkedInvoice = purchaseInvoices.find((invoice) => invoice.poReferenceId === po.id || invoice.poReferenceId === po.poNumber);
                       const isPending =
@@ -868,6 +953,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   if (!onDeletePO || !(await confirmDialog(`Delete Purchase Order #${po.poNumber}?`))) return;
                                   try {
                                     await onDeletePO(po.id);
+                                    setPoRefreshKey((k) => k + 1);
                                   } catch (error: any) {
                                     alert(error?.message || 'Unable to delete this purchase order.');
                                   }
@@ -902,6 +988,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   onClick={async () => {
                                     if (onUpdatePOStatus) {
                                       await onUpdatePOStatus(po.id, 'IN_PROGRESS');
+                                      setPoRefreshKey((k) => k + 1);
                                     }
                                   }}
                                   className="flex items-center gap-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/80 px-2 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 transition-colors cursor-pointer"
@@ -920,6 +1007,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                     if (await confirmDialog(`Are you sure you want to cancel PO #${po.poNumber}?`)) {
                                       if (onUpdatePOStatus) {
                                         await onUpdatePOStatus(po.id, 'CANCELLED');
+                                        setPoRefreshKey((k) => k + 1);
                                       }
                                     }
                                   }}
@@ -1566,6 +1654,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 onClick={async () => {
                   if (onUpdatePOStatus) {
                     await onUpdatePOStatus(viewingPO.id, 'IN_PROGRESS');
+                    setPoRefreshKey((k) => k + 1);
                   }
                   setViewingPO({ ...viewingPO, status: 'IN_PROGRESS' });
                 }}
@@ -1592,6 +1681,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 onClick={async () => {
                   if (onUpdatePOStatus) {
                     await onUpdatePOStatus(viewingPO.id, 'CANCELLED');
+                    setPoRefreshKey((k) => k + 1);
                   }
                   setViewingPO({ ...viewingPO, status: 'CANCELLED' });
                 }}

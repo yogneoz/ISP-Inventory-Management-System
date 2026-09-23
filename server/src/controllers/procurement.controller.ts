@@ -19,16 +19,47 @@ import {
   LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
   PO_PATCH_STATUS_SQL, PI_EXISTS_SQL, PI_FIND_FOR_DELETE_SQL,
   FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
+  buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
+  buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
 } from '../models/procurement.repo';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
-const { branchId } = req.query;
-  if (getPgConnected()) {
+const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
+  // slice, the filtered total, per-status counts, and pending/received value
+  // sums for the register KPIs. ?all=1 returns every filtered row (CSV
+  // export). No page param keeps the legacy full-array shape for existing
+  // callers (bootstrap consumers, PI PO dropdowns, movement ledger).
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || status || supplier || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
     try {
-      const { sql: q, params } = buildPoListSql(branchId);
+      const opts = { branchId, status, supplier, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const aggQ = buildPurchaseOrderAggregateQuery(opts);
+        const aggR = await pgPool.query(aggQ.sql, aggQ.params as any[]);
+        const agg = aggR.rows[0] || {};
+        const statusQ = buildPurchaseOrderStatusCountQuery(opts);
+        const statusR = await pgPool.query(statusQ.sql, statusQ.params as any[]);
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const listQ = buildPurchaseOrderPagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params as any[]);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? Number(agg.count || 0) : size,
+          totalItems: Number(agg.count || 0),
+          statusCounts,
+          pendingValue: Number(agg.pending_value || 0),
+          receivedValue: Number(agg.received_value || 0),
+        });
+      }
+      const { sql: q, params } = buildPurchaseOrderPagedQuery(opts);
       const r = await pgPool.query(q, params as any[]);
-      res.json(r.rows);
-      return;
+      return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching POs from DB:', err);
     }
@@ -198,13 +229,45 @@ try {
 
 /** Forwarded from procurement.routes.ts (get_purchaseInvoices). */
 export async function get_purchaseInvoices(req: any, res: Response): Promise<any> {
-const { branchId } = req.query;
-  if (getPgConnected()) {
+const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
+  // slice, the filtered total, per-payment-status counts, and the taxable/VAT/
+  // grand/unpaid sums for the register KPIs. ?all=1 returns every filtered row
+  // (CSV export). No page param keeps the legacy full-array shape.
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || paymentStatus || supplier || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
     try {
-      const { sql: q, params } = buildPiListSql(branchId);
+      const opts = { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const aggQ = buildPurchaseInvoiceAggregateQuery(opts);
+        const aggR = await pgPool.query(aggQ.sql, aggQ.params as any[]);
+        const agg = aggR.rows[0] || {};
+        const statusQ = buildPurchaseInvoiceStatusCountQuery(opts);
+        const statusR = await pgPool.query(statusQ.sql, statusQ.params as any[]);
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const listQ = buildPurchaseInvoicePagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params as any[]);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? Number(agg.count || 0) : size,
+          totalItems: Number(agg.count || 0),
+          statusCounts,
+          sums: {
+            taxable: Number(agg.taxable_sum || 0),
+            vat: Number(agg.vat_sum || 0),
+            grand: Number(agg.grand_sum || 0),
+            unpaid: Number(agg.unpaid_sum || 0),
+          },
+        });
+      }
+      const { sql: q, params } = buildPurchaseInvoicePagedQuery(opts);
       const r = await pgPool.query(q, params as any[]);
-      res.json(r.rows);
-      return;
+      return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching purchase invoices from DB:', err);
     }

@@ -10,6 +10,12 @@ import {
   poUpdateParams,
   poIncomingStockParams,
   buildPiListSql,
+  buildPurchaseOrderPagedQuery,
+  buildPurchaseOrderAggregateQuery,
+  buildPurchaseOrderStatusCountQuery,
+  buildPurchaseInvoicePagedQuery,
+  buildPurchaseInvoiceAggregateQuery,
+  buildPurchaseInvoiceStatusCountQuery,
   piUpsertParams,
   piReceiveStockParams,
   piTxnLogParams,
@@ -172,5 +178,68 @@ describe('vendor payment params', () => {
 
   test('ledgerNameParams builds the id/name/like triple', () => {
     assert.deepEqual(ledgerNameParams({ id: 's1', name: 'Acme' }), ['s1', 'Acme', '%Acme%']);
+  });
+});
+
+describe('paged purchase-order queries', () => {
+  test('WHERE builder filters branch, status, supplier, dates and searches items JSONB', () => {
+    const { sql, params } = buildPurchaseOrderPagedQuery({
+      branchId: 'WH001',
+      status: 'SENT',
+      supplier: 'acme pvt',
+      query: 'onu',
+      dateFromAD: '2026-09-01',
+      dateToAD: '2026-09-30',
+    }, { page: 2, pageSize: 20 });
+    assert.match(sql, /WHERE 1=1 AND branch_id = \$1 AND status = \$2 AND LOWER\(supplier_name\) = \$3/);
+    assert.match(sql, /AND \(LOWER\(po_number\) LIKE \$4 OR LOWER\(supplier_name\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND order_date_ad >= \$5::date AND order_date_ad <= \$6::date/);
+    assert.match(sql, / ORDER BY created_at DESC LIMIT 20 OFFSET 20$/);
+    assert.deepEqual(params, ['WH001', 'SENT', 'acme pvt', '%onu%', '2026-09-01', '2026-09-30']);
+    assert.ok(!buildPurchaseOrderPagedQuery({}).sql.includes('LIMIT'));
+    const clamped = buildPurchaseOrderPagedQuery({}, { page: -3, pageSize: 0 });
+    assert.match(clamped.sql, /LIMIT 1 OFFSET 0$/);
+  });
+
+  test('aggregate sums pending/received values; status counts group by status', () => {
+    const opts = { branchId: 'WH001', status: 'SENT' };
+    const agg = buildPurchaseOrderAggregateQuery(opts);
+    assert.match(agg.sql, /COUNT\(\*\)::int AS count/);
+    assert.match(agg.sql, /SUM\(total_amount\) FILTER \(WHERE status <> 'RECEIVED' AND status <> 'CANCELLED'\)/);
+    assert.match(agg.sql, /SUM\(total_amount\) FILTER \(WHERE status = 'RECEIVED'\)/);
+    assert.deepEqual(agg.params, ['WH001', 'SENT']);
+    const statusCount = buildPurchaseOrderStatusCountQuery(opts);
+    assert.match(statusCount.sql, /FROM purchase_orders WHERE 1=1 AND branch_id = \$1 AND status = \$2 GROUP BY status$/);
+    assert.deepEqual(statusCount.params, ['WH001', 'SENT']);
+  });
+});
+
+describe('paged purchase-invoice queries', () => {
+  test('WHERE builder filters payment status, supplier, dates and searches items JSONB', () => {
+    const { sql, params } = buildPurchaseInvoicePagedQuery({
+      branchId: 'BRH01',
+      paymentStatus: 'PARTIAL',
+      supplier: 'acme pvt',
+      query: 'bill 42',
+      dateFromAD: '2026-09-01',
+    }, { page: 3, pageSize: 10 });
+    assert.match(sql, /WHERE 1=1 AND branch_id = \$1 AND payment_status = \$2 AND LOWER\(supplier_name\) = \$3/);
+    assert.match(sql, /AND \(LOWER\(invoice_number\) LIKE \$4 OR LOWER\(COALESCE\(vendor_bill_number, ''\)\) LIKE \$4 OR LOWER\(supplier_name\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND invoice_date_ad >= \$5::date/);
+    assert.match(sql, / ORDER BY created_at DESC LIMIT 10 OFFSET 20$/);
+    assert.deepEqual(params, ['BRH01', 'PARTIAL', 'acme pvt', '%bill 42%', '2026-09-01']);
+  });
+
+  test('aggregate sums taxable/vat/grand/unpaid; status counts group by payment_status', () => {
+    const opts = { branchId: 'WH001' };
+    const agg = buildPurchaseInvoiceAggregateQuery(opts);
+    assert.match(agg.sql, /COALESCE\(SUM\(taxable_amount\), 0\)::float AS taxable_sum/);
+    assert.match(agg.sql, /COALESCE\(SUM\(vat_amount\), 0\)::float AS vat_sum/);
+    assert.match(agg.sql, /COALESCE\(SUM\(grand_total\), 0\)::float AS grand_sum/);
+    assert.match(agg.sql, /COALESCE\(SUM\(grand_total - amount_paid\), 0\)::float AS unpaid_sum/);
+    assert.deepEqual(agg.params, ['WH001']);
+    const statusCount = buildPurchaseInvoiceStatusCountQuery(opts);
+    assert.match(statusCount.sql, /SELECT payment_status AS status, COUNT\(\*\)::int AS count FROM purchase_invoices WHERE 1=1 AND branch_id = \$1 GROUP BY payment_status$/);
+    assert.deepEqual(statusCount.params, ['WH001']);
   });
 });
