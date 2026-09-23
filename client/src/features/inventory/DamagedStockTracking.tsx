@@ -178,7 +178,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     setIsReversing(true);
     try {
       // Resolve the stock operation id from the damage reference.
-      const ops = await api.getStockOperations();
+      const ops = (await api.getStockOperations()) as StockOperation[];
       const op = (ops || []).find((o: StockOperation) =>
         o.type === 'DAMAGE' && damageReference.startsWith(`${o.referenceNumber}-`)
       );

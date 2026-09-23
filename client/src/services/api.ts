@@ -623,8 +623,29 @@ export const api = {
   },
 
   // Stock Operations (Pullout, Damage, Stock Out)
-  async getStockOperations(branchId?: string): Promise<StockOperation[]> {
-    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+  //
+  // Paged mode (params.page set): returns a { data, page, pageSize,
+  // totalItems, statusCounts } envelope so the Consumables Register never
+  // loads the whole ledger. params.all: every filtered row (CSV export).
+  // Without page/all the legacy full-array shape is returned.
+  async getStockOperations(params?: {
+    branchId?: string; type?: string; status?: string; query?: string;
+    dateFromAD?: string; dateToAD?: string;
+    page?: number; pageSize?: number; all?: boolean;
+  }): Promise<StockOperation[] | { data: StockOperation[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number> }> {
+    const search = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+    if (params?.type) search.append('type', params.type);
+    if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+    if (params?.query) search.append('query', params.query);
+    if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+    if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+    if (params?.all) search.append('all', '1');
+    if (params?.page !== undefined) {
+      search.append('page', String(params.page));
+      if (params.pageSize) search.append('pageSize', String(params.pageSize));
+    }
+    const query = search.toString() ? `?${search.toString()}` : '';
     return fetchJson(`/api/stock-operations${query}`);
   },
 

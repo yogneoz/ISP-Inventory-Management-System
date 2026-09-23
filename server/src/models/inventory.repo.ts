@@ -295,6 +295,88 @@ export function buildStockOperationListQuery(branchId?: unknown): { sql: string;
   };
 }
 
+export interface StockOperationQueryOptions {
+  /** Concrete branch (also matches ops destined for its warehouse) or 'ALL'. */
+  branchId?: unknown;
+  /** Operation type filter, e.g. CONSUMABLE_ISSUE. */
+  type?: unknown;
+  /** Status filter; rows with NULL status count as LOGGED. */
+  status?: unknown;
+  /** Free-text search across reference, technician, work order, reason and items. */
+  query?: unknown;
+  /** Inclusive lower bound on the operation day (date_ad), AD YYYY-MM-DD. */
+  dateFromAD?: unknown;
+  /** Inclusive upper bound on the operation day, AD YYYY-MM-DD. */
+  dateToAD?: unknown;
+}
+
+/**
+ * Builds the stock-operations WHERE fragment (starting with ' WHERE 1=1')
+ * and its positional parameters. A concrete branch also sees operations
+ * destined for its warehouse, matching buildStockOperationListQuery. Search
+ * covers the header columns plus the JSONB items blob (product names, SKUs,
+ * POP locations, customer names). Date bounds apply to date_ad.
+ */
+export function buildStockOperationWhere(opts: StockOperationQueryOptions): { whereSql: string; params: unknown[] } {
+  let whereSql = ' WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId as string);
+    whereSql += ` AND (branch_id = $${params.length} OR destination_warehouse_id = $${params.length})`;
+  }
+  if (opts.type && typeof opts.type === 'string' && opts.type.trim()) {
+    params.push(opts.type.trim());
+    whereSql += ` AND type = $${params.length}`;
+  }
+  if (opts.status && opts.status !== 'ALL') {
+    params.push(opts.status as string);
+    whereSql += ` AND COALESCE(status, 'LOGGED') = $${params.length}`;
+  }
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    const like = `%${opts.query.trim().toLowerCase()}%`;
+    params.push(like);
+    whereSql += ` AND (LOWER(reference_number) LIKE $${params.length} OR LOWER(COALESCE(technician_name, '')) LIKE $${params.length} OR LOWER(COALESCE(work_order_ref, '')) LIKE $${params.length} OR LOWER(reason) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    whereSql += ` AND date_ad >= $${params.length}::date`;
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    whereSql += ` AND date_ad <= $${params.length}::date`;
+  }
+  return { whereSql, params };
+}
+
+/** Counts stock_operations rows with the same filter fragment (paging totals). */
+export const STOCK_OP_COUNT_PREFIX = 'SELECT COUNT(*)::int AS count FROM stock_operations';
+
+export function buildStockOperationCountQuery(opts: StockOperationQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildStockOperationWhere(opts);
+  return { sql: STOCK_OP_COUNT_PREFIX + whereSql, params };
+}
+
+/** Per-status counts with the same filter fragment (register KPI/context). */
+export function buildStockOperationStatusCountQuery(opts: StockOperationQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildStockOperationWhere(opts);
+  return { sql: 'SELECT status, COUNT(*)::int AS count FROM stock_operations' + whereSql + ' GROUP BY status', params };
+}
+
+/**
+ * Paged stock-operations list query. When `paging` is provided a clamped
+ * LIMIT/OFFSET clause (1-indexed page) is appended after the ORDER BY.
+ */
+export function buildStockOperationPagedQuery(opts: StockOperationQueryOptions, paging?: { page: number; pageSize: number }): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildStockOperationWhere(opts);
+  let sql = `SELECT ${STOCK_OP_SELECT_COLUMNS} FROM stock_operations` + whereSql + ' ORDER BY created_at DESC';
+  if (paging) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
+    const page = Math.max(1, Math.floor(paging.page));
+    sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  }
+  return { sql, params };
+}
+
 export const STOCK_OPERATION_INSERT_SQL = `INSERT INTO stock_operations (
    id, reference_number, type, technician_name, work_order_ref, branch_id, branch_name, destination_warehouse_id, destination_warehouse_name, product_id, quantity_changed, cost_per_unit, total_value, reason, inspector_name, date_ad, date_bs, fiscal_year, status, items
  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)

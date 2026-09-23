@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { TablePagination } from '../../components/common/TablePagination';
 import {
   StockOperation,
   Product,
@@ -411,6 +412,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
   const [consumableRegisterDateTo, setConsumableRegisterDateTo] = useState('');
   const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
+  // Server-side paged fetch state: the register asks /api/stock-operations
+  // for one page of filtered CONSUMABLE_ISSUE rows instead of receiving the
+  // whole ledger through props.
+  const [consumableRegisterRows, setConsumableRegisterRows] = useState<StockOperation[]>([]);
+  const [consumableRegisterTotal, setConsumableRegisterTotal] = useState(0);
+  const [consumableRegisterPage, setConsumableRegisterPage] = useState(1);
+  const [consumableRegisterPageSize, setConsumableRegisterPageSize] = useState(20);
+  const [consumableRegisterLoading, setConsumableRegisterLoading] = useState(false);
+  const [consumableRegisterError, setConsumableRegisterError] = useState('');
 
   // 7. Receive Stock Physical Verification Modal State
   const [receivingShipmentModal, setReceivingShipmentModal] = useState<Shipment | null>(null);
@@ -1318,6 +1328,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         await api.reverseConsumableIssue(op.id, reason.trim(), currentUser);
       }
       showToast(`Consumable issue ${op.referenceNumber} reversed. Units returned to available stock.`);
+      loadConsumableRegisterPage();
     } catch (err: any) {
       showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
     }
@@ -1774,10 +1785,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
   const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
 
-  // Consumables Register: filtered CONSUMABLE_ISSUE ledger rows (search + branch + status)
-  const consumableRegisterOps = useMemo(() => {
+  // Consumables Register: client-side fallback filter (search + branch +
+  // status + dates). Used only when the paged server fetch fails, so the
+  // register degrades to the previous prop-fed behavior instead of breaking.
+  const filterConsumableRegisterOps = useCallback((ops: StockOperation[]) => {
     const q = consumableRegisterQuery.trim().toLowerCase();
-    return consumableOperations.filter((op) => {
+    return ops.filter((op) => {
       if (consumableRegisterBranch !== 'ALL' && op.branchId !== consumableRegisterBranch) return false;
       if (consumableRegisterStatus !== 'ALL' && (op.status || 'LOGGED') !== consumableRegisterStatus) return false;
       // AD date range (inclusive): an op matches when dateAD falls between
@@ -1801,7 +1814,54 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [consumableOperations, consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus, consumableRegisterDateFrom, consumableRegisterDateTo]);
+  }, [consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus, consumableRegisterDateFrom, consumableRegisterDateTo]);
+
+  const consumableRegisterFallbackOps = useMemo(
+    () => filterConsumableRegisterOps(consumableOperations),
+    [filterConsumableRegisterOps, consumableOperations]
+  );
+
+  // Server-side paged fetch: one page of filtered CONSUMABLE_ISSUE rows.
+  const consumableRegisterFetchSeq = useRef(0);
+  const loadConsumableRegisterPage = useCallback(async () => {
+    const seq = ++consumableRegisterFetchSeq.current;
+    setConsumableRegisterLoading(true);
+    setConsumableRegisterError('');
+    try {
+      const envelope = await api.getStockOperations({
+        type: 'CONSUMABLE_ISSUE',
+        branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+        status: consumableRegisterStatus,
+        query: consumableRegisterQuery.trim() || undefined,
+        dateFromAD: consumableRegisterDateFrom || undefined,
+        dateToAD: consumableRegisterDateTo || undefined,
+        page: consumableRegisterPage,
+        pageSize: consumableRegisterPageSize,
+      }) as { data: StockOperation[]; totalItems: number };
+      if (seq !== consumableRegisterFetchSeq.current) return; // superseded
+      setConsumableRegisterRows(envelope.data || []);
+      setConsumableRegisterTotal(envelope.totalItems || 0);
+    } catch (err: any) {
+      if (seq !== consumableRegisterFetchSeq.current) return;
+      setConsumableRegisterError(err?.message || 'Failed to load the register');
+    } finally {
+      if (seq === consumableRegisterFetchSeq.current) setConsumableRegisterLoading(false);
+    }
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo, consumableRegisterPage, consumableRegisterPageSize]);
+
+  useEffect(() => {
+    loadConsumableRegisterPage();
+  }, [loadConsumableRegisterPage]);
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setConsumableRegisterPage(1);
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo]);
+
+  // Rows to render: the server page, or the client-side fallback after a
+  // fetch failure so the ledger still displays.
+  const consumableRegisterOps = consumableRegisterError ? consumableRegisterFallbackOps : consumableRegisterRows;
+  const consumableRegisterCount = consumableRegisterError ? consumableRegisterFallbackOps.length : consumableRegisterTotal;
 
   // Fetch Customer Devices for Exchange Tab
   useEffect(() => {
@@ -3679,7 +3739,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <span>Consumables Issue Register</span>
             </h3>
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-              {consumableRegisterOps.length} Record(s)
+              {consumableRegisterLoading ? '…' : consumableRegisterCount} Record(s)
             </span>
           </div>
 
@@ -3758,10 +3818,28 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               rightChildren={
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={async () => {
+                    // Export every filtered row, not just the current page.
+                    let exportOps = consumableRegisterOps;
+                    if (!consumableRegisterError) {
+                      try {
+                        const envelope = await api.getStockOperations({
+                          type: 'CONSUMABLE_ISSUE',
+                          branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+                          status: consumableRegisterStatus,
+                          query: consumableRegisterQuery.trim() || undefined,
+                          dateFromAD: consumableRegisterDateFrom || undefined,
+                          dateToAD: consumableRegisterDateTo || undefined,
+                          all: true,
+                        }) as { data: StockOperation[] };
+                        exportOps = envelope.data || [];
+                      } catch {
+                        // Fall back to the rows already on screen.
+                      }
+                    }
                     exportToCSV(
                   'Consumables_Issue_Register',
-                  consumableRegisterOps.map((op) => ({
+                  exportOps.map((op) => ({
                     referenceNumber: op.referenceNumber,
                     dateAD: op.dateAD,
                     dateBS: op.dateBS,
@@ -3785,8 +3863,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     { key: 'status', label: 'Status' },
                     { key: 'reason', label: 'Remarks / Reason' },
                   ]
-                  )
-                }
+                  );
+                  }}
                 className="px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
               >
                 <Download className="h-4 w-4" />
@@ -3928,6 +4006,20 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </table>
             </div>
           )}
+
+          <TablePagination
+            page={consumableRegisterPage}
+            pageCount={Math.max(1, Math.ceil(consumableRegisterCount / consumableRegisterPageSize))}
+            totalItems={consumableRegisterCount}
+            rangeStart={consumableRegisterCount === 0 ? 0 : (consumableRegisterPage - 1) * consumableRegisterPageSize + 1}
+            rangeEnd={Math.min(consumableRegisterPage * consumableRegisterPageSize, consumableRegisterCount)}
+            pageSize={consumableRegisterPageSize}
+            onPageChange={(p) => setConsumableRegisterPage(Math.max(1, p))}
+            onPageSizeChange={(s) => {
+              setConsumableRegisterPageSize(s);
+              setConsumableRegisterPage(1);
+            }}
+          />
         </div>
       )}
 

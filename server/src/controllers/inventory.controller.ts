@@ -34,6 +34,9 @@ import {
   assetUpsertParams,
   ASSET_SET_STATUS_SQL,
   buildStockOperationListQuery,
+  buildStockOperationCountQuery,
+  buildStockOperationStatusCountQuery,
+  buildStockOperationPagedQuery,
   STOCK_OPERATION_INSERT_SQL,
   stockOperationInsertParams,
   STOCK_DAMAGE_APPLY_SQL,
@@ -636,13 +639,39 @@ try {
 
 /** Forwarded from inventory.routes.ts (get_stockOperations). */
 export async function get_stockOperations(req: any, res: Response): Promise<any> {
-const { branchId } = req.query;
-  if (getPgConnected()) {
+const { branchId, type, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (with optional pageSize) returns an envelope with the
+  // page slice, the filtered total, and per-status counts. ?all=1 returns
+  // every filtered row (CSV export). No page param keeps the legacy
+  // full-array shape for existing callers (bootstrap consumers, damage
+  // tracking).
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || type || status || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
     try {
-      const { sql: q, params } = buildStockOperationListQuery(branchId);
+      const opts = { branchId, type, status, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const countR = await pgPool.query(buildStockOperationCountQuery(opts).sql, buildStockOperationCountQuery(opts).params);
+        const totalItems = Number(countR.rows[0]?.count || 0);
+        const statusQ = buildStockOperationStatusCountQuery(opts);
+        const statusR = await pgPool.query(statusQ.sql, statusQ.params);
+        const statusCounts: Record<string, number> = {};
+        for (const row of statusR.rows) statusCounts[String(row.status)] = Number(row.count);
+        const listQ = buildStockOperationPagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? totalItems : size,
+          totalItems,
+          statusCounts,
+        });
+      }
+      const { sql: q, params } = buildStockOperationPagedQuery(opts);
       const r = await pgPool.query(q, params);
-      res.json(r.rows);
-      return;
+      return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching stock ops from DB:', err);
     }

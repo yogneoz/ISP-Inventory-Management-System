@@ -27,6 +27,9 @@ import {
   assetUpsertParams,
   ASSET_SET_STATUS_SQL,
   buildStockOperationListQuery,
+  buildStockOperationPagedQuery,
+  buildStockOperationCountQuery,
+  buildStockOperationStatusCountQuery,
   STOCK_OPERATION_INSERT_SQL,
   stockOperationInsertParams,
   STOCK_DAMAGE_APPLY_SQL,
@@ -218,6 +221,36 @@ describe('stock operations', () => {
     assert.match(sql, / WHERE branch_id = \$1 OR destination_warehouse_id = \$1 ORDER BY created_at DESC$/);
     assert.deepEqual(params, ['BR02']);
     assert.ok(!buildStockOperationListQuery('ALL').sql.includes(' WHERE '));
+  });
+
+  test('paged WHERE builder filters type, status (NULL=LOGGED), dates and searches items JSONB', () => {
+    const { sql, params } = buildStockOperationPagedQuery({
+      branchId: 'WH001',
+      type: 'CONSUMABLE_ISSUE',
+      status: 'LOGGED',
+      query: 'splitter',
+      dateFromAD: '2026-09-01',
+      dateToAD: '2026-09-30',
+    }, { page: 2, pageSize: 25 });
+    assert.match(sql, /WHERE 1=1 AND \(branch_id = \$1 OR destination_warehouse_id = \$1\) AND type = \$2 AND COALESCE\(status, 'LOGGED'\) = \$3/);
+    assert.match(sql, /AND \(LOWER\(reference_number\) LIKE \$4 OR LOWER\(COALESCE\(technician_name, ''\)\) LIKE \$4 OR LOWER\(COALESCE\(work_order_ref, ''\)\) LIKE \$4 OR LOWER\(reason\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND date_ad >= \$5::date AND date_ad <= \$6::date/);
+    assert.match(sql, / ORDER BY created_at DESC LIMIT 25 OFFSET 25$/);
+    assert.deepEqual(params, ['WH001', 'CONSUMABLE_ISSUE', 'LOGGED', '%splitter%', '2026-09-01', '2026-09-30']);
+    const plain = buildStockOperationPagedQuery({});
+    assert.ok(!plain.sql.includes('LIMIT'));
+    const clamped = buildStockOperationPagedQuery({}, { page: 0, pageSize: 9999 });
+    assert.match(clamped.sql, /LIMIT 500 OFFSET 0$/);
+  });
+
+  test('count and status-count queries reuse the same filter fragment', () => {
+    const opts = { branchId: 'WH001', type: 'CONSUMABLE_ISSUE', status: 'CANCELLED' };
+    const count = buildStockOperationCountQuery(opts);
+    assert.match(count.sql, /^SELECT COUNT\(\*\)::int AS count FROM stock_operations WHERE 1=1 AND \(branch_id = \$1 OR destination_warehouse_id = \$1\) AND type = \$2 AND COALESCE\(status, 'LOGGED'\) = \$3$/);
+    assert.deepEqual(count.params, ['WH001', 'CONSUMABLE_ISSUE', 'CANCELLED']);
+    const statusCount = buildStockOperationStatusCountQuery(opts);
+    assert.match(statusCount.sql, /FROM stock_operations WHERE 1=1 AND \(branch_id = \$1 OR destination_warehouse_id = \$1\) AND type = \$2 AND COALESCE\(status, 'LOGGED'\) = \$3 GROUP BY status$/);
+    assert.deepEqual(statusCount.params, ['WH001', 'CONSUMABLE_ISSUE', 'CANCELLED']);
   });
 
   test('insert takes 20 binds and upserts only status + items on conflict', () => {
