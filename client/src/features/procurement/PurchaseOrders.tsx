@@ -697,16 +697,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
           </div>
 
-          {/* PO Search & Filter Card — shared compact card with Filter panel */}
+          {/* PO Search & Filter Card — shared inline card (no popup) */}
           <FilterCard
             searchPlaceholder="Search PO # or Vendor Name..."
             searchValue={searchQuery}
             onSearchApply={setSearchQuery}
-            activeFilterCount={
-              (selectedSupplierFilter !== 'ALL' ? 1 : 0) +
-              (orderDateFromAD ? 1 : 0) +
-              (orderDateToAD ? 1 : 0)
-            }
             hasActiveFilters={
               Boolean(searchQuery) || selectedSupplierFilter !== 'ALL' || Boolean(orderDateFromAD) || Boolean(orderDateToAD)
             }
