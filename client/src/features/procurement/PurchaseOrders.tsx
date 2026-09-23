@@ -40,6 +40,7 @@ import {
   Download,
 } from 'lucide-react';
 import { formCardClass } from '../../components/common/FormCard';
+import { FilterCard } from '../../components/common/FilterCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -108,7 +109,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
   const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
+  // Register search: the input uses a debounced draft (FilterCard); the table
+  // only re-filters when the user pauses typing or presses Enter.
   const [searchQuery, setSearchQuery] = useState('');
+  // Register date range on the PO order date (canonical AD values;
+  // DateField converts BS picks). Empty bound = open-ended.
+  const [orderDateFromAD, setOrderDateFromAD] = useState('');
+  const [orderDateToAD, setOrderDateToAD] = useState('');
 
   // Sync the internal page with the sidebar menu that opened this component
   useEffect(() => {
@@ -332,10 +339,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     const matchesSearch =
       (po?.poNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
       (po?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
-    return matchesBranch && matchesSupplier && matchesSearch;
+    // Order-date range (inclusive); empty bound = open-ended.
+    const day = (po?.orderDateAD || '').split('T')[0];
+    const matchesDate =
+      (!orderDateFromAD || (day && day >= orderDateFromAD)) &&
+      (!orderDateToAD || (day && day <= orderDateToAD));
+    return matchesBranch && matchesSupplier && matchesSearch && matchesDate;
   }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''));
 
-  const poPagination = useClientPagination(filteredPOs, 15, [searchQuery, selectedBranchId, selectedSupplierFilter]);
+  const poPagination = useClientPagination(filteredPOs, 15, [searchQuery, selectedBranchId, selectedSupplierFilter, orderDateFromAD, orderDateToAD]);
 
   // Export the currently visible (filtered) Purchase Orders register to CSV
   const handleExportPOCSV = () => {
@@ -685,43 +697,74 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             </div>
           </div>
 
-          {/* PO Search & Filter Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 sm:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search PO # or Vendor Name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                <span className={`text-xs font-semibold whitespace-nowrap text-slate-500 dark:text-slate-400`}>
-                  Filter Vendor:
-                </span>
-                <select
-                  value={selectedSupplierFilter}
-                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                  className={`px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none transition-all cursor-pointer bg-white border-slate-200 text-slate-800 focus:border-indigo-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 dark:focus:border-indigo-500`}
-                >
-                  <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
-                  {availableSuppliers.map((supp) => (
-                    <option key={supp.id} value={supp.id}>
-                      🏢 {supp.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-              Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredPOs.length}</strong> purchase orders
-            </div>
-          </div>
+          {/* PO Search & Filter Card — shared compact card with Filter panel */}
+          <FilterCard
+            searchPlaceholder="Search PO # or Vendor Name..."
+            searchValue={searchQuery}
+            onSearchApply={setSearchQuery}
+            activeFilterCount={
+              (selectedSupplierFilter !== 'ALL' ? 1 : 0) +
+              (orderDateFromAD ? 1 : 0) +
+              (orderDateToAD ? 1 : 0)
+            }
+            hasActiveFilters={
+              Boolean(searchQuery) || selectedSupplierFilter !== 'ALL' || Boolean(orderDateFromAD) || Boolean(orderDateToAD)
+            }
+            onClearAll={() => {
+              setSearchQuery('');
+              setSelectedSupplierFilter('ALL');
+              setOrderDateFromAD('');
+              setOrderDateToAD('');
+            }}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Vendor / Supplier</label>
+                  <select
+                    value={selectedSupplierFilter}
+                    onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                    className={`w-52 px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+                  >
+                    <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
+                    {availableSuppliers.map((supp) => (
+                      <option key={supp.id} value={supp.id}>
+                        🏢 {supp.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Order Date From</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={orderDateFromAD}
+                      onChange={setOrderDateFromAD}
+                      compact
+                      max={orderDateToAD || undefined}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Order Date To</label>
+                  <div className="w-40">
+                    <DateField
+                      mode={dateMode}
+                      value={orderDateToAD}
+                      onChange={setOrderDateToAD}
+                      compact
+                      min={orderDateFromAD || undefined}
+                    />
+                  </div>
+                </div>
+              </>
+            }
+            rightChildren={
+              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredPOs.length}</strong> purchase orders
+              </span>
+            }
+          />
 
           {/* Purchase Orders Table */}
           <div
