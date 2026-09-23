@@ -117,7 +117,12 @@ export function validateRole(role: unknown): string {
   return role;
 }
 
-export const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+// PORT must be a positive integer. A bare `|| '3000'` fallback is not
+// enough: ambient environments can export PORT=0 (or empty/garbage), which
+// parseInt happily accepts and app.listen(0) then binds an ephemeral port.
+// Invalid values fall back to 3000 so the server is always reachable.
+const PORT_PARSED = Number.parseInt(process.env.PORT || '3000', 10);
+export const PORT = Number.isInteger(PORT_PARSED) && PORT_PARSED > 0 ? PORT_PARSED : 3000;
 
 // ==========================================
 // RUNTIME STATE & POSTGRESQL DATA HYDRATION
