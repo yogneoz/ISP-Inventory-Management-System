@@ -211,6 +211,114 @@ export function damageAuditShortageParams(rec: {
 export const DAMAGE_RECORD_CANCEL_SQL = `UPDATE damage_records SET status = 'CANCELLED', notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4 WHERE (damage_reference = $1 OR id = $2) AND status <> 'CANCELLED';`;
 
 // ---------------------------------------------------------------------------
+// Batched reversal helpers
+//
+// The damage and consumable-issue reversal flows previously executed one
+// UPDATE per line item inside a single transaction (holding a pooled client
+// for the whole loop). These set-based equivalents restore/cancel every item
+// in one statement so the transaction span is constant regardless of how
+// many items the operation carries.
+// ---------------------------------------------------------------------------
+
+export interface ReversalStockDelta {
+  productId: string;
+  quantity: number;
+}
+
+/**
+ * Batched stock restore for a reversed DAMAGE operation. Each (product,
+ * branch) row gains back its quantity from damaged_qty into quantity_on_hand
+ * — the multi-row equivalent of STOCK_REVERSE_DAMAGE_SQL. `expectedRows` is
+ * the number of distinct products expected to match; fewer updated rows means
+ * damaged stock changed underneath us (same guard as the per-item loop).
+ * Returns the number of inventory_stock rows actually updated.
+ */
+export const STOCK_REVERSE_DAMAGE_BATCH_SQL = `
+  WITH deltas(productId, qty, branchId) AS (
+    SELECT * FROM unnest($1::text[], $2::numeric[], $3::text[])
+  )
+  UPDATE inventory_stock s
+  SET quantity_on_hand = s.quantity_on_hand + d.qty,
+      damaged_qty = s.damaged_qty - d.qty,
+      last_updated = CURRENT_TIMESTAMP
+  FROM deltas d
+  WHERE s.product_id = d.productId AND s.branch_id = d.branchId AND s.damaged_qty >= d.qty`;
+
+/** Params for STOCK_REVERSE_DAMAGE_BATCH_SQL from parallel item arrays. */
+export function stockReverseDamageBatchParams(deltas: ReversalStockDelta[], branchId: string): unknown[] {
+  return [
+    deltas.map((d) => d.productId),
+    deltas.map((d) => d.quantity),
+    deltas.map(() => branchId),
+  ];
+}
+
+/**
+ * Batched consumable-issue return: adds each quantity back to quantity_on_hand
+ * for every (product, branch) pair in one statement — the multi-row equivalent
+ * of STOCK_RETURN_QOH_SQL. Rows with no existing inventory_stock record are
+ * skipped, exactly as the old per-item loop silently did. Returns the number
+ * of rows updated.
+ */
+export const STOCK_RETURN_QOH_BATCH_SQL = `
+  WITH deltas(productId, qty, branchId) AS (
+    SELECT * FROM unnest($1::text[], $2::numeric[], $3::text[])
+  )
+  UPDATE inventory_stock s
+  SET quantity_on_hand = s.quantity_on_hand + d.qty,
+      last_updated = CURRENT_TIMESTAMP
+  FROM deltas d
+  WHERE s.product_id = d.productId AND s.branch_id = d.branchId`;
+
+export const stockReturnQohBatchParams = stockReverseDamageBatchParams;
+
+/**
+ * Batched damage-record cancellation for a reversed operation. Cancels every
+ * still-active damage row whose damage_reference or id appears in the passed
+ * arrays, appending the same reversal note as DAMAGE_RECORD_CANCEL_SQL.
+ */
+export const DAMAGE_RECORD_CANCEL_BATCH_SQL = `
+  UPDATE damage_records
+  SET status = 'CANCELLED',
+      notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4
+  WHERE (damage_reference = ANY($1::text[]) OR id = ANY($2::text[]))
+    AND status <> 'CANCELLED'`;
+
+export function damageRecordCancelBatchParams(
+  damageReferences: string[],
+  recordIds: string[],
+  reason: string,
+  reversedBy: string
+): unknown[] {
+  return [damageReferences, recordIds, reason, reversedBy];
+}
+
+/**
+ * Builds a multi-row INSERT ... ON CONFLICT (id) DO NOTHING for transaction
+ * logs — one statement instead of one per ledger row. Mirrors the column
+ * list and conflict target of TXN_INSERT_ON_CONFLICT_SQL. The per-row params
+ * function `txnInsertOnConflictParams` supplies each row's values in the same
+ * order, so callers can flatten [[row1params], [row2params], ...].
+ */
+export function buildTxnMultiRowInsertSql(rowCount: number): string {
+  if (rowCount <= 0) return '';
+  const COLUMNS = 14; // matches TXN_INSERT_ON_CONFLICT_SQL's column count
+  const valuesClauses: string[] = [];
+  for (let r = 0; r < rowCount; r++) {
+    const base = r * COLUMNS;
+    const placeholders: string[] = [];
+    for (let c = 0; c < COLUMNS; c++) placeholders.push(`$${base + c + 1}`);
+    valuesClauses.push(`(${placeholders.join(', ')})`);
+  }
+  return `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)\n VALUES ${valuesClauses.join(',\n ')}\n ON CONFLICT (id) DO NOTHING`;
+}
+
+/** Flattens per-row txn params (from txnInsertOnConflictParams) for the multi-row insert. */
+export function flattenTxnParams(rows: unknown[][]): unknown[] {
+  return rows.flat();
+}
+
+// ---------------------------------------------------------------------------
 // Fixed assets
 // ---------------------------------------------------------------------------
 

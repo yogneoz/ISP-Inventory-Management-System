@@ -24,6 +24,14 @@ import {
   miscPulloutTxnParams,
   TXN_INSERT_ON_CONFLICT_SQL,
   txnInsertOnConflictParams,
+  STOCK_REVERSE_DAMAGE_BATCH_SQL,
+  stockReverseDamageBatchParams,
+  STOCK_RETURN_QOH_BATCH_SQL,
+  stockReturnQohBatchParams,
+  DAMAGE_RECORD_CANCEL_BATCH_SQL,
+  damageRecordCancelBatchParams,
+  buildTxnMultiRowInsertSql,
+  flattenTxnParams,
   DAMAGE_RECORD_ADJUSTMENT_SQL,
   damageAdjustmentParams,
   DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
@@ -978,21 +986,37 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        for (const item of operationItems) {
-          const qty = Number(item.quantity) || 0;
-          if (qty <= 0) continue;
+        // Batched stock restore: one set-based UPDATE restores every item's
+        // damaged qty back to available stock (previously one UPDATE per
+        // item, holding the pooled client for the whole loop).
+        const stockDeltas = operationItems
+          .map((item: any) => ({ productId: item.productId, quantity: Number(item.quantity) || 0 }))
+          .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
+        if (stockDeltas.length > 0) {
           const result = await client.query(
-            STOCK_REVERSE_DAMAGE_SQL,
-            [qty, item.productId, op.branchId]
+            STOCK_REVERSE_DAMAGE_BATCH_SQL,
+            stockReverseDamageBatchParams(stockDeltas, op.branchId)
           );
-          if (result.rowCount !== 1) {
-            throw new Error(`Damaged stock changed before reversal could complete for ${item.productName || item.productId}.`);
+          if (result.rowCount !== stockDeltas.length) {
+            throw new Error('Damaged stock changed before reversal could complete.');
           }
-          await client.query(
-            DAMAGE_RECORD_CANCEL_SQL,
-            [`${op.referenceNumber}-${item.productId}`, `dmr-${op.id}-${item.productId}`, reason, reversedBy]
-          );
+        }
 
+        // Batched damage-record cancellation: one UPDATE cancels every row
+        // of this operation (previously one UPDATE per item).
+        await client.query(
+          DAMAGE_RECORD_CANCEL_BATCH_SQL,
+          damageRecordCancelBatchParams(
+            operationItems.map((item: any) => `${op.referenceNumber}-${item.productId}`),
+            operationItems.map((item: any) => `dmr-${op.id}-${item.productId}`),
+            reason,
+            reversedBy
+          )
+        );
+
+        // Serial restore keeps its per-item loop by design — each item has
+        // genuinely different serial payloads and history entries.
+        for (const item of operationItems) {
           // Restore serials that THIS operation marked DAMAGED (IN_STOCK →
           // DAMAGED on creation). Only rows still DAMAGED with source_id =
           // this op are restored — serials quarantined by a different, still-
@@ -1009,8 +1033,13 @@ try {
 
         await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
 
-        for (const txn of reversalLedger) {
-          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
+        // Batched ledger insert: one multi-row statement instead of one per
+        // reversal entry.
+        if (reversalLedger.length > 0) {
+          await client.query(
+            buildTxnMultiRowInsertSql(reversalLedger.length),
+            flattenTxnParams(reversalLedger.map((txn) => txnInsertOnConflictParams(txn)))
+          );
         }
       });
     }
@@ -1135,14 +1164,26 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        for (const item of operationItems) {
-          const qty = Number(item.quantity) || 0;
-          if (qty <= 0) continue;
-          await client.query(STOCK_RETURN_QOH_SQL, [qty, item.productId, op.branchId]);
+        // Batched stock return: one set-based UPDATE returns every item's
+        // quantity to branch stock (previously one UPDATE per item, holding
+        // the pooled client for the whole loop).
+        const stockDeltas = operationItems
+          .map((item: any) => ({ productId: item.productId, quantity: Number(item.quantity) || 0 }))
+          .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
+        if (stockDeltas.length > 0) {
+          await client.query(
+            STOCK_RETURN_QOH_BATCH_SQL,
+            stockReturnQohBatchParams(stockDeltas, op.branchId)
+          );
         }
         await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
-        for (const txn of reversalLedger) {
-          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
+        // Batched ledger insert: one multi-row statement instead of one per
+        // reversal entry.
+        if (reversalLedger.length > 0) {
+          await client.query(
+            buildTxnMultiRowInsertSql(reversalLedger.length),
+            flattenTxnParams(reversalLedger.map((txn) => txnInsertOnConflictParams(txn)))
+          );
         }
       });
     }

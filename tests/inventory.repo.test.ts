@@ -38,6 +38,14 @@ import {
   STOCK_REVERSE_DAMAGE_SQL,
   STOCK_OPERATION_CANCEL_SQL,
   STOCK_OPERATION_FIND_FOR_RECEIVE_SQL,
+  STOCK_REVERSE_DAMAGE_BATCH_SQL,
+  stockReverseDamageBatchParams,
+  STOCK_RETURN_QOH_BATCH_SQL,
+  stockReturnQohBatchParams,
+  DAMAGE_RECORD_CANCEL_BATCH_SQL,
+  damageRecordCancelBatchParams,
+  buildTxnMultiRowInsertSql,
+  flattenTxnParams,
   STOCK_OPERATION_SET_STATUS_SQL,
   PULLOUT_RECEIVE_STOCK_SQL,
   pulloutReceiveStockParams,
@@ -452,5 +460,63 @@ describe('serial log register', () => {
       }),
       ['sl-1', 'SN', null, null, null, null, null, null, null, 'IN_STOCK', 'PURCHASE', null, '[]', 'now', 'now']
     );
+  });
+});
+
+describe('batched reversal builders', () => {
+  test('STOCK_REVERSE_DAMAGE_BATCH_SQL restores from damaged_qty via unnest and guards per row', () => {
+    assert.match(STOCK_REVERSE_DAMAGE_BATCH_SQL, /unnest\(\$1::text\[\], \$2::numeric\[\], \$3::text\[\]\)/);
+    assert.match(STOCK_REVERSE_DAMAGE_BATCH_SQL, /damaged_qty = s\.damaged_qty - d\.qty/);
+    assert.match(STOCK_REVERSE_DAMAGE_BATCH_SQL, /s\.damaged_qty >= d\.qty/);
+    assert.match(STOCK_REVERSE_DAMAGE_BATCH_SQL, /quantity_on_hand = s\.quantity_on_hand \+ d\.qty/);
+  });
+
+  test('stockReverseDamageBatchParams builds parallel arrays with branchId broadcast', () => {
+    const params = stockReverseDamageBatchParams(
+      [{ productId: 'p1', quantity: 2 }, { productId: 'p2', quantity: 5 }],
+      'BR1'
+    );
+    assert.deepEqual(params, [['p1', 'p2'], [2, 5], ['BR1', 'BR1']]);
+  });
+
+  test('STOCK_RETURN_QOH_BATCH_SQL returns qty without touching damaged_qty', () => {
+    assert.match(STOCK_RETURN_QOH_BATCH_SQL, /quantity_on_hand = s\.quantity_on_hand \+ d\.qty/);
+    assert.doesNotMatch(STOCK_RETURN_QOH_BATCH_SQL, /damaged_qty/);
+    // Same param shape as the damage batch
+    assert.deepEqual(
+      stockReturnQohBatchParams([{ productId: 'p9', quantity: 3 }], 'BR2'),
+      [['p9'], [3], ['BR2']]
+    );
+  });
+
+  test('DAMAGE_RECORD_CANCEL_BATCH_SQL cancels by reference OR id arrays and appends the reversal note', () => {
+    assert.match(DAMAGE_RECORD_CANCEL_BATCH_SQL, /damage_reference = ANY\(\$1::text\[\]\) OR id = ANY\(\$2::text\[\]\)/);
+    assert.match(DAMAGE_RECORD_CANCEL_BATCH_SQL, /status <> 'CANCELLED'/);
+    assert.match(DAMAGE_RECORD_CANCEL_BATCH_SQL, /' \|\| \$3 \|\| '\) by ' \|\| \$4/);
+    assert.deepEqual(
+      damageRecordCancelBatchParams(['DMR-1', 'DMR-2'], ['dmr-op-1', 'dmr-op-2'], 'wrong qty', 'admin@example.com'),
+      [['DMR-1', 'DMR-2'], ['dmr-op-1', 'dmr-op-2'], 'wrong qty', 'admin@example.com']
+    );
+  });
+
+  test('buildTxnMultiRowInsertSql emits one values clause per row with sequential binds and ON CONFLICT', () => {
+    const sql = buildTxnMultiRowInsertSql(3);
+    assert.match(sql, /ON CONFLICT \(id\) DO NOTHING/);
+    assert.match(sql, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14\)/);
+    // Last row ends at bind 14 * 3 = 42
+    assert.match(sql, /\$29, \$30, \$31, \$32, \$33, \$34, \$35, \$36, \$37, \$38, \$39, \$40, \$41, \$42\)/);
+    assert.equal(buildTxnMultiRowInsertSql(0), '');
+  });
+
+  test('flattenTxnParams flattens per-row param arrays in order', () => {
+    const txn = {
+      id: 't1', transactionNumber: 'TN', productId: 'p', productSku: 's', productName: 'n',
+      branchId: 'b', changeType: 'CONSUMABLE_ISSUE', quantityBefore: 0, quantityChanged: 1,
+      quantityAfter: 1, unitCost: 2, referenceDocId: 'ref', timestampAD: 'ad', timestampBS: 'bs',
+    } as any;
+    const flattened = flattenTxnParams([txnInsertOnConflictParams(txn), txnInsertOnConflictParams(txn)]);
+    assert.equal(flattened.length, 28);
+    assert.equal(flattened[0], 't1');
+    assert.equal(flattened[14], 't1');
   });
 });
