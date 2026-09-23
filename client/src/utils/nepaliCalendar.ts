@@ -899,7 +899,8 @@ export function getBSMonthGrid(
 
 /**
  * Calculates current Fiscal Year code in Nepal based on AD Date (e.g. "2082-83").
- */export function getNepaliFiscalYear(adDateStr?: string): string {
+ */
+export function getNepaliFiscalYear(adDateStr?: string): string {
   const dateStr = adDateStr ? adDateStr.split('T')[0] : new Date().toISOString().split('T')[0];
   const bs = convertADToBS(dateStr);
   return formatNepaliFiscalYearCode(bs.yearBS, bs.monthBS);
