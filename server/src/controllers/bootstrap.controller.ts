@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -155,3 +155,61 @@ const { branchId, fiscalYearId } = req.query;
 
 }
 
+/**
+ * Targeted-refresh endpoint backing the client's SSE domain handling:
+ * GET /api/bootstrap/local?key=<bootstrapSliceKey>[&branchId=...][&fiscalYearId=...]
+ * Returns just ONE slice of the bootstrap payload (plus its dataVersion), so
+ * a real-time event can refresh a single domain instead of re-downloading
+ * the entire bootstrap. Keys map to the same slice names the bootstrap
+ * response uses, so the client can feed the result straight into its
+ * existing applyBootstrapData-style setters.
+ */
+export async function get_bootstrapLocal(req: any, res: Response): Promise<any> {
+  try {
+    const key = String(req.query.key || '');
+    const { branchId, fiscalYearId } = req.query;
+    const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+    const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
+
+    // Company-wide slices served straight from the in-memory mirrors (the
+    // same values the full bootstrap embeds). Branch/FY-scoped slices are
+    // re-fetched through the operational-data query so scoping matches the
+    // full bootstrap exactly.
+    if (!bId && !fId) {
+      const mirrorSlices: Record<string, unknown> = {
+        categories,
+        companyProfile,
+        locations: locationRecords,
+        suppliers,
+        users,
+        products,
+        branches,
+        fiscalYears,
+        approvalRequests,
+        assets: assetRegister,
+        permissionsMatrix: permissionMatrix,
+      };
+      if (key in mirrorSlices) {
+        return res.json({ dataVersion: getDataVersion(), [key]: mirrorSlices[key] });
+      }
+    }
+
+    const scope: Record<string, unknown> = { key };
+    if (bId || fId) {
+      const pgFiscalYears = await fetchFiscalYears(pgPool);
+      const selectedFiscalYear = fId
+        ? pgFiscalYears.find((fy: any) => fy.id === fId)
+        : pickCurrentFiscalYear(pgFiscalYears);
+      if (selectedFiscalYear) {
+        scope.fiscalYearId = selectedFiscalYear.id;
+        scope.fiscalYearStartAD = toCalendarDate(selectedFiscalYear.startDateAD);
+        scope.fiscalYearEndAD = toCalendarDate(selectedFiscalYear.endDateAD);
+      }
+    }
+
+    const data = await fetchOperationalData(pgPool, scope as any);
+    return res.json({ dataVersion: getDataVersion(), [key]: (data as any)[key] });
+  } catch (err: any) {
+    res.status(500).json({ message: `Bootstrap local slice failed: ${err.message}` });
+  }
+}

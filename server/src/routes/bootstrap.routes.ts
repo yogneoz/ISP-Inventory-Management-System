@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_bootstrap } from '../controllers/bootstrap.controller';
+import { get_bootstrap, get_bootstrapLocal } from '../controllers/bootstrap.controller';
 import {
   approvalRequests,
   branches,
@@ -36,5 +36,6 @@ import { fetchFiscalYears, setIsPgConnected } from '../app';
 
 export function registerBootstrapRoutes(app: Express) {
 app.get('/api/bootstrap', async (req, res, next) => { get_bootstrap(req as any, res as any).catch(next); });
+app.get('/api/bootstrap/local', async (req, res, next) => { get_bootstrapLocal(req as any, res as any).catch(next); });
 
 }

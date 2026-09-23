@@ -36,6 +36,7 @@ export { safeParseHistory } from './inventory';
 export const api = {
   // Bootstrap
   getBootstrapState: bootstrap.getBootstrapState,
+  getLocalFor: bootstrap.getLocalFor,
 
   // Auth
   getSetupStatus: auth.getSetupStatus,

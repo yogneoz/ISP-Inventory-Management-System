@@ -461,19 +461,77 @@ export default function App() {
     };
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Targeted real-time refresh: map SSE event domains to the single bootstrap
+  // slice they invalidate. A mutation anywhere used to trigger a full app-wide
+  // re-bootstrap; now a known domain re-fetches ONLY its slice (one small
+  // query), and anything unrecognized falls back to the full bootstrap so
+  // unknown server events can never leave the UI stale.
+  // ---------------------------------------------------------------------------
+  const DOMAIN_STATE_KEYS: Record<string, string[]> = {
+    STOCK: ['stock', 'damageRecords', 'transactionLogs'],
+    STOCK_OPERATIONS: ['stockOperations', 'stock', 'transactionLogs', 'damageRecords'],
+    SERIALS: ['customerDevices'],
+    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers'],
+    SHIPMENTS: ['shipments', 'stock'],
+    MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
+    CATEGORIES: ['categories'],
+    PRODUCTS: ['products', 'stock'],
+    FISCAL: ['fiscalYears'],
+    USERS: ['users'],
+    CUSTOMER_DEVICES: ['customerDevices', 'stock'],
+    ASSETS: ['assets'],
+    APPROVALS: ['approvalRequests'],
+    RECALC: ['stock', 'assets'],
+    COMPANY_PROFILE: ['companyProfile'],
+    AUDIT: ['auditLogs'],
+  };
+
+  // Always-fresh scope for the SSE listener below (it must not re-subscribe
+  // — and capture stale values — when only the fiscal year changes).
+  const syncScopeRef = useRef({ branchId: selectedBranchId, fiscalYearId: selectedFiscalYearId || undefined });
+  useEffect(() => {
+    syncScopeRef.current = { branchId: selectedBranchId, fiscalYearId: selectedFiscalYearId || undefined };
+  }, [selectedBranchId, selectedFiscalYearId]);
+
   // Real-time synchronization stream: listen for background changes from any user/branch
   useEffect(() => {
     let debounceTimer: any = null;
+    let lastDomain: string | null = null;
     const unsubscribe = subscribeToSyncStream((event) => {
       // Track the latest server dataVersion so the instant pre-hydration on
       // the next page load can refuse an outdated cached snapshot.
       if (event && typeof event.dataVersion === 'number') {
         serverDataVersionRef.current = event.dataVersion;
       }
+      const domain: string | undefined = event?.domain;
+      if (domain) lastDomain = lastDomain === null || lastDomain === domain ? domain : 'MULTI';
+      else lastDomain = 'MULTI';
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        refreshAllDataRef.current();
+        const domains = lastDomain === 'MULTI' || !lastDomain ? null : [lastDomain];
+        lastDomain = null;
+        if (domains && domains.every((d) => DOMAIN_STATE_KEYS[d])) {
+          // Targeted: re-fetch only the affected bootstrap slice(s).
+          const { branchId, fiscalYearId } = syncScopeRef.current;
+          Promise.all(
+            domains
+              .flatMap((d) => DOMAIN_STATE_KEYS[d])
+              .filter((key, idx, all) => all.indexOf(key) === idx)
+              .map((key) =>
+                api.getLocalFor(key, branchId, fiscalYearId)
+                  .then((res) => {
+                    if (res.slice !== undefined) applyBootstrapData({ [key]: res.slice });
+                    if (res.dataVersion) serverDataVersionRef.current = res.dataVersion;
+                  })
+                  .catch(() => null) // single-slice failure must not break the others
+              )
+          ).catch(() => refreshAllDataRef.current());
+        } else {
+          // Unknown domain or mixed burst: full bootstrap (previous behavior).
+          refreshAllDataRef.current();
+        }
       }, 250);
     });
 

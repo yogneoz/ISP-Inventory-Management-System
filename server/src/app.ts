@@ -631,12 +631,14 @@ export function logAuditEvent(
 // ==========================================
 // REAL-TIME SYNC & BROADCAST ENGINE (SSE)
 // ==========================================
+import { resolveDomain } from './syncDomains';
 let dataVersion = Date.now();
 export const sseClients = new Set<express.Response>();
 
 export function broadcastChange(event: { type: string; entity?: string; branchId?: string }) {
   dataVersion = Date.now();
-  const payload = JSON.stringify({ ...event, dataVersion, timestamp: new Date().toISOString() });
+  const domain = resolveDomain(event.type, event.entity);
+  const payload = JSON.stringify({ ...event, domain, dataVersion, timestamp: new Date().toISOString() });
   for (const client of sseClients) {
     try {
       client.write(`data: ${payload}\n\n`);
