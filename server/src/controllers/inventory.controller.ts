@@ -12,7 +12,7 @@ import { calculateFixedAssetValues } from '../../../client/src/utils/depreciatio
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
-import { resolveBsDateForLedger } from '../utils/bsDate';
+import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
 import {
   buildStockListQuery,
   STOCK_FIND_BY_ID_SQL,
@@ -595,6 +595,8 @@ const { branchId } = req.query;
 export async function post_assets(req: any, res: Response): Promise<any> {
 try {
     const tagNum = req.body.tagNumber || req.body.assetTag || `AST-${Math.floor(1000 + Math.random() * 9000)}`;
+    // C4: resolve the BS fallback from the AD date actually being stored.
+    const newAssetAcquisitionAD = String(req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0]).split('T')[0];
     const newAsset = {
       id: req.body.id || `ast-${Date.now()}`,
       tagNumber: tagNum,
@@ -602,9 +604,10 @@ try {
       category: req.body.category || 'Equipment',
       branchId: req.body.branchId || 'WH001',
       acquisitionDateAD: req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      // C4: BS fallback derives from the actually-stored AD date.
+      acquisitionDateBS: req.body.acquisitionDateBS || req.body.acquisitionDateBs || await resolveBsDateForLedger(newAssetAcquisitionAD),
       purchaseInvoiceDateAD: req.body.purchaseInvoiceDateAD || req.body.purchaseInvoiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
-      purchaseInvoiceDateBS: req.body.purchaseInvoiceDateBS || req.body.purchaseInvoiceDateBs || req.body.acquisitionDateBS || req.body.acquisitionDateBs || '2083-04-10 BS',
+      purchaseInvoiceDateBS: req.body.purchaseInvoiceDateBS || req.body.purchaseInvoiceDateBs || req.body.acquisitionDateBS || req.body.acquisitionDateBs || await resolveBsDateForLedger(newAssetAcquisitionAD),
       capitalizationDateAD: req.body.capitalizationDateAD || req.body.capitalizationDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
       placedInServiceDateAD: req.body.placedInServiceDateAD || req.body.placedInServiceDateAd || req.body.acquisitionDateAD || req.body.acquisitionDateAd || new Date().toISOString().split('T')[0],
       acquisitionCost: Number(req.body.acquisitionCost) || 0,
@@ -1401,7 +1404,7 @@ try {
             branchId,
             status: nextStatus,
             issuedDateAD: newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
-            issuedDateBS: newRecord.issuedDateBS || '2083-04-16 BS',
+            issuedDateBS: newRecord.issuedDateBS || todayBs(), // C4: from bs_day_records cache
           } as CustomerDeviceRecord)
         );
 
@@ -1726,7 +1729,7 @@ try {
       macAddress: newMacAddress || undefined,
       status: 'RENTAL',
       issuedDateAD: dateStrAD,
-      issuedDateBS: '2083-04-28 BS',
+      issuedDateBS: todayBs(), // C4: from bs_day_records cache, not a hardcoded date
       purchaseBillRef: oldRecord.purchaseBillRef,
       notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
     };

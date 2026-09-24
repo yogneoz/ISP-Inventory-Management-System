@@ -65,6 +65,7 @@ import { INITIAL_COMPANY_PROFILE, INITIAL_DOCUMENT_NUMBER_CONFIGS, INITIAL_MASTE
 export { INITIAL_COMPANY_PROFILE, INITIAL_DOCUMENT_NUMBER_CONFIGS, INITIAL_MASTER_UOM, INITIAL_MASTER_LOCATIONS, INITIAL_MASTER_BRANCHES, INITIAL_MASTER_FISCAL_YEARS, INITIAL_MASTER_SUPPLIERS, EXAMPLE_USER_PASSWORD, INITIAL_EXAMPLE_USERS } from './config/seedData';
 
 import { NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, inMemoryBsCalendarYears, inMemoryBsDayRecords, setInMemoryBsCalendarYears, setInMemoryBsDayRecords, generateInMemoryBsDayRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, hydrateBsCalendarFromDb, buildBsDayRecordsForYear } from './config/bsCalendar';
+import { todayBs } from './utils/bsDate';
 
 // Re-exported for server/routes/*.routes.ts (they import shared runtime
 // symbols from this module rather than from each other).
@@ -600,7 +601,10 @@ export function logAuditEvent(
     module: module as AuditLog['module'],
     details,
     timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
+    // C4: BS date from the hydrated bs_day_records cache (hydrate-
+    // BsCalendarFromDb keeps it in sync with PostgreSQL). Sync resolution is
+    // required here because logAuditEvent is called everywhere without await.
+    timestampBS: todayBs(),
     branchId: overrideBranchId || u.branchId,
   };
 

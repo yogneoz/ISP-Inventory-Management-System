@@ -36,6 +36,13 @@ export const DEFAULT_BS_YEARS_SERVER = [
 export let inMemoryBsCalendarYears = [...DEFAULT_BS_YEARS_SERVER];
 export let inMemoryBsDayRecords: any[] = [];
 
+/** Read-only accessor for the fallback cache (safe for cross-module imports
+ *  that must observe reassignments, which a live ES import binding already
+ *  does but a destructured copy would not). */
+export function getInMemoryBsDayRecords(): any[] {
+  return inMemoryBsDayRecords;
+}
+
 export function generateInMemoryBsDayRecords() {
   const recordsMap = new Map<string, any>();
   for (const yData of inMemoryBsCalendarYears) {

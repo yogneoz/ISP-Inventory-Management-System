@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
+import { todayBs } from '../utils/bsDate';
 import {
   DB_STATUS_PROBE_SQL,
   buildAuditTrailQuery,
@@ -146,7 +147,7 @@ try {
       ...req.body,
       status: 'PENDING',
       requestedAtAD: new Date().toISOString(),
-      requestedAtBS: '2083-04-22 BS',
+      requestedAtBS: todayBs(), // C4: from bs_day_records cache
     };
 
     setApprovalRequests(withPrepended(approvalRequests, newRequest));
@@ -197,7 +198,7 @@ try {
     request.processedByName = approverUser?.name || currentU.name;
     request.processedByRole = approverUser?.role || currentU.role;
     request.processedAtAD = new Date().toISOString();
-    request.processedAtBS = '2083-04-22 BS';
+    request.processedAtBS = todayBs(); // C4: from bs_day_records cache
 
     if (status === 'REJECTED') {
       request.rejectionReason = rejectionReason || 'Request rejected by administrator';
@@ -262,7 +263,7 @@ try {
               unitCost: prod.costPrice,
               referenceDocId: request.requestNumber,
               timestampAD: new Date().toISOString(),
-              timestampBS: '2083-04-22 BS',
+              timestampBS: todayBs(), // C4: from bs_day_records cache
             };
             setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
@@ -370,7 +371,7 @@ try {
     request.processedByName = user?.name || currentU.name || request.requestedByName;
     request.processedByRole = user?.role || currentU.role || request.requestedByRole;
     request.processedAtAD = new Date().toISOString();
-    request.processedAtBS = '2083-04-22 BS';
+    request.processedAtBS = todayBs(); // C4: from bs_day_records cache
     request.rejectionReason = reason?.trim() || 'Request cancelled by user';
 
     if (getPgConnected()) {

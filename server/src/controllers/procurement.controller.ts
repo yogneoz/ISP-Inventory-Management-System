@@ -9,6 +9,7 @@ import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
 import { computeBillTotals } from '../utils/money';
+import { resolveBsDateForLedger, BS_DATE_FALLBACK } from '../utils/bsDate';
 import {
   buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
@@ -298,7 +299,8 @@ try {
       id: req.body.id || `inv-${Date.now()}`,
       invoiceNumber,
       invoiceDateAD: invDate,
-      invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || '2083-04-10 BS',
+      // C4: BS fallback derives from the actually-stored AD invoice date.
+      invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || await resolveBsDateForLedger(invDate),
       ...req.body,
     };
     const items = req.body.items || req.body.lines || [];
@@ -754,7 +756,7 @@ try {
       const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
       if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
     } catch (_e) {}
-    if (!paymentDateBS) paymentDateBS = '2083-04-16 BS';
+    if (!paymentDateBS) paymentDateBS = BS_DATE_FALLBACK; // last resort (bs_day_records already tried above)
 
     const paymentMethod = (body.paymentMethod || 'CASH').toUpperCase();
     // Generate payment number from the daily per-branch sequence based on the

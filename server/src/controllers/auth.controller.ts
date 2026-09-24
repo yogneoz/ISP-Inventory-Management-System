@@ -26,6 +26,7 @@ import {
   userUpdatePasswordParams,
 } from '../models/auth.repo';
 import type { AuditLog, User } from '../../../client/src/types';
+import { todayBs } from '../utils/bsDate';
 
 /**
  * POST /api/auth/login
@@ -309,7 +310,7 @@ export async function post_switchProfile(req: any, res: Response): Promise<any> 
     module: 'AUTH',
     details: `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
     timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
+    timestampBS: todayBs(), // C4: from bs_day_records cache, not a hardcoded date
   } as AuditLog));
 
   const { password: _, ...userWithoutPass } = user;

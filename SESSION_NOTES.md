@@ -40,6 +40,29 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
 
+### Arc 5 — C4 extended to ALL remaining hardcoded BS dates (DONE)
+The four follow-up sites plus, opportunistically, every other literal in the server:
+- `logAuditEvent` (app.ts) is SYNC and called from ~30 places, so it now uses the new
+  `todayBs()` — a SYNC resolver answering from the in-memory bs_day_records cache that
+  `hydrateBsCalendarFromDb` keeps in sync with PostgreSQL at boot/reconnect. Same data
+  as the async path, minus the round-trip. bsCalendar.ts gained a
+  `getInMemoryBsDayRecords()` getter (live binding across modules).
+- PROFILE_SWITCHED audit row (auth.controller): `todayBs()`.
+- Approval-request rows (misc.controller ×4): requestedAtBS, processedAtBS in
+  post_process and post_cancel, and the PULLOUT txn on approval — all `todayBs()`.
+- issuedDateBS fallbacks (inventory.controller): post_customerDevices CDR upsert and the
+  post_exchange replacement-device record — `todayBs()` (was '2083-04-16/28 BS').
+- BONUS (same class, cheap because async): post_assets acquisition/purchase-invoice BS
+  fallbacks and post_purchaseInvoices invoiceDateBS fallback now derive from the
+  actually-stored AD date via `await resolveBsDateForLedger(adDate)` instead of a fixed
+  literal — previously a backdated asset got today's BS date regardless.
+- Last-resort literals (procurement post_pay, piTxnLogParams) now reference the shared
+  `BS_DATE_FALLBACK` constant from utils/bsDate.ts — one source of truth for the
+  fallback value; bs_day_records is always tried first on those paths.
+- Net effect: **no '2083-04-xx BS' literals remain anywhere in server/src outside
+  utils/bsDate.ts** (seedData/bsCalendar own their legitimate seed-calendar data).
+- Tests still 364/364 (c1.e2e covers dateBS shape via stock ops).
+
 ### Arc 4 — C2 + C4 fixed, C1 verified E2E (DONE)
 - **C2 (race-safe doc numbering):** `generateNextDocNumberForServer` (app.ts) is now
   async and claims the sequence atomically via `UPDATE document_number_configs SET
