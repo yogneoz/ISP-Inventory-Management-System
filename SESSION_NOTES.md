@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-24 · Branch: main · Tests: 380/380 green (6 are real-PG integration, auto-skip without a DB)_
+_Date: 2026-09-24 · Branch: main · Tests: 399/399 green (6 are real-PG integration, auto-skip without a DB)_
 
 ## ⭐ NEWEST: full-project audit + calculation fixes (this session, uncommitted)
 
@@ -39,6 +39,37 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
 - Already-clean paths verified and left alone: computeTradingFromOps (read-path),
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
+
+### Arc 11 — login rate limiting (audit backlog #1, DONE)
+Audit said "rate limiting: NONE exists; env vars documented but unimplemented". Now
+implemented, dependency-free (no new packages):
+- `server/src/utils/rateLimiter.ts`: sliding-window `RateLimiter` (per-key buckets,
+  hits age out individually, rejected attempts NOT recorded — they never extend a
+  block; lazy pruning bounds memory; injectable clock for tests) + `attempt`/`revoke`/
+  `reset` + `buildRateLimitKey(scope, req, account?)` (req.ip → socket → 'unknown')
+  + `buildAccountRateLimitKey(scope, account)`.
+- `server/src/middleware/authRateLimit.ts`: `createAuthRateLimit({scope,
+  accountFrom})` with TWO independent buckets: **ip** (counts ALL attempts — stops
+  one host spraying accounts) and **account** (GLOBAL across ips, FAILURE-ONLY —
+  recorded optimistically, revoked after a non-4xx response via res.json wrap). A
+  distributed attack on one account is throttled at scope:account:<email> without
+  letting attackers lock the account out (successes clear their own hit) and without
+  collateral lockout of other accounts. 429 + Retry-After (seconds) + JSON body;
+  fail-open on limiter errors (availability > strictness); env:
+  AUTH_RATE_LIMIT_MAX (10) / AUTH_RATE_LIMIT_WINDOW_MS (900000 = 15 min) /
+  AUTH_RATE_LIMIT_DISABLED — documented in .env.example.
+- Wired: `/api/auth/login` AND `/api/auth/forgot-password` (also abusable) in
+  auth.routes.ts. In-memory state resets on restart — single-process OK; multi-
+  instance needs the shared store (Redis pub/sub task).
+- Tests (+19 → 399/399): limiter core (slide/retry/no-extend/prune/revoke/config
+  guards), key builders, middleware (429 on ip exhaustion w/ account rotation,
+  global failure-only account bucket, no collateral lockout, fail-open, scope
+  isolation). REAL-SERVER smoke (temp script, deleted): booted createApp +
+  registerAllRoutes, 5× login → 401 401 401 401 401, 6th → 429 + Retry-After: 60 +
+  message, different account same ip → 429.
+- Design catch during TDD: first draft keyed the second bucket as scope:ip:account —
+  a strict subset of the ip bucket, useless against ip rotation. Global failure-only
+  per-account bucket is the OWASP-style fix.
 
 ### Arc 10 — real-PG concurrency proof for C3 stock locking (DONE)
 `tests/stock.concurrency.test.ts`: replays the EXACT C3 transaction body of
@@ -218,7 +249,7 @@ read-then-increment pattern in admin.controller; BS display fallbacks that canno
 unseeded calendar days use BS_DATE_FALLBACK.
 
 ### Also from the audit — prioritized backlog (beyond the mirror roadmap)
-1. Rate limiting: NONE exists; env vars documented but unimplemented (login brute-forceable).
+1. ~~Rate limiting: NONE exists; env vars documented but unimplemented (login brute-forceable).~~ DONE (Arc 11).
 2. SSE endpoint `/api/sync/stream` has NO requireAuth; no helmet/security headers;
    JSON_BODY_LIMIT documented but express.json() at default.
 3. xlsx 0.18.5 unfixable high advisory (client-side parsing) — evaluate exceljs.

@@ -23,6 +23,7 @@ import {
   withReplaced,
 } from '../app';
 import { pgPool } from '../app';
+import { createAuthRateLimit } from '../middleware/authRateLimit';
 import { login as forwardLogin } from '../controllers/auth.controller';
 import { ApiError } from '../errors/ApiError';
 import type { AuditLog, User } from '../../../client/src/types';
@@ -32,13 +33,16 @@ app.get('/api/auth/setup-status', async (req, res, next) => { get_setupStatus(re
 
 app.post('/api/auth/setup-superadmin', async (req, res, next) => { post_setupSuperadmin(req as any, res as any).catch(next); });
 
-app.post('/api/auth/forgot-password', async (req, res, next) => { post_forgotPassword(req as any, res as any).catch(next); });
+// Rate limited (brute-force mitigation): per-IP and per-IP+email buckets.
+app.post('/api/auth/forgot-password',
+  createAuthRateLimit({ scope: 'auth-forgot', accountFrom: (req) => (typeof req.body?.email === 'string' ? req.body.email : undefined) }),
+  async (req, res, next) => { post_forgotPassword(req as any, res as any).catch(next); });
 
-
-
-app.post('/api/auth/login', (req, res, next) => {
-  forwardLogin(req as any, res as any).catch((err) => next(err));
-});
+app.post('/api/auth/login',
+  createAuthRateLimit({ scope: 'auth-login', accountFrom: (req) => (typeof req.body?.email === 'string' ? req.body.email : undefined) }),
+  (req, res, next) => {
+    forwardLogin(req as any, res as any).catch((err) => next(err));
+  });
 
 app.get('/api/auth/me', async (req, res, next) => { get_me(req as any, res as any).catch(next); });
 
