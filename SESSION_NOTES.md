@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-24 · Branch: main · Tests: 364/364 green_
+_Date: 2026-09-24 · Branch: main · Tests: 374/374 green_
 
 ## ⭐ NEWEST: full-project audit + calculation fixes (this session, uncommitted)
 
@@ -39,6 +39,17 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
 - Already-clean paths verified and left alone: computeTradingFromOps (read-path),
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
+
+### Arc 8 — C4 regression guard test (DONE)
+`tests/bs_date.guard.test.ts`: pure core `findHardcodedBsDates(sources, serverRoot?)`
+scans every .ts under server/src for QUOTED 'YYYY-MM-DD BS' literals and fails for any
+outside the allowlist (utils/bsDate.ts = sanctioned BS_DATE_FALLBACK;
+config/seedData.ts = fiscal-year seed rows). Broader than the original 2083-04-16/22
+offenders: ANY fixed BS date literal is the same bug class, so the regex covers all
+YYYY-MM-DD BS values. Only quoted literals count — bsCalendar's educational prose
+("send dateBS=2083-05-14 BS") and comments stay legal. Live-tree test walks the real
+server/src (relativizes absolute paths before allowlist matching — Windows-safe).
+5 unit tests + 1 live-tree test → 374/374.
 
 ### Arc 7 — post_generateNext atomic claim (last doc-number race closed, DONE)
 `admin.controller.post_generateNext` (Fiscal Year Management > Document Numbering
