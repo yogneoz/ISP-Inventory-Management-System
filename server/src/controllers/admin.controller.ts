@@ -51,6 +51,7 @@ import {
   DOC_NUMBER_CONFIG_UPSERT_SQL,
   docNumberConfigUpsertParams,
   DOC_NUMBER_CONFIG_INCREMENT_SQL,
+  DOC_NUMBER_CONFIG_CLAIM_SQL,
   FY_LIST_SQL,
   FY_OVERLAP_CHECK_SQL,
   FY_INSERT_SQL,
@@ -601,6 +602,32 @@ const configs: DocumentNumberConfig[] = req.body;
 /** Forwarded from admin.routes.ts (post_generateNext). */
 export async function post_generateNext(req: any, res: Response): Promise<any> {
 const { docTypeId, autoIncrement } = req.body;
+
+  // C2 pattern: claim the sequence atomically from the DB counter
+  // (UPDATE ... next_number = next_number + 1 RETURNING) so two concurrent
+  // preview/increment requests can never observe the same number. The claim
+  // only happens when autoIncrement !== false — a read-only preview keeps the
+  // old mirror-first read path and never touches the counter.
+  if (autoIncrement !== false) {
+    try {
+      const claimed = await pgPool.query(DOC_NUMBER_CONFIG_CLAIM_SQL, [docTypeId]);
+      const row = claimed.rows[0];
+      if (row) {
+        const seqNum = Number(row.next_number_before);
+        const paddedNum = String(seqNum).padStart(Number(row.min_digits) || 4, '0');
+        // Sync the in-memory mirror to the authoritative post-claim counter.
+        const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+        if (idx !== -1) docNumberConfigs[idx].nextNumber = Number(row.next_number_after);
+        return res.json({ documentNumber: `${row.prefix || ''}${paddedNum}${row.suffix || ''}`, seqNum });
+      }
+      // No row updated: doc type not configured in the DB — fall through to
+      // the mirror lookup / random fallback below.
+    } catch (e: any) {
+      console.warn('PostgreSQL atomic claim document_number_config failed:', docTypeId, e?.message || e);
+      // Fall through — the mirror path below still serves a number.
+    }
+  }
+
   let config = docNumberConfigs.find((c) => c.id === docTypeId);
 
   try {
@@ -623,6 +650,7 @@ const { docTypeId, autoIncrement } = req.body;
   const formattedDocNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
 
   if (autoIncrement !== false) {
+    // Only reached when the atomic claim above failed or found no config row.
     const nextSeq = seqNum + 1;
   try {
     await pgPool.query(DOC_NUMBER_CONFIG_INCREMENT_SQL, [nextSeq, docTypeId]);

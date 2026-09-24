@@ -527,6 +527,20 @@ export const DOC_NUMBER_CONFIG_BY_ID_SQL =
   `SELECT ${DOC_NUMBER_CONFIG_SELECT_COLUMNS}
    FROM document_number_configs WHERE id = $1;`;
 
+/**
+ * C2-style atomic sequence claim for post_generateNext: increments the
+ * counter and returns BOTH the row it had (next_number_before = the number
+ * this caller consumes) and the row's formatting fields in one statement.
+ * Two concurrent callers can never receive the same number. The DB counter is
+ * the authority; callers only sync the in-memory mirror from the returned
+ * next_number (= before + 1).
+ */
+export const DOC_NUMBER_CONFIG_CLAIM_SQL = `UPDATE document_number_configs
+       SET next_number = document_number_configs.next_number + 1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING next_number - 1 AS next_number_before, next_number AS next_number_after,
+                 prefix, suffix, min_digits;`;
+
 export const DOC_NUMBER_CONFIG_UPDATE_SQL = `UPDATE document_number_configs
        SET prefix = $1, suffix = $2, min_digits = $3, starting_number = $4,
            next_number = $5, reset_every_fiscal_year = $6, notes = $7, updated_at = CURRENT_TIMESTAMP

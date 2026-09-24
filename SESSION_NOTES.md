@@ -40,6 +40,20 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
 
+### Arc 7 — post_generateNext atomic claim (last doc-number race closed, DONE)
+`admin.controller.post_generateNext` (Fiscal Year Management > Document Numbering
+"Generate Next" button) previously did read-then-increment: mirror-first config read,
+then `DOC_NUMBER_CONFIG_INCREMENT_SQL` with a computed value — two concurrent callers
+could both read nextNumber=N and both write N+1, issuing the same number twice.
+Now, when `autoIncrement !== false`, it FIRST tries `DOC_NUMBER_CONFIG_CLAIM_SQL`
+(admin.repo.ts): `UPDATE document_number_configs SET next_number =
+next_number + 1 WHERE id = $1 RETURNING next_number - 1 AS next_number_before,
+next_number AS next_number_after, prefix, suffix, min_digits` — same C2 pattern as
+generateNextDocNumberForServer. Returned before-value is the number this caller
+consumes; mirror is synced to the after-value. Falls back to the legacy mirror path
+only when the claim fails (DB down) or the doc type has no DB row; read-only preview
+(`autoIncrement === false`) never touches the counter. +1 test (SQL shape) → 368/368.
+
 ### Arc 6 — C3: row-level locking for stock writes (mirror step 4, DONE)
 `inventory.repo.ts` gained `STOCK_LOCK_FOR_UPDATE_SQL` + `stockLockForUpdateParams`:
 set-based `SELECT s.product_id, … quantity_on_hand, damaged_qty, reserved_qty FROM

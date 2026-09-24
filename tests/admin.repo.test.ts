@@ -44,6 +44,7 @@ import {
   DOC_NUMBER_CONFIG_UPSERT_SQL,
   docNumberConfigUpsertParams,
   DOC_NUMBER_CONFIG_INCREMENT_SQL,
+  DOC_NUMBER_CONFIG_CLAIM_SQL,
   FY_LIST_SQL,
   FY_OVERLAP_CHECK_SQL,
   FY_INSERT_SQL,
@@ -350,6 +351,18 @@ describe('document numbering SQL', () => {
       'UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;'
     );
     assert.equal(maxPlaceholder(DOC_NUMBER_CONFIG_UPSERT_SQL), 9);
+  });
+
+  test('DOC_NUMBER_CONFIG_CLAIM_SQL is an atomic self-incrementing claim returning before/after + format fields', () => {
+    // The self-referential increment is the whole point: no computed value
+    // is written, so concurrent claims serialize on the row.
+    assert.match(DOC_NUMBER_CONFIG_CLAIM_SQL, /next_number = document_number_configs\.next_number \+ 1/);
+    assert.match(DOC_NUMBER_CONFIG_CLAIM_SQL, /WHERE id = \$1/);
+    assert.match(DOC_NUMBER_CONFIG_CLAIM_SQL, /RETURNING next_number - 1 AS next_number_before/);
+    assert.match(DOC_NUMBER_CONFIG_CLAIM_SQL, /next_number AS next_number_after/);
+    assert.match(DOC_NUMBER_CONFIG_CLAIM_SQL, /prefix, suffix, min_digits/);
+    // Single bind: the doc type id.
+    assert.equal(maxPlaceholder(DOC_NUMBER_CONFIG_CLAIM_SQL), 1);
   });
 });
 
