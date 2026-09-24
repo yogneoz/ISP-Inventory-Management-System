@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-24 · Branch: main · Tests: 374/374 green_
+_Date: 2026-09-24 · Branch: main · Tests: 376/376 green (2 are real-PG integration, auto-skip without a DB)_
 
 ## ⭐ NEWEST: full-project audit + calculation fixes (this session, uncommitted)
 
@@ -39,6 +39,22 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
 - Already-clean paths verified and left alone: computeTradingFromOps (read-path),
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
+
+### Arc 9 — real-PG concurrency proof for the doc-number claim (DONE)
+`tests/docnumber.concurrency.test.ts`: integration test against a LIVE PostgreSQL
+proving `DOC_NUMBER_CONFIG_CLAIM_SQL` (the statement post_generateNext and
+generateNextDocNumberForServer-style claims rely on) cannot double-issue numbers:
+24 parallel claims must return 24 DISTINCT, GAPLESS numbers (exactly 1..24), every
+before/after pair consistent (after = before + 1), formatted numbers unique, counter
+ends at 25, and two sequential batches never overlap. Isolation: creates throwaway DB
+`inventory_concurrency_test` (never touches inventory_db), drops it in teardown; when
+no PostgreSQL is reachable the tests SKIP (t.skip), so CI/demo environments stay green.
+Run #29-style CI will not exercise it; local dev with .env DATABASE_URL does.
+Debug note: the first failing run was a TEST bug — the duplicate-check message called
+`befores.sort(...)` in place, mutating the array and desyncing it from completion-
+ordered afters (assertion messages must not mutate their operands). A standalone probe
+of the raw SQL (24/24 unique, gapless, zero torn pairs) confirmed the atomic claim is
+flawless. +2 tests → 376/376.
 
 ### Arc 8 — C4 regression guard test (DONE)
 `tests/bs_date.guard.test.ts`: pure core `findHardcodedBsDates(sources, serverRoot?)`
