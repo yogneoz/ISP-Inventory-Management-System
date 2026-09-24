@@ -35,23 +35,6 @@ import type {
   VendorPayment,
 } from '../../client/src/types';
 
-/**
- * vendor_opening_balances has no client-domain interface; the cache stores
- * the raw rows exactly as produced by the CACHE_LOADS query (column-aliased).
- */
-export interface VendorOpeningBalanceRow {
-  id: string;
-  fiscalYearId: string;
-  supplierId: string;
-  branchId: string;
-  openingBalance: number;
-  sourceType: string | null;
-  sourceReference: string | null;
-  postedAt: string | null;
-  postedBy: string | null;
-  [key: string]: unknown;
-}
-
 export interface SharedStateAccessors {
   setUsers(value: readonly User[]): void;
   setSuppliers(value: readonly Supplier[]): void;
@@ -75,7 +58,6 @@ export interface SharedStateAccessors {
   setDamageRecords(value: readonly DamageRecord[]): void;
   setSerialLogs(value: readonly SerialLog[]): void;
   setVendorPayments(value: readonly VendorPayment[]): void;
-  setVendorOpeningBalances(value: readonly VendorOpeningBalanceRow[]): void;
   setDocNumberConfigs(value: DocumentNumberConfig[]): void;
   setPermissionMatrix(value: Record<string, Record<string, boolean>>): void;
   setCompanyProfile(value: CompanyProfile): void;

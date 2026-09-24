@@ -327,13 +327,18 @@ export function piReceiveStockParams(branchId: string, item: Record<string, any>
   return [`stk-${branchId.toLowerCase()}-${item.productId}`, item.productId, branchId, Number(item.quantity) || 0];
 }
 
-/** Appends a PURCHASE_INVOICE transaction log row for an invoice item. */
+/**
+ * Appends a PURCHASE_INVOICE transaction log row for an invoice item.
+ * `itemIndex` (position of the item on the invoice) keeps the ledger-row id
+ * unique when one invoice carries the same product twice, or two invoices
+ * for the same product commit in the same millisecond.
+ */
 export const PI_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
  VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
 
-export function piTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string): unknown[] {
+export function piTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
   return [
-    `txn-${Date.now()}-${item.productId}`,
+    `txn-${Date.now()}-${item.productId}-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
     item.productId,
     item.sku || '',

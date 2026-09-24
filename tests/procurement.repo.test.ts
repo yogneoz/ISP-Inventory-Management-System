@@ -127,13 +127,22 @@ describe('piUpsertParams', () => {
     const params = piTxnLogParams(inv, { productId: 'p1' }, 'WH001');
     // 12 binds: quantity_before is a literal 0 and quantity binds once ($8, $8)
     assert.equal(params.length, 12);
-    assert.match(params[0] as string, /^txn-\d+-p1$/);
+    assert.match(params[0] as string, /^txn-\d+-p1-0$/);
     assert.match(params[1] as string, /^TXN-\d{5}$/);
     assert.equal(params[9], 'PI-7');
     assert.equal(params[11], 'bs');
     const fallback = piTxnLogParams({ invoiceNumber: 'PI-8' }, { productId: 'p1' }, 'WH001');
     assert.match(fallback[10] as string, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(fallback[11], '2083-04-16 BS');
+  });
+
+  test('piTxnLogParams ids stay unique when one invoice repeats a product', () => {
+    const inv = { invoiceNumber: 'PI-9' };
+    const first = piTxnLogParams(inv, { productId: 'p1' }, 'WH001', 0)[0] as string;
+    const second = piTxnLogParams(inv, { productId: 'p1' }, 'WH001', 1)[0] as string;
+    assert.notEqual(first, second);
+    assert.match(first, /-0$/);
+    assert.match(second, /-1$/);
   });
 });
 

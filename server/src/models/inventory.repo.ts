@@ -79,6 +79,26 @@ export function stockUpsertReorderParams(stk: Record<string, any>): unknown[] {
 }
 
 /** Physical-audit reconciliation upsert: sets the absolute counted quantity. */
+/**
+ * Moves shortage units out of the damaged pool so the damage register and
+ * inventory_stock agree after a physical-audit reconciliation: the counted
+ * total is authoritative, and any units written off are removed from
+ * damaged_qty (never below zero) as well as quantity_on_hand.
+ */
+export const STOCK_RECONCILE_DAMAGED_ADJUST_SQL = `
+  UPDATE inventory_stock
+  SET damaged_qty = GREATEST(0, damaged_qty - $1),
+      last_updated = CURRENT_TIMESTAMP
+  WHERE product_id = $2 AND branch_id = $3`;
+
+export function stockReconcileDamagedAdjustParams(
+  shortageQty: number,
+  productId: string,
+  branchId: string
+): unknown[] {
+  return [shortageQty, productId, branchId];
+}
+
 export const STOCK_RECONCILE_UPSERT_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty)
  VALUES ($1, $2, $3, $4, $5, $6, $7)
  ON CONFLICT (id) DO UPDATE SET quantity_on_hand = EXCLUDED.quantity_on_hand;`;
@@ -242,7 +262,8 @@ export const STOCK_REVERSE_DAMAGE_BATCH_SQL = `
       damaged_qty = s.damaged_qty - d.qty,
       last_updated = CURRENT_TIMESTAMP
   FROM deltas d
-  WHERE s.product_id = d.productId AND s.branch_id = d.branchId AND s.damaged_qty >= d.qty`;
+  WHERE s.product_id = d.productId AND s.branch_id = d.branchId AND s.damaged_qty >= d.qty
+  RETURNING product_id, quantity_on_hand`;
 
 /** Params for STOCK_REVERSE_DAMAGE_BATCH_SQL from parallel item arrays. */
 export function stockReverseDamageBatchParams(deltas: ReversalStockDelta[], branchId: string): unknown[] {

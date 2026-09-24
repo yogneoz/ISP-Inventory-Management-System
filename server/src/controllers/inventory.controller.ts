@@ -9,8 +9,10 @@ import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, setDataVersion, getDataVersion } from '../app';
 import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
-import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials } from '../services/damage.service';
+import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
+import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
+import { resolveBsDateForLedger } from '../utils/bsDate';
 import {
   buildStockListQuery,
   STOCK_FIND_BY_ID_SQL,
@@ -20,6 +22,8 @@ import {
   stockUpsertReorderParams,
   STOCK_RECONCILE_UPSERT_SQL,
   stockReconcileUpsertParams,
+  STOCK_RECONCILE_DAMAGED_ADJUST_SQL,
+  stockReconcileDamagedAdjustParams,
   TXN_INSERT_NOW_SQL,
   miscPulloutTxnParams,
   TXN_INSERT_ON_CONFLICT_SQL,
@@ -106,6 +110,9 @@ const { branchId } = req.query;
 /** Forwarded from inventory.routes.ts (patch_Id). */
 export async function patch_Id(req: any, res: Response): Promise<any> {
 try {
+    // C4: BS dates for ledger/audit rows come from the seeded bs_day_records
+    // for "today", never from hardcoded strings.
+    const todayBsForLedger = await resolveBsDateForLedger();
     const { id } = req.params;
     const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body;
     for (const [field, value] of Object.entries({ quantityOnHand, minReorderLevel, damagedQty })) {
@@ -162,12 +169,14 @@ try {
         branchId: stk.branchId,
         changeType: 'DAMAGE' as const,
         quantityBefore: oldDamaged,
-        quantityChanged: damDiff !== 0 ? -Math.abs(damDiff) : -(stk.damagedQty || 1),
+        // Damaged-pool ledger: before + changed = after (pool semantics —
+        // an increase in damaged units is negative, a decrease positive).
+        quantityChanged: buildDamagePoolLedgerChange(oldDamaged, stk.damagedQty || 0).quantityChanged,
         quantityAfter: stk.damagedQty || 0,
         unitCost: prod?.costPrice || 0,
         referenceDocId: reason || 'DMG-VERIFICATION',
         timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-16 BS',
+        timestampBS: todayBsForLedger,
       };
       setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
@@ -203,7 +212,7 @@ try {
                 unitCost: prod?.costPrice || 0,
                 totalCost: (prod?.costPrice || 0) * absAffected,
                 damageDateAD: todayAD,
-                damageDateBS: '2083-04-16 BS',
+                damageDateBS: todayBsForLedger,
                 damageReason,
                 approvedBy: getUserFromReq(req).name || 'Stock Manager',
                 notes: reason || 'Damaged stock balance verification',
@@ -229,7 +238,7 @@ try {
               unitCost: prod?.costPrice || 0,
               totalCost: (prod?.costPrice || 0) * absAffected,
               damageDateAD: todayAD,
-              damageDateBS: '2083-04-16 BS',
+              damageDateBS: todayBsForLedger,
               damageReason: damageReason as DamageRecord['damageReason'],
               status: 'IDENTIFIED',
               salvageValue: 0,
@@ -262,7 +271,7 @@ try {
         unitCost: prod?.costPrice || 0,
         referenceDocId: reason || 'STOCK_ADJUSTMENT',
         timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-16 BS',
+        timestampBS: todayBsForLedger,
       };
       setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
@@ -410,6 +419,8 @@ try {
 /** Forwarded from inventory.routes.ts (post_reconcileAudit). */
 export async function post_reconcileAudit(req: any, res: Response): Promise<any> {
 try {
+    // C4: BS dates for audit ledger rows derive from bs_day_records.
+    const auditBsDate = await resolveBsDateForLedger();
     const { branchId, auditRefNumber, varianceItems, auditorName, userEmail, notes } = req.body;
     if (!branchId || !Array.isArray(varianceItems)) {
       res.status(400).json({ message: 'Invalid stock reconciliation payload' });
@@ -468,17 +479,23 @@ try {
             unitCost: unitCost || prod?.costPrice || 0,
             referenceDocId: auditRefNumber || `AUDIT-${Date.now()}`,
             timestampAD: new Date().toISOString(),
-            timestampBS: '2083-04-22 BS',
+            timestampBS: auditBsDate,
           };
           setTransactionLogs(withPrepended(transactionLogs, newTxn));
 
           await client.query(TXN_INSERT_NOW_SQL, miscPulloutTxnParams(newTxn));
 
           // Physical audit reconciliation also records the damage lifecycle:
-          // a negative shortage for a product that already has damaged stock is
-          // reflected in the damage register so it shows up in the ledger.
+          // a negative shortage for a product that already has damaged stock
+          // is reflected in the damage register so it shows up in the ledger.
+          // Stock-wins semantics: the counted total is authoritative, so the
+          // written-off units are ALSO removed from damaged_qty here — the
+          // damage register (which records the same write-off quantity) and
+          // inventory_stock stay consistent instead of double-counting the
+          // shortage in the damaged pool.
           if (delta < 0 && Number(item.damagedQty ?? stk.damagedQty ?? 0) > 0) {
             const damageQtyRec = Number(item.damagedQty ?? stk.damagedQty ?? 0);
+            const writtenOff = Math.min(damageQtyRec, Math.abs(delta));
             await client.query(
               DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
               damageAuditShortageParams({
@@ -486,16 +503,21 @@ try {
                 damageReference: `AUDIT-${auditRefNumber || Date.now()}-${item.productId}`,
                 productId: item.productId,
                 branchId,
-                quantityDamaged: Math.min(damageQtyRec, Math.abs(delta)),
+                quantityDamaged: writtenOff,
                 unitCost: unitCost || prod?.costPrice || 0,
-                totalCost: (unitCost || prod?.costPrice || 0) * Math.min(damageQtyRec, Math.abs(delta)),
+                totalCost: (unitCost || prod?.costPrice || 0) * writtenOff,
                 damageDateAD: new Date().toISOString().split('T')[0],
-                damageDateBS: '2083-04-22 BS',
+                damageDateBS: auditBsDate,
                 approvedBy: auditorName || userEmail || 'AUDITOR',
                 notes: notes || `Physical audit shortage write-off (${auditRefNumber || 'DIRECT'})`,
                 createdBy: userEmail || 'system',
               })
             );
+            await client.query(
+              STOCK_RECONCILE_DAMAGED_ADJUST_SQL,
+              stockReconcileDamagedAdjustParams(writtenOff, item.productId, branchId)
+            );
+            stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - writtenOff);
           }
         }
       });
@@ -742,11 +764,17 @@ try {
         }
       }
     }
+    // C1: totalValue is ALWAYS recomputed server-side from quantities and
+    // resolved unit costs — a client-supplied per-item totalValue is ignored.
+    // The unit-cost fallback chain matches the movement ledger below.
     let totalValue = 0;
     if (items.length > 0) {
-      totalValue = items.reduce((sum: number, it: any) => sum + (it.totalValue || it.quantity * (it.unitCost || 0)), 0);
+      totalValue = computeOperationTotalValue(items, (it: any) => {
+        const product = products.find((entry) => entry.id === it.productId);
+        return Number(it.unitCost ?? it.costPerUnit ?? req.body.costPerUnit) || product?.costPrice || 0;
+      });
     } else if (req.body.quantityChanged && req.body.costPerUnit) {
-      totalValue = Math.abs(req.body.quantityChanged) * req.body.costPerUnit;
+      totalValue = computeLegacyOperationTotalValue(req.body.quantityChanged, req.body.costPerUnit);
     }
 
     // BS calendar gate: a stock operation may only be posted when its date has
@@ -977,12 +1005,7 @@ try {
     const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
     const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
 
-    const reversalLedger: TransactionLog[] = buildReversalLedgerWithStock(op, operationItems, {
-      reversalDateAD,
-      reversalDateBS,
-      products,
-      stockRows: inventoryStock,
-    });
+    let reversalLedger: TransactionLog[] = [];
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -992,6 +1015,7 @@ try {
         const stockDeltas = operationItems
           .map((item: any) => ({ productId: item.productId, quantity: Number(item.quantity) || 0 }))
           .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
+        let returnedRows: Array<{ product_id: string; quantity_on_hand: number | string }> = [];
         if (stockDeltas.length > 0) {
           const result = await client.query(
             STOCK_REVERSE_DAMAGE_BATCH_SQL,
@@ -1000,7 +1024,23 @@ try {
           if (result.rowCount !== stockDeltas.length) {
             throw new Error('Damaged stock changed before reversal could complete.');
           }
+          // Ledger truth comes from the rows this transaction just updated
+          // (RETURNING quantity_on_hand = post-restore quantity), not from a
+          // possibly-stale in-memory mirror.
+          returnedRows = result.rows || [];
         }
+
+        // Reversal ledger built from the authoritative post-update PG rows.
+        reversalLedger = buildReversalLedgerFromRestoredRows(op, operationItems, {
+          reversalDateAD,
+          reversalDateBS,
+          products,
+          restoredRows: returnedRows.map((r) => ({
+            productId: r.product_id,
+            quantityOnHand: Number(r.quantity_on_hand) || 0,
+          })),
+          fallbackStockRows: inventoryStock,
+        });
 
         // Batched damage-record cancellation: one UPDATE cancels every row
         // of this operation (previously one UPDATE per item).
@@ -1046,6 +1086,16 @@ try {
 
     // Update the caches (pure copies — the refresh fan-out will reconcile
     // against PostgreSQL) so the UI reflects the reversal immediately.
+    // Non-DB demo mode still builds the ledger from the in-memory rows.
+    const reversalLedgerDemo: TransactionLog[] = getPgConnected()
+      ? []
+      : buildReversalLedgerWithStock(op, operationItems, {
+          reversalDateAD,
+          reversalDateBS,
+          products,
+          stockRows: inventoryStock,
+        });
+
     const { updatedOp, stockRows, damageRecords: cancelledRecords } = mirrorReversal(
       op,
       operationItems,
@@ -1066,7 +1116,7 @@ try {
     );
 
     setTransactionLogs([
-      ...reversalLedger.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
+      ...(reversalLedger.length > 0 ? reversalLedger : reversalLedgerDemo).filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
       ...transactionLogs,
     ]);
 

@@ -326,6 +326,24 @@ export function validateReversalAvailability(
 }
 
 /**
+ * Ledger row for a change to the damaged-quantity pool (PATCH /api/stock/:id
+ * with a damagedQty delta). Preserves the invariant quantityBefore +
+ * quantityChanged = quantityAfter *in the damaged pool*:
+ * - an increase in damaged units (qoh → damaged) is a negative change;
+ * - a decrease (repair / write-off out of the damaged pool) is positive.
+ * The `damDiff` sign already encodes the direction, so it is used verbatim;
+ * a no-op diff (damDiff === 0) records a 0/0 row instead of inventing a
+ * quantity. `poolBefore` and `poolAfter` are the damaged-pool sizes.
+ */
+export function buildDamagePoolLedgerChange(
+  poolBefore: number,
+  poolAfter: number
+): { quantityChanged: number } {
+  const damDiff = (poolAfter || 0) - (poolBefore || 0);
+  return { quantityChanged: damDiff };
+}
+
+/**
  * Pure builder for the DAMAGE_REVERSED ledger entries (one per item).
  * `unitCostFor` lets the caller supply the cost-resolution policy; server.ts
  * passes `item.unitCost ?? item.costPerUnit ?? op.costPerUnit || product.costPrice`.
@@ -358,6 +376,64 @@ export function buildReversalLedger(
       quantityBefore,
       quantityChanged: qty,
       quantityAfter: quantityBefore + qty,
+      unitCost,
+      referenceDocId: op.referenceNumber,
+      timestampAD: new Date(`${opts.reversalDateAD}T00:00:00.000Z`).toISOString(),
+      timestampBS: opts.reversalDateBS,
+    } as TransactionLog);
+  }
+  return ledger;
+}
+
+/**
+ * Reversal ledger with quantityBefore resolved from the rows the reversal
+ * transaction itself just updated (STOCK_REVERSE_DAMAGE_BATCH_SQL ...
+ * RETURNING product_id, quantity_on_hand). Because quantity_on_hand is read
+ * AFTER the restore, quantityBefore = restored − qty and quantityAfter = the
+ * returned value, preserving before + changed = after from authoritative
+ * PostgreSQL rows rather than a possibly-stale in-memory mirror.
+ *
+ * Items whose product row was not returned (should not happen — the caller
+ * already verified rowCount === deltas.length) fall back to the supplied
+ * mirror rows so demo/legacy shapes keep working.
+ */
+export function buildReversalLedgerFromRestoredRows(
+  op: any,
+  items: DamageItem[],
+  opts: {
+    reversalDateAD: string;
+    reversalDateBS: string;
+    products: readonly { id: string; sku?: string; name?: string; costPrice?: number }[];
+    restoredRows: readonly { productId: string; quantityOnHand: number }[];
+    fallbackStockRows: readonly Pick<InventoryStock, 'productId' | 'branchId' | 'quantityOnHand'>[];
+  }
+): TransactionLog[] {
+  const ledger: TransactionLog[] = [];
+  for (const item of items) {
+    const qty = Number(item.quantity) || 0;
+    if (qty <= 0) continue;
+    const product = opts.products.find((p) => p.id === item.productId);
+    const restoredRow = opts.restoredRows.find((r) => r.productId === item.productId);
+    const quantityAfter = restoredRow
+      ? restoredRow.quantityOnHand
+      : Number(
+          opts.fallbackStockRows.find(
+            (s) => s.productId === item.productId && s.branchId === op.branchId
+          )?.quantityOnHand
+        ) || 0;
+    const quantityBefore = restoredRow ? Math.max(0, quantityAfter - qty) : quantityAfter;
+    const unitCost = Number(item.unitCost ?? item.costPerUnit ?? op.costPerUnit) || product?.costPrice || 0;
+    ledger.push({
+      id: `txn-${op.id}-rev-${item.productId}`,
+      transactionNumber: `${op.referenceNumber}-REV`,
+      productId: item.productId,
+      productSku: item.sku || product?.sku || '',
+      productName: product?.name || item.productName || 'Product',
+      branchId: op.branchId,
+      changeType: 'DAMAGE_REVERSED',
+      quantityBefore,
+      quantityChanged: qty,
+      quantityAfter,
       unitCost,
       referenceDocId: op.referenceNumber,
       timestampAD: new Date(`${opts.reversalDateAD}T00:00:00.000Z`).toISOString(),

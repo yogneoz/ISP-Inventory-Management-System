@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
+import { computeBillTotals } from '../utils/money';
 import {
   buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
@@ -76,9 +77,14 @@ const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize,
 export async function post_purchaseOrders(req: any, res: Response): Promise<any> {
 try {
     const items = req.body.items || [];
-    const subtotalAmount = items.reduce((s: number, i: any) => s + (i.subtotal || (i.quantity * (i.unitPrice || 0))), 0);
-    const taxAmount = items.reduce((s: number, i: any) => s + (i.taxAmount || 0), 0);
-    const totalAmount = subtotalAmount + taxAmount;
+    // C1: PO totals are recomputed from line primitives (quantity × unitPrice,
+    // taxRate/isTaxExempt) — client-supplied subtotal/taxAmount per line and
+    // header totals are ignored. There is no PO-level discount input, so no
+    // discount is passed and per-line discounts are clamped to line gross.
+    const poTotals = computeBillTotals(items);
+    const subtotalAmount = poTotals.netSubtotal;
+    const taxAmount = poTotals.vatAmount;
+    const totalAmount = poTotals.grandTotal;
 
     const poBranchId = req.body.branchId || 'WH001';
     const poOrderDate = req.body.orderDateAD || req.body.orderDateAd || new Date().toISOString().split('T')[0];
@@ -87,12 +93,14 @@ try {
     const newPO = {
       id: req.body.id || `po-${Date.now()}`,
       poNumber,
+      ...req.body,
+      orderDateAd: poOrderDate,
+      orderDateBs: req.body.orderDateBS || req.body.orderDateBs,
+      // C1: recomputed totals are applied AFTER the body spread so a
+      // client-supplied subtotalAmount/taxAmount/totalAmount can never win.
       subtotalAmount,
       taxAmount,
       totalAmount,
-      orderDateAd: poOrderDate,
-      orderDateBs: req.body.orderDateBS || req.body.orderDateBs || '2083-04-10 BS',
-      ...req.body,
     };
 
     const idx = purchaseOrders.findIndex((p) => p.id === newPO.id);
@@ -294,6 +302,17 @@ try {
       ...req.body,
     };
     const items = req.body.items || req.body.lines || [];
+    // C1: the invoice's financial aggregates are recomputed from line
+    // primitives (quantity × unitPrice, per-line taxRate/isTaxExempt). A
+    // bill-level totalDiscount is a legitimate business input (like qty and
+    // price) and is kept, but clamped to [0, gross subtotal]. Client-supplied
+    // taxableAmount / vatAmount / nonTaxableAmount / grandTotal are ignored.
+    const piTotals = computeBillTotals(items, newInv.totalDiscount);
+    newInv.subtotalAmount = piTotals.netSubtotal;
+    newInv.taxableAmount = piTotals.taxableAmount;
+    newInv.nonTaxableAmount = piTotals.nonTaxableAmount;
+    newInv.vatAmount = piTotals.vatAmount;
+    newInv.grandTotal = piTotals.grandTotal;
     // Guard: the vendor bill date (stored as dueDateAD) can never be after the purchase date
     if (newInv.dueDateAD && newInv.invoiceDateAD && newInv.dueDateAD > newInv.invoiceDateAD) {
       res.status(400).json({ message: 'Vendor bill date cannot be after the purchase date.' });
@@ -355,10 +374,11 @@ try {
           branchId: targetBranchId,
         }, JSON.stringify(items)));
 
-        if (!invoiceAlreadyExists) for (const item of items) {
+        if (!invoiceAlreadyExists) for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+          const item = items[itemIdx];
           await client.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
 
-          await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId));
+          await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId, itemIdx));
         }
 
         const poRef = newInv.poReferenceId || req.body.poId;

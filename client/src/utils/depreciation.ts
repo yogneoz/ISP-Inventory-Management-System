@@ -25,6 +25,16 @@ const parseDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+/** Whole months elapsed between two dates, partial month truncated. */
+function monthsElapsedBetween(acquisitionDate: Date, asOfDate: Date): number {
+  return Math.max(
+    0,
+    (asOfDate.getFullYear() - acquisitionDate.getFullYear()) * 12 +
+      (asOfDate.getMonth() - acquisitionDate.getMonth()) +
+      (asOfDate.getDate() >= acquisitionDate.getDate() ? 0 : -1)
+  );
+}
+
 export function calculateFixedAssetValues(input: FixedAssetDepreciationInput) {
   const acquisitionCost = Math.max(toNumber(input.acquisitionCost), 0);
   const rate = Math.max(toNumber(input.depreciationRatePercent), 0);
@@ -35,31 +45,50 @@ export function calculateFixedAssetValues(input: FixedAssetDepreciationInput) {
 
   const method = input.depreciationMethod || 'STRAIGHT_LINE';
   const isReducingBalance = method !== 'STRAIGHT_LINE';
-  const monthsElapsed = Math.max(
-    0,
-    (asOfDate.getFullYear() - acquisitionDate.getFullYear()) * 12 +
-      (asOfDate.getMonth() - acquisitionDate.getMonth()) +
-      (asOfDate.getDate() >= acquisitionDate.getDate() ? 0 : -1)
-  );
+  const monthsElapsed = monthsElapsedBetween(acquisitionDate, asOfDate);
 
-  let annualDepreciation = 0;
-  let accumulatedDepreciation = storedAccumulated;
-
-  if (acquisitionCost > 0 && rate > 0) {
-    if (isReducingBalance) {
-      const elapsedYears = monthsElapsed / 12;
-      const multiplier = Math.pow(1 - rate / 100, elapsedYears);
-      accumulatedDepreciation = Math.max(acquisitionCost * (1 - multiplier), 0);
-      annualDepreciation = acquisitionCost * rate / 100;
-    } else {
-      accumulatedDepreciation = (acquisitionCost * rate * monthsElapsed) / (100 * 12);
-      annualDepreciation = (acquisitionCost * rate) / 100;
-    }
+  if (acquisitionCost <= 0 || rate <= 0) {
+    // No depreciable basis: keep stored values verbatim.
+    return {
+      acquisitionCost,
+      annualDepreciation: 0,
+      accumulatedDepreciation: storedAccumulated,
+      netBookValue: acquisitionCost > 0 ? Math.max(acquisitionCost - storedAccumulated, 0) : storedNetBookValue,
+    };
   }
 
-  const netBookValue = acquisitionCost > 0
-    ? Math.max(acquisitionCost - accumulatedDepreciation, 0)
-    : storedNetBookValue;
+  // Current-year charge = the value destroyed by the most recent completed
+  // YEAR of service: F(t) − F(t−12 months), where F is the accumulated-
+  // depreciation function. Computed identically for every method, so the
+  // annual column is honest for declining methods too (their charge shrinks
+  // every year) instead of reporting the constant first-year amount.
+  const annualDepreciation = isReducingBalance
+    ? Math.max(
+        0,
+        acquisitionCost * (1 - Math.pow(1 - rate / 100, Math.max(0, monthsElapsed) / 12)) -
+          acquisitionCost * (1 - Math.pow(1 - rate / 100, Math.max(0, monthsElapsed - 12) / 12))
+      )
+    : (acquisitionCost * rate) / 100;
+
+  let accumulatedDepreciation: number;
+  if (isReducingBalance) {
+    // Reducing-balance is a compounding formula on the acquisition cost: the
+    // formula value IS the accumulated depreciation at any point in time, so
+    // it is authoritative. A stored value that disagrees would imply an
+    // adjustment outside the method's own rules; the formula value wins so
+    // the register stays internally consistent (and the current-year charge
+    // above ties exactly to the accumulated figure).
+    const formulaAccumulated = Math.max(acquisitionCost * (1 - Math.pow(1 - rate / 100, monthsElapsed / 12)), 0);
+    accumulatedDepreciation = formulaAccumulated;
+  } else {
+    // Straight line accrues linearly by whole months from acquisition.
+    accumulatedDepreciation = (acquisitionCost * rate * monthsElapsed) / (100 * 12);
+  }
+
+  // Never exceed the cost (a fully depreciated asset holds at salvage 0).
+  accumulatedDepreciation = Math.min(Math.max(accumulatedDepreciation, 0), acquisitionCost);
+
+  const netBookValue = Math.max(acquisitionCost - accumulatedDepreciation, 0);
 
   return {
     acquisitionCost,

@@ -11,6 +11,7 @@ import {
   deriveDamageItems,
   validateReversalAvailability,
   buildReversalLedgerWithStock,
+  buildDamagePoolLedgerChange,
   mirrorReversal,
   type DamageItem,
   type DamageOperation,
@@ -444,5 +445,33 @@ describe('mirrorReversal', () => {
     const { stockRows: out } = mirrorReversal(op, [{ productId: 'p1', quantity: 2 }], { reason: 'r', reversedBy: 'A', reversalDateAD: 'D', reversalDateBS: 'BS' }, { stockRows: stockRows as any, damageRecords: [] });
     assert.equal(out.length, 1);
     assert.equal(out[0].quantityOnHand, 1);
+  });
+});
+
+describe('buildDamagePoolLedgerChange', () => {
+  it('records an increase in the damaged pool as a negative change', () => {
+    // 5 usable units moved to damaged: pool 2 → 5
+    assert.equal(buildDamagePoolLedgerChange(2, 5).quantityChanged, 3);
+  });
+
+  it('records a decrease in the damaged pool as a positive change', () => {
+    // repair / write-off: pool 5 → 3
+    assert.equal(buildDamagePoolLedgerChange(5, 3).quantityChanged, -2);
+  });
+
+  it('preserves before + changed = after for both directions', () => {
+    for (const [before, after] of [[0, 4], [4, 0], [3, 3], [7, 2], [2, 9]] as const) {
+      const { quantityChanged } = buildDamagePoolLedgerChange(before, after);
+      assert.equal(before + quantityChanged, after);
+    }
+  });
+
+  it('records a no-op as zero instead of inventing a quantity', () => {
+    assert.equal(buildDamagePoolLedgerChange(4, 4).quantityChanged, 0);
+  });
+
+  it('treats missing pool values as zero', () => {
+    assert.equal(buildDamagePoolLedgerChange(undefined as any, 3).quantityChanged, 3);
+    assert.equal(buildDamagePoolLedgerChange(3, undefined as any).quantityChanged, -3);
   });
 });

@@ -3,7 +3,6 @@ import express from 'express';
 export { NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, inMemoryBsCalendarYears, inMemoryBsDayRecords, setInMemoryBsCalendarYears, setInMemoryBsDayRecords, generateInMemoryBsDayRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, hydrateBsCalendarFromDb, buildBsDayRecordsForYear } from './config/bsCalendar';
 
 import type { SharedStateAccessors } from './sharedState';
-import { VendorOpeningBalanceRow } from './sharedState';
 import { registerSyncRoutes } from './routes/sync.routes';
 import { registerPermissionsRoutes } from './routes/permissions.routes';
 import { registerBootstrapRoutes } from './routes/bootstrap.routes';
@@ -208,7 +207,6 @@ export function setApprovalRequests(value: readonly ApprovalRequest[]): void { a
 export function setDamageRecords(value: readonly DamageRecord[]): void { damageRecords = value; }
 export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
 export function setVendorPayments(value: readonly VendorPayment[]): void { vendorPayments = value; }
-export function setVendorOpeningBalances(value: readonly VendorOpeningBalanceRow[]): void { vendorOpeningBalances = value; }
 export function setDocNumberConfigs(value: DocumentNumberConfig[]): void { docNumberConfigs = value; }
 export function setPermissionMatrix(value: Record<string, Record<string, boolean>>): void { permissionMatrix = value; }
 export function setCompanyProfile(value: CompanyProfile): void { companyProfile = value; }
@@ -243,7 +241,6 @@ const sharedStateAccessors: SharedStateAccessors = {
   setDamageRecords,
   setSerialLogs,
   setVendorPayments,
-  setVendorOpeningBalances,
   setDocNumberConfigs,
   setPermissionMatrix,
   setCompanyProfile,
@@ -276,11 +273,10 @@ export let shipments: readonly Shipment[] = [];
 export let stockOperations: readonly StockOperation[] = [];
 export let auditTrail: readonly AuditLog[] = [];
 export let transactionLogs: readonly TransactionLog[] = [];
+export let vendorPayments: readonly VendorPayment[] = [];
 export let approvalRequests: readonly ApprovalRequest[] = [];
 export let damageRecords: readonly DamageRecord[] = [];
 export let serialLogs: readonly SerialLog[] = [];
-export let vendorPayments: readonly VendorPayment[] = [];
-export let vendorOpeningBalances: readonly VendorOpeningBalanceRow[] = [];
 
 // Standard Transaction ID Generator
 // Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
@@ -478,29 +474,50 @@ export async function issueNextDocNumber(
 // (same sequences shown in Fiscal Year Management > Document Numbering
 // Initial Setup). Falls back to the legacy branch-based generator only when
 // the requested doc type has not been configured yet.
-export function generateNextDocNumberForServer(docTypeId: string): string {
+//
+// C2 (race-safe): the sequence claim is a single atomic
+//   UPDATE ... SET next_number = next_number + 1 RETURNING next_number
+// on document_number_configs — two concurrent callers can never observe the
+// same number, and the DB counter is the authority. The returned number is
+// the value the caller consumed, so it is NOT double-incremented in the
+// in-memory mirror. When PostgreSQL is unreachable the function falls back to
+// generateStandardTransactionId (timestamp-based, collision-free enough for
+// the offline/demo mode) instead of the old racy in-memory counter whose
+// persistence was a fire-and-forget write of a computed value.
+export async function generateNextDocNumberForServer(docTypeId: string): Promise<string> {
+  if (isPgConnected) {
+    try {
+      const claimed = await pgPool.query(
+        `UPDATE document_number_configs SET
+           next_number = document_number_configs.next_number + 1,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING next_number, prefix, suffix, min_digits;`,
+        [docTypeId]
+      );
+      const row = claimed.rows[0];
+      if (row) {
+        const issuedSeq = Number(row.next_number) - 1; // the number THIS caller consumes
+        const paddedNum = String(issuedSeq).padStart(Number(row.min_digits) || 4, '0');
+        // Sync the in-memory mirror to the authoritative DB counter so the
+        // admin UI shows the true next number even after concurrent claims.
+        const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
+        if (idx !== -1) docNumberConfigs[idx].nextNumber = Number(row.next_number);
+        return `${row.prefix || ''}${paddedNum}${row.suffix || ''}`;
+      }
+      // No row updated: doc type not configured in the DB — fall through.
+    } catch (e: any) {
+      console.warn('generateNextDocNumberForServer atomic claim failed:', docTypeId, e?.message || e);
+    }
+  }
+
   const config = docNumberConfigs.find((c) => c.id === docTypeId);
   if (!config) {
     return generateStandardTransactionId('WH001', docTypeId);
   }
-  const seqNum = config.nextNumber;
-  const paddedNum = String(seqNum).padStart(config.minDigits || 4, '0');
-  const docNum = `${config.prefix || ''}${paddedNum}${config.suffix || ''}`;
-
-  // Increment the in-memory sequence and persist to PostgreSQL best-effort
-  // (async) so concurrent requests still see a monotonically increasing number.
-  const idx = docNumberConfigs.findIndex((c) => c.id === docTypeId);
-  if (idx !== -1) docNumberConfigs[idx].nextNumber = seqNum + 1;
-  if (isPgConnected) {
-    pgPool
-      .query(
-        `UPDATE document_number_configs SET next_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`,
-        [seqNum + 1, docTypeId]
-      )
-      .catch((e: any) => console.error('document_number_configs increment failed:', docTypeId, e?.message || e));
-  }
-
-  return docNum;
+  // Offline/demo mode: legacy branch-based id (timestamp-backed), NOT the
+  // racy in-memory counter path that previously allowed duplicates.
+  return generateStandardTransactionId('WH001', docTypeId);
 }
 
 
@@ -2549,13 +2566,7 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
         }));
   },
   },
-  {
-    name: 'vendor_opening_balances',
-    query: 'SELECT id, fiscal_year_id AS "fiscalYearId", supplier_id AS "supplierId", branch_id AS "branchId", opening_balance::float AS "openingBalance", source_type AS "sourceType", source_reference AS "sourceReference", posted_at::text AS "postedAt", posted_by AS "postedBy" FROM vendor_opening_balances',
-    apply: (rows) => { vendorOpeningBalances = rows; },
-  },
 ];
-
 // Boot-time hydration runs the same CACHE_LOADS list on the startup client.
 export async function hydrateOperationalData(client: pg.PoolClient) {
   for (const load of CACHE_LOADS) {
@@ -2570,7 +2581,7 @@ export async function hydrateOperationalData(client: pg.PoolClient) {
     `✅ Operational caches hydrated from PostgreSQL: ` +
     `${products.length} products, ${inventoryStock.length} stock rows, ${purchaseOrders.length} POs, ` +
     `${purchaseInvoices.length} invoices, ${shipments.length} shipments, ${stockOperations.length} stock ops, ` +
-    `${vendorPayments.length} vendor payments, ${vendorOpeningBalances.length} vendor opening balances.`
+    `${vendorPayments.length} vendor payments.`
   );
 }
 
