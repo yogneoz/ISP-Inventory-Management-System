@@ -231,6 +231,56 @@ export function damageAuditShortageParams(rec: {
 export const DAMAGE_RECORD_CANCEL_SQL = `UPDATE damage_records SET status = 'CANCELLED', notes = COALESCE(notes, '') || ' | REVERSED (' || $3 || ') by ' || $4 WHERE (damage_reference = $1 OR id = $2) AND status <> 'CANCELLED';`;
 
 // ---------------------------------------------------------------------------
+// C3: row-level locking for stock write pre-flight checks
+//
+// The in-memory mirror pre-flight checks ("is there enough stock?") race
+// against concurrent transactions: two requests can both pass the check
+// against stale mirror data and then compete on the DB UPDATE. The guarded
+// UPDATEs (… WHERE quantity_on_hand >= qty) fail one of them AFTER work has
+// already been done. Locking the rows with SELECT … FOR UPDATE inside the
+// transaction serializes writers per (product, branch) row: the FIRST
+// transaction to lock re-verifies availability from the database and the
+// second waits, then re-verifies against post-first-writer truth — so the
+// rejection (or success) always reflects current DB state, not a snapshot.
+// ---------------------------------------------------------------------------
+
+/**
+ * Locks the inventory_stock rows for (product, branch) pairs with
+ * SELECT … FOR UPDATE. MUST run inside the caller's transaction so the locks
+ * are held until commit/rollback. Deduplicates repeated products; ordering by
+ * product_id keeps the lock acquisition order deterministic, which prevents
+ * deadlocks between two transactions locking the same pair of rows in
+ * different orders.
+ */
+export const STOCK_LOCK_FOR_UPDATE_SQL = `
+  WITH targets(productId, branchId) AS (
+    SELECT * FROM unnest($1::text[], $2::text[])
+  )
+  SELECT s.product_id, s.branch_id, s.quantity_on_hand, s.damaged_qty, s.reserved_qty
+  FROM inventory_stock s
+  JOIN targets t ON t.productId = s.product_id AND t.branchId = s.branch_id
+  ORDER BY s.product_id
+  FOR UPDATE`;
+
+/** Params for STOCK_LOCK_FOR_UPDATE_SQL from a (possibly duplicated) item list. */
+export function stockLockForUpdateParams(items: Array<{ productId: string }>, branchId: string): unknown[] {
+  const uniqueProductIds = Array.from(new Set(items.map((i) => i.productId).filter(Boolean)));
+  return [uniqueProductIds, uniqueProductIds.map(() => branchId)];
+}
+
+/**
+ * Re-verification failure detail: the DB-truth availability for a locked row.
+ * Thrown as a plain Error by the controllers with a user-facing message.
+ */
+export interface LockedStockRow {
+  product_id: string;
+  branch_id: string;
+  quantity_on_hand: number | string;
+  damaged_qty: number | string;
+  reserved_qty: number | string;
+}
+
+// ---------------------------------------------------------------------------
 // Batched reversal helpers
 //
 // The damage and consumable-issue reversal flows previously executed one

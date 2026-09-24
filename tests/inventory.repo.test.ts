@@ -22,6 +22,8 @@ import {
   DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
   damageAuditShortageParams,
   DAMAGE_RECORD_CANCEL_SQL,
+  STOCK_LOCK_FOR_UPDATE_SQL,
+  stockLockForUpdateParams,
   buildAssetListQuery,
   ASSET_UPSERT_SQL,
   assetUpsertParams,
@@ -518,5 +520,36 @@ describe('batched reversal builders', () => {
     assert.equal(flattened.length, 28);
     assert.equal(flattened[0], 't1');
     assert.equal(flattened[14], 't1');
+  });
+});
+
+describe('C3 stock row locking (mirror step 4)', () => {
+  test('STOCK_LOCK_FOR_UPDATE_SQL is a SELECT … FOR UPDATE over unnest product/branch pairs', () => {
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /SELECT s\.product_id/);
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /FROM inventory_stock s/);
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /JOIN targets t ON t\.productId = s\.product_id AND t\.branchId = s\.branch_id/);
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /unnest\(\$1::text\[\], \$2::text\[\]\)/);
+    // Row-level lock is the whole point of C3
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /FOR UPDATE/);
+    // Deterministic acquisition order prevents deadlocks
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /ORDER BY s\.product_id/);
+    // Returns the truth the re-verification needs
+    assert.match(STOCK_LOCK_FOR_UPDATE_SQL, /quantity_on_hand, s\.damaged_qty, s\.reserved_qty/);
+  });
+
+  test('stockLockForUpdateParams deduplicates products and broadcasts the branch', () => {
+    const params = stockLockForUpdateParams(
+      [{ productId: 'p1' }, { productId: 'p2' }, { productId: 'p1' }] as Array<{ productId: string }>,
+      'WH001'
+    );
+    assert.deepEqual(params, [['p1', 'p2'], ['WH001', 'WH001']]);
+  });
+
+  test('stockLockForUpdateParams filters empty product ids', () => {
+    const params = stockLockForUpdateParams(
+      [{ productId: 'p1' }, { productId: '' }, { productId: undefined }] as any,
+      'BR9'
+    );
+    assert.deepEqual(params, [['p1'], ['BR9']]);
   });
 });

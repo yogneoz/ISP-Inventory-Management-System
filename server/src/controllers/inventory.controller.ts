@@ -30,6 +30,9 @@ import {
   txnInsertOnConflictParams,
   STOCK_REVERSE_DAMAGE_BATCH_SQL,
   stockReverseDamageBatchParams,
+  STOCK_LOCK_FOR_UPDATE_SQL,
+  stockLockForUpdateParams,
+  LockedStockRow,
   STOCK_RETURN_QOH_BATCH_SQL,
   stockReturnQohBatchParams,
   DAMAGE_RECORD_CANCEL_BATCH_SQL,
@@ -863,6 +866,32 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
+        // C3 (mirror step 4): lock the affected inventory_stock rows and
+        // re-verify availability from DATABASE truth before writing. The
+        // mirror pre-flight above can race concurrent writers; from here on
+        // the locked rows cannot change until commit. Serializing on
+        // product_id keeps the lock order deterministic (no deadlocks).
+        if (stockConsumingType) {
+          const locked = await client.query(
+            STOCK_LOCK_FOR_UPDATE_SQL,
+            stockLockForUpdateParams(operationItems as Array<{ productId: string }>, newOp.branchId)
+          );
+          const lockedMap = new Map<string, LockedStockRow>(
+            (locked.rows || []).map((r: LockedStockRow) => [r.product_id, r])
+          );
+          for (const item of operationItems) {
+            const row = lockedMap.get(item.productId);
+            const quantity = Number(item.quantity) || 0;
+            if (item.condition === 'DAMAGED_STOCK') {
+              if (!row || Number(row.damaged_qty) < quantity) {
+                throw new Error(`Insufficient damaged stock in the database for ${item.productName || item.productId}. Available: ${row ? Number(row.damaged_qty) : 0}, requested: ${quantity}. Please retry.`);
+              }
+            } else if (!row || Number(row.quantity_on_hand) < quantity) {
+              throw new Error(`Insufficient inventory in the database for ${item.productName || item.productId}. Available: ${row ? Number(row.quantity_on_hand) : 0}, requested: ${quantity}. Please retry.`);
+            }
+          }
+        }
+
         await client.query(
           STOCK_OPERATION_INSERT_SQL,
           stockOperationInsertParams(newOp, opType, totalValue, JSON.stringify(items))
@@ -1020,6 +1049,22 @@ try {
           .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
         let returnedRows: Array<{ product_id: string; quantity_on_hand: number | string }> = [];
         if (stockDeltas.length > 0) {
+          // C3 (mirror step 4): lock the damaged-stock rows and re-verify
+          // from DB truth before restoring — the mirror pre-flight above can
+          // race a concurrent reversal of the same damage batch.
+          const lockedRev = await client.query(
+            STOCK_LOCK_FOR_UPDATE_SQL,
+            stockLockForUpdateParams(stockDeltas, op.branchId)
+          );
+          const lockedRevMap = new Map<string, LockedStockRow>(
+            (lockedRev.rows || []).map((r: LockedStockRow) => [r.product_id, r])
+          );
+          for (const delta of stockDeltas) {
+            const row = lockedRevMap.get(delta.productId);
+            if (!row || Number(row.damaged_qty) < delta.quantity) {
+              throw new Error(`Damaged stock changed before reversal could complete for product ${delta.productId}. Available damaged: ${row ? Number(row.damaged_qty) : 0}, needed: ${delta.quantity}.`);
+            }
+          }
           const result = await client.query(
             STOCK_REVERSE_DAMAGE_BATCH_SQL,
             stockReverseDamageBatchParams(stockDeltas, op.branchId)

@@ -40,6 +40,30 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
 
+### Arc 6 — C3: row-level locking for stock writes (mirror step 4, DONE)
+`inventory.repo.ts` gained `STOCK_LOCK_FOR_UPDATE_SQL` + `stockLockForUpdateParams`:
+set-based `SELECT s.product_id, … quantity_on_hand, damaged_qty, reserved_qty FROM
+inventory_stock s JOIN unnest(…) targets … ORDER BY s.product_id FOR UPDATE`. Products
+deduplicated; ORDER BY gives deterministic lock acquisition (no deadlocks). MUST run
+inside the caller's transaction (locks held to commit).
+
+Wired as lock-and-re-verify inside the PG transactions:
+- `post_stockOperations`: FIRST statement in the tx for consuming ops (DAMAGE / PULLOUT /
+  STOCK_OUT / CONSUMABLE_ISSUE) — locks every (product, branch) row, re-verifies
+  qoh (or damaged_qty for `condition === 'DAMAGED_STOCK'` pullouts) from the returned
+  DB rows, throws a retry-able "Insufficient … in the database" error if short. The
+  mirror pre-flight stays as a fast user-facing check; the tx now guarantees the
+  verdict. The guarded UPDATEs (… >= qty) remain as a belt-and-braces backstop.
+- `post_reverse`: locks the damaged rows right before STOCK_REVERSE_DAMAGE_BATCH_SQL
+  and re-verifies damaged_qty per delta from DB truth (mirror pre-flight
+  `validateReversalAvailability` can race a concurrent reversal of the same batch).
+  The batched restore's `rowCount !== deltas.length` guard stays as backstop.
+- Outcome: concurrent writers now serialize per stock row and the accept/reject
+  decision always reflects committed DB state, not a mirror snapshot. All decisions
+  still happen inside the existing withTransaction scopes — no new transaction
+  boundaries, no extra round-trips beyond one set-based SELECT.
+- Tests: +3 (lock SQL shape, dedup/broadcast params, empty-id filtering) → 367/367.
+
 ### Arc 5 — C4 extended to ALL remaining hardcoded BS dates (DONE)
 The four follow-up sites plus, opportunistically, every other literal in the server:
 - `logAuditEvent` (app.ts) is SYNC and called from ~30 places, so it now uses the new
@@ -131,9 +155,11 @@ Full audit found 13 verified-correct calc paths, 5 bugs, 4 caveats (C1–C4). Al
   13 new tests in `tests/depreciation.test.ts`.
 - Tests: +18 (damage-pool ledger, PI id uniqueness, depreciation) → 340/340.
 
-**Remaining caveats (C1–C4 all DONE; only C3 partially mitigated, queued with mirror step 4):**
-- C3: mirror-based stock pre-flight races — partially mitigated (ledger fixed in B1);
-  full fix is mirror step 4 (`SELECT … FOR UPDATE`).
+**Remaining caveats: NONE.** C1–C4 all DONE (C1 server-side recompute + E2E-verified;
+C2 atomic doc-number claim; C3 row-level locking, this arc; C4 bs_day_records-derived
+BS dates everywhere). Residual known-limitations noted elsewhere: post_generateNext
+read-then-increment pattern in admin.controller; BS display fallbacks that cannot see
+unseeded calendar days use BS_DATE_FALLBACK.
 
 ### Also from the audit — prioritized backlog (beyond the mirror roadmap)
 1. Rate limiting: NONE exists; env vars documented but unimplemented (login brute-forceable).
