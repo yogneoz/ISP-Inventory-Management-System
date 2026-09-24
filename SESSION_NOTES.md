@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-24 · Branch: main · Tests: 376/376 green (2 are real-PG integration, auto-skip without a DB)_
+_Date: 2026-09-24 · Branch: main · Tests: 380/380 green (6 are real-PG integration, auto-skip without a DB)_
 
 ## ⭐ NEWEST: full-project audit + calculation fixes (this session, uncommitted)
 
@@ -39,6 +39,21 @@ Wired into three write endpoints; client-supplied aggregates are now ignored:
 - Already-clean paths verified and left alone: computeTradingFromOps (read-path),
   post_reconcileAudit netFinancialImpact, buildDamageRecordInsert.
 - 18 new tests in `tests/money.test.ts` → 358/358.
+
+### Arc 10 — real-PG concurrency proof for C3 stock locking (DONE)
+`tests/stock.concurrency.test.ts`: replays the EXACT C3 transaction body of
+post_stockOperations (BEGIN → STOCK_LOCK_FOR_UPDATE_SQL → re-verify from locked rows →
+STOCK_CONSUME_QOH_SQL / STOCK_DAMAGE_APPLY_SQL → COMMIT) against a live PostgreSQL on a
+throwaway DB (inventory_stock_concurrency_test; app DB untouched; drops in teardown;
+skips without a DB). Four proofs: (1) two parallel stock-outs of the LAST unit →
+EXACTLY one 'posted', one 'rejected', final qoh 0; (2) the loser is rejected at the
+re-verify step after the winner commits and leaves NO partial state; (3) same for a
+parallel DAMAGE race — exactly one unit moves usable→damaged (final qoh 0, damaged 1);
+(4) plentiful stock: parallel postings BOTH succeed (locks serialize but never block
+legitimate work), final qoh exact. Debug note: test 3 initially failed with
+['rejected','rejected'] — test-order state leakage (test 2 had consumed the contested
+unit), fixed by resetting the row in the test itself; the lock pattern was never at
+fault. +4 tests → 380/380.
 
 ### Arc 9 — real-PG concurrency proof for the doc-number claim (DONE)
 `tests/docnumber.concurrency.test.ts`: integration test against a LIVE PostgreSQL
