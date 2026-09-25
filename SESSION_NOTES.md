@@ -1,8 +1,58 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-25 · Branch: main · Tests: 401/401 green (8 are real-PG integration — 2 drift-guard + 6 concurrency — auto-skip without a DB)_
+_Date: 2026-09-26 · Branch: main · Tests: 419/419 green with a DB (12 skip without one — DB-dependent integration tests follow the skip convention)_
 
-## ⭐ NEWEST: Arc 13 — schema.sql drift fix + drift guard (DONE, pushed `bc5817c`, CI #32 green)
+## ⭐ NEWEST: Arc 14 — SSE auth + helmet + JSON_BODY_LIMIT (backlog #2 CLOSED, pushed `ab0e130`, CI #36 green)
+
+The whole chain was shipped across commits `2547c35` (feature), `d1d0d3f` + `ab0e130`
+(CI fixes), landing run **#36: success**.
+
+What closed backlog #2:
+- **SSE auth** (`server/src/middleware/sseAuth.ts`): `/api/sync/stream` AND `/api/sync/version`
+  were in app.ts's publicRoutes bypass — free live change feed for anyone. Now `requireSseAuth`
+  accepts the standard HMAC token via `Authorization: Bearer` OR `?token=` query param
+  (EventSource cannot send headers — the client `client/src/services/api/sync.ts` appends the
+  token from localStorage `inventory_auth_token`). 401 BEFORE any SSE handshake (no stream
+  headers, no sseClients entry, no keep-alive timer). Token-in-URL tradeoff accepted for the
+  trusted-LAN single-server deployment; same 8h credential as every other request.
+- **helmet 8.3.0** app-wide in createApp(): CSP, nosniff, X-Frame-Options, COOP/CORP.
+  **HSTS disabled + CSP `upgrade-insecure-requests` removed** — DELIBERATE, the app serves
+  plain HTTP on the company LAN; HSTS on http:// is ignored/misleading. Re-enable when a
+  TLS proxy is added.
+- **JSON_BODY_LIMIT enforced** in `express.json({ limit })` (default 1mb; .env.example's
+  documented value now actually works). Found via tests: body-parser's 413 was masked as 500
+  by errorHandler — fixed by passing through 4xx `status`/`statusCode` on non-ApiError errors.
+- **SSE connection cap** (`server/src/middleware/sseRateLimit.ts`): per-IP CONCURRENT streams
+  (default 6) via attempt-on-connect + **revoke-on-close** (res 'close'/'finish') — the window
+  only ever holds open streams, so it behaves like a true concurrency cap, not a request-rate
+  cap (a rate cap would lock out long-lived legitimate sessions). 429+Retry-After; env
+  `SSE_MAX_CONNECTIONS_PER_IP` / `SSE_RATE_LIMIT_DISABLED` (documented in .env.example).
+  Wired: `/sync/stream` runs `sseConnectionLimit → requireSseAuth` (cap checked before HMAC),
+  other `/sync/*` just requireSseAuth.
+- **19 new HTTP-layer integration tests** on real Express apps on ephemeral ports
+  (`tests/sseAuth.guard.test.ts`, `tests/httpHardening.test.ts`, `tests/sseRateLimit.test.ts`)
+  — the repo's first tests that exercise the actual middleware chain, not fake req/res.
+
+### ⚠️ CI lesson from runs #34/#35 (READ BEFORE ADDING POSITIVE-PATH HTTP TESTS)
+
+Requests admitted by the auth/body gates flow through `requirePostgres`, which returns **503
+in CI (no PostgreSQL service)**. Any integration test asserting a 200 through the full chain
+MUST be `{ skip: !dbReachable && '…' }` where `dbReachable` is a top-of-file `SELECT 1` probe
+(see the three test files above for the exact pattern). Rejection paths (401/429/413) run
+BEFORE the DB gate and execute in CI — keep those unskipped so CI still guards them.
+Verification trick: `mv .env .env.bak && npm test && mv .env.bak .env` reproduces CI locally
+(GitHub job logs 403 for unauthenticated curl, so you cannot read them remotely). Local no-DB
+result: 407 pass / 12 skipped / 0 fail.
+
+Backlog after this arc:
+3. xlsx 0.18.5 unfixable high advisory (client-side parsing) — evaluate exceljs. ← NEXT
+4. Numeric env-var guard helper (PORT=0 trap class).
+5. Integration tests for auth/branch-scoping middleware — PARTIALLY covered now: the SSE
+   hardening tests exercise requireAuth/requireSseAuth via HTTP; login + branch-scoping
+   still untested at HTTP layer.
+7. CI never runs vite build / npm audit; no ESLint.
+
+## Arc 13 — schema.sql drift fix + drift guard (DONE, pushed `bc5817c`, CI #32 green)
 
 The user confirmed the live database has **30 tables**. A column-level diff of
 `information_schema.columns` against `scripts/schema.sql` found exactly ONE gap:
@@ -331,8 +381,10 @@ unseeded calendar days use BS_DATE_FALLBACK.
 
 ### Also from the audit — prioritized backlog (beyond the mirror roadmap)
 1. ~~Rate limiting: NONE exists; env vars documented but unimplemented (login brute-forceable).~~ DONE (Arc 11).
-2. SSE endpoint `/api/sync/stream` has NO requireAuth; no helmet/security headers;
-   JSON_BODY_LIMIT documented but express.json() at default.
+2. ~~SSE endpoint `/api/sync/stream` has NO requireAuth; no helmet/security headers;
+   JSON_BODY_LIMIT documented but express.json() at default.~~ DONE (Arc 14: SSE auth via
+   header-or-query HMAC token, helmet with LAN-safe config, JSON_BODY_LIMIT enforced with 413
+   passthrough, per-IP concurrent-stream cap).
 3. xlsx 0.18.5 unfixable high advisory (client-side parsing) — evaluate exceljs.
 4. Numeric env-var guard helper (PORT=0 trap class) — do before rate limiting.
 5. Integration tests for auth/branch-scoping middleware (zero HTTP-layer tests today).
