@@ -21,6 +21,22 @@ import express from 'express';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { getSseLimiter } from '../server/src/middleware/sseRateLimit';
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// The positive-path test runs the full pipeline including requirePostgres,
+// which 503s without a reachable database — skip in DB-less environments.
+let dbReachable = false;
+try {
+  if (process.env.DATABASE_URL) {
+    const probe = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 2000 });
+    await probe.query('SELECT 1');
+    dbReachable = true;
+    await probe.end();
+  }
+} catch { dbReachable = false; }
 
 const TEST_USER = {
   id: 'u-sse-cap-1',
@@ -71,7 +87,7 @@ async function openStream(port: number, token: string): Promise<{ status: number
 }
 
 describe('SSE per-IP concurrent connection cap (real Express app)', () => {
-  test('up to the cap: streams are admitted; one more: 429 even with a valid token', async () => {
+  test('up to the cap: streams are admitted; one more: 429 even with a valid token', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     const { limiter, maxStreams } = getSseLimiter();
     assert.ok(maxStreams >= 2, 'test needs a cap >= 2');
     const app = makeApp();

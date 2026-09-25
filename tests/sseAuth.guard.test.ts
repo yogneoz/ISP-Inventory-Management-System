@@ -24,6 +24,23 @@ import express from 'express';
 import { requireSseAuth } from '../server/src/middleware/sseAuth';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { createApp, registerAllRoutes } from '../server/src/app';
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Positive-path requests flow through requirePostgres, which 503s without a
+// reachable database — the same skip-without-DB convention as the
+// concurrency/drift-guard integration tests keeps CI green.
+let dbReachable = false;
+try {
+  if (process.env.DATABASE_URL) {
+    const probe = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 2000 });
+    await probe.query('SELECT 1');
+    dbReachable = true;
+    await probe.end();
+  }
+} catch { dbReachable = false; }
 
 const TEST_USER = {
   id: 'u-sse-1',
@@ -144,7 +161,7 @@ describe('sync routes behind real Express app (integration, no DB needed)', () =
     }
   });
 
-  test('GET /api/sync/version with a valid ?token=: 200 JSON', async () => {
+  test('GET /api/sync/version with a valid ?token=: 200 JSON', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     const app = createApp();
     registerAllRoutes(app);
     const { port, close } = await startServer(app);
@@ -159,7 +176,7 @@ describe('sync routes behind real Express app (integration, no DB needed)', () =
     }
   });
 
-  test('GET /api/sync/stream with a valid Bearer header: SSE handshake begins (200, text/event-stream, CONNECTED event)', async () => {
+  test('GET /api/sync/stream with a valid Bearer header: SSE handshake begins (200, text/event-stream, CONNECTED event)', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     const app = createApp();
     registerAllRoutes(app);
     const { port, close } = await startServer(app);

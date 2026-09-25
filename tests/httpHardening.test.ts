@@ -19,6 +19,24 @@ import express from 'express';
 
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Requests that pass body parsing flow through requirePostgres, which 503s
+// without a reachable database — skip those in DB-less environments (CI).
+// The 413 rejection happens in express.json BEFORE the DB gate, so it runs
+// everywhere and guards the limit even in CI.
+let dbReachable = false;
+try {
+  if (process.env.DATABASE_URL) {
+    const probe = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 2000 });
+    await probe.query('SELECT 1');
+    dbReachable = true;
+    await probe.end();
+  }
+} catch { dbReachable = false; }
 
 const TEST_USER = {
   id: 'u-hard-1',
@@ -106,7 +124,7 @@ describe('JSON body limit (JSON_BODY_LIMIT env var)', () => {
     }
   });
 
-  test('JSON_BODY_LIMIT=25mb: the same oversized payload is accepted', async () => {
+  test('JSON_BODY_LIMIT=25mb: the same oversized payload is accepted', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     process.env.JSON_BODY_LIMIT = '25mb';
     try {
       const app = makeApp();
@@ -130,7 +148,7 @@ describe('JSON body limit (JSON_BODY_LIMIT env var)', () => {
     }
   });
 
-  test('normal-sized payloads still work under the default limit', async () => {
+  test('normal-sized payloads still work under the default limit', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     delete process.env.JSON_BODY_LIMIT;
     const app = makeApp();
     const { port, close } = await startServer(app);
