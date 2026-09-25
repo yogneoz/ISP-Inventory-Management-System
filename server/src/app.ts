@@ -25,6 +25,7 @@
  *   - vendor-payments SQL:     ./models/procurement.repo
  */
 import express from 'express';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -56,6 +57,8 @@ import { ApiError } from './errors/ApiError';
 import { VENDOR_PAYMENT_SELECT } from './models/procurement.repo';
 
 import { registerSyncRoutes } from './routes/sync.routes';
+import { requireSseAuth } from './middleware/sseAuth';
+import { sseConnectionLimit } from './middleware/sseRateLimit';
 import { registerPermissionsRoutes } from './routes/permissions.routes';
 import { registerBootstrapRoutes } from './routes/bootstrap.routes';
 import { registerMiscRoutes } from './routes/misc.routes';
@@ -189,7 +192,30 @@ export { sharedStateAccessors };
 // ---------------------------------------------------------------------------
 export function createApp(): express.Express {
   const app = express();
-  app.use(express.json());
+
+  // Security headers (audit backlog #2). Helmet's defaults set CSP,
+  // X-Content-Type-Options, X-Frame-Options, etc. CSP's default-src 'self'
+  // is safe for the JSON API surface; the Vite-built client is served
+  // separately (or via a reverse proxy). HSTS is DISABLED because this app
+  // serves plain HTTP on the company's own LAN server — an HSTS header on an
+  // http:// response is ignored by browsers and misleading; when TLS is
+  // introduced (e.g. a reverse proxy), re-enable hsts or add the header at
+  // the proxy.
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'upgrade-insecure-requests': null, // allow plain-HTTP on the LAN
+      },
+    },
+    strictTransportSecurity: false,
+  }));
+
+  // JSON body limit (audit backlog #2): honor JSON_BODY_LIMIT when set
+  // (e.g. '25mb' for large PO/invoice item payloads), default 1mb —
+  // express's default — otherwise. Rejects oversized bodies with 413.
+  const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '1mb';
+  app.use(express.json({ limit: jsonBodyLimit }));
 
   // Health & Control Plane Endpoints FIRST before any other routes or middleware
   app.get('/api/health', (req, res) => {
@@ -207,10 +233,17 @@ export function createApp(): express.Express {
       '/auth/login',
       '/db/status',
       '/health',
-      '/sync/stream',
-      '/sync/version',
     ]);
     if (publicRoutes.has(req.path)) return next();
+    // The sync routes are NOT public (audit backlog #2): they carry their own
+    // SSE-capable auth that also accepts the token as a query parameter, since
+    // EventSource cannot send headers. The stream additionally gets a
+    // per-IP concurrent-connection cap (each open stream holds a socket, an
+    // sseClients entry and a keep-alive timer).
+    if (req.path === '/sync/stream') {
+      return sseConnectionLimit(req, res, () => requireSseAuth(req, res, next));
+    }
+    if (req.path.startsWith('/sync/')) return requireSseAuth(req, res, next);
     return requireAuth(req, res, next);
   });
   app.use('/api', requirePostgres);

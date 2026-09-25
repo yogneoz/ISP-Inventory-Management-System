@@ -2,7 +2,13 @@ import { API_BASE } from './http';
 
 // Real-Time Event Stream Subscription Helper
 export function subscribeToSyncStream(onEvent: (data: any) => void): () => void {
-  const streamUrl = `${API_BASE}/api/sync/stream`;
+  // The stream endpoint requires auth (audit backlog #2). Native EventSource
+  // cannot send an Authorization header, so the token travels as a query
+  // parameter — the server's SSE auth middleware accepts either transport.
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('inventory_auth_token') : null;
+  const streamUrl = token
+    ? `${API_BASE}/api/sync/stream?token=${encodeURIComponent(token)}`
+    : `${API_BASE}/api/sync/stream`;
   let eventSource: EventSource | null = null;
   let retryTimeout: any = null;
 
