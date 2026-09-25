@@ -26,8 +26,11 @@
  */
 import type { Request, Response, NextFunction } from 'express';
 import { RateLimiter, buildRateLimitKey } from '../utils/rateLimiter';
+import { intFromEnv } from '../utils/envGuard';
 
-const MAX_STREAMS_PER_IP = Math.max(1, Number(process.env.SSE_MAX_CONNECTIONS_PER_IP) || 6);
+// Strict env parsing (backlog #4): garbage values warn and fall back instead
+// of becoming NaN or 0 (which would either disable the cap or block everyone).
+const MAX_STREAMS_PER_IP = intFromEnv('SSE_MAX_CONNECTIONS_PER_IP', 6, { min: 1, max: 1000 });
 const DISABLED = process.env.SSE_RATE_LIMIT_DISABLED === '1' || process.env.SSE_RATE_LIMIT_DISABLED === 'true';
 
 // Long window: slots are revoked on close, so the window never needs to

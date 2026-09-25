@@ -26,6 +26,7 @@
  */
 import express from 'express';
 import helmet from 'helmet';
+import { intFromEnv, sizeFromEnv } from './utils/envGuard';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -129,9 +130,9 @@ export {
 // PORT must be a positive integer. A bare `|| '3000'` fallback is not
 // enough: ambient environments can export PORT=0 (or empty/garbage), which
 // parseInt happily accepts and app.listen(0) then binds an ephemeral port.
-// Invalid values fall back to 3000 so the server is always reachable.
-const PORT_PARSED = Number.parseInt(process.env.PORT || '3000', 10);
-export const PORT = Number.isInteger(PORT_PARSED) && PORT_PARSED > 0 ? PORT_PARSED : 3000;
+// intFromEnv enforces a strict whole-string integer in [1, 65535] and falls
+// back with a warning, so the server is always reachable (backlog #4).
+export const PORT = intFromEnv('PORT', 3000, { min: 1, max: 65535 });
 
 // Fiscal-year helpers that read the live fiscalYears cache.
 export function getFiscalYearCodeForDate(dateValue: any): string {
@@ -214,7 +215,9 @@ export function createApp(): express.Express {
   // JSON body limit (audit backlog #2): honor JSON_BODY_LIMIT when set
   // (e.g. '25mb' for large PO/invoice item payloads), default 1mb —
   // express's default — otherwise. Rejects oversized bodies with 413.
-  const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '1mb';
+  // sizeFromEnv rejects garbage ('25 b', 'abc', '0mb') with a warning
+  // instead of producing a NaN/zero limit (backlog #4).
+  const jsonBodyLimit = sizeFromEnv('JSON_BODY_LIMIT', '1mb', { minBytes: 1024 });
   app.use(express.json({ limit: jsonBodyLimit }));
 
   // Health & Control Plane Endpoints FIRST before any other routes or middleware

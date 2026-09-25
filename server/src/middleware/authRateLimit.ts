@@ -29,9 +29,13 @@
  */
 import type { Request, Response, NextFunction } from 'express';
 import { RateLimiter, buildRateLimitKey, buildAccountRateLimitKey } from '../utils/rateLimiter';
+import { intFromEnv } from '../utils/envGuard';
 
-const WINDOW_MS = Math.max(1000, Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || 900_000);
-const MAX_ATTEMPTS = Math.max(1, Number(process.env.AUTH_RATE_LIMIT_MAX) || 10);
+// Strict env parsing (backlog #4): garbage values warn and fall back instead
+// of becoming NaN or 0 (a zero window/max would hard-lock or fully disable
+// the brute-force guard).
+const WINDOW_MS = intFromEnv('AUTH_RATE_LIMIT_WINDOW_MS', 900_000, { min: 1000, max: 86_400_000 });
+const MAX_ATTEMPTS = intFromEnv('AUTH_RATE_LIMIT_MAX', 10, { min: 1, max: 10_000 });
 const DISABLED = process.env.AUTH_RATE_LIMIT_DISABLED === '1' || process.env.AUTH_RATE_LIMIT_DISABLED === 'true';
 
 const ipLimiter = new RateLimiter({ max: MAX_ATTEMPTS, windowMs: WINDOW_MS });
