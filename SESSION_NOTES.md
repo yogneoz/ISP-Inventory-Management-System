@@ -1,8 +1,40 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-25 · Branch: main · Tests: 399/399 green (6 are real-PG integration, auto-skip without a DB)_
+_Date: 2026-09-25 · Branch: main · Tests: 401/401 green (8 are real-PG integration — 2 drift-guard + 6 concurrency — auto-skip without a DB)_
 
-## ⭐ NEWEST: Arc 12 — app.ts extraction (backlog item #6, DONE, uncommitted)
+## ⭐ NEWEST: Arc 13 — schema.sql drift fix + drift guard (DONE, pushed `bc5817c`, CI #32 green)
+
+The user confirmed the live database has **30 tables**. A column-level diff of
+`information_schema.columns` against `scripts/schema.sql` found exactly ONE gap:
+`purchase_orders.status_override VARCHAR(30)` existed in the live DB only via an
+`ALTER TABLE ... ADD COLUMN` at the bottom of schema.sql — the CREATE TABLE block omitted
+it, so a FRESH database built from the script alone would silently miss the column.
+
+Fixes (commit `bc5817c`):
+- schema.sql: `status_override VARCHAR(30)` declared inside CREATE TABLE purchase_orders
+  (right after `status`), matching the live type exactly.
+- `server/src/boot/dbBoot.ts`: runtime DDL now also adds the column (idempotent), and the
+  stale boot logs "(28 tables)" / "All 29 Database tables" corrected to 30.
+- `tests/schema.drift.guard.test.ts` — NEW regression guard, runs in every `npm test`:
+  parses every schema.sql CREATE TABLE block and compares against the live DB's
+  information_schema (4 assertions: tables↔blocks, live columns ⊆ block, block columns ⊆
+  live, 30-table count pinned). READ-ONLY (information_schema only). Failure message names
+  the exact missing table.column. Skips without a reachable DB (CI stays green).
+
+Proofs run this arc:
+- Column diff post-fix: 30 tables, 486 columns, ZERO drift.
+- Fresh-install proof: applied the FULL schema.sql verbatim to throwaway DB
+  `inventory_freshinstall_test` (dropped after) — 30 tables + 174 indexes came up with
+  ZERO errors, and every column's type/length/nullability matched the live DB exactly.
+  (174 vs 125 explicit CREATE INDEX statements = 125 + 30 PKs + 19 UNIQUE-constraint
+  indexes PostgreSQL creates automatically. NOT drift.)
+- First diff attempt showed ~970 false mismatches — that was psql's CRLF output breaking
+  the parser (`tr -d '\r'` fixed it). If a future drift check explodes with nonsense,
+  suspect line endings first.
+
+Commits pushed `3dcab7b..bc5817c`, CI run #32 on `bc5817c`: success, all steps green.
+
+## Arc 12 — app.ts extraction (backlog item #6, DONE, pushed `b31446a`)
 
 **Decision first: the app will stay SINGLE-INSTANCE on the company's own server — no further
 scale-out work.** The user explicitly cancelled multi-server scaling; the earlier architecture
@@ -52,10 +84,9 @@ Remaining app.ts content: PORT parsing, createApp (middleware pipeline), registe
 providerSupplierIdFromName, sharedStateAccessors conformance object, getFiscalYearCode/IdForDate
 wrappers. Facade header documents the full module map for new code.
 
-## ⭐ NEWEST: full-project audit + calculation fixes (this session, uncommitted)
+## Full-project audit + calculation fixes (this session, COMMITTED + PUSHED through `bc5817c`)
 
-Two big arcs landed after the notes below were written. Both are in the working tree,
-NOT yet committed.
+Landed after the notes below were written. All pushed; CI green through run #32 on `bc5817c`.
 
 ### Arc 1 — Mirror retirement steps 1+2 (DONE)
 - `vendorOpeningBalances` mirror fully deleted: declaration, setter (+ sharedState.ts
@@ -305,8 +336,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
 3. xlsx 0.18.5 unfixable high advisory (client-side parsing) — evaluate exceljs.
 4. Numeric env-var guard helper (PORT=0 trap class) — do before rate limiting.
 5. Integration tests for auth/branch-scoping middleware (zero HTTP-layer tests today).
-6. app.ts extraction plan (state → plumbing → schema/boot → serial flows → leftover routes);
-   plumbing-first unblocks the Redis pub/sub task.
+6. ~~app.ts extraction plan (state → plumbing → schema/boot → serial flows → leftover routes).~~ DONE (Arcs 12–13; note: with the user's single-instance decision, the Redis pub/sub task is PARKED, not pending).
 7. CI never runs vite build / npm audit; no ESLint.
 
 ## Earlier session (all pushed)
