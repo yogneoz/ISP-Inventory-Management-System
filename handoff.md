@@ -1,7 +1,7 @@
 # Project Handoff Document — Inventory Management System
 
 > **Full project analysis, architecture, database relationships, and developer guide.**  
-> Updated: 2026-09-22 | Version: 1.3
+> Updated: 2026-09-26 | Version: 1.4
 
 ---
 
@@ -74,7 +74,7 @@
 │                        BROWSER CLIENT                              │
 │  React 19 SPA (Vite dev server / static dist in production)       │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ App.tsx   │  │ Feature  │  │Common UI │  │ services/api.ts  │  │
+│  │ App.tsx   │  │ Feature  │  │Common UI │  │ services/api/    │  │
 │  │ (Router)  │→ │ Views    │→ │Components│→ │ (fetch + SSE)    │  │
 │  └──────────┘  └──────────┘  └──────────┘  └────────┬─────────┘  │
 │                                                       │            │
@@ -88,8 +88,10 @@
 │              Express Server (server/index.ts)         │            │
 │  ┌────────────────────────────────────────────────────┤            │
 │  │ Middleware Pipeline (in order):                    │            │
-│  │  1. authenticateUser  (JWT token → req.user)      │            │
-│  │  2. Public route bypass                           │            │
+│  │  0. helmet (security headers) + JSON body limit   │            │
+│  │  1. authenticateUser  (HMAC token → req.user)     │            │
+│  │  2. Public route bypass / SSE auth (sseAuth.ts)   │            │
+│  │     + per-IP SSE connection cap (sseRateLimit.ts) │            │
 │  │  3. requireAuth        (401 if no session)        │            │
 │  │  4. requirePostgres    (503 if DB down)           │            │
 │  │  5. enforceFiscalYearWriteAccess (423 on closed)  │            │
@@ -115,11 +117,20 @@
 ```
 
 **Key architectural decisions:**
+- **Slim composition root**: `app.ts` is a ~260-line facade — `createApp()` (helmet, body
+  limit, middleware pipeline), `registerAllRoutes()`, plus re-exports of every historical
+  symbol so `import { … } from '../app'` keeps working. The monolith's former contents live
+  in focused modules: `state/runtimeState.ts` (shared state as ESM live bindings),
+  `boot/dbBoot.ts` (schema sync/seeding), `realtime/sse.ts`, `db/transactions.ts`,
+  `services/` (audit, serial edit, doc-number claim, super-admin re-auth) and
+  `utils/` (doc numbering, fiscal year, rate limiter).
 - **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params.
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
 - **Repository layer**: all SQL lives in `server/src/models/*.repo.ts`; controllers execute repo-owned constants and builders only. Enforced in CI by the no-inline-SQL guard (§15.8).
+- **HTTP hardening**: helmet security headers (LAN-safe config — HSTS off on plain HTTP), enforced `JSON_BODY_LIMIT` with 413 passthrough in the error handler, authenticated SSE (`sseAuth.ts` accepts header or `?token=` for EventSource), per-IP concurrent SSE cap (`sseRateLimit.ts`), and login/forgot-password rate limiting (`authRateLimit.ts`) with per-IP + failure-only global per-account buckets.
+- **Schema integrity**: `tests/schema.drift.guard.test.ts` compares every `scripts/schema.sql` CREATE TABLE block against the live database's columns on every test run (skips without a DB), so runtime DDL and the schema script can never silently diverge. When adding a column, update BOTH schema.sql and `boot/dbBoot.ts`.
 
 ---
 
@@ -147,10 +158,30 @@ ISP-Inventory-Management-System/
 │   │                                  #   syncDatabaseAndIndexes → listen → vite/static serving
 │   ├── db.ts                          # PostgreSQL pool (DATE override, DATABASE_URL)
 │   └── src/
-│       ├── app.ts                     # App composition (~3,300 lines): createApp(), shared
-│       │                              #   runtime state + accessors, CACHE_LOADS + refresh,
-│       │                              #   serial cascade, SSE, syncDatabaseAndIndexes,
-│       │                              #   registerAllRoutes() + terminal error handler
+│       ├── app.ts                     # Slim composition root (~260 lines): createApp() with
+│       │                              #   helmet + JSON body limit, middleware pipeline,
+│       │                              #   registerAllRoutes() + terminal error handler;
+│       │                              #   facade re-exporting every historical symbol
+│       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
+│       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (30 tables),
+│       │                              #   seedInitialPostgresData, permission matrix load,
+│       │                              #   serial-log backfill
+│       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
+│       ├── db/transactions.ts         # withTransaction / withConnection helpers
+│       ├── services/                  # Core business logic — unit-tested (see tests/)
+│       │   ├── damage.service.ts
+│       │   ├── serialEditCapture.service.ts
+│       │   ├── serials.service.ts
+│       │   ├── serialEdit.handler.ts  # handleUpdateSerials + runSerialEditCapture (moved out of app.ts)
+│       │   ├── audit.service.ts       # logAuditEvent
+│       │   ├── serverDocNumber.ts     # atomic doc-number claim (UPDATE … RETURNING)
+│       │   └── superAdminAuth.service.ts # Super Admin re-auth gate
+│       ├── utils/                     # Shared server helpers
+│       │   ├── copyHelpers.ts         # withPrepended/withAppended/withReplaced/withSorted
+│       │   ├── rateLimiter.ts         # sliding-window limiter (login + SSE caps)
+│       │   ├── docNumber.ts           # transaction-id generator + issueNextDocNumber
+│       │   └── fiscalYear.ts          # toCalendarDate / FY resolvers (pure)
 │       ├── config/                    # Seed/config data
 │       │   ├── bsCalendar.ts          # BS calendar constants, fallback cache, helpers
 │       │   └── seedData.ts            # Company profile, doc numbering, master data, demo users
@@ -161,13 +192,19 @@ ISP-Inventory-Management-System/
 │       │   ├── inventory.controller.ts / procurement.controller.ts / admin.controller.ts /
 │       │   ├── masterdata.controller.ts / shipments.controller.ts / misc.controller.ts /
 │       │   └── reports.controller.ts / sync.controller.ts / permissions.controller.ts /
-│       │       bootstrap.controller.ts
+│       │       bootstrap.controller.ts / permissions.core.ts
 │       ├── errors/                    # Structured error handling
 │       │   ├── ApiError.ts            # throw new ApiError(status, message)
-│       │   └── errorHandler.ts        # Central middleware converting ApiError → JSON
+│       │   └── errorHandler.ts        # Central middleware converting ApiError → JSON;
+│       │                              #   also passes body-parser 4xx through (413 on
+│       │                              #   oversized JSON instead of a masked 500)
 │       ├── middleware/                # Middleware chain
 │       │   ├── auth.ts                # scrypt hashing, HMAC tokens, session helpers
-│       │   └── index.ts               # auth, PG gate, fiscal lock, RBAC, matrix perms, branch scope
+│       │   ├── index.ts               # auth, PG gate, fiscal lock, RBAC, matrix perms, branch scope
+│       │   ├── sseAuth.ts             # SSE auth: HMAC token via header OR ?token= (EventSource)
+│       │   ├── sseRateLimit.ts        # per-IP concurrent SSE stream cap (revoke-on-close)
+│       │   ├── authRateLimit.ts       # login/forgot-password brute-force limiter
+│       │   └── cacheRefreshHook.ts    # write → operational-cache refresh middleware
 │       ├── models/                    # Repository layer — every SQL string + param builder lives here
 │       │   ├── bootstrap.repo.ts      # Bootstrap fetches + serial history parsing
 │       │   ├── columnMappings.ts      # Per-table column mappings (single source)
@@ -180,22 +217,21 @@ ISP-Inventory-Management-System/
 │       │   ├── auth.repo.ts           # User lookup / super-admin setup / password SQL
 │       │   ├── reports.repo.ts        # Financial-summary SQL + composable FY/branch WHERE-scope builders
 │       │   └── permissions.repo.ts    # Permission-matrix transaction SQL
-│       ├── routes/                    # Endpoint layout — every route is a thin forwarder
-│       │   ├── auth.routes.ts / bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
-│       │   ├── shipments.routes.ts / masterdata.routes.ts / admin.routes.ts /
-│       │   └── reports.routes.ts / sync.routes.ts / permissions.routes.ts / misc.routes.ts
-│       ├── services/                  # Core business logic — unit-tested (see tests/)
-│       │   ├── damage.service.ts
-│       │   ├── serialEditCapture.service.ts
-│       │   └── serials.service.ts
-│       └── utils/                     # Shared server helpers
-│           └── copyHelpers.ts         # withPrepended/withAppended/withReplaced/withSorted
+│       └── routes/                    # Endpoint layout — every route is a thin forwarder
+│           ├── auth.routes.ts / bootstrap.routes.ts / inventory.routes.ts / procurement.routes.ts /
+│           ├── shipments.routes.ts / masterdata.routes.ts / admin.routes.ts / fiscal.routes.ts /
+│           └── reports.routes.ts / sync.routes.ts / permissions.routes.ts / misc.routes.ts
 │
 ├── server.ts                          # Root shim → re-exports server/src/app
 │                                      #   (legacy entry compatibility)
-└── tests/                             # Unit tests (node:test) for services + repo query
-                                       #   builders — 296 tests; CI runs tsc + npm test + the
-                                       #   no-inline-SQL guard on every push/PR (.github/workflows/ci.yml)
+└── tests/                             # Unit + integration tests (node:test) for services,
+                                        #   repo query builders, HTTP middleware and the
+                                        #   drift/concurrency guards — 419 tests; CI runs
+                                        #   tsc + npm test + the no-inline-SQL guard on every
+                                        #   push/PR (.github/workflows/ci.yml). DB-dependent
+                                        #   integration tests (real-PG concurrency proofs,
+                                        #   schema drift guard, authenticated HTTP paths)
+                                        #   auto-skip when PostgreSQL is unreachable.
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
@@ -460,8 +496,8 @@ The server registers ~130 routes. The most important ones:
 | `POST` | `/api/auth/switch-profile` | Switch to another user profile (canSwitchUser=true) |
 | `PUT` | `/api/auth/profile` | Update own profile |
 | `GET` | `/api/bootstrap` | **Full atomic data sync** (1 roundtrip) |
-| `GET` | `/api/sync/stream` | SSE real-time event stream |
-| `GET` | `/api/sync/version` | Current data version |
+| `GET` | `/api/sync/stream` | SSE real-time event stream — **requires the auth token** via `Authorization: Bearer` header or `?token=` query param (EventSource cannot send headers); capped at `SSE_MAX_CONNECTIONS_PER_IP` concurrent streams per address |
+| `GET` | `/api/sync/version` | Current data version — same token rules as the stream |
 
 ### 6.3 Master Data CRUD
 
@@ -564,18 +600,23 @@ The server registers ~130 routes. The most important ones:
 - **Token**: Custom HMAC-signed JWT-like token (not a JWT library), **8-hour TTL** (`AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60`)
 - **Signing secret**: `AUTH_TOKEN_SECRET` env var; a persistent secret is generated and stored on first boot if not provided (a warning is logged because the ephemeral secret invalidates sessions across restarts)
 - **Plaintext fallback**: Legacy plaintext passwords are auto-upgraded to scrypt on successful login
+- **Login rate limiting**: `createAuthRateLimit` (middleware/authRateLimit.ts) guards `/api/auth/login` and `/api/auth/forgot-password` with two sliding-window buckets — per-IP (counts all attempts) and a GLOBAL per-account bucket counting only failures (a successful login revokes its own hit, so attackers cannot lock accounts out). 429 + `Retry-After` when either bucket fills; configured via `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_DISABLED`; fails open if the limiter itself errors
 
 ### 7.2 Authorization Chain
 
 Every `/api/*` request passes through this middleware chain in order:
 
-1. **`authenticateUser`** — Extracts token from `Authorization: Bearer <token>`, decodes → `req.user`
-2. **`requireAuth`** — Rejects 401 if `req.user` is missing (except public routes)
-3. **`requirePostgres`** — Returns 503 if PostgreSQL is unavailable (except `/api/db/status`)
-4. **`enforceFiscalYearWriteAccess`** — Returns 423 if mutating a closed fiscal year (only SUPER_ADMIN and INVENTORY_MANAGER can)
-5. **`enforceOperationalPermissions`** — Maps URL path prefixes to allowed roles, returns 403 if mismatch
-6. **`enforceBranchAccess`** — Ensures the user is authorized for the branch they're accessing/creating
-7. **`requirePermission(operationId)`** — Per-route operation gate checked against the server-side permission matrix (e.g. `edit-device-serials` on all serial-correction routes)
+1. **helmet** — security headers on every response (CSP, nosniff, frame protection, cross-origin policies). Configured LAN-safe: HSTS and `upgrade-insecure-requests` are OFF because the app serves plain HTTP on the company's own server; re-enable when TLS terminates in front of it.
+2. **`express.json({ limit: JSON_BODY_LIMIT })`** — body limit (default 1mb; oversized payloads get 413 via the error handler's 4xx passthrough).
+3. **`authenticateUser`** — Extracts token from `Authorization: Bearer <token>`, decodes → `req.user`
+4. **Public-route bypass** — `/api/health`, `/api/db/status`, `/api/auth/*` public endpoints. `/api/sync/stream` and `/api/sync/version` are NOT public (see step 5).
+5. **`requireSseAuth`** (sync routes) — Same HMAC token as everything else, but also accepted via the `?token=` query parameter because the browser's native EventSource cannot send headers; the client appends the token from localStorage automatically. 401 fires BEFORE any SSE handshake (no stream headers, no client registration). `/api/sync/stream` additionally runs **`sseConnectionLimit`** first: at most `SSE_MAX_CONNECTIONS_PER_IP` (default 6) concurrent streams per client address, slot freed on disconnect, 429 + Retry-After when full.
+6. **`requireAuth`** — Rejects 401 if `req.user` is missing
+7. **`requirePostgres`** — Returns 503 if PostgreSQL is unavailable (except `/api/db/status`)
+8. **`enforceFiscalYearWriteAccess`** — Returns 423 if mutating a closed fiscal year (only SUPER_ADMIN and INVENTORY_MANAGER can)
+9. **`enforceOperationalPermissions`** — Maps URL path prefixes to allowed roles, returns 403 if mismatch
+10. **`enforceBranchAccess`** — Ensures the user is authorized for the branch they're accessing/creating
+11. **`requirePermission(operationId)`** — Per-route operation gate checked against the server-side permission matrix (e.g. `edit-device-serials` on all serial-correction routes)
 
 ---
 
@@ -838,6 +879,16 @@ POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="securepassword"
 
+# Rate limiting (login brute-force mitigation)
+AUTH_RATE_LIMIT_MAX=10            # attempts per window (default 10)
+AUTH_RATE_LIMIT_WINDOW_MS=900000  # 15 minutes (default)
+AUTH_RATE_LIMIT_DISABLED=false    # disable entirely (tests/dev only)
+
+# HTTP hardening
+JSON_BODY_LIMIT=25mb              # express.json limit (default 1mb)
+SSE_MAX_CONNECTIONS_PER_IP=6      # concurrent SSE streams per client address
+SSE_RATE_LIMIT_DISABLED=false     # disable the SSE cap (tests/dev only)
+
 # Optional
 SEED_DUMMY_DATA=false        # Seed demo data on first launch
 DISABLE_HMR=true             # Disable HMR for AI agent editing
@@ -943,6 +994,9 @@ When viewing historical fiscal years:
 ### 15.5 Real-Time Sync
 
 - Server uses **SSE (Server-Sent Events)** at `/api/sync/stream`
+- The stream is **authenticated** (HMAC token via header or `?token=`; the client attaches the
+  stored token from localStorage) and **capped** at `SSE_MAX_CONNECTIONS_PER_IP` concurrent
+  connections per address (slot revoked on disconnect)
 - On any mutation, `broadcastChange()` sends an event to all connected SSE clients
 - Client debounces (250ms) and triggers `refreshAllData()` on any change
 - This enables **real-time multi-user collaboration** without WebSocket complexity
@@ -1014,7 +1068,9 @@ All demo users share password: `Demo@123`
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
 | 2 | `scripts/schema.sql` | Full database schema (30 tables) — the data model |
-| 3 | `server/src/app.ts` (top section) | Shared state, config wiring, middleware chain |
+| 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
+| 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
+| 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |
 | 4 | `server/src/models/bootstrap.repo.ts` + `server/src/routes/bootstrap.routes.ts` | The core data-loading mechanism |
 | 5 | `src/services/api.ts` | Frontend API client — every backend interaction |
 | 6 | `src/utils/permissions.ts` + `permissionMatrixData.ts` | How RBAC is resolved |
@@ -1023,13 +1079,14 @@ All demo users share password: `Demo@123`
 
 | Task | Files to Modify |
 |---|---|
-| Add new API endpoint | `server/src/routes/<domain>.routes.ts` → `server/src/controllers/<domain>.controller.ts` (HTTP only) + SQL in `server/src/models/<domain>.repo.ts` + `client/src/services/api.ts` |
+| Add new API endpoint | `server/src/routes/<domain>.routes.ts` → `server/src/controllers/<domain>.controller.ts` (HTTP only) + SQL in `server/src/models/<domain>.repo.ts` + `client/src/services/api/<domain>.ts` |
 | Add or change a SQL query | `server/src/models/<domain>.repo.ts` — controllers must not contain SQL text (CI guard: `npm run check:no-inline-sql`) |
+| Add a new column to a table | `scripts/schema.sql` CREATE TABLE block + `server/src/boot/dbBoot.ts` runtime DDL — BOTH places; `tests/schema.drift.guard.test.ts` fails if they diverge from the live database |
 | Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx` |
 | Add new database table | `scripts/schema.sql` (CREATE TABLE) + `server/src/models/` + route/service wiring + `scripts/setup_db.js` if seeded |
 | Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/app.ts` (matrix seed) + `requirePermission` on routes |
 | Add new document type | `server/src/config/seedData.ts` (INITIAL_DOCUMENT_NUMBER_CONFIGS) + `scripts/setup_db.js` + `client/src/utils/documentNumbering.ts` |
-| Change serial behavior | `server/src/app.ts` (`handleUpdateSerials`, lookup/dual endpoints) + `client/src/features/inventory/SerialLogRegister.tsx` |
+| Change serial behavior | `server/src/services/serialEdit.handler.ts` (handleUpdateSerials, lookup/dual) + `client/src/features/inventory/SerialLogRegister.tsx` |
 
 ---
 

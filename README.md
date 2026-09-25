@@ -35,6 +35,12 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
+- **Hardened HTTP Surface**:
+  - **helmet security headers** on every response (CSP, nosniff, frame protection, cross-origin policies) — configured LAN-safe (no HSTS/`upgrade-insecure-requests` on plain HTTP; re-enable behind a TLS proxy).
+  - **Authenticated SSE**: `/api/sync/stream` and `/api/sync/version` require the app's HMAC token via `Authorization: Bearer` header or `?token=` query parameter (EventSource cannot send headers; the client attaches the stored token automatically). Rejections happen before any stream handshake.
+  - **Login rate limiting**: sliding-window limiter with per-IP and global per-account (failure-only) buckets — 429 + `Retry-After` after `AUTH_RATE_LIMIT_MAX` failures (default 10 / 15 min).
+  - **SSE connection cap**: at most `SSE_MAX_CONNECTIONS_PER_IP` (default 6) concurrent streams per address, with slots freed on disconnect — even valid credentials cannot exhaust sockets.
+  - **JSON body limit**: `JSON_BODY_LIMIT` (default 1mb) enforced with a proper 413 response.
 
 ---
 
@@ -77,19 +83,30 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── db.ts                         # PostgreSQL pool (DATE columns parsed as 'YYYY-MM-DD')
 │   ├── index.ts                      # Network bootstrap (app creation, routes, listen)
 │   └── src/
-│       ├── app.ts                    # App composition, shared runtime state, caches, SSE
+│       ├── app.ts                    # Slim composition root + facade (createApp, middleware
+│       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
+│       │                             #   every historical symbol so imports stay stable
+│       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
+│       ├── boot/dbBoot.ts            # Schema DDL sync (30 tables), seeding, permission matrix
+│       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
+│       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
 │       ├── routes/                   # Thin route forwarders (no business logic)
 │       ├── controllers/              # HTTP orchestration only — no SQL text (CI-enforced)
-│       ├── services/                 # Core business logic (serial editing, damage lifecycle)
+│       ├── services/                 # Core business logic (serial editing, damage lifecycle,
+│       │                             #   audit, doc-number claim, super-admin re-auth)
 │       ├── models/                   # Repository layer — every SQL string + param builder
 │       │   └── *.repo.ts             #   per domain: bootstrap, masterdata, procurement,
 │       │                             #   shipments, misc, admin, inventory, auth,
 │       │                             #   reports, permissions
-│       ├── middleware/               # Auth, PG gate, fiscal lock, RBAC, branch scope
+│       ├── middleware/               # Auth, PG gate, fiscal lock, RBAC, branch scope,
+│       │                             #   SSE auth (sseAuth.ts), SSE connection cap
+│       │                             #   (sseRateLimit.ts), login rate limiting
+│       │                             #   (authRateLimit.ts), cache-refresh hook
 │       ├── errors/                   # ApiError + central error handler
 │       ├── config/                   # BS calendar + seed data
-│       └── utils/                    # Shared server helpers
+│       └── utils/                    # Shared server helpers (incl. sliding-window
+│                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
 │   ├── schema.sql                    # Full PostgreSQL schema — 30 tables, idempotent, safe to re-run
@@ -158,6 +175,13 @@ POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
 # Optional: seed demo data on first launch (the setup scripts also seed it)
 SEED_DUMMY_DATA=false
+
+# Security (all optional — safe defaults apply when unset)
+AUTH_TOKEN_SECRET=<long-random-string>   # persistent HMAC secret for login tokens
+AUTH_RATE_LIMIT_MAX=10                   # login/forgot-password attempts per window
+AUTH_RATE_LIMIT_WINDOW_MS=900000         # 15 minutes
+JSON_BODY_LIMIT=25mb                     # express.json limit (default 1mb)
+SSE_MAX_CONNECTIONS_PER_IP=6             # concurrent SSE streams per address
 ```
 
 ---
@@ -527,15 +551,21 @@ to full-bootstrap refreshes.
   batch statements** (unnest-driven), keeping the transaction span constant
   regardless of line-item count instead of holding a pooled connection through
   per-item loops.
-- **Runtime state**: `app.ts` keeps module-level mirrors of business tables
-  (hydrated from PostgreSQL at boot and refreshed after every committed write)
-  that serve as read caches and the PostgreSQL-down fallback. The full audit —
+- **Runtime state**: shared state lives in `server/src/state/runtimeState.ts` as ESM live
+  bindings (module-level mirrors of business tables hydrated from PostgreSQL at boot and
+  refreshed after every committed write) that serve as read caches and the PostgreSQL-down
+  fallback. `app.ts` is a slim composition root + facade over the extracted modules
+  (boot, SSE, transactions, audit, doc numbering, permissions core). The full audit —
   which mirrors are load-bearing guards vs. pure caches vs. vestigial, and the
   safe order for retiring them — is documented in
   [`docs/mirror-audit.md`](docs/mirror-audit.md).
 - **Port binding**: `PORT` is validated as a positive integer; ambient
   `PORT=0` or empty values fall back to 3000 instead of binding an ephemeral
   port.
+- **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
+  (the central error handler forwards body-parser's 4xx status), and the auth chain is
+  `authenticateUser → public-route bypass → requireSseAuth (sync routes) → requireAuth →
+  requirePostgres → fiscal-lock → role gate → branch scope → per-route permission matrix`.
 
 ---
 
