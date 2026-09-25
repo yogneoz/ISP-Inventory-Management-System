@@ -4,6 +4,8 @@
 import { pgPool, realPoolInstance, ensurePostgresConnection, getIsPgConnected, setIsPgConnected } from '../../db';
 import { branches, permissionMatrix, getPgConnected, setPgConnected } from '../app';
 import { getUserFromReq, verifyAuthToken } from './auth';
+export { getUserFromReq } from './auth';
+export { verifyPassword } from './auth';
 
 /**
  * Express Authentication Middleware

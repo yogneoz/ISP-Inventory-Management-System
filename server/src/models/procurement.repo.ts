@@ -528,5 +528,26 @@ export const VENDOR_OPENING_BALANCE_SQL =
    WHERE fiscal_year_id = $1 AND supplier_id = $2
      AND ($3::text IS NULL OR $3 = 'ALL' OR branch_id = $3)`;
 
+// ---------------------------------------------------------------------------
+// Vendor-payments base SELECT (extracted from app.ts — backlog item #6).
+// The column projection shared by every vendor-payment register/ledger query;
+// consumers append WHERE/ORDER BY suffixes (VP_ORDER_BY etc. above).
+// ---------------------------------------------------------------------------
+export const VENDOR_PAYMENT_SELECT = `
+  SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId",
+         supplier_name AS "supplierName", branch_id AS "branchId",
+         invoice_id AS "invoiceId", invoice_number AS "invoiceNumber",
+         payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS",
+         amount, payment_method AS "paymentMethod",
+         bank_name AS "bankName", bank_branch AS "bankBranch",
+         account_number AS "accountNumber", cheque_number AS "chequeNumber",
+         cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS",
+         transaction_reference AS "transactionReference", notes, status,
+         reversal_reason AS "reversalReason", reversed_by AS "reversedBy",
+         reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId",
+         fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo",
+         created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"
+  FROM vendor_payments`;
+
 
 
