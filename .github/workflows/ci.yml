@@ -8,6 +8,31 @@ on:
 jobs:
   typecheck-and-test:
     runs-on: ubuntu-latest
+
+    # PostgreSQL service container: lets the DB-dependent integration tests
+    # run in CI instead of skipping (real-PG concurrency proofs, schema drift
+    # guard, authenticated positive-path HTTP tests). The credentials must
+    # match DATABASE_URL below. Tests only run against throwaway databases
+    # (inventory_concurrency_test etc.) or read information_schema — the app
+    # database is created here but never modified by the suite.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: securepassword
+          POSTGRES_DB: inventory_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_user -d inventory_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
