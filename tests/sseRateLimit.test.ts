@@ -130,7 +130,7 @@ describe('SSE per-IP concurrent connection cap (real Express app)', () => {
     }
   });
 
-  test('limiter state resets between test runs (keys are per-IP, revoke works)', async () => {
+  test('limiter state resets between test runs (keys are per-IP, revoke works)', { skip: !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)' }, async () => {
     const { limiter } = getSseLimiter();
     // The two tests above ran many attempts against the same limiter from
     // the same test-host IP; this asserts the suites do not interfere via
