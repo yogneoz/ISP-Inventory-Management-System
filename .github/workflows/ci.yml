@@ -40,6 +40,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Apply schema.sql to the CI database (fresh-install proof + drift-guard baseline)
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
       - run: npx tsc --noEmit
       - run: npm test
       - name: Enforce repo-layer convention (no raw SQL in controllers)
