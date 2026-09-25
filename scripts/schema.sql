@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     order_date_bs VARCHAR(20) NOT NULL,
     expected_delivery_date_ad DATE,
     status VARCHAR(30) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT', 'IN_PROGRESS', 'PURCHASED', 'RECEIVED', 'CANCELLED')),
+    status_override VARCHAR(30),
     subtotal_amount NUMERIC(14, 2) DEFAULT 0.00,
     tax_amount NUMERIC(14, 2) DEFAULT 0.00,
     total_amount NUMERIC(14, 2) DEFAULT 0.00,
