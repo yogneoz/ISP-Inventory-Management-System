@@ -562,6 +562,19 @@ to full-bootstrap refreshes.
 - **Port binding**: `PORT` is validated as a positive integer; ambient
   `PORT=0` or empty values fall back to 3000 instead of binding an ephemeral
   port.
+- **Excel I/O (exceljs)**: the vulnerable `xlsx` package is replaced by
+  `exceljs` behind `client/src/utils/excel.ts` (`readFirstSheetRows` /
+  `buildTemplateWorkbook`), which preserves xlsx's exact string-normalization
+  contract (empty cells → `''`, numbers as full-precision strings) so parsers
+  need no logic changes. `npm audit` is clean (0 vulnerabilities).
+- **Bundle chunking**: production chunks are split by `manualChunks` —
+  `vendor-react`, `vendor-icons` (lucide), and `vendor-excel` (exceljs, lazy-loaded
+  with the BS calendar utility so the ~270 kB gz library downloads only on first
+  use). Rarely-used screens use `React.lazy` + `Suspense`.
+- **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
+  full 423-test suite against a PostgreSQL 16 service container (zero skips) →
+  no-inline-SQL guard → production build (`vite build` + server bundle) →
+  `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
   (the central error handler forwards body-parser's 4xx status), and the auth chain is
   `authenticateUser → public-route bypass → requireSseAuth (sync routes) → requireAuth →

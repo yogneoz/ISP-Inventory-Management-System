@@ -1,7 +1,7 @@
 # Project Handoff Document — Inventory Management System
 
 > **Full project analysis, architecture, database relationships, and developer guide.**  
-> Updated: 2026-09-26 | Version: 1.4
+> Updated: 2026-09-26 | Version: 1.5
 
 ---
 
@@ -53,7 +53,7 @@
 | **Frontend** | React 19 + TypeScript | React 19, TS 5.8 |
 | **Styling** | Tailwind CSS 4 | 4.1.x |
 | **UI Icons** | Lucide React | 0.5x |
-| **Animations** | Motion (Framer) | 12.x |
+| **Excel I/O** | exceljs | 4.4.x |
 | **Build Tool** | Vite 6 | 6.x |
 | **Backend** | Node.js + Express | Express 4.21 |
 | **Database** | PostgreSQL | 14+ (via `pg` 8.x) |
@@ -226,12 +226,12 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 419 tests; CI runs
-                                        #   tsc + npm test + the no-inline-SQL guard on every
-                                        #   push/PR (.github/workflows/ci.yml). DB-dependent
-                                        #   integration tests (real-PG concurrency proofs,
-                                        #   schema drift guard, authenticated HTTP paths)
-                                        #   auto-skip when PostgreSQL is unreachable.
+                                        #   drift/concurrency guards — 423 tests; CI runs
+                                        #   tsc + npm test + the no-inline-SQL guard + the
+                                        #   production build + npm audit on every push/PR
+                                        #   (.github/workflows/ci.yml). The PostgreSQL 16
+                                        #   service container lets ALL tests run in CI —
+                                        #   no skips.
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
@@ -859,6 +859,22 @@ calculateFixedAssetValues({
 - `saveRecentBootstrapCache(data)` — caches full bootstrap state for instant UI load
 - Keys: `inventory_user_session`, `inventory_bootstrap_cache`
 
+### 12.8 `utils/excel.ts`
+
+- exceljs-based replacement for the removed vulnerable `xlsx@0.18.5` (Prototype
+  Pollution + ReDoS, no fixed version). Only consumer: `BsCalendarUtility.tsx`.
+- `readFirstSheetRows(buffer)` — first sheet → row objects keyed by the header row.
+  Preserves xlsx's `sheet_to_json(defval:'')` contract: empty cells → `''`, numeric
+  cells as full-precision strings (`'2086'`, never `'2086.0'`), so the component's
+  `.split('.')[0]` integer extraction is unchanged.
+- `buildTemplateWorkbook(sheetName, rows)` — builds download-template bytes from an
+  array-of-arrays (header row first).
+- Bundle note: exceljs lives in its own `vendor-excel` chunk; the component is
+  `React.lazy`-loaded so the ~270 kB gz library downloads only on first visit to the
+  BS calendar tabs.
+- Tests: `tests/excel.helper.test.ts` proves roundtrip + numeric-precision equivalence
+  with the old parser.
+
 ---
 
 ## 13. Configuration & Environment
@@ -898,7 +914,12 @@ DISABLE_HMR=true             # Disable HMR for AI agent editing
 
 - Tailwind CSS 4 via `@tailwindcss/vite` plugin
 - Path alias: `@` → project root
-- Manual chunks: `vendor-react`, `vendor-icons`, `vendor-motion`, `common-components`, `feature-*`
+- Manual chunks: `vendor-react`, `vendor-icons` (lucide-react), `vendor-excel`
+  (exceljs), `common-components`, `feature-*`. Chunk order matters: `lucide-react`
+  must be matched BEFORE the generic `react` substring check, or every icon lands
+  in `vendor-react` (this bug shipped once — keep the boundary-anchored regexes).
+- Lazy loading: rarely-used screens use `React.lazy` + `<Suspense>`; exceljs only
+  loads on first visit to the BS calendar tabs
 - HMR can be disabled via `DISABLE_HMR=true`
 
 ### 13.3 Build Pipeline
@@ -1021,6 +1042,26 @@ Every SQL string, column list, and param builder lives in a per-domain repositor
 
 The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:no-inline-sql`), a lexical scan of `server/src/controllers` that fails the build when a controller contains SQL-looking string literals. It deliberately skips comments, template interpolations, and English prose that merely starts with a keyword (it requires structural pairs like `UPDATE … SET` / `DELETE … FROM`), and executing `pgPool.query(REPO_CONSTANT, params)` is the expected pattern. CI runs it as a dedicated step after `npm test`.
 
+### 15.9 CI Gate Pipeline
+
+Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
+
+1. `npx tsc --noEmit` — type errors
+2. `npm test` — 423 tests against a real PostgreSQL 16 service container
+   (schema.sql is applied first: it doubles as the fresh-install proof and the
+   drift-guard baseline). Zero skips — no-DB skips are history.
+3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
+4. `npm run build` — production bundles (vite + esbuild). Catches
+   bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.
+5. `npm audit --omit=dev` — non-zero exit on any production-dependency
+   advisory. Deliberately scoped: dev tooling advisories surface in local
+   audits but do not block CI.
+
+Dependency policy: `package.json` `overrides` pin `uuid@^11.1.1` (exceljs
+transitive) and `qs@6.16.0` (express/body-parser transitive); `npm audit`
+reports 0 vulnerabilities. If you add a dependency, run `npm audit` locally —
+CI will fail the push otherwise.
+
 ---
 
 ## 16. Quick Reference for New Developers
@@ -1082,7 +1123,7 @@ All demo users share password: `Demo@123`
 | Add new API endpoint | `server/src/routes/<domain>.routes.ts` → `server/src/controllers/<domain>.controller.ts` (HTTP only) + SQL in `server/src/models/<domain>.repo.ts` + `client/src/services/api/<domain>.ts` |
 | Add or change a SQL query | `server/src/models/<domain>.repo.ts` — controllers must not contain SQL text (CI guard: `npm run check:no-inline-sql`) |
 | Add a new column to a table | `scripts/schema.sql` CREATE TABLE block + `server/src/boot/dbBoot.ts` runtime DDL — BOTH places; `tests/schema.drift.guard.test.ts` fails if they diverge from the live database |
-| Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx` |
+| Add new UI page | `client/src/features/<module>/<Page>.tsx` + register in `App.tsx` + add to `Sidebar.tsx`. Rarely-used, heavy pages: prefer `React.lazy` (see §13.2) |
 | Add new database table | `scripts/schema.sql` (CREATE TABLE) + `server/src/models/` + route/service wiring + `scripts/setup_db.js` if seeded |
 | Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/app.ts` (matrix seed) + `requirePermission` on routes |
 | Add new document type | `server/src/config/seedData.ts` (INITIAL_DOCUMENT_NUMBER_CONFIGS) + `scripts/setup_db.js` + `client/src/utils/documentNumbering.ts` |
