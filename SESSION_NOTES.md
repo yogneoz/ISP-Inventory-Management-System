@@ -1,8 +1,55 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-26 · Branch: main · Tests: 419/419 green with a DB (12 skip without one — DB-dependent integration tests follow the skip convention)_
+_Date: 2026-09-26 · Branch: main · Tests: 423/423 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 14 — SSE auth + helmet + JSON_BODY_LIMIT (backlog #2 CLOSED, pushed `ab0e130`, CI #36 green)
+## ⭐ NEWEST: Arc 15 — deps modernization + bundle split + CI build/audit gates (backlog #3 + #7 CLOSED, pushed `5318809`, CI green)
+
+Three arcs landed as commits `d9cd443` (exceljs + vendor split + motion removal) and
+`5318809` (CI gates).
+
+**Backlog #3 closed — xlsx → exceljs (in `d9cd443`):**
+- `xlsx@0.18.5` (Prototype Pollution + ReDoS, no fixed version) REMOVED; replaced with
+  `exceljs@4.4.0` behind `client/src/utils/excel.ts` (`readFirstSheetRows` /
+  `buildTemplateWorkbook`). The helper preserves xlsx's exact `sheet_to_json(defval:'')`
+  contract — empty cells → `''`, numbers as full-precision strings — so the BS calendar
+  parser in `BsCalendarUtility.tsx` needed no logic changes, only the I/O layer swapped.
+- `tests/excel.helper.test.ts` (4 tests) proves roundtrip + numeric-precision equivalence.
+- `npm audit` now **0 vulnerabilities** (was 5 moderate + unfixable xlsx highs); fixes
+  via package.json `overrides`: exceljs's transitive `uuid@^11.1.1`, `qs@6.16.0` for
+  express/body-parser.
+
+**Vendor bundle split (in `d9cd443`):**
+- The 943 kB (272 kB gz) monolithic `vendor` chunk came from two bugs:
+  1. `manualChunks` checked `id.includes('react')` BEFORE `lucide-react` — the substring
+     'react' swallowed every icon into vendor-react. Fixed with boundary-anchored regexes
+     (`/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/.]/`), lucide checked first.
+  2. `App.tsx` had zero `React.lazy` — exceljs (940 kB!) rode in the startup vendor chunk
+     via statically-imported `BsCalendarUtility`. Now lazy with `<Suspense>` at both
+     render sites; exceljs lives in `vendor-excel`, downloaded only on first visit to the
+     BS calendar tabs.
+- Result: startup payload dropped ~656 kB raw / ~190 kB gz. `vendor-react` 69 kB gz,
+  `vendor-icons` 12.7 kB gz (now actually exists), `vendor-excel` 270 kB gz on-demand.
+
+**Dead dependency removed (in `d9cd443`):** `motion` (framer-motion) uninstalled after a
+full frontend audit — zero imports/JSX usage in all 87 client source files; animations are
+pure CSS (Tailwind transitions; no @keyframes even). No vendor-motion chunk was ever
+emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency is used.
+
+**Backlog #7 closed — CI build + audit gates (in `5318809`):**
+CI's gate list is now complete:
+1. `npx tsc --noEmit` — type errors
+2. `npm test` — 423 tests against a real PostgreSQL 16 service container (drift guard,
+   concurrency proofs, HTTP positive paths — zero skips)
+3. `check:no-inline-sql` — repo-layer convention
+4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
+   breakage)
+5. **NEW** `npm audit --omit=dev` — non-zero exit on any production-dependency advisory
+   (deliberately NOT gating on dev deps; they surface in local audits)
+
+Remaining backlog: #5 (login/branch-scoping HTTP integration tests — partially covered),
+Redis event bus (parked by design decision), mirror-retirement steps 3–4.
+
+## Arc 14 — SSE auth + helmet + JSON_BODY_LIMIT (backlog #2 CLOSED, pushed `ab0e130`, CI #36 green)
 
 The whole chain was shipped across commits `2547c35` (feature), `d1d0d3f` + `ab0e130`
 (CI fixes), landing run **#36: success**.
@@ -45,12 +92,12 @@ Verification trick: `mv .env .env.bak && npm test && mv .env.bak .env` reproduce
 result: 407 pass / 12 skipped / 0 fail.
 
 Backlog after this arc:
-3. xlsx 0.18.5 unfixable high advisory (client-side parsing) — evaluate exceljs. ← NEXT
-4. Numeric env-var guard helper (PORT=0 trap class).
+3. xlsx 0.18.5 unfixable high advisory — DONE (Arc 15, exceljs migration).
+4. Numeric env-var guard helper — DONE (commit `629d569`, envGuard.ts).
 5. Integration tests for auth/branch-scoping middleware — PARTIALLY covered now: the SSE
    hardening tests exercise requireAuth/requireSseAuth via HTTP; login + branch-scoping
-   still untested at HTTP layer.
-7. CI never runs vite build / npm audit; no ESLint.
+   still untested at HTTP layer. ← NEXT
+7. CI never runs vite build / npm audit — DONE (Arc 15, commit `5318809`).
 
 ## Arc 13 — schema.sql drift fix + drift guard (DONE, pushed `bc5817c`, CI #32 green)
 
