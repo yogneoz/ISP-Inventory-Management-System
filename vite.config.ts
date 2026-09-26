@@ -22,9 +22,19 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('react')) return 'vendor-react';
+              // NOTE: lucide-react must be matched BEFORE the generic 'react'
+              // check — 'lucide-react' contains the substring 'react', so a
+              // naive order lands every icon in vendor-react.
               if (id.includes('lucide-react')) return 'vendor-icons';
-              if (id.includes('motion')) return 'vendor-motion';
+              if (id.includes('exceljs')) return 'vendor-excel';
+              if (
+                /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/.]/.test(id)
+              ) {
+                return 'vendor-react';
+              }
+              if (/[\\/]node_modules[\\/](motion|framer-motion)[\\/.]/.test(id)) {
+                return 'vendor-motion';
+              }
               return 'vendor';
             }
 

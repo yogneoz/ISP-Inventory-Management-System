@@ -42,7 +42,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import * as XLSX from 'xlsx';
+import { readFirstSheetRows, buildTemplateWorkbook } from '../../utils/excel';
 
 interface BsCalendarUtilityProps {
 }
@@ -265,13 +265,13 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
   const handleExcelFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
+    // exceljs reads asynchronously (backlog #3: replaces vulnerable xlsx);
+    // the parse logic below is unchanged — readFirstSheetRows preserves the
+    // old row-object shape (string cells, '' for empty).
+    file.arrayBuffer()
+      .then((data) => readFirstSheetRows(data))
+      .then((rows) => {
       try {
-        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(firstSheet, { defval: '' });
 
         const headerRow = rows[0] || {};
         const yearKey = Object.keys(headerRow).find((k) => /year/i.test(String(k)));
@@ -335,8 +335,16 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
         // Allow re-selecting the same file
         e.target.value = '';
       }
-    };
-    reader.readAsArrayBuffer(file);
+      })
+      .catch((err: any) => {
+        setExcelPreviewYears([]);
+        setExcelFileName('');
+        setExcelParseStatus({
+          type: 'error',
+          message: `Failed to parse Excel file: ${err.message || 'unknown error'}`,
+        });
+        e.target.value = '';
+      });
   };
 
   const handleSeedExcel = async () => {
@@ -386,13 +394,24 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     }
   };
 
-  const handleDownloadExcelTemplate = () => {
+  const handleDownloadExcelTemplate = async () => {
     const header = ['BS Year', ...NEPALI_MONTHS_EN, 'Start AD'];
     const sampleRow = [2086, ...([31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30] as number[]), '2029-04-14'];
-    const ws = XLSX.utils.aoa_to_sheet([header, sampleRow]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'BS Month Arrays');
-    XLSX.writeFile(wb, 'bs-calendar-multi-year-template.xlsx');
+    try {
+      const bytes = await buildTemplateWorkbook('BS Month Arrays', [header, sampleRow]);
+      const url = URL.createObjectURL(new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'bs-calendar-multi-year-template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setSeedStatus({ type: 'error', message: `Failed to generate template: ${err.message || 'unknown error'}` });
+    }
   };
 
   const handleClearExcelPreview = () => {

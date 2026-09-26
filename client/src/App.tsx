@@ -54,7 +54,13 @@ import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
 import { Shipments } from './features/procurement/Shipments';
 import { StockOperations } from './features/inventory/StockOperations';
 import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
-import { BsCalendarUtility } from './features/finance/BsCalendarUtility';
+// exceljs (≈1 MB) is only needed for the BS calendar utility, so this
+// component is lazy: the vendor-excel chunk downloads on first visit.
+const BsCalendarUtility = React.lazy(() =>
+  import('./features/finance/BsCalendarUtility').then((m) => ({
+    default: m.BsCalendarUtility,
+  }))
+);
 import { DocumentNumbering } from './features/finance/DocumentNumbering';
 import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagement';
 import { AuditTrailReports } from './features/finance/AuditTrailReports';
@@ -2243,8 +2249,10 @@ export default function App() {
               )}
 
               {activeTab === 'bs-calendar' && (
-                <BsCalendarUtility
-                />
+                <React.Suspense fallback={<div className="p-6">Loading…</div>}>
+                  <BsCalendarUtility
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'fiscal-year-management' && (
@@ -2252,8 +2260,10 @@ export default function App() {
               )}
 
               {activeTab === 'nepali-fiscal' && (
-                <BsCalendarUtility
-                />
+                <React.Suspense fallback={<div className="p-6">Loading…</div>}>
+                  <BsCalendarUtility
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'help-documentation' && (
