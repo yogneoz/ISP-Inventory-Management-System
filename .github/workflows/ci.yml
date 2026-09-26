@@ -52,6 +52,13 @@ jobs:
       # dependency could reach main undetected.
       - name: Build client + server production bundles
         run: npm run build
+      # Startup-budget gate: computes the transitive static-import closure of
+      # index.html's entry chunk and fails if the entry chunk or the whole
+      # eager graph exceeds its gzip budget — so a screen accidentally re-added
+      # to the eager imports or a shared module merged into the wrong chunk
+      # (see scripts/check_bundle_budget.mjs for the incident) fails CI.
+      - name: Enforce startup bundle size budget
+        run: npm run check:bundle-budget
       # npm audit exits non-zero when vulnerabilities are found; gating on
       # --omit=dev covers the deployable dependency surface (dev tooling
       # advisories are surfaced in local audits but do not block the build).
