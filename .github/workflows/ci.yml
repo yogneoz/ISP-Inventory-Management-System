@@ -47,3 +47,13 @@ jobs:
       - run: npm test
       - name: Enforce repo-layer convention (no raw SQL in controllers)
         run: npm run check:no-inline-sql
+      # Backlog #7: CI previously never built the frontend or audited
+      # dependencies, so a bundling-only type error or a newly-advised
+      # dependency could reach main undetected.
+      - name: Build client + server production bundles
+        run: npm run build
+      # npm audit exits non-zero when vulnerabilities are found; gating on
+      # --omit=dev covers the deployable dependency surface (dev tooling
+      # advisories are surfaced in local audits but do not block the build).
+      - name: Fail on npm audit vulnerabilities (production deps)
+        run: npm audit --omit=dev
