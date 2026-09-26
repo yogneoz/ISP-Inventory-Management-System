@@ -40,15 +40,23 @@ export default defineConfig(() => {
 
             const featureMatch = id.match(/[\\/]src[\\/]features[\\/]([^\\/]+)[\\/]([^\\/]+)\.(?:ts|tsx)$/);
             if (featureMatch) {
-              const featureName = featureMatch[1];
-              if (featureName === 'inventory') {
-                return `feature-inventory-${featureMatch[2]}`;
-              }
-              return `feature-${featureName}`;
+              // Per-file chunks for EVERY feature screen: a lazy-loaded screen
+              // (React.lazy in App.tsx) then truly splits out of the startup
+              // graph instead of riding in its feature-group chunk. Shared
+              // helper modules referenced by several screens become their own
+              // small chunks fetched in parallel.
+              return `feature-${featureMatch[1]}-${featureMatch[2]}`;
             }
 
-            if (id.includes(`${path.sep}src${path.sep}components${path.sep}common${path.sep}`)) {
-              return 'common-components';
+            // Shared components/util/hooks get their OWN file-level chunks.
+            // Rollup otherwise merges a shared module into whichever chunk
+            // first grabbed it (observed: DateField ended up inside the
+            // FixedAssetRegister chunk, dragging a 40 kB finance screen into
+            // every inventory screen's import graph). File-level chunks keep
+            // each shared module a tiny parallel fetch.
+            const sharedMatch = id.match(/[\\/]src[\\/](components|utils|hooks|contexts)[\\/](.+)\.(?:ts|tsx)$/);
+            if (sharedMatch) {
+              return `shared-${sharedMatch[2].replace(/[\\/]/g, '-')}`;
             }
 
             return undefined;

@@ -42,16 +42,90 @@ import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
 import { BranchStockTracking } from './features/inventory/BranchStockTracking';
-import { ReorderStockTracking } from './features/inventory/ReorderStockTracking';
-import { DamagedStockTracking } from './features/inventory/DamagedStockTracking';
 import { FixedAssetRegister } from './features/finance/FixedAssetRegister';
 import { CustomersManagement } from './features/sales/CustomersManagement';
 import { CustomerMasterDirectory } from './features/sales/CustomerMasterDirectory';
 
 import { SerialLogRegister } from './features/inventory/SerialLogRegister';
 import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOrders';
-import { PurchaseInvoices } from './features/procurement/PurchaseInvoices';
-import { Shipments } from './features/procurement/Shipments';
+// Rarely-used / heavy screens are lazy: their chunks download on first visit.
+// Kept eager: Dashboard, ProductManagement, StockOperations (11 render sites),
+// PurchaseOrders, modals, and anything referenced in the synchronous render path.
+const PurchaseInvoices = React.lazy(() =>
+  import('./features/procurement/PurchaseInvoices').then((m) => ({ default: m.PurchaseInvoices }))
+);
+const Shipments = React.lazy(() =>
+  import('./features/procurement/Shipments').then((m) => ({ default: m.Shipments }))
+);
+const PhysicalStockAudit = React.lazy(() =>
+  import('./features/inventory/PhysicalStockAudit').then((m) => ({ default: m.PhysicalStockAudit }))
+);
+const DamagedStockTracking = React.lazy(() =>
+  import('./features/inventory/DamagedStockTracking').then((m) => ({ default: m.DamagedStockTracking }))
+);
+const ReorderStockTracking = React.lazy(() =>
+  import('./features/inventory/ReorderStockTracking').then((m) => ({ default: m.ReorderStockTracking }))
+);
+const StockValuation = React.lazy(() =>
+  import('./features/inventory/StockValuation').then((m) => ({ default: m.StockValuation }))
+);
+const StockMovementLedger = React.lazy(() =>
+  import('./features/inventory/StockMovementLedger').then((m) => ({ default: m.StockMovementLedger }))
+);
+const WarrantyProducts = React.lazy(() =>
+  import('./features/inventory/WarrantyProducts').then((m) => ({ default: m.WarrantyProducts }))
+);
+const CategoryManagement = React.lazy(() =>
+  import('./features/inventory/CategoryManagement').then((m) => ({ default: m.CategoryManagement }))
+);
+const UomManagement = React.lazy(() =>
+  import('./features/inventory/UomManagement').then((m) => ({ default: m.UomManagement }))
+);
+const ImportStock = React.lazy(() =>
+  import('./features/inventory/ImportStock').then((m) => ({ default: m.ImportStock }))
+);
+const ExportStock = React.lazy(() =>
+  import('./features/inventory/ExportStock').then((m) => ({ default: m.ExportStock }))
+);
+const FinancialStatements = React.lazy(() =>
+  import('./features/finance/FinancialStatements').then((m) => ({ default: m.FinancialStatements }))
+);
+const VatRegister = React.lazy(() =>
+  import('./features/finance/VatRegister').then((m) => ({ default: m.VatRegister }))
+);
+const DepreciationRegister = React.lazy(() =>
+  import('./features/finance/DepreciationRegister').then((m) => ({ default: m.DepreciationRegister }))
+);
+const AuditTrailReports = React.lazy(() =>
+  import('./features/finance/AuditTrailReports').then((m) => ({ default: m.AuditTrailReports }))
+);
+const DocumentNumbering = React.lazy(() =>
+  import('./features/finance/DocumentNumbering').then((m) => ({ default: m.DocumentNumbering }))
+);
+const OpeningStockManager = React.lazy(() =>
+  import('./features/finance/OpeningStockManager').then((m) => ({ default: m.OpeningStockManager }))
+);
+const VendorOpeningBalances = React.lazy(() =>
+  import('./features/finance/VendorOpeningBalances').then((m) => ({ default: m.VendorOpeningBalances }))
+);
+const VendorLedger = React.lazy(() =>
+  import('./features/finance/VendorLedger').then((m) => ({ default: m.VendorLedger }))
+);
+const FiscalYearClosingWizard = React.lazy(() =>
+  import('./features/finance/FiscalYearClosingWizard').then((m) => ({ default: m.FiscalYearClosingWizard }))
+);
+const LocationsManagement = React.lazy(() =>
+  import('./features/settings/LocationsManagement').then((m) => ({ default: m.LocationsManagement }))
+);
+const ImportCustomers = React.lazy(() =>
+  import('./features/sales/ImportCustomers').then((m) => ({ default: m.ImportCustomers }))
+);
+const ClearDemoDataView = React.lazy(() =>
+  import('./components/common/ClearDemoDataView').then((m) => ({ default: m.ClearDemoDataView }))
+);
+const DataRecalculationMaintenance = React.lazy(() =>
+  import('./features/settings/DataRecalculationMaintenance').then((m) => ({ default: m.DataRecalculationMaintenance }))
+);
 import { StockOperations } from './features/inventory/StockOperations';
 import { ReceiveInboundWarehouse } from './features/procurement/ReceiveInboundWarehouse';
 // exceljs (≈1 MB) is only needed for the BS calendar utility, so this
@@ -61,9 +135,6 @@ const BsCalendarUtility = React.lazy(() =>
     default: m.BsCalendarUtility,
   }))
 );
-import { DocumentNumbering } from './features/finance/DocumentNumbering';
-import { NepaliFiscalManagement } from './features/finance/NepaliFiscalManagement';
-import { AuditTrailReports } from './features/finance/AuditTrailReports';
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
@@ -71,34 +142,30 @@ const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
-import { FinancialStatements } from './features/finance/FinancialStatements';
-import { VatRegister } from './features/finance/VatRegister';
-import { DepreciationRegister } from './features/finance/DepreciationRegister';
-import { StockValuation } from './features/inventory/StockValuation';
 import { NotificationCenter } from './components/common/NotificationCenter';
-import { ApprovalWorkflowCenter } from './features/settings/ApprovalWorkflowCenter';
-import { StockMovementLedger } from './features/inventory/StockMovementLedger';
-import { PhysicalStockAudit } from './features/inventory/PhysicalStockAudit';
-import { FiscalYearClosingWizard } from './features/finance/FiscalYearClosingWizard';
-import { OpeningStockManager } from './features/finance/OpeningStockManager';
-import { VendorOpeningBalances } from './features/finance/VendorOpeningBalances';
-import { VendorLedger } from './features/finance/VendorLedger';
-import { WarrantyProducts } from './features/inventory/WarrantyProducts';
-import { CategoryManagement } from './features/inventory/CategoryManagement';
-import { UomManagement } from './features/inventory/UomManagement';
-import { ClearDemoDataView } from './components/common/ClearDemoDataView';
-import { ImportStock } from './features/inventory/ImportStock';
-import { ExportStock } from './features/inventory/ExportStock';
-import { LocationsManagement } from './features/settings/LocationsManagement';
-import { ImportCustomers } from './features/sales/ImportCustomers';
-import { DataRecalculationMaintenance } from './features/settings/DataRecalculationMaintenance';
+const ApprovalWorkflowCenter = React.lazy(() =>
+  import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
+);
 import { HelpDocumentation } from './components/common/HelpDocumentation';
+const HelpDocumentationLazy = React.lazy(() =>
+  import('./components/common/HelpDocumentation').then((m) => ({ default: m.HelpDocumentation }))
+);
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { Loader2 } from 'lucide-react';
+
+/** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
+function TabLoadingFallback() {
+  return (
+    <div className="flex flex-col items-center justify-center h-64 space-y-3">
+      <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
+      <p className="text-xs font-semibold text-slate-400">Loading module…</p>
+    </div>
+  );
+}
 import { setServerMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
 
@@ -1283,20 +1350,22 @@ export default function App() {
               )}
 
               {(activeTab === 'approvals' || activeTab === 'workflow-approval') && (
-                <ApprovalWorkflowCenter
-                  approvalRequests={approvalRequests}
-                  branches={branches}
-                  currentUser={currentUser}
-                  dateMode={dateMode}
-                  onProcessApproval={handleProcessApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onNavigateToStockAudit={(branchId) => {
-                    if (branchId && branchId !== 'ALL') {
-                      setSelectedBranchId(branchId);
-                    }
-                    setActiveTab('physical-stock-audit');
-                  }}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ApprovalWorkflowCenter
+                    approvalRequests={approvalRequests}
+                    branches={branches}
+                    currentUser={currentUser}
+                    dateMode={dateMode}
+                    onProcessApproval={handleProcessApprovalRequest}
+                    onCancelApproval={handleCancelApprovalRequest}
+                    onNavigateToStockAudit={(branchId) => {
+                      if (branchId && branchId !== 'ALL') {
+                        setSelectedBranchId(branchId);
+                      }
+                      setActiveTab('physical-stock-audit');
+                    }}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'all-stock' && (
@@ -1330,49 +1399,59 @@ export default function App() {
               )}
 
               {activeTab === 'opening-stock' && (
-                <OpeningStockManager
-                  currentUser={currentUser}
-                  fiscalYears={fiscalYears}
-                  branches={branches}
-                  products={products}
-                  onRefreshData={refreshAllData}
-                  selectedFiscalYearId={selectedFiscalYearId}
-                  onSelectFiscalYear={setSelectedFiscalYearId}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <OpeningStockManager
+                    currentUser={currentUser}
+                    fiscalYears={fiscalYears}
+                    branches={branches}
+                    products={products}
+                    onRefreshData={refreshAllData}
+                    selectedFiscalYearId={selectedFiscalYearId}
+                    onSelectFiscalYear={setSelectedFiscalYearId}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'category-management' && (
-                <CategoryManagement
-                  currentUser={currentUser}
-                  products={products}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <CategoryManagement
+                    currentUser={currentUser}
+                    products={products}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'uom-management' && (
-                <UomManagement
-                  currentUser={currentUser}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <UomManagement
+                    currentUser={currentUser}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'import-stock' && (
-                <ImportStock
-                  branches={branches}
-                  products={products}
-                  onCreateProduct={handleCreateProduct}
-                  onRefreshData={refreshAllData}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ImportStock
+                    branches={branches}
+                    products={products}
+                    onCreateProduct={handleCreateProduct}
+                    onRefreshData={refreshAllData}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'export-stock' && (
-                <ExportStock
-                  currentUser={currentUser}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  customerDevices={customerDevices}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ExportStock
+                    currentUser={currentUser}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    customerDevices={customerDevices}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'branch-stock' && (
@@ -1387,79 +1466,89 @@ export default function App() {
               )}
 
               {activeTab === 'reorder-stock' && (
-                <ReorderStockTracking
-                  currentUser={currentUser}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  selectedBranchId={selectedBranchId}
-                  onUpdateStockLevel={handleUpdateStockLevel}
-                  onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
-                  onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
-                  onGroupLowStockPO={handleGroupLowStockPO}
-                  onNavigateTab={setActiveTab}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ReorderStockTracking
+                    currentUser={currentUser}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    selectedBranchId={selectedBranchId}
+                    onUpdateStockLevel={handleUpdateStockLevel}
+                    onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
+                    onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
+                    onGroupLowStockPO={handleGroupLowStockPO}
+                    onNavigateTab={setActiveTab}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'damaged-stock' && (
-                <DamagedStockTracking
-                  currentUser={currentUser}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  damageRecords={damageRecords}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  onUpdateStockLevel={handleUpdateStockLevel}
-                  onCreateOperation={handleCreateOperation}
-                  onNavigateTab={setActiveTab}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <DamagedStockTracking
+                    currentUser={currentUser}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    damageRecords={damageRecords}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    onUpdateStockLevel={handleUpdateStockLevel}
+                    onCreateOperation={handleCreateOperation}
+                    onNavigateTab={setActiveTab}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'stock-valuation' && (
-                <StockValuation
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <StockValuation
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'stock-ledger' && (
-                <StockMovementLedger
-                  transactionLogs={transactionLogs}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  damageRecords={damageRecords}
-                  stockOperations={stockOperations}
-                  shipments={shipments}
-                  purchaseOrders={purchaseOrders}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <StockMovementLedger
+                    transactionLogs={transactionLogs}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    damageRecords={damageRecords}
+                    stockOperations={stockOperations}
+                    shipments={shipments}
+                    purchaseOrders={purchaseOrders}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'physical-stock-audit' && (
-                <PhysicalStockAudit
-                  currentUser={currentUser}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  approvalRequests={approvalRequests}
-                  onUpdateStockLevel={handleUpdateStockLevel}
-                  onReconcileStockAudit={async (payload) => {
-                    await api.reconcileStockAudit(payload);
-                    await refreshAllData();
-                  }}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onProcessApproval={handleProcessApprovalRequest}
-                  onNavigateTab={setActiveTab}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <PhysicalStockAudit
+                    currentUser={currentUser}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    approvalRequests={approvalRequests}
+                    onUpdateStockLevel={handleUpdateStockLevel}
+                    onReconcileStockAudit={async (payload) => {
+                      await api.reconcileStockAudit(payload);
+                      await refreshAllData();
+                    }}
+                    onRequestApproval={handleCreateApprovalRequest}
+                    onCancelApproval={handleCancelApprovalRequest}
+                    onProcessApproval={handleProcessApprovalRequest}
+                    onNavigateTab={setActiveTab}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'fixed-assets' && (
@@ -1537,19 +1626,23 @@ export default function App() {
               )}
 
               {activeTab === 'locations' && (
-                <LocationsManagement
-                  branches={branches}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <LocationsManagement
+                    branches={branches}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'import-customers' && (
-                <ImportCustomers
-                  branches={branches}
-                  onImportCustomersSuccess={async (newCustomers) => {
-                    await api.bulkImportCustomers(newCustomers);
-                    await refreshAllData();
-                  }}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ImportCustomers
+                    branches={branches}
+                    onImportCustomersSuccess={async (newCustomers) => {
+                      await api.bulkImportCustomers(newCustomers);
+                      await refreshAllData();
+                    }}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'create-po' && (
@@ -1595,68 +1688,74 @@ export default function App() {
               )}
 
               {activeTab === 'create-purchase' && (
-                <PurchaseInvoices
-                  companyProfile={companyProfile}
-                  currentUser={currentUser}
-                  invoices={purchaseInvoices}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  stock={stock}
-                  purchaseOrders={purchaseOrders}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  activeTab="create-purchase"
-                  onCreateInvoice={handleCreateInvoice}
-                  onRecordPayment={handleRecordPayment}
-                  onReversePayment={handleReversePayment}
-                  onReverseInvoicePayments={handleReverseInvoicePayments}
-                  onDeleteInvoice={handleDeleteInvoice}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <PurchaseInvoices
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    invoices={purchaseInvoices}
+                    products={products}
+                    branches={branches}
+                    suppliers={suppliers}
+                    stock={stock}
+                    purchaseOrders={purchaseOrders}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    activeTab="create-purchase"
+                    onCreateInvoice={handleCreateInvoice}
+                    onRecordPayment={handleRecordPayment}
+                    onReversePayment={handleReversePayment}
+                    onReverseInvoicePayments={handleReverseInvoicePayments}
+                    onDeleteInvoice={handleDeleteInvoice}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'purchase-list' && (
-                <PurchaseInvoices
-                  companyProfile={companyProfile}
-                  currentUser={currentUser}
-                  invoices={purchaseInvoices}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  stock={stock}
-                  purchaseOrders={purchaseOrders}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  activeTab="purchase-list"
-                  onCreateInvoice={handleCreateInvoice}
-                  onRecordPayment={handleRecordPayment}
-                  onReversePayment={handleReversePayment}
-                  onReverseInvoicePayments={handleReverseInvoicePayments}
-                  onDeleteInvoice={handleDeleteInvoice}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <PurchaseInvoices
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    invoices={purchaseInvoices}
+                    products={products}
+                    branches={branches}
+                    suppliers={suppliers}
+                    stock={stock}
+                    purchaseOrders={purchaseOrders}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    activeTab="purchase-list"
+                    onCreateInvoice={handleCreateInvoice}
+                    onRecordPayment={handleRecordPayment}
+                    onReversePayment={handleReversePayment}
+                    onReverseInvoicePayments={handleReverseInvoicePayments}
+                    onDeleteInvoice={handleDeleteInvoice}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'create-shipment' && (
-                <Shipments
-                  currentUser={currentUser}
-                  activeTab="create-shipment"
-                  shipments={shipments}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  customerDevices={customerDevices}
-                  approvalRequests={approvalRequests}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <Shipments
+                    currentUser={currentUser}
+                    activeTab="create-shipment"
+                    shipments={shipments}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    customerDevices={customerDevices}
+                    approvalRequests={approvalRequests}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    onCreateShipment={async (sh) => {
+                      await api.createShipment(sh);
+                      refreshAllData();
+                    }}
+                    onReceiveShipment={handleReceiveShipment}
+                    onCancelReceiveShipment={handleCancelReceiveShipment}
+                    onRequestApproval={handleCreateApprovalRequest}
+                    onCancelApproval={handleCancelApprovalRequest}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'create-transfer' && (
@@ -1740,26 +1839,28 @@ export default function App() {
               )}
 
               {activeTab === 'shipment-list' && (
-                <Shipments
-                  currentUser={currentUser}
-                  activeTab={activeTab}
-                  shipments={shipments}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  customerDevices={customerDevices}
-                  approvalRequests={approvalRequests}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <Shipments
+                    currentUser={currentUser}
+                    activeTab={activeTab}
+                    shipments={shipments}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    customerDevices={customerDevices}
+                    approvalRequests={approvalRequests}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    onCreateShipment={async (sh) => {
+                      await api.createShipment(sh);
+                      refreshAllData();
+                    }}
+                    onReceiveShipment={handleReceiveShipment}
+                    onCancelReceiveShipment={handleCancelReceiveShipment}
+                    onRequestApproval={handleCreateApprovalRequest}
+                    onCancelApproval={handleCancelApprovalRequest}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'pullout' && (
@@ -2036,14 +2137,16 @@ export default function App() {
               )}
 
               {activeTab === 'warranty-products' && (
-                <WarrantyProducts
-                  customerDevices={customerDevices}
-                  assets={assets}
-                  branches={branches}
-                  products={products}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <WarrantyProducts
+                    customerDevices={customerDevices}
+                    assets={assets}
+                    branches={branches}
+                    products={products}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'branches' && (
@@ -2131,156 +2234,178 @@ export default function App() {
               )}
 
               {activeTab === 'clear-demo-data' && (
-                <ClearDemoDataView
-                  currentUser={currentUser}
-                  productCount={products.length}
-                  stockCount={stock.length}
-                  assetCount={assets.length}
-                  deviceCount={customerDevices.length}
-                  customerCount={customers.length}
-                  poCount={purchaseOrders.length}
-                  invoiceCount={purchaseInvoices.length}
-                  onClearDemoData={async () => {
-                    await api.clearDemoData();
-                    await refreshAllData();
-                  }}
-                  onNavigateDashboard={() => setActiveTab('dashboard')}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ClearDemoDataView
+                    currentUser={currentUser}
+                    productCount={products.length}
+                    stockCount={stock.length}
+                    assetCount={assets.length}
+                    deviceCount={customerDevices.length}
+                    customerCount={customers.length}
+                    poCount={purchaseOrders.length}
+                    invoiceCount={purchaseInvoices.length}
+                    onClearDemoData={async () => {
+                      await api.clearDemoData();
+                      await refreshAllData();
+                    }}
+                    onNavigateDashboard={() => setActiveTab('dashboard')}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'financial-statements' && (
-                <FinancialStatements
-                  financialSummary={financialSummary}
-                  assets={assets}
-                  invoices={purchaseInvoices}
-                  dateMode={dateMode}
-                  asOfDateAD={assetReportAsOfDateAD}
-                  companyProfile={companyProfile}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <FinancialStatements
+                    financialSummary={financialSummary}
+                    assets={assets}
+                    invoices={purchaseInvoices}
+                    dateMode={dateMode}
+                    asOfDateAD={assetReportAsOfDateAD}
+                    companyProfile={companyProfile}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'vendor-ledger' && (
-                <VendorLedger
-                  suppliers={suppliers}
-                  branches={branches}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <VendorLedger
+                    suppliers={suppliers}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'vendor-opening-balances' && (
-                <VendorOpeningBalances
-                  currentUser={currentUser}
-                  fiscalYears={fiscalYears}
-                  branches={branches}
-                  onRefreshData={refreshAllData}
-                  selectedFiscalYearId={selectedFiscalYearId}
-                  onSelectFiscalYear={setSelectedFiscalYearId}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <VendorOpeningBalances
+                    currentUser={currentUser}
+                    fiscalYears={fiscalYears}
+                    branches={branches}
+                    onRefreshData={refreshAllData}
+                    selectedFiscalYearId={selectedFiscalYearId}
+                    onSelectFiscalYear={setSelectedFiscalYearId}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'vat-register' && (
-                <VatRegister
-                  invoices={purchaseInvoices}
-                  dateMode={dateMode}
-                  companyProfile={companyProfile}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <VatRegister
+                    invoices={purchaseInvoices}
+                    dateMode={dateMode}
+                    companyProfile={companyProfile}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'depreciation-register' && (
-                <DepreciationRegister
-                  assets={assets}
-                  branches={branches}
-                  selectedBranchId={selectedBranchId}
-                  asOfDateAD={assetReportAsOfDateAD}
-                  dateMode={dateMode}
-                  companyProfile={companyProfile}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <DepreciationRegister
+                    assets={assets}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    asOfDateAD={assetReportAsOfDateAD}
+                    dateMode={dateMode}
+                    companyProfile={companyProfile}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'audit' && (
-                <AuditTrailReports
-                  auditLogs={auditLogs}
-                  transactionLogs={transactionLogs}
-                  financialSummary={financialSummary}
-                  products={products}
-                  branches={branches}
-                  assets={assets}
-                  invoices={purchaseInvoices}
-                  dateMode={dateMode}
-                  companyProfile={companyProfile}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <AuditTrailReports
+                    auditLogs={auditLogs}
+                    transactionLogs={transactionLogs}
+                    financialSummary={financialSummary}
+                    products={products}
+                    branches={branches}
+                    assets={assets}
+                    invoices={purchaseInvoices}
+                    dateMode={dateMode}
+                    companyProfile={companyProfile}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'data-recalculation' && (
-                <DataRecalculationMaintenance
-                  currentUser={currentUser}
-                  fiscalYears={fiscalYears}
-                  onRefreshData={refreshAllData}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <DataRecalculationMaintenance
+                    currentUser={currentUser}
+                    fiscalYears={fiscalYears}
+                    onRefreshData={refreshAllData}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'fiscal-year-closing' && (
-                <FiscalYearClosingWizard
-                  fiscalYears={fiscalYears}
-                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
-                  onCloseFiscalYear={handleCloseFiscalYear}
-                  onReopenFiscalYear={handleReopenFiscalYear}
-                  onCreateFiscalYear={handleCreateFiscalYear}
-                  onDeleteFiscalYear={handleDeleteFiscalYear}
-                  onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
-                  onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
-                  dateMode={dateMode}
-                  financialSummary={financialSummary}
-                  products={products}
-                  stock={stock}
-                  assets={assets}
-                  purchaseInvoices={purchaseInvoices}
-                  purchaseOrders={purchaseOrders}
-                  shipments={shipments}
-                  approvalRequests={approvalRequests}
-                  currentUser={currentUser}
-                  onRefreshData={refreshAllData}
-                  companyProfile={companyProfile}
-                  selectedFiscalYearId={selectedFiscalYearId}
-                  onSelectFiscalYear={setSelectedFiscalYearId}
-                  onNavigateTab={setActiveTab}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <FiscalYearClosingWizard
+                    fiscalYears={fiscalYears}
+                    onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                    onCloseFiscalYear={handleCloseFiscalYear}
+                    onReopenFiscalYear={handleReopenFiscalYear}
+                    onCreateFiscalYear={handleCreateFiscalYear}
+                    onDeleteFiscalYear={handleDeleteFiscalYear}
+                    onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
+                    onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
+                    dateMode={dateMode}
+                    financialSummary={financialSummary}
+                    products={products}
+                    stock={stock}
+                    assets={assets}
+                    purchaseInvoices={purchaseInvoices}
+                    purchaseOrders={purchaseOrders}
+                    shipments={shipments}
+                    approvalRequests={approvalRequests}
+                    currentUser={currentUser}
+                    onRefreshData={refreshAllData}
+                    companyProfile={companyProfile}
+                    selectedFiscalYearId={selectedFiscalYearId}
+                    onSelectFiscalYear={setSelectedFiscalYearId}
+                    onNavigateTab={setActiveTab}
+                  />
+                </React.Suspense>
               )}
 
               {activeTab === 'bs-calendar' && (
-                <React.Suspense fallback={<div className="p-6">Loading…</div>}>
+                <React.Suspense fallback={<TabLoadingFallback />}>
                   <BsCalendarUtility
                   />
                 </React.Suspense>
               )}
 
               {activeTab === 'fiscal-year-management' && (
-                <DocumentNumbering />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <DocumentNumbering />
+                </React.Suspense>
               )}
 
               {activeTab === 'nepali-fiscal' && (
-                <React.Suspense fallback={<div className="p-6">Loading…</div>}>
+                <React.Suspense fallback={<TabLoadingFallback />}>
                   <BsCalendarUtility
                   />
                 </React.Suspense>
               )}
 
               {activeTab === 'help-documentation' && (
-                <HelpDocumentation
-                  currentUser={currentUser}
-                  onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
-                  onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
-                  onNavigateTab={(tab) => {
-                    if (tab === 'barcode-scanner') {
-                      setIsBarcodeModalOpen(true);
-                    } else if (tab === 'users-management' || tab === 'login') {
-                      setActiveTab('users');
-                    } else {
-                      setActiveTab(tab as NavTab);
-                    }
-                  }}
-                />
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <HelpDocumentationLazy
+                    currentUser={currentUser}
+                    onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
+                    onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
+                    onNavigateTab={(tab) => {
+                      if (tab === 'barcode-scanner') {
+                        setIsBarcodeModalOpen(true);
+                      } else if (tab === 'users-management' || tab === 'login') {
+                        setActiveTab('users');
+                      } else {
+                        setActiveTab(tab as NavTab);
+                      }
+                    }}
+                  />
+                </React.Suspense>
               )}
             </>
           )}
