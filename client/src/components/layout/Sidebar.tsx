@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   LayoutDashboard,
   Package,
@@ -17,7 +17,6 @@ import {
   Truck,
   Send,
   Inbox,
-  History,
   Layers,
   ArrowUpRight,
   HeartOff,
@@ -30,9 +29,8 @@ import {
   ShieldCheck,
   ClipboardList,
   ChevronLeft,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Zap,
+  ChevronDown,
+  ChevronsDownUp,
   X,
   Search,
   Scale,
@@ -42,8 +40,6 @@ import {
   Ruler,
   UploadCloud,
   DownloadCloud,
-  Boxes,
-  FolderTree,
   MapPin,
   UserPlus,
   ClipboardCheck,
@@ -194,12 +190,6 @@ interface SidebarProps {
   pendingApprovalCount?: number;
   onCloseMobile?: () => void;
   /**
-   * Optional callback invoked whenever the secondary submenu flyout panel
-   * expands or collapses. Used by App.tsx to implement desktop push-mode:
-   * shifting the main content right instead of letting the panel overlay it.
-   */
-  onSubPanelExpandChange?: (expanded: boolean) => void;
-  /**
    * Opional revision counter bumped whenever the permission matrix is
    * saved/imported. Forces the Sidebar to recompute visible nav groups so
    * granted/revoked permissions apply immediately without a reload.
@@ -219,7 +209,6 @@ interface NavChildDef {
 interface NavGroupDef {
   id: string;
   title: string;
-  shortLabel: string;
   icon: React.ElementType;
   badgeCount?: number;
   children: NavChildDef[];
@@ -236,21 +225,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   inTransitShipmentCount,
   pendingApprovalCount,
   onCloseMobile,
-  onSubPanelExpandChange,
   permissionsVersion,
 }) => {
   const { isDarkMode } = useDarkMode();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 
-  // Build filtered navigation groups based on role permissions
-  // 10 functional groups: Overview / Inventory / Serial Tracking / Procurement /
-  // Warehouse & Transfers / Branch Operations / Finance / Fixed Assets /
-  // Master Data / Administration. Every item keeps its own permission gating,
-  // badges, and separators — only the group placement changed.
+  // Build filtered navigation groups based on role permissions.
+  // 8 consolidated groups (was 11): Serial & Device Tracking merged into
+  // Overview; Fixed Assets + Fiscal Year Opening Register merged into Finance;
+  // Import/Export Stock moved from Administration into Inventory & Stock.
+  // Help & Documentation became a footer link. Every item keeps its own
+  // permission gating, badges, and separators — only group placement changed.
   const groups: NavGroupDef[] = [];
 
-  // 1. Overview Group
+  // 1. Overview Group (dashboard + approvals + serial/device tracking)
   const dashboardChildren: NavChildDef[] = [
     { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
     ...(isOperationAllowed('workflow-approval', currentUser?.role) || isOperationAllowed('workflow-approval-cancel', currentUser?.role)
@@ -264,16 +253,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           },
         ]
       : []),
+    ...(isOperationAllowed('prod-view', currentUser?.role)
+      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package, hasSeparatorAbove: true }]
+      : []),
+    { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
+    { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
+    { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
   ];
   groups.push({
     id: 'dashboard',
     title: 'Overview',
-    shortLabel: 'Overview',
     icon: LayoutDashboard,
     children: dashboardChildren,
   });
 
-  // 2. Inventory & Stock Group
+  // 2. Inventory & Stock Group (incl. Import/Export moved from Administration)
   const inventoryChildren = [
     ...(!isBranchUser ? [{ id: 'all-stock' as NavTab, label: 'All Available Stock', icon: Package }] : []),
     {
@@ -302,36 +296,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isOperationAllowed('stock-valuation', currentUser?.role)
       ? [{ id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign }]
       : []),
+    ...(isOperationAllowed('stock-import-export', currentUser?.role)
+      ? [
+          { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud, hasSeparatorAbove: true },
+          { id: 'export-stock' as NavTab, label: 'Export Stock Data & Reports', icon: DownloadCloud },
+        ]
+      : []),
   ];
   groups.push({
     id: 'inventory',
     title: 'Inventory & Stock',
-    shortLabel: 'Inventory',
     icon: Package,
     badgeCount: lowStockCount,
     children: inventoryChildren,
   });
 
-  // 3. Serial & Device Tracking Group
-  const serialTrackingChildren: NavChildDef[] = [
-    ...(isOperationAllowed('prod-view', currentUser?.role)
-      ? [{ id: 'complete-serial-inventory' as NavTab, label: 'Serial Log Register', icon: Package }]
-      : []),
-    { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
-    { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
-    { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
-  ];
-  if (serialTrackingChildren.length > 0) {
-    groups.push({
-      id: 'serial-tracking',
-      title: 'Serial & Device Tracking',
-      shortLabel: 'Serials',
-      icon: Smartphone,
-      children: serialTrackingChildren,
-    });
-  }
-
-  // 4. Procurement Group
+  // 3. Procurement Group
   // Each former in-page tab header is exposed as its own menu item;
   // clicking a menu renders only that page (in-page tab bars are hidden).
   const canCreatePoAtRole = isOperationAllowed('po-create', currentUser?.role);
@@ -376,13 +356,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   groups.push({
     id: 'procurement',
     title: 'Procurement & Purchasing',
-    shortLabel: 'Purchases',
     icon: ShoppingCart,
     badgeCount: pendingPoCount + pendingBillCount,
     children: procurementChildren,
   });
 
-  // 5. Warehouse & Transfers Group (warehouse dispatch/receive + inter-branch transfers + pullouts)
+  // 4. Warehouse & Transfers Group (warehouse dispatch/receive + inter-branch transfers + pullouts)
   const warehouseChildren: NavChildDef[] = [];
   if (isOperationAllowed('shipment-create', currentUser?.role)) {
     warehouseChildren.push({ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send });
@@ -421,14 +400,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     groups.push({
       id: 'logistics',
       title: 'Warehouse & Transfers',
-      shortLabel: 'Warehouse',
       icon: Truck,
       badgeCount: inTransitShipmentCount,
       children: warehouseChildren,
     });
   }
 
-  // 6. Branch Operations Group (sales, consumables, damages, asset assignment)
+  // 5. Branch Operations Group (sales, consumables, damages, asset assignment)
   const branchOpsChildren: NavChildDef[] = [
     ...(isOperationAllowed('stock-out', currentUser?.role)
       ? [{ id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus }]
@@ -452,27 +430,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     groups.push({
       id: 'stockops',
       title: 'Branch Operations',
-      shortLabel: 'Branch Ops',
       icon: Layers,
       children: branchOpsChildren,
     });
   }
 
-  // 7. Fixed Assets Group
-  if (isOperationAllowed('assets-manage', currentUser?.role)) {
-    groups.push({
-      id: 'fixed-assets-group',
-      title: 'Fixed Assets',
-      shortLabel: 'Assets',
-      icon: Building,
-      children: [
-        { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building },
-        { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator },
-      ],
-    });
-  }
-
-  // 8. Finance Group
+  // 6. Finance & Accounting Group (incl. Fixed Assets + Fiscal Year Opening Register)
   const financeChildren: NavChildDef[] = [];
   if (isOperationAllowed('fin-statements', currentUser?.role)) {
     financeChildren.push({ id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale });
@@ -486,20 +449,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isOperationAllowed('vat-register', currentUser?.role)) {
     financeChildren.push({ id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt });
   }
+  if (isOperationAllowed('assets-manage', currentUser?.role)) {
+    financeChildren.push(
+      { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building, hasSeparatorAbove: true },
+      { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator }
+    );
+  }
   if (financeChildren.length > 0) {
     groups.push({
       id: 'finance',
       title: 'Finance & Accounting',
-      shortLabel: 'Finance',
       icon: DollarSign,
       children: financeChildren,
     });
   }
 
-  // 9. Master Data Group
+  // 7. Master Data Group (Fiscal Year Opening Register moved to Finance)
   const canViewProducts = isOperationAllowed('prod-view', currentUser?.role);
-  const canViewOpeningStock = isOperationAllowed('opening-stock-view', currentUser?.role);
-  const canImportExportStock = isOperationAllowed('stock-import-export', currentUser?.role);
   const inventorySetupChildren: NavChildDef[] = [
     ...(canViewProducts
       ? [{ id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package }]
@@ -521,19 +487,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isOperationAllowed('admin-branches', currentUser?.role)
       ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }]
       : []),
-    ...(canViewOpeningStock
-      ? [{ id: 'opening-stock' as NavTab, label: 'Fiscal Year Opening Register', icon: Scale }]
-      : []),
   ];
   groups.push({
     id: 'inventory-setup',
     title: 'Master Data & Directories',
-    shortLabel: 'Master Data',
     icon: SlidersHorizontal,
     children: inventorySetupChildren,
   });
 
-  // 10. Administration Group
+  // 8. Administration Group (Import/Export Stock moved to Inventory & Stock)
   const adminChildren: NavChildDef[] = [];
   if (isSuperAdmin) {
     adminChildren.push({ id: 'company-setup' as NavTab, label: 'Company Profile & Setup', icon: Building2 });
@@ -556,10 +518,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isOperationAllowed('admin-audit', currentUser?.role)) {
     adminChildren.push({ id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList });
   }
-  if (canImportExportStock) {
-    adminChildren.push({ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud });
-    adminChildren.push({ id: 'export-stock' as NavTab, label: 'Export Stock Data & Reports', icon: DownloadCloud });
-  }
   if (isSuperAdmin) {
     adminChildren.push(
       { id: 'data-recalculation' as NavTab, label: 'Data Recalculation & Repair', icon: RefreshCw },
@@ -570,22 +528,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     groups.push({
       id: 'admin',
       title: 'Administration & Governance',
-      shortLabel: 'Admin',
       icon: Settings,
       children: adminChildren,
     });
   }
-
-  // 11. Help & Documentation Group (Accessible to all users)
-  groups.push({
-    id: 'help-documentation-group',
-    title: 'Help & Documentation',
-    shortLabel: 'Help',
-    icon: HelpCircle,
-    children: [
-      { id: 'help-documentation' as NavTab, label: 'Help Center & Manual', icon: BookOpen },
-    ],
-  });
 
   // Helper to find parent group of active tab
   const getParentGroupId = (tab: NavTab): string => {
@@ -597,61 +543,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return 'dashboard';
   };
 
-  const [activeGroup, setActiveGroup] = useState<string>(() => getParentGroupId(activeTab));
-  // Persisted across reloads via localStorage (default: expanded)
-  const [isSubPanelExpanded, setIsSubPanelExpanded] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('sidebar.subPanelExpanded') !== 'false';
-    } catch {
-      return true;
-    }
+  // Accordion state: which groups have their sub-items expanded inline.
+  // Multiple groups can be open at once; the group containing the active tab
+  // auto-expands so context is preserved on load and after navigation.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    const parent = getParentGroupId(activeTab);
+    return new Set(parent === 'dashboard' ? [] : [parent]);
   });
-  const [menuFilter, setMenuFilter] = useState<string>('');
+  const [globalSearch, setGlobalSearch] = useState<string>('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Persist expansion state and report it to the parent (desktop push-mode support)
-  useEffect(() => {
-    try {
-      localStorage.setItem('sidebar.subPanelExpanded', String(isSubPanelExpanded));
-    } catch {
-      /* localStorage unavailable (private mode etc.) — non-fatal */
-    }
-    onSubPanelExpandChange?.(isSubPanelExpanded);
-  }, [isSubPanelExpanded, onSubPanelExpandChange]);
-
-  const sidebarRef = useRef<HTMLElement>(null);
-
-  // Keep activeGroup in sync when activeTab changes
+  // Keep the accordion in sync when the active tab changes from outside
+  // (e.g. Global Search modal, workflow navigation, search jump).
   useEffect(() => {
     const parent = getParentGroupId(activeTab);
-    setActiveGroup(parent);
+    setExpandedGroups((prev) => {
+      if (prev.has(parent)) return prev;
+      const next = new Set(prev);
+      next.add(parent);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, permissionsVersion]);
 
-  // Hide sub-menu panel if click is detected outside the sidebar area
+  // Escape clears the global search. '/' focuses it.
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        isSubPanelExpanded &&
-        sidebarRef.current &&
-        !sidebarRef.current.contains(event.target as Node)
-      ) {
-        setIsSubPanelExpanded(false);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !(event.target instanceof HTMLInputElement) && globalSearch) {
+        setGlobalSearch('');
+      }
+      if (event.key === '/' && !(event.target instanceof HTMLInputElement)) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
       }
     };
-
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isSubPanelExpanded]);
+  }, [globalSearch]);
 
-  const handlePrimaryGroupClick = (groupId: string) => {
-    if (activeGroup === groupId) {
-      // Toggle secondary sub-panel expansion if clicking the same active group
-      setIsSubPanelExpanded((prev) => !prev);
-    } else {
-      setActiveGroup(groupId);
-      setIsSubPanelExpanded(true);
-    }
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const allGroupIds = useMemo(() => groups.map((g) => g.id), [groups]);
+
+  // Smart expand/collapse-all: if any group is closed, expand all;
+  // otherwise collapse all.
+  const allExpanded = expandedGroups.size >= allGroupIds.length;
+  const toggleAllGroups = () => {
+    setExpandedGroups(allExpanded ? new Set() : new Set(allGroupIds));
   };
 
   const handleSubItemClick = (tab: NavTab) => {
@@ -661,186 +608,232 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const currentGroupDef = groups.find((g) => g.id === activeGroup) || groups[0];
 
-  const filteredSubItems = currentGroupDef
-    ? currentGroupDef.children.filter((child) =>
-        (child?.label || '').toLowerCase().includes(menuFilter.trim().toLowerCase())
-      )
-    : [];
+  // Global search: flatten every group's items and match on label + group
+  // title so "finance vat" or just "vat" both find the VAT register.
+  const globalSearchResults = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+    if (!q) return [];
+    const results: Array<{ child: NavChildDef; group: NavGroupDef }> = [];
+    for (const group of groups) {
+      for (const child of group.children) {
+        if (
+          (child.label || '').toLowerCase().includes(q) ||
+          group.title.toLowerCase().includes(q)
+        ) {
+          results.push({ child, group });
+        }
+      }
+    }
+    return results;
+  }, [globalSearch, groups]);
+
+  const highlightMatch = (text: string, query: string): React.ReactNode => {
+    const q = query.trim();
+    if (!q) return text;
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark className="bg-indigo-200/70 text-indigo-900 rounded-sm px-0.5 dark:bg-indigo-500/40 dark:text-indigo-100">
+          {text.slice(idx, idx + q.length)}
+        </mark>
+        {text.slice(idx + q.length)}
+      </>
+    );
+  };
+
+  // Shared item-row renderer (used by group view and global search results).
+  const renderItemButton = (
+    child: NavChildDef,
+    opts: { showGroupLabel?: boolean; groupTitle?: string; query?: string; separator?: boolean; idx?: number } = {}
+  ) => {
+    const isActive = activeTab === child.id;
+    const ItemIcon = child.icon;
+    return (
+      <React.Fragment key={child.id}>
+        {opts.separator && (opts.idx ?? 0) > 0 && (
+          <div className="my-2 px-1 flex items-center">
+            <div className="h-[1px] w-full bg-slate-200 dark:bg-slate-800/80" />
+          </div>
+        )}
+        <button
+          onClick={() => handleSubItemClick(child.id)}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer font-medium ${
+            isActive
+              ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
+              : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+            <span className="text-left leading-snug">{highlightMatch(child.label, opts.query || '')}</span>
+          </div>
+
+          {child.badge !== undefined && child.badge > 0 && (
+            <span
+              className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
+                child.badgeColor ||
+                'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+              }`}
+            >
+              {child.badge}
+            </span>
+          )}
+        </button>
+        {opts.showGroupLabel && opts.groupTitle && (
+          <p className="px-3 pb-1 -mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
+            {opts.groupTitle}
+          </p>
+        )}
+      </React.Fragment>
+    );
+  };
 
   return (
     <aside
-      ref={sidebarRef}
-      className={`h-full flex flex-row flex-shrink-0 select-none relative bg-white text-slate-800 dark:bg-[#0f1218] dark:text-slate-300`}
+      className={`responsive-sidebar w-72 h-full flex flex-col flex-shrink-0 select-none relative bg-white text-slate-800 border-r border-slate-200 dark:bg-[#0f1218] dark:text-slate-300 dark:border-slate-800/80`}
     >
-      {/* PRIMARY NARROW RAIL (responsive: 76px standard, 64px compact desktop) */}
-      <div
-        className={`responsive-sidebar-rail w-[76px] flex-shrink-0 border-r flex flex-col justify-between items-center py-3.5 z-20 border-slate-200 bg-slate-50/90 dark:border-slate-800/80 dark:bg-[#0f1218]`}
-      >
-        {/* Primary Main Menu Header Stack */}
-        <div className="flex-1 w-full space-y-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar px-1.5 py-2">
-          {groups.map((group) => {
-            const isActive = activeGroup === group.id;
-            const GroupIcon = group.icon;
-
-            return (
-              <button
-                key={group.id}
-                onClick={() => handlePrimaryGroupClick(group.id)}
-                title={group.title}
-                className={`w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all cursor-pointer relative group ${isActive ? 'bg-indigo-100/90 text-indigo-900 font-bold border border-indigo-300/80 shadow-xs dark:bg-indigo-600/25 dark:text-indigo-300 dark:font-bold dark:border dark:border-indigo-500/50 dark:shadow-xs' : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'}`}
-              >
-                <div className="relative">
-                  <GroupIcon className={`h-5 w-5 ${isActive ? 'scale-110 text-indigo-500' : ''}`} />
-                  {group.badgeCount !== undefined && group.badgeCount > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-xs">
-                      {group.badgeCount > 99 ? '99+' : group.badgeCount}
-                    </span>
-                  )}
-                </div>
-                {/* MENU LABEL DIRECTLY BELOW ICON */}
-                <span
-                  className={`text-[10px] font-semibold leading-tight tracking-tight mt-1.5 text-center truncate w-full px-0.5 ${
-                    isActive ? 'text-indigo-600 dark:text-indigo-400 font-bold' : ''
-                  }`}
-                >
-                  {group.shortLabel}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Bottom Rail Collapse / Expand Toggle Button */}
-        <div className="pt-2 w-full px-2 border-t border-slate-200 dark:border-slate-800/80 flex flex-col items-center">
+      {/* Mobile Header bar with close button */}
+      {onCloseMobile && (
+        <div className="flex md:hidden items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-300">Navigation</span>
           <button
-            onClick={() => setIsSubPanelExpanded((prev) => !prev)}
-            title={isSubPanelExpanded ? 'Collapse Submenu Panel' : 'Expand Submenu Panel'}
-            className={`p-2 rounded-xl transition-all cursor-pointer text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800`}
+            onClick={onCloseMobile}
+            className="rounded-lg p-1 text-slate-400 hover:text-slate-800 dark:hover:text-white"
+            title="Close drawer"
           >
-            {isSubPanelExpanded ? (
-              <PanelLeftClose className="h-4 w-4" />
-            ) : (
-              <PanelLeftOpen className="h-4 w-4 text-indigo-500 animate-pulse" />
-            )}
+            <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* HEADER: title row with expand/collapse-all control */}
+      <div
+        className={`px-2.5 py-1.5 border-b flex items-center border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
+      >
+        <button
+          onClick={toggleAllGroups}
+          className="flex-1 flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer min-w-0"
+          title={allExpanded ? 'Collapse all menu groups' : 'Expand all menu groups'}
+        >
+          <span className="truncate">Expand / Collapse Menu</span>
+          <ChevronsDownUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 ${allExpanded ? '' : 'rotate-180'}`} />
+        </button>
+      </div>
+
+      {/* GLOBAL MENU SEARCH */}
+      <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/60">
+        <div
+          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs bg-slate-100/80 border-slate-200 text-slate-700 dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-300`}
+        >
+          <Search className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search menu… ( / )"
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="w-full bg-transparent text-xs focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+          />
+          {globalSearch && (
+            <button
+              onClick={() => setGlobalSearch('')}
+              className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              title="Clear"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* SECONDARY SUBMENU FLYOUT PANEL (responsive overlay) */}
-      {isSubPanelExpanded && (
-        <div
-          className={`responsive-sidebar-panel absolute left-[76px] top-0 bottom-0 z-30 w-64 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 border-slate-200/90 bg-white/98 backdrop-blur-md dark:border-slate-800/90 dark:bg-[#0c0e13]/98`}
-        >
-          {/* Mobile Header bar with close button */}
-          {onCloseMobile && (
-            <div className="flex md:hidden items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-300">Navigation</span>
-              <button
-                onClick={onCloseMobile}
-                className="rounded-lg p-1 text-slate-400 hover:text-slate-800 dark:hover:text-white"
-                title="Close drawer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+      {/* NAV CONTENT: accordion — groups expand inline below their header */}
+      <div className="py-2 px-2 flex-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar">
+        {globalSearch.trim() ? (
+          globalSearchResults.length > 0 ? (
+            globalSearchResults.map(({ child, group }) => (
+              <div key={`${group.id}-${child.id}`}>
+                {renderItemButton(child, { query: globalSearch })}
+                <p className="pl-10 pr-3 pb-1 -mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
+                  {group.title}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="px-3 py-6 text-xs text-slate-400 text-center">
+              No menu items match "{globalSearch.trim()}".
+            </p>
+          )
+        ) : (
+          groups.map((group) => {
+            const isExpanded = expandedGroups.has(group.id);
+            const containsActive = group.children.some((c) => c.id === activeTab);
+            const GroupIcon = group.icon;
+            return (
+              <div key={group.id} className="mb-0.5">
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  title={group.title}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all cursor-pointer ${
+                    containsActive
+                      ? 'text-indigo-900 bg-indigo-50/60 dark:text-indigo-300 dark:bg-indigo-600/10'
+                      : 'text-slate-700 hover:text-indigo-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <GroupIcon className={`h-5 w-5 flex-shrink-0 ${containsActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+                    <span className="text-left leading-snug">{group.title}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {group.badgeCount !== undefined && group.badgeCount > 0 && (
+                      <span className="flex h-4.5 min-w-4.5 px-1.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white shadow-xs">
+                        {group.badgeCount > 99 ? '99+' : group.badgeCount}
+                      </span>
+                    )}
+                    <ChevronDown
+                      className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                    />
+                  </div>
+                </button>
 
-          {/* Submenu Title & Collapse Header */}
-          <div
-            className={`px-4 py-3.5 border-b flex items-center justify-between border-slate-100 bg-slate-50/80 dark:border-slate-800/80 dark:bg-slate-900/50`}
-          >
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              {currentGroupDef && (
-                <>
-                  <currentGroupDef.icon className="h-4.5 w-4.5 text-indigo-500 flex-shrink-0" />
-                  <span className={`text-xs font-bold uppercase tracking-wider truncate text-slate-800 dark:text-indigo-400`}>
-                    {currentGroupDef.title}
-                  </span>
-                </>
-              )}
-            </div>
+                {isExpanded && (
+                  <div className="mt-0.5 mb-1.5 ml-4 pl-2.5 border-l-2 border-slate-200 dark:border-slate-800 space-y-0.5">
+                    {group.children.map((child, idx) =>
+                      renderItemButton(child, {
+                        query: globalSearch,
+                        separator: child.hasSeparatorAbove,
+                        idx,
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+          {/* FOOTER: Help link + Company card */}
+          <div className="px-2 pb-2 space-y-1">
             <button
-              onClick={() => setIsSubPanelExpanded(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Collapse sub-menu"
+              onClick={() => handleSubItemClick('help-documentation')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
+                activeTab === 'help-documentation'
+                  ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-600/20 dark:text-indigo-300'
+                  : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
+              }`}
             >
-              <ChevronLeft className="h-4 w-4" />
+              <HelpCircle className={`h-4 w-4 ${activeTab === 'help-documentation' ? 'text-indigo-500' : 'text-slate-400'}`} />
+              <span className="text-left leading-snug">Help Center & Manual</span>
             </button>
           </div>
 
-          {/* Quick Submenu Search/Filter (renders if group has > 4 sub-items) */}
-          {currentGroupDef && currentGroupDef.children.length > 4 && (
-            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/60">
-              <div
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs bg-slate-100/80 border-slate-200 text-slate-700 dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-300`}
-              >
-                <Search className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Filter menu options..."
-                  value={menuFilter}
-                  onChange={(e) => setMenuFilter(e.target.value)}
-                  className="w-full bg-transparent text-[11px] focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                />
-                {menuFilter && (
-                  <button onClick={() => setMenuFilter('')} className="text-[10px] text-slate-400 hover:text-slate-200">
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-menu Nav Items List */}
-          <div className="py-2.5 px-2.5 flex-1 overflow-y-auto space-y-1 custom-scrollbar sidebar-hover-scrollbar">
-            {filteredSubItems.map((child, idx) => {
-              const isActive = activeTab === child.id;
-              const ItemIcon = child.icon;
-
-              return (
-                <React.Fragment key={child.id}>
-                  {child.hasSeparatorAbove && idx > 0 && (
-                    <div className="my-2 px-1 flex items-center">
-                      <div className="h-[1px] w-full bg-slate-200 dark:bg-slate-800/80" />
-                    </div>
-                  )}
-                  <button
-                    onClick={() => handleSubItemClick(child.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer font-medium ${
-                      isActive
-                        ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
-                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-200 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-                      <span className="truncate text-left text-[12px]">{child.label}</span>
-                    </div>
-
-                    {child.badge !== undefined && child.badge > 0 && (
-                      <span
-                        className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
-                          child.badgeColor ||
-                          'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                        }`}
-                      >
-                        {child.badge}
-                      </span>
-                    )}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
-
-          {/* Bottom Inventory Name & System Version */}
           <button
             type="button"
             onClick={() => onSelectTab('company-setup')}
             title={`Company Setup Database: ${companyProfile?.name || 'Inventory'} - Click to manage setup`}
-            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300 dark:bg-slate-900/90 dark:border-slate-800/80 dark:text-slate-300 dark:hover:border-indigo-500/50`}
+            className={`p-3 m-2 mt-0 rounded-2xl border flex items-center gap-2.5 transition-all text-left cursor-pointer group hover:shadow-sm bg-slate-50 border-slate-200/80 text-slate-700 hover:border-indigo-300 dark:bg-slate-900/90 dark:border-slate-800/80 dark:text-slate-300 dark:hover:border-indigo-500/50`}
           >
             {companyProfile?.logoUrl ? (
               <img
@@ -878,8 +871,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </p>
             </div>
           </button>
-        </div>
-      )}
     </aside>
   );
 };

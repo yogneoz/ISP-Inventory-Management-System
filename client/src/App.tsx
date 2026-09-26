@@ -277,7 +277,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   /** Whether the sidebar's secondary submenu flyout panel is expanded (desktop push-mode). */
-  const [isSubPanelExpanded, setIsSubPanelExpanded] = useState<boolean>(true);
+
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
 
@@ -1304,17 +1304,14 @@ export default function App() {
               (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
             ).length}
             onCloseMobile={() => setIsSidebarOpen(false)}
-            onSubPanelExpandChange={setIsSubPanelExpanded}
             permissionsVersion={permissionsVersion}
           />
         </div>
 
-        {/* Main Content Viewport — on desktop (md+) the open submenu panel pushes
-            content right instead of overlaying it; on mobile the panel is a drawer. */}
+        {/* Main Content Viewport — the sidebar is a static flex column, so the
+            main area always fills the remaining width at a stable size. */}
         <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10] ${
-            isSubPanelExpanded ? 'sidebar-push-main' : ''
-          }`}
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
         >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-3">
@@ -2262,6 +2259,10 @@ export default function App() {
                     dateMode={dateMode}
                     asOfDateAD={assetReportAsOfDateAD}
                     companyProfile={companyProfile}
+                    branches={branches}
+                    fiscalYears={fiscalYears}
+                    currentFiscalYear={resolveDefaultFiscalYear(fiscalYears) || null}
+                    fiscalYearId={resolveDefaultFiscalYear(fiscalYears)?.id}
                   />
                 </React.Suspense>
               )}

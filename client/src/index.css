@@ -44,13 +44,8 @@
     font-size: 94%;
   }
 
-  .responsive-sidebar-rail {
-    width: 64px;
-  }
-
-  .responsive-sidebar-panel {
-    left: 64px;
-    width: 15rem;
+  .responsive-sidebar {
+    width: 15.5rem;
   }
 
   :root {
@@ -166,28 +161,20 @@
 }
 
 /* =====================================================================
-   SIDEBAR PUSH MODE (desktop only)
+   SIDEBAR (static drill-down column)
    ---------------------------------------------------------------------
-   When the secondary submenu flyout panel is expanded, the main content
-   viewport shifts right by the panel width instead of being overlaid.
-   Applied only at md+ (768px), where the sidebar stops being a drawer.
-   Widths mirror .responsive-sidebar-panel exactly:
-     - >= 1367px -> panel is w-64 = calc(var(--spacing) * 64), rail is 76px
-       (spacing-derived so it stays in sync with the panel when the
-       responsive --spacing compression tiers change its computed width)
-     - 768..1366px -> panel is 15rem, rail is 64px
-   The class is toggled by App.tsx when the panel expands/collapses.
+   The sidebar is a normal flex child of the app row — it never overlays
+   or pushes content, so every page renders at the same stable width.
+   Width tiers mirror the old two-part sidebar tiers:
+     - >= 1367px -> w-72 = calc(var(--spacing) * 72)
+       (spacing-derived so it stays in sync with the responsive
+       --spacing compression tiers)
+     - 768..1366px -> 15.5rem (compact business displays like 1366x768)
+   The collapsed state swaps the whole column for a slim toggle strip.
    ===================================================================== */
-@media screen and (min-width: 768px) {
-  .sidebar-push-main {
-    margin-left: calc(var(--spacing) * 64);
-    transition: margin-left 0.2s ease;
-  }
-}
-
 @media screen and (min-width: 768px) and (max-width: 1366px) {
-  .sidebar-push-main {
-    margin-left: 15rem;
+  .responsive-sidebar {
+    width: 15.5rem;
   }
 }
 
