@@ -2,7 +2,7 @@
 
 _Date: 2026-09-26 · Branch: main · Tests: 433/433 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 16 — deep code splitting (UNCOMMITTED — startup payload −96 kB gz, bundler trap documented)
+## ⭐ NEWEST: Arc 16 — deep code splitting (pushed `fdfe03c`, CI green — startup payload −96 kB gz, bundler trap documented)
 
 Follow-up to Arc 15's vendor split: the ~358 kB gz startup graph (index.js + static
 imports) shrank to **~262 kB gz** (index.js alone: 38 kB → 11.7 kB gz). Two changes:
