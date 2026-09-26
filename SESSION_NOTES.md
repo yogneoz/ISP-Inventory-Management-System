@@ -514,13 +514,17 @@ unseeded calendar days use BS_DATE_FALLBACK.
 - Then drop `serialLogs` mirror's 3 narrow uses (clash pre-check app.ts ~1317,
   quarantine/restore in damage flows, serial PATCH lookup ~1829) — PG equivalents already run.
 
-### 4. Redis Pub/Sub event bus (approved design: Redis + in-process fallback)
-- User approved: Redis when `REDIS_URL` set, otherwise in-process EventEmitter fallback.
-  `.env.example` already has REDIS_URL/SSE_REDIS_CHANNEL/DISABLE_SSE_REDIS placeholders.
-- Replace `broadcastChange`'s direct `sseClients` write loop with publish; SSE manager
-  subscribes to the channel and fans out. `sseClients` Set is allowed to stay (connection
-  handles are the permitted in-memory state).
-- npm package `ioredis` NOT yet installed — verify before use.
+### 4. Redis Pub/Sub event bus — DECLINED (decided 2026-09-26, do not re-litigate)
+- Decision: NOT needed for this deployment. Rationale: single Node process
+  (`node dist/server.cjs` via PM2) — every SSE client is in that process and
+  `broadcastChange()` writes to it directly; Redis Pub/Sub only pays off with multiple
+  server instances behind a load balancer. Internal LAN system: tens of clients, not
+  thousands. The unused REDIS_URL/SSE_REDIS_CHANNEL placeholders were removed from
+  `.env.example`.
+- IF multi-instance scaling ever happens, the change is contained: `broadcastChange`
+  (server/src/realtime/sse.ts) already funnels every event through one function — swap
+  its write loop for publish + subscribe fan-out (`ioredis`), keep the in-memory Set
+  for local connections.
 
 ### 5. Bootstrap trim continuation (consumer-driven)
 - `stockOperations` / `purchaseOrders` / `purchaseInvoices` still ship in bootstrap (see trim
