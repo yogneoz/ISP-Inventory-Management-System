@@ -1,8 +1,35 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-26 · Branch: main · Tests: 423/423 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-09-26 · Branch: main · Tests: 433/433 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 15 — deps modernization + bundle split + CI build/audit gates (backlog #3 + #7 CLOSED, pushed `5318809`, CI green)
+## ⭐ NEWEST: Arc 16 — deep code splitting (UNCOMMITTED — startup payload −96 kB gz, bundler trap documented)
+
+Follow-up to Arc 15's vendor split: the ~358 kB gz startup graph (index.js + static
+imports) shrank to **~262 kB gz** (index.js alone: 38 kB → 11.7 kB gz). Two changes:
+
+1. **17 more screens lazy-loaded** in `client/src/App.tsx` (Reorder/Valuation/Ledger/
+   Warranty/Category/UoM/Import/Export stock; all finance registers + closing wizard +
+   doc numbering + opening stock + vendor ledger/openings; ImportCustomers, Locations,
+   ApprovalWorkflowCenter, ClearDemoDataView, DataRecalculationMaintenance) — all with
+   the shared `TabLoadingFallback` spinner. Still eager BY DESIGN: Dashboard,
+   ProductManagement, StockOperations (11 render sites), PurchaseOrders,
+   SerialLogRegister, BranchStockTracking, modals.
+
+2. **⚠️ BUNDLER TRAP — shared modules swallowed into feature chunks** (vite.config.ts):
+   Rollup placed the shared `DateField` component INSIDE the FixedAssetRegister chunk,
+   so every screen importing DateField (StockOperations, PurchaseOrders, most inventory
+   screens) transitively pulled a 40 kB finance screen into its static import graph —
+   invisible in source code, visible only by parsing the emitted chunks
+   (`grep 'from"./chunk"' dist/assets/*.js`). Fix: file-level `shared-*` chunks for ALL
+   `src/components|utils|hooks|contexts` modules. LESSON: after changing manualChunks,
+   ALWAYS audit the emitted import graph, not just chunk sizes — a chunk can be small
+   while being wrongly wired into everything.
+
+Verification pattern that worked: parse `dist/assets/index-*.js` for
+`from"./X"` static imports (the true startup set), then assert each lazy chunk is
+absent. Production smoke + 433/433 tests pass.
+
+## Arc 15 — deps modernization + bundle split + CI build/audit gates (backlog #3 + #7 CLOSED, pushed `5318809`, CI green)
 
 Three arcs landed as commits `d9cd443` (exceljs + vendor split + motion removal) and
 `5318809` (CI gates).
@@ -38,7 +65,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 423 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 433 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only

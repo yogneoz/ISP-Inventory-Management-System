@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 423 tests; CI runs
+                                        #   drift/concurrency guards — 433 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -910,16 +910,29 @@ SEED_DUMMY_DATA=false        # Seed demo data on first launch
 DISABLE_HMR=true             # Disable HMR for AI agent editing
 ```
 
-### 13.2 Vite Configuration
+### 13.2 Vite Configuration & Code-Splitting Strategy
 
 - Tailwind CSS 4 via `@tailwindcss/vite` plugin
 - Path alias: `@` → project root
-- Manual chunks: `vendor-react`, `vendor-icons` (lucide-react), `vendor-excel`
-  (exceljs), `common-components`, `feature-*`. Chunk order matters: `lucide-react`
-  must be matched BEFORE the generic `react` substring check, or every icon lands
-  in `vendor-react` (this bug shipped once — keep the boundary-anchored regexes).
-- Lazy loading: rarely-used screens use `React.lazy` + `<Suspense>`; exceljs only
-  loads on first visit to the BS calendar tabs
+- **Manual chunks (three families):**
+  - `vendor-react`, `vendor-icons` (lucide-react), `vendor-excel` (exceljs) — chunk
+    order matters: `lucide-react` must be matched BEFORE the generic `react` substring
+    check, or every icon lands in `vendor-react` (this bug shipped once — keep the
+    boundary-anchored regexes)
+  - `feature-<domain>-<Screen>` — per-FILE chunks for every feature screen, so a
+    `React.lazy` screen truly leaves the startup graph (per-feature-GROUP chunks made
+    lazy screens ride along with eager siblings — this also shipped once)
+  - `shared-<name>` — per-file chunks for every `src/components|utils|hooks|contexts`
+    module. ⚠️ Without this, Rollup merges a shared module into whichever feature chunk
+    first grabbed it (observed: `DateField` ended up inside FixedAssetRegister's chunk,
+    dragging a 40 kB finance screen into every inventory screen's import graph). After
+    ANY `manualChunks` change, audit the emitted import graph — parse
+    `from"./…"` statements in `dist/assets/index-*.js` — not just chunk sizes.
+- **Lazy loading**: rarely-used screens use `React.lazy` + `<Suspense>` with the shared
+  `TabLoadingFallback` spinner in `App.tsx` (24+ screens). Startup graph ≈ 262 kB gz.
+  Eager by design: Dashboard, ProductManagement, StockOperations, PurchaseOrders,
+  SerialLogRegister, BranchStockTracking, modals. exceljs loads only on first visit to
+  the BS calendar tabs.
 - HMR can be disabled via `DISABLE_HMR=true`
 
 ### 13.3 Build Pipeline
@@ -1047,7 +1060,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 423 tests against a real PostgreSQL 16 service container
+2. `npm test` — 433 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
