@@ -46,6 +46,31 @@ try {
 
 const skipPositive = !dbReachable && 'needs a reachable PostgreSQL (requirePostgres gate)';
 
+const LOGIN_TEST_EMAIL = 'auth-guard-test@example.com';
+const LOGIN_TEST_PASSWORD = 'AuthGuard@Test1';
+
+/**
+ * Ensure a dedicated login-test account exists. CI's database is FRESH
+ * (schema.sql only — zero users), so tests must never assume seeded data.
+ * Idempotent: UPDATE refreshes the password on re-runs; the ON CONFLICT
+ * insert covers first run.
+ */
+async function ensureLoginTestUser(pool: pg.Pool): Promise<void> {
+  // Fresh databases (CI) have zero branches; users.branch_id has an FK to
+  // branches, so provision the branch first (idempotent).
+  await pool.query(
+    `INSERT INTO branches (id, code, name, location)
+     VALUES ('WH001', 'WH001', 'Auth Guard Test Branch', 'Test Location')
+     ON CONFLICT (id) DO NOTHING`
+  );
+  await pool.query(
+    `INSERT INTO users (id, name, email, password, role, branch_id)
+     VALUES ('u-auth-guard-test', 'Auth Guard Test', $1, $2, 'INVENTORY_MANAGER', 'WH001')
+     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password`,
+    [LOGIN_TEST_EMAIL, hashPassword(LOGIN_TEST_PASSWORD)]
+  );
+}
+
 function startServer(app: import('express').Express): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve) => {
     const server = http.createServer(app);
@@ -72,14 +97,12 @@ async function login(port: number, body: unknown): Promise<{ status: number; jso
 
 describe('login (POST /api/auth/login, HTTP layer)', () => {
   test('wrong password for an existing account: 401 with a structured message', { skip: skipPositive }, async () => {
+    await ensureLoginTestUser(probe!);
     const app = createApp();
     registerAllRoutes(app);
     const { port, close } = await startServer(app);
     try {
-      // Find a real account to aim the wrong-password attempt at.
-      const { rows } = await probe!.query(`SELECT email FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1`);
-      assert.ok(rows[0], 'test requires at least one user in the database');
-      const { status, json } = await login(port, { email: rows[0].email, password: 'definitely-wrong-password' });
+      const { status, json } = await login(port, { email: LOGIN_TEST_EMAIL, password: 'definitely-wrong-password' });
       assert.equal(status, 401);
       assert.match(String(json?.message), /invalid email or password/i);
     } finally {
@@ -127,20 +150,11 @@ describe('login (POST /api/auth/login, HTTP layer)', () => {
     registerAllRoutes(app);
     const { port, close } = await startServer(app);
     try {
-      // Provision a dedicated test account (idempotent) so the test does not
-      // depend on seeded data and never mutates a real user's password.
-      const email = 'auth-guard-test@example.com';
-      const password = 'AuthGuard@Test1';
-      await probe!.query(
-        `INSERT INTO users (id, name, email, password, role, branch_id)
-         VALUES ('u-auth-guard-test', 'Auth Guard Test', $1, $2, 'INVENTORY_MANAGER', 'WH001')
-         ON CONFLICT (email) DO NOTHING`,
-        [email, hashPassword(password)]
-      );
-      const { status, json, token, user } = await login(port, { email, password });
+      await ensureLoginTestUser(probe!);
+      const { status, json, token, user } = await login(port, { email: LOGIN_TEST_EMAIL, password: LOGIN_TEST_PASSWORD });
       assert.equal(status, 200);
       assert.ok(token, 'login must issue a token');
-      assert.equal(user?.email, email);
+      assert.equal(user?.email, LOGIN_TEST_EMAIL);
       assert.equal(user?.password, undefined, 'login response must never include the password hash');
 
       // The issued token must authenticate a protected route.
@@ -149,7 +163,7 @@ describe('login (POST /api/auth/login, HTTP layer)', () => {
       });
       assert.equal(me.status, 200);
       const meBody = await me.json();
-      assert.equal(meBody.email, email);
+      assert.equal(meBody.email, LOGIN_TEST_EMAIL);
     } finally {
       await close();
     }
