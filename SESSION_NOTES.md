@@ -37,6 +37,22 @@ wording over management data** — fabricated figures (×1.15), statutory certif
 either posted/derived from real records OR explicitly labeled "estimate/management
 view"; never claim IRD/statutory/audit approval the system cannot perform.
 
+### DECISION — full accounting ERP / general ledger: DECLINED (2026-09-26, do not re-litigate)
+- User explicitly decided NOT to build a general ledger / complete accounting ERP.
+  Context: the app is going LIVE ON THE INTERNET, but that does NOT change this —
+  do not suggest building a GL, chart of accounts, journal entries, AR/AP ledgers,
+  or "real trial balance" in any future session.
+- Rationale: statutory correctness (immutable journals, balancing trial balance,
+  audit-grade trail) is a second product with permanent legal-risk maintenance
+  burden; real accounting software serves the external parties better.
+- The BOUNDED alternatives, if ever wanted, are export-oriented only: Tally voucher
+  export (accountant imports into real accounting software), VAT return helper
+  (format existing input/output tax data for IRD), Accounts Receivable tracking
+  (customer ledger + receipts + aging — operational, not statutory). Any of these
+  must stay additive and must NOT evolve into posting GL entries.
+- The "management view" honesty rule above is the permanent contract for financial
+  wording in this app.
+
 Verified: typecheck, build + budget gate, 449/449. Pushed `334b22e`.
 
 ## Arc 17 — accordion sidebar + ERP-style Financial Overview + reframe (pushed `318198e` + `cac943e`, CI green)
