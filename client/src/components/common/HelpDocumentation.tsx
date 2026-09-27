@@ -28,6 +28,9 @@ import {
   Eye,
   Layers,
   Terminal,
+  ListOrdered,
+  ClipboardList,
+  AlertTriangle,
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -38,7 +41,7 @@ interface HelpDocumentationProps {
   onNavigateTab?: (tab: string) => void;
 }
 
-type HelpTab = 'manual' | 'workflows' | 'shortcuts' | 'faq' | 'system-diagnostics';
+type HelpTab = 'guides' | 'manual' | 'workflows' | 'shortcuts' | 'faq' | 'system-diagnostics';
 
 interface WorkflowStep {
   step: number;
@@ -57,13 +60,172 @@ interface ProcessWorkflow {
   steps: WorkflowStep[];
 }
 
+/** A task-oriented user-manual guide: numbered steps with exact screen names. */
+interface UserGuide {
+  id: string;
+  title: string;
+  goal: string;
+  /** Role/permission prerequisite, if any. */
+  requires?: string;
+  /** Optional caution shown before the steps. */
+  caution?: string;
+  steps: string[];
+  result: string;
+}
+
+const USER_GUIDES: UserGuide[] = [
+  {
+    id: 'daily-ops',
+    title: 'Daily Operations',
+    goal: 'Sign in, set your working branch and date mode, and find any product in seconds.',
+    steps: [
+      'Open the app and sign in with your email and password on the login screen.',
+      'Use the "Select Branch" dropdown in the top header to choose your branch — or "All Branches (Consolidated)" if your role allows it.',
+      'Check the FY (fiscal year) selector beside it shows the correct BS year (e.g. 2083-84 Active). All reports and ledgers respect this year.',
+      'Press Alt + D (or click the date chip in the header) to switch every timestamp between Bikram Sambat and AD.',
+      'Find a product fast: press Ctrl + K (or the header search box) and type the product name or SKU; press Alt + B to open the barcode scanner and scan an item directly.',
+      'Navigate using the left sidebar: click a group name (e.g. "Inventory & Stock") to expand its menu items inline; click it again to collapse. Press / to jump into sidebar menu search.',
+      'Use the "EXPAND / COLLAPSE MENU" header button on the sidebar to open or close all groups at once.',
+      'When finished, click your avatar (top-right) and sign out — especially on shared computers.',
+    ],
+    result: 'You are working in the right branch, fiscal year, and date format, and can reach any screen or product within a couple of clicks.',
+  },
+  {
+    id: 'stock-ops',
+    title: 'Stock In / Out & Transfers',
+    goal: 'Record goods coming in, going out, and moving between branches.',
+    requires: 'Store Incharge or Branch Manager permissions for your branch.',
+    steps: [
+      'Open Inventory & Stock → Stock Operations (the 11-tab stock workspace).',
+      'Stock IN: use the inward tab, pick the supplier invoice (or enter a manual entry), select products with quantities, and submit. Each line updates quantityOnHand and writes a Stock Movement Ledger entry.',
+      'Stock OUT: use the outward tab, choose the destination/purpose, add product lines, and submit. Stock cannot go negative — the server rejects the write if quantity is insufficient.',
+      'Branch Transfer: fill the transfer form (source branch = yours, destination branch, product lines). The destination branch receives it in their Inward/shipments view — both sides get ledger entries.',
+      'Verify everything in Inventory & Stock → Stock Movement Ledger: filter by product, branch, or date; export to CSV for records.',
+    ],
+    result: 'Every physical movement has a matching ledger entry with before/after quantities and full audit trail.',
+  },
+  {
+    id: 'stock-audit',
+    title: 'Physical Stock Count Audit',
+    goal: 'Run a blind stock count, get manager approval on variances, and let the system adjust stock automatically.',
+    requires: 'Store Incharge to count; Branch Manager (or higher) to approve.',
+    caution: 'Adjustments only apply AFTER manager approval. Never edit stock directly to "fix" a count.',
+    steps: [
+      'Open Inventory & Stock → the Physical/Blind Stock Audit tab in Stock Operations.',
+      'Start a new count for your branch. The count sheet hides system quantities (blind count) so you record only what you physically see.',
+      'Count each product and enter the physical quantity. Save the sheet — you can leave and resume it.',
+      'Submit the count for approval. The system compares physical vs system quantities and creates variance entries per product.',
+      'The Branch Manager opens Overview → Workflow Approval Center, reviews each variance with its reason, and approves or rejects.',
+      'On approval the system automatically adjusts inventory_stock and posts a Stock Adjustment entry in the Stock Movement Ledger — no manual stock edits needed.',
+      'Check the result in the ledger (filter: changeType = adjustment) and in Stock Valuation.',
+    ],
+    result: 'System stock matches the physical count, with a documented, approved audit trail for every difference.',
+  },
+  {
+    id: 'purchasing',
+    title: 'Purchasing End-to-End (PO → Invoice → Payment)',
+    goal: 'Raise a purchase order, receive the goods, book the VAT invoice, and track what you owe the supplier.',
+    requires: 'Procurement permissions; Branch Manager for PO approval.',
+    steps: [
+      'Procurement & Purchasing → Purchase Orders: create a PO — supplier, branch, product lines with quantities and agreed prices. Submit it for approval.',
+      'The approver opens Overview → Workflow Approval Center and approves the PO (status becomes approved; the supplier can now deliver).',
+      'When goods arrive: receive against the PO (Inbound/Receiving). Quantities are checked in, stock increases at the receiving branch, and the movement ledger records the inward.',
+      'Procurement & Purchasing → Purchase Invoices: book the supplier\'s VAT invoice against the received PO/P items — grand total and VAT amount feed the VAT register and vendor payables.',
+      'Track what you owe: Finance & Accounting → Vendor Ledger & Payments. Record each payment against the invoice; outstanding balance = opening balances + invoices − payments.',
+      'If the supplier needs a starting balance (from before the system), use Vendor Opening Balances to post it for the fiscal year.',
+    ],
+    result: 'Goods received, VAT input tax captured, and supplier payable balance always reconcilable in the vendor ledger.',
+  },
+  {
+    id: 'sales-devices',
+    title: 'Selling Products & Managing Customer Devices',
+    goal: 'Sell stock over the counter and manage ISP hardware (ONU/router) assigned to customers.',
+    requires: 'Branch Operations permissions; ISP Field Tech for device assignment.',
+    steps: [
+      'Branch Operations → Sell Product: pick the customer (or quick-create one), add product lines, confirm. Stock is deducted at your branch and revenue/COGS feed the Financial Overview trading summary.',
+      'ISP hardware: Overview → Serial Log Register records every ONU/router unit with its Device Serial, PON Serial and MAC address when it arrives.',
+      'Overview → Customer Device Serials: assign a unit to a customer (status IN_STOCK → ACTIVE or RENTAL). The customer\'s device history stays attached to them.',
+      'Defective unit? Log the return in Customer Device Serials — a manager must authorize the restock/exchange before the replacement goes out (Overview → Device Exchange & Replacement).',
+      'Warranty: Overview → View Warranty Products to see units still under warranty and their coverage dates.',
+    ],
+    result: 'Every sold item and every customer-installed device is traceable by serial, with warranty and exchange history.',
+  },
+  {
+    id: 'approvals',
+    title: 'Working the Approval Center',
+    goal: 'Process pending requests — stock adjustments, POs, device returns, refunds — with a full audit trail.',
+    requires: 'Approver permissions (Branch Manager or role-specific).',
+    steps: [
+      'Open Overview → Workflow Approval Center. The badge in the sidebar shows your pending count.',
+      'Each request shows what is proposed, who raised it, and when. Open it to inspect the before/after values (e.g. counted vs system quantity for a stock variance).',
+      'Approve: the system performs the action immediately and records who approved it and when. Reject: the requester is notified and nothing changes.',
+      'Stock-count variances: approval is what actually adjusts inventory — see the Physical Stock Count Audit guide.',
+      'All decisions are permanent entries in Administration & Governance → Audit Activities Log.',
+    ],
+    result: 'Every sensitive action happened because someone specific approved it — and the log proves it.',
+  },
+  {
+    id: 'financial-overview',
+    title: 'Reading the Financial Overview & VAT Register',
+    goal: 'Get management figures for a branch or the whole company, and print them with sources & limitations.',
+    requires: 'Accountant or Super Admin (fin-statements permission).',
+    caution: 'These are MANAGEMENT figures from operational registers — not statutory accounting. The printed cover note says exactly what is and isn\'t included.',
+    steps: [
+      'Open Finance & Accounting → Financial Overview.',
+      'Statement view: pick the entity from "Statement of" — a single branch or All Branches (Consolidated). The table always shows period columns for the header\'s fiscal year.',
+      'Click "Compare with <prior year>" to add prior-year closing columns and a signed variance column (+green / −red).',
+      'Switch to the "Branch Comparison" tab to see every branch as a ROW with KPI columns (assets, payables, net position, revenue…) and a CONSOLIDATED row — this is the branch-vs-branch report.',
+      'Print Statement: the printout includes a cover note listing data sources and limitations — hand it to management as-is.',
+      'VAT: Finance & Accounting → VAT Sales & Purchase Register shows claimable input tax credit from purchase invoices for the selected fiscal year.',
+      'Depreciation: the Depreciation Register computes SLM/WDV per asset from its placed-in-service date; the Tax Depreciation Schedule shows the yearly amounts.',
+    ],
+    result: 'Reliable management numbers per branch or group, printed with an honest cover note; VAT input tax ready to hand to your accountant.',
+  },
+  {
+    id: 'year-end',
+    title: 'Fiscal Year Closing (6-Step Wizard)',
+    goal: 'Close a BS fiscal year: verify data, lock valuation, roll balances forward, and lock the period.',
+    requires: 'Super Admin. Do this shortly after the BS year ends, before users post into the new year heavily.',
+    caution: 'Closing locks the prior period against edits. Only Super Admin can unlock, and every unlock is audited.',
+    steps: [
+      'Administration & Governance → Fiscal Year Closing Wizard. Enter the admin PIN/password when asked.',
+      'Step 1 — Pre-Closing Audit & Diagnostics: the wizard runs live data checks (unposted movements, incomplete counts, VAT register) and flags anything to fix first.',
+      'Step 2 — Asset Depreciation & Stock Valuation Lock: review computed annual depreciation and closing stock value; confirm to lock the valuation basis.',
+      'Step 3 — Financial Summary & Surplus Estimate: review real posted sales − COGS − schedule depreciation. This is a management estimate — the system posts no ledger entries.',
+      'Step 4 — Opening Balances Roll-Forward: stock quantities/costs carry into the new fiscal year\'s opening stock.',
+      'Step 5 — Close Vendor Ledgers: vendor opening balances roll forward so payables continue correctly into the new year.',
+      'Step 6 — Lock Period & Closing Snapshot: set the fiscal lock and download the closing snapshot (.txt). It is UNAUDITED — for statutory/tax filing, hand your records to a professional accountant.',
+      'After closing: verify the new FY is Active in the header selector and opening stock looks right in Inventory & Stock → Opening Stock Manager.',
+    ],
+    result: 'The old BS year is locked with an audit trail, and the new year starts with correct opening balances.',
+  },
+  {
+    id: 'admin-users',
+    title: 'Admin: Users, Branches & Data Tools',
+    goal: 'Manage staff accounts, branches, and the repair/data tools — safely.',
+    requires: 'Super Admin.',
+    caution: 'User accounts, branch deactivation and Clear Demo Data affect live access and data. Double-check before confirming.',
+    steps: [
+      'Create staff: Administration & Governance → User Management (within Master Data & Directories / Admin groups) — name, email, role, home branch. The user gets the shared demo password policy initially; they change it from their profile.',
+      'Roles: the 9 fixed roles (SUPER_ADMIN, BRANCH_MANAGER, INVENTORY_MANAGER, …) map to a permission matrix — see Help → Interactive User Manual chapter 2 for who can do what.',
+      'Branches: create a new branch with its code; deactivate (never delete) a branch that closes — history stays intact.',
+      'Audit: Administration & Governance → Audit Activities Log shows every user action with IP, AD+BS timestamps and before/after values. Filter by user or module.',
+      'Repairs: Data Recalculation & Repair re-derives fixed-asset depreciation and other persisted values from source records. Use after correcting source data — it records its own audit entry.',
+      'Danger zone: Clear Demo Data wipes demo transactions. NEVER run this on a live database — it exists for demo resets only.',
+      'Session security: for sensitive roles, avoid "Keep me logged in" on shared machines; the header avatar menu signs the current session out.',
+    ],
+    result: 'Staff have correct access, branches reflect reality, and you can prove who did what — without ever hand-editing data.',
+  },
+];
+
 export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   currentUser,
   onOpenBarcodeModal,
   onOpenSearchModal,
   onNavigateTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<HelpTab>('manual');
+  const [activeTab, setActiveTab] = useState<HelpTab>('guides');
+  const [activeGuideId, setActiveGuideId] = useState<string>(USER_GUIDES[0].id);
   const [manualSearch, setManualSearch] = useState('');
   const [activeChapter, setActiveChapter] = useState('overview');
   const [selectedWorkflowId, setSelectedWorkflowId] = useState('procurement');
@@ -399,7 +561,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
     {
       question: 'How do I run the Fiscal Year Closing for Nepali BS Year?',
       answer:
-        'Super Admins can navigate to Administration -> Fiscal Year Closing Wizard. The wizard guides you through 5 mandatory validation steps to lock prior ledger entries and calculate carry-forward balances.',
+        'Super Admins can navigate to Administration -> Fiscal Year Closing Wizard. The wizard runs 6 guided steps: data diagnostics, valuation lock, estimated surplus (management figures), opening-balance roll-forward, vendor ledger close, and period lock with an unaudited closing snapshot. For statutory/tax filing, hand your records to a professional accountant.',
       category: 'Finance',
     },
     {
@@ -471,6 +633,18 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
         {/* Navigation Tabs Bar */}
         <div className="mt-6 flex items-center gap-2 overflow-x-auto custom-scrollbar border-t border-indigo-700/50 pt-4">
           <button
+            onClick={() => setActiveTab('guides')}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'guides'
+                ? 'bg-white text-indigo-950 shadow-md'
+                : 'bg-white/10 text-indigo-100 hover:bg-white/20'
+            }`}
+          >
+            <ListOrdered className="h-4 w-4" />
+            <span>Step-by-Step Guides</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('manual')}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'manual'
@@ -531,6 +705,88 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
           </button>
         </div>
       </div>
+
+      {/* TAB 0: STEP-BY-STEP GUIDES (task-oriented user manual) */}
+      {activeTab === 'guides' && (() => {
+        const guide = USER_GUIDES.find((g) => g.id === activeGuideId) || USER_GUIDES[0];
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Guide sidebar */}
+            <div className={`rounded-2xl p-4 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}>
+              <p className="px-1 mb-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                How do I…
+              </p>
+              <div className="space-y-1">
+                {USER_GUIDES.map((g) => {
+                  const isActive = g.id === guide.id;
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => setActiveGuideId(g.id)}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
+                        isActive
+                          ? 'bg-indigo-50 text-indigo-900 border border-indigo-200 dark:bg-indigo-600/30 dark:text-indigo-300 dark:border-indigo-500/40'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span className="truncate">{g.title}</span>
+                      <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Guide reading pane */}
+            <div className="lg:col-span-3 space-y-5">
+              <div className={`rounded-2xl p-6 border bg-white border-slate-200 shadow-sm dark:bg-[#151921] dark:border-slate-800`}>
+                <div className="flex items-center gap-3 border-b pb-3 border-slate-200 dark:border-slate-800">
+                  <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                    <ClipboardList className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold font-serif">{guide.title}</h2>
+                    <p className="text-xs text-slate-500">Step-by-step user guide</p>
+                  </div>
+                </div>
+
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">Goal: </span>
+                  {guide.goal}
+                </p>
+
+                {guide.requires && (
+                  <div className="p-3 rounded-xl border text-xs bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                    <span className="font-bold">Requires: </span>{guide.requires}
+                  </div>
+                )}
+                {guide.caution && (
+                  <div className="p-3 rounded-xl border text-xs flex items-start gap-2 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-500/30 text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{guide.caution}</span>
+                  </div>
+                )}
+
+                <ol className="space-y-3">
+                  {guide.steps.map((s, i) => (
+                    <li key={i} className="flex gap-3 text-sm">
+                      <span className="shrink-0 h-6 w-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center mt-0.5">
+                        {i + 1}
+                      </span>
+                      <span className="text-slate-700 dark:text-slate-300 leading-relaxed">{s}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <div className="p-3 rounded-xl border text-xs flex items-start gap-2 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span><span className="font-bold">Result: </span>{guide.result}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* TAB 1: INTERACTIVE USER MANUAL */}
       {activeTab === 'manual' && (
@@ -605,7 +861,8 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Multi-Branch Inventory Matrix</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> ONU / Router Serial Number Tracker</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Physical Stock Count Audit</li>
-                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> 5-Step BS Fiscal Year Closing Wizard</li>
+                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> 6-Step BS Fiscal Year Closing Wizard</li>
+                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Financial Overview (Management View)</li>
                     </ul>
                   </div>
 
@@ -615,7 +872,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> 13% Nepali VAT Register Engine</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> SLM & WDV Tax Depreciation Register</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> Role-Based Approval Gateways</li>
-                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> Immutable Immutable System Audit Trail</li>
+                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> Immutable System Audit Trail</li>
                     </ul>
                   </div>
                 </div>
@@ -679,18 +936,31 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
               <div className="space-y-4 text-sm leading-relaxed">
                 <h2 className="text-xl font-bold font-serif">3. Getting Started & Account Features</h2>
                 <p>
-                  Quickly navigate around the application using the multi-rail sidebar or search shortcuts:
+                  The whole app is organized around one always-visible sidebar and a few header controls:
                 </p>
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                    <h4 className="font-bold text-xs text-indigo-500">Header Profile Switcher</h4>
-                    <p className="text-xs text-slate-500">Click your avatar in the top header to instantly test and evaluate workflows as another staff member (e.g. Branch Manager or Field Tech).</p>
+                    <h4 className="font-bold text-xs text-indigo-500">Accordion Sidebar</h4>
+                    <p className="text-xs text-slate-500">Click a group (e.g. "Inventory & Stock") to expand its menu items right below it; click again to collapse. The header button expands/collapses ALL groups at once, and the search box (or pressing /) filters items across every group.</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <h4 className="font-bold text-xs text-indigo-500">Branch & Fiscal Year Selectors</h4>
+                    <p className="text-xs text-slate-500">The header "Select Branch" dropdown scopes everything you see to one branch or the consolidated view; the FY selector picks the BS fiscal year for all reports and ledgers.</p>
                   </div>
                   <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                     <h4 className="font-bold text-xs text-indigo-500">Dual Calendar System (BS & AD)</h4>
-                    <p className="text-xs text-slate-500">Press Alt + D or click the date toggle in the header to switch all timestamps between Bikram Sambat (2080, 2081 BS) and Gregorian dates.</p>
+                    <p className="text-xs text-slate-500">Press Alt + D or click the date toggle in the header to switch all timestamps between Bikram Sambat and Gregorian dates.</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <h4 className="font-bold text-xs text-indigo-500">Global Search & Barcode</h4>
+                    <p className="text-xs text-slate-500">Ctrl + K (or the header search box) finds any product by name/SKU; Alt + B opens the camera barcode scanner.</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <h4 className="font-bold text-xs text-indigo-500">Profile & Sign-out</h4>
+                    <p className="text-xs text-slate-500">Click your avatar (top-right) for your profile and session controls. Sign out on shared computers.</p>
                   </div>
                 </div>
+                <p className="text-xs text-slate-500">For task walkthroughs ("how do I run a stock audit?"), open the <button onClick={() => setActiveTab('guides')} className="font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer">Step-by-Step Guides</button> tab.</p>
               </div>
             )}
 
