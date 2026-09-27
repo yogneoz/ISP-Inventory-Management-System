@@ -558,6 +558,33 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
       {view === 'STATEMENT' ? (
         <>
+          {/* PRINT-ONLY COVER NOTE — data sources & limitations for distribution */}
+          <div className="hidden print:block rounded-lg border border-slate-400 p-4 mb-4 text-[10px] leading-relaxed text-slate-800">
+            <p className="font-bold uppercase tracking-wider text-[11px] mb-1.5">
+              About this report — data sources &amp; limitations
+            </p>
+            <p>
+              This is a <strong>management view</strong> compiled directly from the system's operational
+              registers — it is <strong>not a statutory balance sheet</strong>. No general ledger exists in this
+              system; the Net Asset Position line is a balancing figure (assets − liabilities), not capital
+              accounts from posted journal entries.
+            </p>
+            <p className="mt-1.5">
+              <strong>Data sources:</strong> Inventory at valuation (stock quantity × product cost price,
+              from inventory_stock / fiscal-year opening stock); Fixed assets at net book value (asset
+              register depreciation schedule evaluated at the statement date — or the prior fiscal year's
+              end date for comparative columns); Vendor payables (vendor opening balances + purchase
+              invoices − posted payments); Sales revenue and cost of goods sold (posted customer product
+              sales).
+            </p>
+            <p className="mt-1.5">
+              <strong>Not included:</strong> cash and bank balances, accounts receivable, loans,
+              VAT/output-tax payable, capital accounts, and operating expenses (no expense journal — the
+              trading summary stops at gross surplus). Figures are unaudited; do not use this document for
+              statutory, tax, or banking submissions.
+            </p>
+          </div>
+
           {/* Statement title */}
           <div className="text-center border-b-2 border-slate-300 dark:border-slate-700 pb-4">
             <h2 className="text-xl font-serif font-extrabold text-slate-900 dark:text-white tracking-tight hidden print:block">
@@ -715,6 +742,23 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         </>
       ) : (
         <>
+          {/* PRINT-ONLY COVER NOTE — data sources & limitations for distribution */}
+          <div className="hidden print:block rounded-lg border border-slate-400 p-4 mb-4 text-[10px] leading-relaxed text-slate-800">
+            <p className="font-bold uppercase tracking-wider text-[11px] mb-1.5">
+              About this report — data sources &amp; limitations
+            </p>
+            <p>
+              Branch comparison of <strong>management figures</strong> compiled from the system's operational
+              registers — <strong>not statutory accounting</strong> (no general ledger exists). Columns:
+              inventory at valuation (stock × cost price), fixed assets at net book value (depreciation
+              schedule), vendor payables (opening balances + invoices − payments), net asset position
+              (balancing figure), and sales revenue / cost of goods sold / gross surplus from posted
+              customer sales. Not included: cash, receivables, loans, VAT payable, capital accounts,
+              operating expenses. Figures are unaudited; do not use for statutory, tax, or banking
+              submissions.
+            </p>
+          </div>
+
           {/* ===== Branch Comparison report: rows = branches (scales downward) ===== */}
           <div className="text-center border-b-2 border-slate-300 dark:border-slate-700 pb-4">
             <h3 className="text-lg font-serif font-bold text-slate-800 dark:text-slate-200 tracking-wide">

@@ -321,15 +321,15 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
       id: 'fiscal-closing',
       title: 'Nepali BS Fiscal Year Closing & Period Lock',
       category: 'Accounting & Year-End',
-      description: '5-step guided fiscal year closing wizard for BS 2080/81 transition with IRD certificate.',
+      description: '6-step guided fiscal year closing wizard: diagnostics, valuation lock, estimated surplus, roll-forward, vendor ledgers, and period lock with an unaudited closing snapshot (management figures — not statutory).',
       steps: [
         {
           step: 1,
-          title: 'Pre-Closing Audit & Trial Balance',
+          title: 'Pre-Closing Audit & Financial Review',
           role: 'Accountant / Super Admin',
-          description: 'Verify Trial Balance, Stock Movement Ledger opening balances, and VAT registers.',
+          description: 'Review the Financial Overview (management view), Stock Movement Ledger opening balances, and VAT registers. Note: figures are from operational registers — no trial balance or general ledger exists.',
           actionTab: 'financial-statements',
-          keyOutputs: ['Reconciled Balances', 'Verified VAT Liability'],
+          keyOutputs: ['Reviewed Management Figures', 'Verified VAT Liability'],
         },
         {
           step: 2,
@@ -337,15 +337,15 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
           role: 'Accountant',
           description: 'Execute tax depreciation calculation (SLM/WDV) for all active fixed assets.',
           actionTab: 'depreciation-register',
-          keyOutputs: ['Accumulated Depreciation Journal', 'Net Asset Book Value'],
+          keyOutputs: ['Depreciation Schedule Totals', 'Net Asset Book Value'],
         },
         {
           step: 3,
-          title: 'Execute 5-Step Closing Wizard',
+          title: 'Execute 6-Step Closing Wizard',
           role: 'Super Admin',
-          description: 'Enter Admin PIN / Password to lock prior year transactions, freeze ledgers, and issue IRD Certificate.',
+          description: 'Enter Admin PIN / Password to run diagnostics, lock stock valuation, review the estimated surplus (real posted sales − COGS − schedule depreciation — no retained-earnings transfer occurs), roll balances forward, close vendor ledgers, and lock the period.',
           actionTab: 'fiscal-year-closing',
-          keyOutputs: ['Locked Fiscal Period', 'IRD Year-End Audit Certificate'],
+          keyOutputs: ['Locked Fiscal Period', 'Unaudited Closing Snapshot (txt)'],
         },
         {
           step: 4,
@@ -662,7 +662,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                       <tr>
                         <td className="p-3 font-bold text-emerald-500">ACCOUNTANT</td>
                         <td className="p-3">Finance & Tax</td>
-                        <td className="p-3">VAT register, purchase invoices, depreciation schedules, trial balance.</td>
+                        <td className="p-3">VAT register, purchase invoices, depreciation schedules, financial overview (management view).</td>
                       </tr>
                       <tr>
                         <td className="p-3 font-bold text-purple-500">ISP_FIELD_TECH</td>

@@ -277,8 +277,8 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'fin-statements',
-        operationName: 'Generate Financial Statements',
-        description: 'Access Income Statement, Balance Sheet, and Trial Balance summaries',
+        operationName: 'Generate Financial Overview',
+        description: 'Access the Financial Overview (management view: financial position, trading summary, branch comparison) — not statutory accounting',
         permissions: DEFAULT_PERMISSIONS_MATRIX['fin-statements'],
       },
       {

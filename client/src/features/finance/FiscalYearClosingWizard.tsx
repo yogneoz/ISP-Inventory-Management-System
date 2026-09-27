@@ -232,8 +232,11 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
       annualDepreciation,
       netAssetValue: fixedAssetValue - annualDepreciation,
       vatInputTax,
-      // Do not manufacture accounting entries during close. COGS and
-      // operating expenses are zero until posted sales/expense ledgers exist.
+      // Do not manufacture accounting entries during close. Sales revenue and
+      // COGS come from posted customer sales (STOCK_OUT operations via the
+      // financial summary); operating expenses are zero until an expense
+      // ledger exists.
+      totalSalesRevenue: financialSummary.totalSalesRevenue || 0,
       totalCOGS: financialSummary.totalCostOfGoodsSold || 0,
       totalExpenses: 0,
     };
@@ -377,10 +380,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const wizardSteps = [
     { number: 1, title: 'Pre-Closing Audit & Diagnostics', icon: FileCheck2 },
     { number: 2, title: 'Asset Depreciation & Stock Valuation Lock', icon: Calculator },
-    { number: 3, title: 'Trial Balance & Retained Earnings', icon: Scale },
+    { number: 3, title: 'Financial Summary & Surplus Estimate', icon: Scale },
     { number: 4, title: 'Opening Balances Roll-Forward', icon: Building2 },
     { number: 5, title: 'Close Vendor Ledgers', icon: Wallet },
-    { number: 6, title: 'Lock Period & Compliance Seal', icon: ShieldCheck },
+    { number: 6, title: 'Lock Period & Closing Snapshot', icon: ShieldCheck },
   ];
 
   const handleNextStep = () => {
@@ -553,7 +556,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     }
   };
 
-  const handleDownloadClosingCertificate = () => {
+  const handleDownloadClosingSnapshot = () => {
     const certText = `
 =======${companyProfile?.name || 'INVENTORY MANAGEMENT SYSTEM'}=================================
        INVENTORY MANAGEMENT SYSTEM - FISCAL CLOSING
@@ -561,20 +564,23 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
 Fiscal Year Code: FY ${currentFy?.code || '2082/83'} BS
 Nepali BS Period: ${currentFy?.startDateBS} to ${currentFy?.endDateBS}
 Anno Domini AD:   ${currentFy?.startDateAD} to ${currentFy?.endDateAD}
-Status:           OFFICIALLY CLOSED & AUDIT LOCKED
+Status:           CLOSED IN SYSTEM (management lock — not a statutory audit)
 Closed By:        ${currentUser?.name || 'Administrator'} (${currentUser?.email})
 Timestamp:        ${new Date().toISOString()}
 
 -------------------------------------------------------------------
-FINANCIAL & INVENTORY CLOSING SNAPSHOT
+FINANCIAL & INVENTORY CLOSING SNAPSHOT (management figures — unaudited)
 -------------------------------------------------------------------
 Closing Stock Inventory Valuation:   NPR ${(closingMetrics.inventoryValue ?? 0).toLocaleString()}
 Fixed Assets Gross Acquisition Cost: NPR ${(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
 Calculated Annual Tax Depreciation:  NPR ${(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
 Net Fixed Asset Value Carrying:      NPR ${(closingMetrics.netAssetValue ?? 0).toLocaleString()}
-Reconciled VAT Input Tax Register:   NPR ${(closingMetrics.vatInputTax ?? 0).toLocaleString()}
+VAT Input Tax (from purchase invoices): NPR ${(closingMetrics.vatInputTax ?? 0).toLocaleString()}
+Posted Sales Revenue:                NPR ${(closingMetrics.totalSalesRevenue ?? 0).toLocaleString()}
 -------------------------------------------------------------------
-Compliance Status: Approved for Inland Revenue Department (IRD) Filing
+NOTE: Compiled from operational registers; this system has no general
+ledger. Figures are unaudited and NOT approved for statutory/tax
+filing. Consult a professional accountant for IRD submission.
 ===================================================================
 `;
 
@@ -582,7 +588,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Fiscal_Closing_Certificate_FY_${currentFy?.code || '2082_83'}.txt`);
+    link.setAttribute('download', `Fiscal_Closing_Snapshot_FY_${currentFy?.code || '2082_83'}.txt`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -609,7 +615,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Guide for year-end inventory valuation, fixed asset depreciation posting, and IRD period locking.
+                Guide for year-end inventory valuation, fixed asset depreciation, and period locking. For IRD/statutory filing, figures must be reviewed by a professional accountant.
               </p>
             </div>
           </div>
@@ -890,32 +896,40 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Scale className="h-5 w-5 text-indigo-500" />
-                <span>Step 3: Financial Summary & Retained Earnings Roll-Forward</span>
+                <span>Step 3: Financial Summary &amp; Estimated Surplus Roll-Forward</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Review annual revenue vs cost of sales and transfer net surplus to retained equity.
+                Review the year's stock movement, depreciation and an <strong>estimated</strong> trading
+                surplus. This is a management estimate from operational registers — not a posted trial
+                balance; no general-ledger retained-earnings transfer occurs.
               </p>
             </div>
 
             <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Billed Purchase Invoices (Gross)</span>
-                <span className="font-bold">NPR {((closingMetrics.inventoryValue || 0) * 1.15).toLocaleString()}</span>
+                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Posted Sales Revenue (customer product sales)</span>
+                <span className="font-bold">NPR {(closingMetrics.totalSalesRevenue ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Cost of Goods Sold (COGS)</span>
+                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Cost of Goods Sold (sold qty × cost price)</span>
                 <span className="font-bold text-rose-500">-NPR {(closingMetrics.totalCOGS ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Hardware Depreciation Expense</span>
+                <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Hardware Depreciation Expense (schedule)</span>
                 <span className="font-bold text-rose-500">-NPR {(closingMetrics.annualDepreciation ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between pt-1 text-sm font-extrabold font-sans">
-                <span>Net Surplus Transferred to Retained Earnings</span>
+                <span>Estimated Net Surplus (NOT a retained-earnings transfer)</span>
                 <span className="text-emerald-500 font-mono">
-                  NPR {(((closingMetrics.inventoryValue || 0) * 1.15) - (closingMetrics.totalCOGS || 0) - (closingMetrics.annualDepreciation || 0)).toLocaleString()}
+                  NPR {(((closingMetrics.totalSalesRevenue || 0) - (closingMetrics.totalCOGS || 0) - (closingMetrics.annualDepreciation || 0))).toLocaleString()}
                 </span>
               </div>
+              <p className="font-sans text-[10px] text-amber-600 dark:text-amber-400 pt-2 border-t border-slate-200 dark:border-slate-800">
+                ⚠ Sales revenue and COGS are real posted figures; depreciation is the schedule amount.
+                Operating expenses are not posted (no expense journal), so this surplus is a management
+                estimate — the system posts no general-ledger entries and records no retained-earnings
+                transfer.
+              </p>
             </div>
           </div>
         )}
@@ -1012,10 +1026,11 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-indigo-500" />
-                <span>Step 6: Lock Fiscal Period & Generate IRD Compliance Certificate</span>
+                <span>Step 6: Lock Fiscal Period & Download Closing Snapshot</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Final authorization step to prevent backdated edits and issue audit certificate.
+                Final authorization step to prevent backdated edits and download the closing
+                snapshot (management figures — for statutory/tax filing, consult a professional accountant).
               </p>
             </div>
 
@@ -1078,11 +1093,11 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                 </p>
 
                 <button
-                  onClick={handleDownloadClosingCertificate}
+                  onClick={handleDownloadClosingSnapshot}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Download className="h-4 w-4" />
-                  <span>Download IRD Audit Certificate</span>
+                  <span>Download Closing Snapshot (unaudited)</span>
                 </button>
               </div>
             )}

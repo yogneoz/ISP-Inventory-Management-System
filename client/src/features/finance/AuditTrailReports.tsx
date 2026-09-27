@@ -54,22 +54,6 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   const txnPagination = useClientPagination(transactionLogs || [], 15);
   const auditPagination = useClientPagination(auditLogs || [], 15);
 
-  // Compute Balance Sheet numbers
-  // PostgreSQL NUMERIC columns arrive as strings; coerce before arithmetic.
-  const toNumber = (value: unknown): number => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
-  const inventoryAssetVal = toNumber(financialSummary?.totalInventoryAssetValue);
-  const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + toNumber(a.netBookValue), 0);
-  const totalAssets = inventoryAssetVal + fixedAssetNBV;
-
-  const accountsPayable = (invoices || []).reduce(
-    (sum, inv) => sum + (toNumber(inv.grandTotal) - toNumber(inv.amountPaid)),
-    0
-  );
-  const netEquity = totalAssets - accountsPayable;
-
   const handlePrintReport = () => {
     window.print();
   };
