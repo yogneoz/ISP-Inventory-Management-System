@@ -2,7 +2,7 @@
 
 _Date: 2026-09-26 · Branch: main · Tests: 449/449 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 18 — accounting-accuracy wording audit + closing-wizard corrections (UNCOMMITTED)
+## ⭐ NEWEST: Arc 18 — accounting-accuracy wording audit + closing-wizard corrections (pushed `334b22e`)
 
 User asked to scan the app for screens that overstate accounting accuracy (after the
 Financial Overview reframe). Findings and fixes:
@@ -37,7 +37,7 @@ wording over management data** — fabricated figures (×1.15), statutory certif
 either posted/derived from real records OR explicitly labeled "estimate/management
 view"; never claim IRD/statutory/audit approval the system cannot perform.
 
-Verified: typecheck, build + budget gate, 449/449. **Uncommitted** — commit pending.
+Verified: typecheck, build + budget gate, 449/449. Pushed `334b22e`.
 
 ## Arc 17 — accordion sidebar + ERP-style Financial Overview + reframe (pushed `318198e` + `cac943e`, CI green)
 
