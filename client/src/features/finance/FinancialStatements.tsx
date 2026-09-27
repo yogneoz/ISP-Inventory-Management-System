@@ -267,12 +267,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   };
 
   const BALANCE_SHEET_ROWS: MatrixRow[] = [
-    { key: 'el-section', section: 'EQUITY AND LIABILITIES', label: '', depth: 0, get: () => 0 },
-    { key: 'el-sub1', subSection: "1. Shareholders' Funds", label: '', depth: 0, get: () => 0 },
-    { key: 'equity', label: "Capital & Retained Surplus (Balancing Figure)", depth: 1, get: (f) => f.netEquity },
+    { key: 'el-section', section: 'SOURCES OF FUNDS', label: '', depth: 0, get: () => 0 },
+    { key: 'el-sub1', subSection: "1. Net Asset Position", label: '', depth: 0, get: () => 0 },
+    { key: 'equity', label: "Net Asset Position (balancing figure — not from a general ledger)", depth: 1, get: (f) => f.netEquity },
     { key: 'el-sub2', subSection: '2. Current Liabilities', label: '', depth: 0, get: () => 0 },
-    { key: 'payables', label: 'Trade Payables — Accounts Payable (Opening + Invoices − Payments)', depth: 1, get: (f) => f.accountsPayable },
-    { key: 'el-total', label: 'TOTAL EQUITY & LIABILITIES', depth: 0, get: (f) => f.totalLiabilities + f.netEquity, style: 'total' },
+    { key: 'payables', label: 'Vendor Payables — Accounts Payable (Opening + Invoices − Payments)', depth: 1, get: (f) => f.accountsPayable },
+    { key: 'el-total', label: 'TOTAL SOURCES OF FUNDS', depth: 0, get: (f) => f.totalLiabilities + f.netEquity, style: 'total' },
     { key: 'assets-section', section: 'ASSETS', label: '', depth: 0, get: () => 0 },
     { key: 'assets-sub1', subSection: '1. Non-Current Assets — Fixed Assets', label: '', depth: 0, get: () => 0 },
     { key: 'fa-gross', label: 'Fixed Assets at Gross Cost', depth: 1, get: (f) => f.grossFixedAssets },
@@ -289,7 +289,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     { key: 'cogs', label: 'Less: Cost of Goods Sold (qty × cost price)', depth: 1, get: (f) => -f.cogs, style: 'negative' },
     { key: 'gross', label: 'GROSS SURPLUS (SALES − COGS)', depth: 0, get: (f) => f.grossSurplus, style: 'total' },
     { key: 'opex', label: 'Less: Posted Operating Expenses', depth: 1, get: () => 0, style: 'negative' },
-    { key: 'net', label: 'NET OPERATING PROFIT / SURPLUS', depth: 0, get: (f) => f.grossSurplus, style: 'total' },
+    { key: 'net', label: 'NET TRADING RESULT (below the gross line: not published)', depth: 0, get: (f) => f.grossSurplus, style: 'total' },
   ];
 
   const rows = statementType === 'BALANCE_SHEET' ? BALANCE_SHEET_ROWS : PL_ROWS;
@@ -338,8 +338,8 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     { key: 'assets', label: 'Total Assets', get: (f) => f.totalAssets, color: 'text-emerald-600 dark:text-emerald-400' },
     { key: 'nbv', label: 'Fixed Assets (NBV)', get: (f) => f.fixedAssetNBV, color: 'text-emerald-600 dark:text-emerald-400' },
     { key: 'inventory', label: 'Inventory', get: (f) => f.inventoryAssetVal, color: 'text-emerald-600 dark:text-emerald-400' },
-    { key: 'payables', label: 'Accounts Payable', get: (f) => f.accountsPayable, color: 'text-amber-600 dark:text-amber-400' },
-    { key: 'equity', label: 'Net Equity', get: (f) => f.netEquity, color: 'text-indigo-600 dark:text-indigo-400' },
+    { key: 'payables', label: 'Vendor Payables', get: (f) => f.accountsPayable, color: 'text-amber-600 dark:text-amber-400' },
+    { key: 'equity', label: 'Net Asset Position', get: (f) => f.netEquity, color: 'text-indigo-600 dark:text-indigo-400' },
     { key: 'revenue', label: 'Sales Revenue', get: (f) => f.salesRevenue, color: 'text-emerald-600 dark:text-emerald-400' },
     { key: 'cogs', label: 'Cost of Goods Sold', get: (f) => f.cogs, color: 'text-rose-600 dark:text-rose-400' },
     { key: 'surplus', label: 'Gross Surplus', get: (f) => f.grossSurplus, color: 'text-indigo-600 dark:text-indigo-400' },
@@ -370,7 +370,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           return row;
         });
       exportToCSV(
-        `${statementType === 'BALANCE_SHEET' ? 'Balance_Sheet' : 'Profit_And_Loss'}_${entityName.replace(/[^A-Za-z0-9]+/g, '_')}`,
+        `${statementType === 'BALANCE_SHEET' ? 'Financial_Overview_Position' : 'Financial_Overview_Trading_Summary'}_${entityName.replace(/[^A-Za-z0-9]+/g, '_')}`,
         data,
         [{ key: 'Line Item', label: 'Line Item' }, ...colNames.map((n) => ({ key: n, label: `${n} (NPR)` }))],
         companyProfile
@@ -419,10 +419,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         <div className="min-w-0">
           <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
             <Scale className="h-5 w-5 text-indigo-500" />
-            <span>Financial Statements (Balance Sheet &amp; Profit/Loss)</span>
+            <span>Financial Overview (Assets, Payables &amp; Trading)</span>
           </h2>
           <p className="truncate text-slate-400 text-xs mt-0.5">
-            One statement per entity — pick a branch or the consolidated group. Compare branches in the comparison report.
+            Management view compiled from operational registers — not a statutory balance sheet. Pick a branch or the consolidated group; compare branches in the comparison report.
           </p>
         </div>
 
@@ -564,7 +564,12 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
               {companyProfile?.legalName || companyProfile?.name || 'Inventory Management System'}
             </h2>
             <h3 className="text-lg font-serif font-bold text-slate-800 dark:text-slate-200 mt-2 tracking-wide">
-              {statementType === 'BALANCE_SHEET' ? 'BALANCE SHEET' : 'PROFIT & LOSS STATEMENT'}
+              {statementType === 'BALANCE_SHEET'
+                ? 'STATEMENT OF FINANCIAL POSITION'
+                : 'TRADING SUMMARY'}
+              <span className="block text-[11px] font-sans font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mt-1">
+                Management View — not a statutory balance sheet
+              </span>
               <span className="block text-sm font-sans font-semibold text-indigo-600 dark:text-indigo-400 mt-1">
                 {entityName}
               </span>
@@ -714,6 +719,9 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
           <div className="text-center border-b-2 border-slate-300 dark:border-slate-700 pb-4">
             <h3 className="text-lg font-serif font-bold text-slate-800 dark:text-slate-200 tracking-wide">
               BRANCH COMPARISON REPORT
+              <span className="block text-[11px] font-sans font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mt-1">
+                Management View — figures from operational registers
+              </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {curFyLabel || 'Current'}

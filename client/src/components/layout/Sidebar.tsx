@@ -438,7 +438,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // 6. Finance & Accounting Group (incl. Fixed Assets + Fiscal Year Opening Register)
   const financeChildren: NavChildDef[] = [];
   if (isOperationAllowed('fin-statements', currentUser?.role)) {
-    financeChildren.push({ id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale });
+    financeChildren.push({ id: 'financial-statements' as NavTab, label: 'Financial Overview', icon: Scale });
   }
   if (isOperationAllowed('inv-pay', currentUser?.role)) {
     financeChildren.push({ id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet });
