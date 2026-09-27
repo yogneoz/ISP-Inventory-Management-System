@@ -202,15 +202,25 @@ export function createApp(): express.Express {
   // http:// response is ignored by browsers and misleading; when TLS is
   // introduced (e.g. a reverse proxy), re-enable hsts or add the header at
   // the proxy.
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-        'upgrade-insecure-requests': null, // allow plain-HTTP on the LAN
-      },
-    },
-    strictTransportSecurity: false,
-  }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: process.env.NODE_ENV === 'production'
+        ? {
+            // PRODUCTION: strict CSP. The built client bundle needs no inline
+            // scripts, so script-src 'self' is enough.
+            directives: {
+              ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+              'upgrade-insecure-requests': null, // allow plain-HTTP on the LAN
+            },
+          }
+        : false,
+      // DEV ONLY: CSP disabled. Vite's dev middleware injects inline module
+      // scripts (react-refresh preamble, /@vite/client) and opens an HMR
+      // websocket — all rejected by script-src 'self', which made the page
+      // load BLANK under `npm run dev`. Production keeps the strict policy.
+      strictTransportSecurity: false,
+    })
+  );
 
   // JSON body limit (audit backlog #2): honor JSON_BODY_LIMIT when set
   // (e.g. '25mb' for large PO/invoice item payloads), default 1mb —
