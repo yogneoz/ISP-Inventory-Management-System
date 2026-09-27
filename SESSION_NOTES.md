@@ -2,7 +2,44 @@
 
 _Date: 2026-09-26 · Branch: main · Tests: 449/449 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 17 — accordion sidebar + ERP-style Financial Overview + reframe (pushed `318198e` + `cac943e`, CI green)
+## ⭐ NEWEST: Arc 18 — accounting-accuracy wording audit + closing-wizard corrections (UNCOMMITTED)
+
+User asked to scan the app for screens that overstate accounting accuracy (after the
+Financial Overview reframe). Findings and fixes:
+
+1. **FiscalYearClosingWizard — WORST OFFENDER, now fixed (code + wording)**:
+   Step 3 computed "Total Billed Purchase Invoices" as `inventoryValue × 1.15` (an
+   INVENTED revenue figure from an arbitrary 15% markup) and derived "Net Surplus
+   Transferred to Retained Earnings" from it. Now: `closingMetrics.totalSalesRevenue`
+   added from `financialSummary.totalSalesRevenue` (real posted STOCK_OUT sales);
+   Step 3 shows Posted Sales Revenue − COGS − schedule depreciation = "Estimated Net
+   Surplus (NOT a retained-earnings transfer)" with an amber no-GL disclaimer.
+2. **Wizard's downloadable "IRD Audit Certificate" claimed "OFFICIALLY CLOSED &
+   AUDIT LOCKED" and "Approved for IRD Filing"** — a client-side txt cannot approve
+   anything. Now: "Fiscal_Closing_Snapshot_FY_*.txt" with "CLOSED IN SYSTEM
+   (management lock — not a statutory audit)", unaudited-figures banner, real sales
+   line, and "NOT approved for statutory/tax filing — consult a professional
+   accountant". Step 6 renamed "Lock Period & Closing Snapshot"; "Compliance Seal"
+   wording removed.
+3. **HelpDocumentation year-end walkthrough** — synced to the reframed wizard
+   (6 steps, no IRD-certificate/trial-balance claims; "Depreciation Schedule Totals"
+   instead of "Journal"). No Trial Balance/IRD/Retained-Earnings refs remain in help.
+4. **PermissionManagement** — `fin-statements` description now "Financial Overview
+   (management view…) — not statutory accounting".
+5. **AuditTrailReports** — removed dead accounting code (totalAssets/netEquity
+   computed but never rendered).
+6. **Confirmed already honest (no change)**: StockValuation ("Potential Gross Profit"
+   properly hedged), VatRegister (input tax credit from real invoices).
+
+LESSON (extends Arc 17's rule): the overstatement pattern was **compliance-styled
+wording over management data** — fabricated figures (×1.15), statutory certificates,
+"retained earnings transfers" that never post. Rule: any financial figure must be
+either posted/derived from real records OR explicitly labeled "estimate/management
+view"; never claim IRD/statutory/audit approval the system cannot perform.
+
+Verified: typecheck, build + budget gate, 449/449. **Uncommitted** — commit pending.
+
+## Arc 17 — accordion sidebar + ERP-style Financial Overview + reframe (pushed `318198e` + `cac943e`, CI green)
 
 Two user-facing arcs in one push:
 
