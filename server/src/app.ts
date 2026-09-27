@@ -202,22 +202,22 @@ export function createApp(): express.Express {
   // http:// response is ignored by browsers and misleading; when TLS is
   // introduced (e.g. a reverse proxy), re-enable hsts or add the header at
   // the proxy.
+  // CSP applies in production AND in tests (NODE_ENV=test exercises the
+  // production security posture); only the DEV server skips it, because
+  // Vite's dev middleware injects inline module scripts (react-refresh
+  // preamble, /@vite/client) and opens an HMR websocket — all rejected by
+  // script-src 'self', which made the page load BLANK under `npm run dev`.
+  const isDevServer = process.env.NODE_ENV === 'development';
   app.use(
     helmet({
-      contentSecurityPolicy: process.env.NODE_ENV === 'production'
-        ? {
-            // PRODUCTION: strict CSP. The built client bundle needs no inline
-            // scripts, so script-src 'self' is enough.
+      contentSecurityPolicy: isDevServer
+        ? false
+        : {
             directives: {
               ...helmet.contentSecurityPolicy.getDefaultDirectives(),
               'upgrade-insecure-requests': null, // allow plain-HTTP on the LAN
             },
-          }
-        : false,
-      // DEV ONLY: CSP disabled. Vite's dev middleware injects inline module
-      // scripts (react-refresh preamble, /@vite/client) and opens an HMR
-      // websocket — all rejected by script-src 'self', which made the page
-      // load BLANK under `npm run dev`. Production keeps the strict policy.
+          },
       strictTransportSecurity: false,
     })
   );
