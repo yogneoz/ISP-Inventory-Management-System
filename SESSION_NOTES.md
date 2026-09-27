@@ -1,8 +1,48 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-26 · Branch: main · Tests: 433/433 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-09-26 · Branch: main · Tests: 449/449 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 16 — deep code splitting (pushed `fdfe03c`, CI green — startup payload −96 kB gz, bundler trap documented)
+## ⭐ NEWEST: Arc 17 — accordion sidebar + ERP-style Financial Overview + reframe (pushed `318198e` + `cac943e`, CI green)
+
+Two user-facing arcs in one push:
+
+### Sidebar redesign (accordion model)
+- Single always-visible column; groups expand INLINE (accordion) — no flyout, no back
+  button, no collapse button, no push-mode layout shifting (old `sidebar-push-main`
+  CSS + `isSubPanelExpanded` wiring deleted from App.tsx/index.css).
+- Menu consolidated 11 → 8 groups (Overview absorbs Serial & Device Tracking; Finance
+  absorbs Fixed Assets + Opening Register; Inventory absorbs Import/Export stock; Help
+  becomes a footer link). Global search filters items across ALL groups (`/` to focus);
+  header has an Expand-all/Collapse-all toggle labeled "EXPAND / COLLAPSE MENU".
+- Width: w-72 (288px; 15.5rem ≤1366px); long labels WRAP instead of truncating.
+
+### Financial statements → ERP-style "Financial Overview" (tab id unchanged)
+Three iterations landed on the ERP-standard pattern (how SAP/NetSuite/QuickBooks do it):
+1. **Statement view** — ONE entity per statement via a "Statement of" dropdown (any
+   branch or All-Branches consolidated); columns are PERIODS (current FY | prior FY |
+   variance when the "Compare with <prior-FY>" toggle is on). Table width is fixed —
+   NEVER grows with branch count. Prior-FY fixed-asset NBV = depreciation schedule
+   evaluated at the prior FY's END date (closing position).
+2. **Branch Comparison view** — branch-vs-branch analysis lives here: rows = branches
+   (grows DOWNWARD), 8 KPI columns, sticky first column, consolidated row pinned,
+   per-branch prior-year Total-Assets deltas (▲/▼).
+3. **⚠️ REFRAME (decision, `cac943e`)** — the report has NO general ledger behind it:
+   equity was a plug (assets − liabilities), no cash/receivables/capital accounts, P&L
+   stops at gross surplus. Every FIGURE is real but the statement was not statutory.
+   Decision: keep the data, drop the misleading wording. Renamed: menu label
+   "Financial Overview"; titles "STATEMENT OF FINANCIAL POSITION" / "TRADING SUMMARY"
+   with amber "Management View — not a statutory balance sheet" tagline; "SOURCES OF
+   FUNDS", "Net Asset Position (balancing figure — not from a general ledger)",
+   "Vendor Payables"; CSV exports `Financial_Overview_Position_*` /
+   `Financial_Overview_Trading_Summary_*`. Tab id `financial-statements` and
+   permission key `fin-statements` UNCHANGED (no permission-matrix breakage).
+   DO NOT re-name these back to "Balance Sheet"/"Net Equity" — if statutory reporting
+   is ever needed, build a real GL first (expense journal, receivables, cash,
+   capital accounts).
+
+Verified: typecheck, build + budget gate, live production preview both views, 449/449.
+
+## Arc 16 — deep code splitting (pushed `fdfe03c`, CI green — startup payload −96 kB gz, bundler trap documented)
 
 Follow-up to Arc 15's vendor split: the ~358 kB gz startup graph (index.js + static
 imports) shrank to **~262 kB gz** (index.js alone: 38 kB → 11.7 kB gz). Two changes:

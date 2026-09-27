@@ -32,7 +32,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
 - **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded).
-- **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
+- **Financial Overview (Management View) & Tax Registers**: Statement of Financial Position and Trading Summary per branch or consolidated (with prior-year comparative and variance), a branch-comparison report, VAT purchase register, and depreciation schedules. Compiled from operational registers — clearly labeled as a management view, not statutory accounting.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
 - **Hardened HTTP Surface**:
@@ -52,7 +52,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx            # Header with profile switching, notifications, date mode
-│   │   │   └── Sidebar.tsx           # Multi-level rail navigation & submenus
+│   │   │   └── Sidebar.tsx           # Accordion sidebar: inline group expansion, global menu search, expand/collapse-all
 │   │   └── common/                   # LoginModal, GlobalSearchModal, ProfileSwitchModal,
 │   │                                 # BarcodeScannerModal, NotificationCenter, TablePagination, ...
 │   ├── features/

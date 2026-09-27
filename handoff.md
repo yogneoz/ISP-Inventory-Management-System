@@ -700,7 +700,7 @@ The `Sidebar` component defines `NAV_TABS` — navigation entries organized into
 - **Inventory**: Serial Log Register, Products, Stock, Reorder, Damage, Stock Operations, Ledger, Audit, Valuation, Import/Export, Categories, UOM, Warranty
 - **Procurement**: Suppliers, POs, Invoices, Inbound Receiving, Shipments
 - **Sales**: Customer Directory, Customer Devices, Import Customers
-- **Finance**: Fixed Assets, Financial Statements, VAT Register, Depreciation, Vendor Ledger, Vendor Opening Balances, Fiscal Years, Document Numbering, BS Calendar, Audit Trail, Opening Stock
+- **Finance**: Fixed Assets, Financial Overview, VAT Register, Depreciation, Vendor Ledger, Vendor Opening Balances, Fiscal Years, Document Numbering, BS Calendar, Audit Trail, Opening Stock
 - **Settings/Admin**: Branches, Users, Permissions, Approvals, Company Setup, Locations, Data Recalculation, Clear Demo Data
 
 ### 9.4 Keyboard Shortcuts
@@ -1018,14 +1018,30 @@ When viewing historical fiscal years:
 - Stock, transactions, and audit logs are filtered by the fiscal year's AD date range
 - Fixed assets are NOT filtered by fiscal year (they persist across years)
 
-### 15.4 Date Handling
+### 15.4 Sidebar Navigation Model (accordion)
+
+The sidebar is a single always-visible column (`client/src/components/layout/Sidebar.tsx`):
+- Menu groups expand **inline** (accordion) — sub-items render directly below their group. There is deliberately **no** flyout panel, back button, collapse button, or push-mode layout shift (all removed in Arc 17).
+- 8 consolidated groups; header row is an Expand-all/Collapse-all toggle ("EXPAND / COLLAPSE MENU"); global search (press `/`) filters items across all groups.
+- Width `w-72` (288px; 15.5rem ≤1366px); long labels wrap instead of truncating.
+
+### 15.5 Financial Overview — management view, NOT statutory (important)
+
+The `financial-statements` tab (menu label: **Financial Overview**, permission key `fin-statements`) is compiled from **operational registers** (stock × cost, asset register NBV, vendor openings/invoices/payments, posted sales). There is **no general ledger** — equity is a balancing figure, there are no cash/receivables/capital accounts, and the P&L stops at gross surplus.
+
+Deliberate decisions (do not revert):
+- Wording is management-honest: "Statement of Financial Position" / "Trading Summary" with an amber "Management View — not a statutory balance sheet" tag; line items say "Net Asset Position", "Vendor Payables", "SOURCES OF FUNDS". Never rename back to "Balance Sheet"/"Net Equity" unless a real GL is built first.
+- ERP-standard layout: **Statement view** = one entity (branch or consolidated) via dropdown, columns are fiscal PERIODS (current | prior | variance; prior-FY NBV evaluated at the prior FY's end date). **Branch Comparison view** = rows are branches (scales downward), KPI columns, consolidated row. Table width never grows with branch count.
+- Tab id and permission key unchanged from the original `financial-statements`/`fin-statements`.
+
+### 15.6 Date Handling
 
 - **AD (Gregorian) dates** are the source of truth — stored as `DATE` in PostgreSQL, parsed as plain `'YYYY-MM-DD'` strings (not JS Date objects)
 - **BS (Bikram Sambat) dates** are derived from `bs_day_records` table or client-side calendar engine
 - Server-side `pg.types.setTypeParser(1082, value => value)` keeps DATE columns as strings
 - Both dates appear on most transactional records (`_date_ad` and `_date_bs` columns)
 
-### 15.5 Real-Time Sync
+### 15.7 Real-Time Sync
 
 - Server uses **SSE (Server-Sent Events)** at `/api/sync/stream`
 - The stream is **authenticated** (HMAC token via header or `?token=`; the client attaches the
@@ -1035,17 +1051,17 @@ When viewing historical fiscal years:
 - Client debounces (250ms) and triggers `refreshAllData()` on any change
 - This enables **real-time multi-user collaboration** without WebSocket complexity
 
-### 15.6 Case-Insensitive Serial Identity
+### 15.8 Case-Insensitive Serial Identity
 
 Serial uniqueness is enforced case-insensitively everywhere — DB unique indexes use `lower(...)`, and all application-level duplicate checks, cascade renames and lookups compare `lower(trim(value))`. A device serial, PON or MAC differing only in case is treated as the same identifier.
 
-### 15.7 ID Generation
+### 15.9 ID Generation
 
 - Most IDs use `Date.now()`-based patterns: `prod-1694000000000`
 - Document numbers are issued from `document_sequence_daily` as `{DOC_TYPE}-{BRANCH}-{YYYYMMDD}{NNNN}` (atomic, per-branch, daily)
 - Serial-log rows use stable ids derived from the device serial for idempotent seeding
 
-### 15.8 Repository Layer (models/*.repo.ts) and the No-Inline-SQL Guard
+### 15.10 Repository Layer (models/*.repo.ts) and the No-Inline-SQL Guard
 
 Every SQL string, column list, and param builder lives in a per-domain repository under `server/src/models/` (bootstrap, masterdata, procurement, shipments, misc, admin, inventory, auth, reports, permissions). Controllers keep only HTTP concerns and execute repo-owned constants and builders.
 
@@ -1055,7 +1071,7 @@ Every SQL string, column list, and param builder lives in a per-domain repositor
 
 The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:no-inline-sql`), a lexical scan of `server/src/controllers` that fails the build when a controller contains SQL-looking string literals. It deliberately skips comments, template interpolations, and English prose that merely starts with a keyword (it requires structural pairs like `UPDATE … SET` / `DELETE … FROM`), and executing `pgPool.query(REPO_CONSTANT, params)` is the expected pattern. CI runs it as a dedicated step after `npm test`.
 
-### 15.9 CI Gate Pipeline
+### 15.11 CI Gate Pipeline
 
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
