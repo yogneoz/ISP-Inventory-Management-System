@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import StatCard from '../../components/common/StatCard';
 import type { StatCardTone } from '../../components/common/StatCard';
+import PageHeader from '../../components/common/PageHeader';
 import {
   Package,
   Landmark,
@@ -11,15 +12,19 @@ import {
   Layers,
   DollarSign,
   RefreshCw,
+  FileText,
+  Download,
+  PlusCircle,
 } from 'lucide-react';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 /**
- * DEV-ONLY — StatCard design-review gallery.
+ * DEV-ONLY — shared design-primitive review gallery.
  *
- * Renders the shared StatCard component in every tone × variant × state so
- * tone tuning and contrast fixes can be reviewed at a glance (light + dark,
- * via the header theme toggle) instead of hunting through live screens.
+ * Renders the shared StatCard component in every tone × variant × state, plus
+ * the shared PageHeader layout patterns, so tuning and contrast fixes can be
+ * reviewed at a glance (light + dark, via the header theme toggle) instead of
+ * hunting through live screens.
  *
  * Reachable only through the hidden 'dev-statcard' nav tab (superadmin).
  */
@@ -60,11 +65,11 @@ export const StatCardShowcase: React.FC = () => {
         <div>
           <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white">
             <Package className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-            <span>StatCard Design Review</span>
+            <span>Design System Review — StatCard & PageHeader</span>
           </h2>
           <p className="text-xs mt-1 text-slate-500 dark:text-slate-400">
-            Every tone × variant × state of the shared StatCard component. Use the button (or the header theme toggle)
-            to compare light / dark rendering side by side.
+            Every tone × variant × state of the shared StatCard, plus the PageHeader layout patterns.
+            Use the button (or the header theme toggle) to compare light / dark rendering side by side.
           </p>
         </div>
         <button
@@ -205,6 +210,90 @@ export const StatCardShowcase: React.FC = () => {
           tone="indigo"
         />
       </Section>
+
+      {/* ===================== PageHeader ===================== */}
+
+      {/* 6. PageHeader — canonical register pattern */}
+      <section className="space-y-2">
+        <div>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            PageHeader — register pattern
+          </h3>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+            The one allowed h2 per screen: serif title + icon chip, optional description, right-side actions.
+            Every register screen renders exactly one of these at the top.
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-900/60 p-4 space-y-6">
+          <PageHeader
+            title="Purchase Orders & Supplier Procurement"
+            description="Create, track and receive purchase orders across branches."
+            icon={<FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
+            actions={
+              <>
+                <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                  <Download className="h-3.5 w-3.5" /> Export
+                </button>
+                <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer">
+                  <PlusCircle className="h-3.5 w-3.5" /> New PO
+                </button>
+              </>
+            }
+          />
+          <PageHeader
+            title="Vendor Ledger & Payments"
+            icon={<Landmark className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />}
+          />
+        </div>
+      </section>
+
+      {/* 7. PageHeader — truncation + wrap behavior */}
+      <section className="space-y-2">
+        <div>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            PageHeader — truncation & action wrapping
+          </h3>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+            Long titles/descriptions truncate (left) so actions never squeeze; wrap mode off; many actions wrap onto a
+            second line on narrow screens (right).
+          </p>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-900/60 p-4 min-w-0">
+            <PageHeader
+              title="Physical Stock Count Audit & Variance Reconciliation Register"
+              description="Count, compare, and reconcile physical counts against system stock across every branch and location — with variance tracking and approval workflow."
+              icon={<Layers className="h-5 w-5 text-amber-600 dark:text-amber-400" />}
+              actions={
+                <>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer">
+                    <PlusCircle className="h-3.5 w-3.5" /> Primary
+                  </button>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                    Secondary
+                  </button>
+                </>
+              }
+            />
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-900/60 p-4 min-w-0">
+            <PageHeader
+              title="Stock Movement Ledger"
+              description="All in/out movements with filters and CSV export."
+              icon={<Truck className="h-5 w-5 text-sky-600 dark:text-sky-400" />}
+              truncate={false}
+              actions={
+                <>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">Filter 1</button>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">Filter 2</button>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer">Filter 3</button>
+                  <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer">Action</button>
+                </>
+              }
+            />
+          </div>
+        </div>
+      </section>
     </div>
   );
 };
