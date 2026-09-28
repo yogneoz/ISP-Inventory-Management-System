@@ -3,6 +3,9 @@ import { Branch, LocationRecord } from '../../types';
 import { MapPin, Plus, Search, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation, Trash2, Edit } from 'lucide-react';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import StatCard from '../../components/common/StatCard';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface LocationsManagementProps {
   branches: Branch[];
@@ -120,93 +123,92 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Top Header */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <MapPin className="h-5 w-5 text-indigo-500" />
-            <span>Location & POP Management</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Track POP server rooms, fiber route junction nodes, customer installation sites, and GPS map coordinates.
-          </p>
-        </div>
+      <PageHeader
+        title="Location & POP Management"
+        description="Track POP server rooms, fiber route junction nodes, customer installation sites, and GPS map coordinates."
+        icon={<MapPin className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add New Location / POP</span>
+          </button>
+        }
+      />
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New Location / POP</span>
-        </button>
-      </div>
-
-      {/* KPI Cards */}
+      {/* KPI Cards — shared compact StatCard component */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-none">
-        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Network Sites</span>
-          <div className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">{locations.length} Sites</div>
-        </div>
-
-        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">POP Server Rooms</span>
-          <div className="text-xl font-bold font-mono text-purple-600 dark:text-purple-400">
-            {locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms
-          </div>
-        </div>
-
-        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Fiber Route Nodes</span>
-          <div className="text-xl font-bold font-mono text-sky-600 dark:text-sky-400">
-            {locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes
-          </div>
-        </div>
-
-        <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Assigned Equipment</span>
-          <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-            {locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units
-          </div>
-        </div>
+        <StatCard
+          label="Total Network Sites"
+          value={`${locations.length} Sites`}
+          icon={<Globe className="h-4 w-4" />}
+          tone="indigo"
+        />
+        <StatCard
+          label="POP Server Rooms"
+          value={`${locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms`}
+          icon={<Server className="h-4 w-4" />}
+          tone="violet"
+        />
+        <StatCard
+          label="Fiber Route Nodes"
+          value={`${locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes`}
+          icon={<Navigation className="h-4 w-4" />}
+          tone="sky"
+        />
+        <StatCard
+          label="Assigned Equipment"
+          value={`${locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units`}
+          icon={<Building2 className="h-4 w-4" />}
+          tone="emerald"
+        />
       </div>
 
-      {/* Filter Toolbar */}
-      <div className={`p-3 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-        <div className="flex items-center gap-2 flex-1 min-w-[220px]">
-          <Search className="h-4 w-4 text-slate-400 ml-1" />
-          <input
-            type="text"
-            placeholder="Search locations, address, contact person..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-transparent text-xs focus:outline-none placeholder:text-slate-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedBranchFilter}
-            onChange={(e) => setSelectedBranchFilter(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
-          >
-            <option value="ALL">All Branches</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedTypeFilter}
-            onChange={(e) => setSelectedTypeFilter(e.target.value)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
-          >
-            <option value="ALL">All Location Types</option>
-            <option value="POP_SERVER_ROOM">POP Server Room</option>
-            <option value="FIBER_NETWORK_NODE">Fiber Network Node</option>
-            <option value="CUSTOMER_SITE">Customer Site</option>
-            <option value="WAREHOUSE">Warehouse / Hub</option>
-          </select>
-        </div>
-      </div>
+      {/* Filter Toolbar — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search locations, address, contact person..."
+        searchValue={searchTerm}
+        onSearchApply={setSearchTerm}
+        hasActiveFilters={selectedBranchFilter !== 'ALL' || selectedTypeFilter !== 'ALL' || Boolean(searchTerm)}
+        onClearAll={() => {
+          setSearchTerm('');
+          setSelectedBranchFilter('ALL');
+          setSelectedTypeFilter('ALL');
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+              <select
+                value={selectedBranchFilter}
+                onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                className="rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+              >
+                <option value="ALL">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Type</label>
+              <select
+                value={selectedTypeFilter}
+                onChange={(e) => setSelectedTypeFilter(e.target.value)}
+                className="rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+              >
+                <option value="ALL">All Location Types</option>
+                <option value="POP_SERVER_ROOM">POP Server Room</option>
+                <option value="FIBER_NETWORK_NODE">Fiber Network Node</option>
+                <option value="CUSTOMER_SITE">Customer Site</option>
+                <option value="WAREHOUSE">Warehouse / Hub</option>
+              </select>
+            </div>
+          </>
+        }
+      />
 
       {/* Grid of Locations */}
       <div className="flex-1 min-h-0 overflow-y-auto">

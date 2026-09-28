@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface BranchStockTrackingProps {
   currentUser?: User | null;
@@ -135,53 +136,47 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header & Actions */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Layers className="h-5 w-5 text-indigo-500" />
-            <span>Branch Stock Matrix & Location Tracking</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Realtime stock balances across branches with reorder status alerts and direct transfer dispatches.
-          </p>
-        </div>
+      {/* Header & Actions — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Branch Stock Matrix & Location Tracking"
+        description="Realtime stock balances across branches with reorder status alerts and direct transfer dispatches."
+        icon={<Layers className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleExportBranchStockCSV}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+              title="Export full Branch Stock Matrix with uniform BS Date (YYYY-MM-DD)"
+            >
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Export Matrix CSV (BS Date)</span>
+            </button>
 
-        <div className="shrink-0 flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleExportBranchStockCSV}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
-            title="Export full Branch Stock Matrix with uniform BS Date (YYYY-MM-DD)"
-          >
-            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <FileSpreadsheet className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <span>Export Matrix CSV (BS Date)</span>
-          </button>
-
-          <button
-            onClick={() => setShowZeroStock(!showZeroStock)}
-            className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer ${
-              showZeroStock
-                ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600/40 hover:bg-amber-100'
-                : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600/40 hover:bg-emerald-100'
-            }`}
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            <span>
-              {showZeroStock
-                ? 'Showing All Stock (Inc. 0 Stock)'
-                : `Showing Available Stock Only (>0)`}
-            </span>
-            {!showZeroStock && hiddenZeroStockCount > 0 && (
-              <span className="rounded-full bg-emerald-200 dark:bg-emerald-900/90 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 text-[10px] font-bold">
-                {hiddenZeroStockCount} Zero-Stock Items Hidden
+            <button
+              onClick={() => setShowZeroStock(!showZeroStock)}
+              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer ${
+                showZeroStock
+                  ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600/40 hover:bg-amber-100'
+                  : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600/40 hover:bg-emerald-100'
+              }`}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span>
+                {showZeroStock
+                  ? 'Showing All Stock (Inc. 0 Stock)'
+                  : `Showing Available Stock Only (>0)`}
               </span>
-            )}
-          </button>
-
-        </div>
-      </div>
+              {!showZeroStock && hiddenZeroStockCount > 0 && (
+                <span className="rounded-full bg-emerald-200 dark:bg-emerald-900/90 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 text-[10px] font-bold">
+                  {hiddenZeroStockCount} Zero-Stock Items Hidden
+                </span>
+              )}
+            </button>
+          </>
+        }
+      />
 
       {/* Filter and Search Bar */}
       <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-3 p-3.5 rounded-2xl border shadow-sm bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>

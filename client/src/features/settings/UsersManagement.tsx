@@ -19,6 +19,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -270,24 +271,20 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Users className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
-            <span>User Access & Role Administration</span>
-          </h2>
-          <p className="truncate text-slate-500 text-xs mt-0.5">
-            Add, update roles, assign branches, or reset user passwords in case staff forget credentials.
-          </p>
-        </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New User</span>
-        </button>
-      </div>
+      <PageHeader
+        title="User Access & Role Administration"
+        description="Add, update roles, assign branches, or reset user passwords in case staff forget credentials."
+        icon={<Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
+        actions={
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add New User</span>
+          </button>
+        }
+      />
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>

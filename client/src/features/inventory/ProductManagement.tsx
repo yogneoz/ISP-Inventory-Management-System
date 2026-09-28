@@ -3,6 +3,7 @@ import { Category, InventoryStock, Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   Package,
   Plus,
@@ -410,61 +411,57 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             page-break-inside: avoid !important;
           }
         }
-      `}</style>
+      `}</style>      {/* Header bar — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title={mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}
+        description={
+          mode === 'product-master'
+            ? 'Master SKU catalog specification: Product Code, Barcode, Fixed Asset Depreciation settings, Category, UoM, Pricing, VAT %, and Reorder levels.'
+            : 'Live multi-branch inventory stock overview: on-hand balances, warehouse locations, and zero-stock filters.'
+        }
+        icon={<Package className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleExportStockCSV}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+              title="Export full stock matrix with uniform BS date YYYY-MM-DD"
+            >
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Export Stock CSV (BS Date)</span>
+            </button>
 
-      {/* Header bar */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Package className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
-            <span>{mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            {mode === 'product-master'
-              ? 'Master SKU catalog specification: Product Code, Barcode, Fixed Asset Depreciation settings, Category, UoM, Pricing, VAT %, and Reorder levels.'
-              : 'Live multi-branch inventory stock overview: on-hand balances, warehouse locations, and zero-stock filters.'}
-          </p>
-        </div>
+            <button
+              type="button"
+              onClick={() => setIsBulkBarcodeModalOpen(true)}
+              className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
+              title="Print All Item Barcodes formatted in A4 Sheet PDF Grid (Code 39 format)"
+            >
+              <Printer className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+              <Barcode className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+              <span>Print All Barcodes (A4 PDF)</span>
+            </button>
 
-        <div className="shrink-0 flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleExportStockCSV}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
-            title="Export full stock matrix with uniform BS date YYYY-MM-DD"
-          >
-            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Export Stock CSV (BS Date)</span>
-          </button>
+            {(() => {
+              const canEditProd = isOperationAllowed('prod-edit', currentUser?.role);
+              if (!canEditProd) return null;
 
-          <button
-            type="button"
-            onClick={() => setIsBulkBarcodeModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 cursor-pointer shadow-xs transition-all"
-            title="Print All Item Barcodes formatted in A4 Sheet PDF Grid (Code 39 format)"
-          >
-            <Printer className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
-            <Barcode className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
-            <span>Print All Barcodes (A4 PDF)</span>
-          </button>
-
-          {(() => {
-            const canEditProd = isOperationAllowed('prod-edit', currentUser?.role);
-            if (!canEditProd) return null;
-            return (
-              <button
-                title="Create new product SKU"
-                onClick={openCreateModal}
-                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add New Product SKU</span>
-              </button>
-            );
-          })()}
-        </div>
-      </div>
+              return (
+                <button
+                  title="Create new product SKU"
+                  onClick={openCreateModal}
+                  className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add New Product SKU</span>
+                </button>
+              );
+            })()}
+          </>
+        }
+      />
 
       {/* Consumable Products vs Fixed Assets Guidance & Advisory Banner */}
       {showConsumablesBanner && (

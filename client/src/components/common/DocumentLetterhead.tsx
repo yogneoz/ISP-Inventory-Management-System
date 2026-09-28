@@ -59,7 +59,13 @@ export const DocumentLetterhead: React.FC<DocumentLetterheadProps> = ({
         </h3>
       )}
       {subtitle && (
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
+        <p
+          className={`text-xs text-slate-500 dark:text-slate-400 mt-0.5 ${
+            showOnScreen ? '' : 'hidden print:block'
+          }`}
+        >
+          {subtitle}
+        </p>
       )}
     </div>
   );

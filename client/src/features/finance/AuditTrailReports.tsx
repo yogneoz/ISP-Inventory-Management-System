@@ -12,6 +12,7 @@ import {
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   FileSpreadsheet,
   History,
@@ -67,30 +68,21 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
         subtitle={`Generated: ${formatDualDate(new Date().toISOString().split('T')[0], dateMode)} — Realtime security audit trails, user access activities, role permissions changes, and system mutation records.`}
       />
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-slate-900 dark:text-white">
-              Register Overview
-            </span>
-          </h2>
-          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-            Realtime security audit trails, user access activities, role permissions changes, and system mutation records.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2">
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Activities Log (System Audit Trail)"
+        description="Realtime security audit trails, user access activities, role permissions changes, and system mutation records."
+        icon={<ShieldCheck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
+        actions={
           <button
             onClick={handlePrintReport}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
             <span>Print Log</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Navigation Sub-Tabs */}
       <div className={`flex items-center gap-2 border-b pb-2 border-slate-200 dark:border-slate-800`}>

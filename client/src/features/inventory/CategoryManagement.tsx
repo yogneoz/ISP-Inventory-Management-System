@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Category, Product, User } from '../../types';
-import { Grid, Plus, Edit2, Trash2, Tag, Search, X, Layers, CheckCircle2 } from 'lucide-react';
+import { Grid, Plus, Edit2, Trash2, Tag, X, Layers, CheckCircle2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface CategoryManagementProps {
   products: Product[];
@@ -135,59 +137,33 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
       {/* Header */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Grid className="h-5 w-5 text-indigo-500" />
-            <span>Category Management</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Organize inventory items and fixed assets into distinct classification categories.
-          </p>
-        </div>
+      <PageHeader
+        title="Category Management"
+        description={`${categories.length} categories · ${products.length} catalog SKUs classified · Primary group: Fixed Assets & Fiber Gear`}
+        icon={<Grid className="h-5 w-5 text-indigo-500" />}
+        actions={
+          canEdit ? (
+            <button
+              onClick={openCreateModal}
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add Category</span>
+            </button>
+          ) : null
+        }
+      />
 
-        {canEdit && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add Category</span>
-          </button>
-        )}
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-none">
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Total Categories</span>
-          <div className={`text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400`}>{categories.length}</div>
-        </div>
-
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Categorized Catalog SKUs</span>
-          <div className={`text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400`}>{products.length} Items</div>
-        </div>
-
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 shadow-2xs dark:bg-[#0f1218] dark:border-slate-800`}>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Primary Asset Group</span>
-          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Fixed Assets & Fiber Gear</div>
-        </div>
-      </div>
-
-      {/* Filter bar */}
-      <div className={`p-2 rounded-xl border shadow-2xs flex items-center justify-between gap-2 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search Category Name, Code, or Description..."
-            className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 dark:placeholder-slate-500`}
-          />
-        </div>
-      </div>
+      {/* No KPI cards here by design: this is a small master-data screen —
+          its counts belong in the page subtitle, not in fake-metric cards. */}
+      {/* Filter bar — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search Category Name, Code, or Description..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={Boolean(searchQuery)}
+        onClearAll={() => setSearchQuery('')}
+      />
 
       {/* Categories Table */}
       <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>

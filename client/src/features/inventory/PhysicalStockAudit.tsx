@@ -27,9 +27,11 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
+import { StatCard, StatCardGrid } from '../../components/common/StatCard';
 import { convertADToBS, formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
+import { TablePagination } from '../../components/common/TablePagination';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -437,6 +439,22 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       return true;
     });
   }, [auditRows, selectedCategory, filterVariance, searchQuery]);
+
+  // Client pagination for the single-branch audit table — the DOM previously
+  // rendered every matching row unbounded, which gets heavy as the catalog
+  // grows. The StatCard filters above already drive `filteredRows`.
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(25);
+  const auditPageCount = Math.max(1, Math.ceil(filteredRows.length / auditPageSize));
+  const safeAuditPage = Math.min(auditPage, auditPageCount);
+  const pagedAuditRows = useMemo(
+    () => filteredRows.slice((safeAuditPage - 1) * auditPageSize, safeAuditPage * auditPageSize),
+    [filteredRows, safeAuditPage, auditPageSize]
+  );
+  // Jump back to page 1 whenever the filter set changes the row list.
+  useEffect(() => {
+    setAuditPage(1);
+  }, [selectedCategory, filterVariance, searchQuery]);
 
   // Statistics Calculation
   const stats = useMemo(() => {
@@ -1296,98 +1314,60 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
           </div>
 
-      {/* METRICS SUMMARY CARDS */}
+      {/* METRICS SUMMARY CARDS — shared compact StatCard component. The
+          variance cards are clickable drill-downs: Shortage filters the audit
+          table to negative variances, Excess to positive variances, Discrepancy
+          to any non-zero variance, and clicking the active card again (or Total
+          Audit SKUs) resets to all rows. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {/* Card 1: Total SKUs */}
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <p className={`text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400`}>
-            Total Audit SKUs
-          </p>
-          <p className={`text-xl font-extrabold font-mono mt-1 text-slate-900 dark:text-slate-100`}>
-            {stats.totalItems}
-          </p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Counted: {stats.countedItems} / {stats.totalItems}
-          </p>
-        </div>
-
-        {/* Card 2: Book System Qty */}
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <p className={`text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400`}>
-            Book System Qty
-          </p>
-          <p className={`text-xl font-extrabold font-mono mt-1 text-slate-700 dark:text-slate-300`}>
-            {(stats.totalBookQty ?? 0).toLocaleString()}
-          </p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Physical: {(stats.totalCountedQty ?? 0).toLocaleString()}
-          </p>
-        </div>
-
-        {/* Card 3: Shortage (-) */}
-        <div
-          className={`p-4 rounded-2xl border ${stats.shortageQty > 0 ? 'bg-rose-50/70 border-rose-200 text-rose-950 dark:bg-rose-950/40 dark:border-rose-900/50 dark:text-rose-100' : 'bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800'}`}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1">
-            <TrendingDown className="h-3 w-3" />
-            <span>Shortage (-)</span>
-          </p>
-          <p className={`text-xl font-extrabold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            -{(stats.shortageQty ?? 0).toLocaleString()}
-          </p>
-          <p className="text-[10px] text-rose-500/80 font-mono mt-0.5">
-            -NPR {(stats.shortageValue ?? 0).toLocaleString()}
-          </p>
-        </div>
-
-        {/* Card 4: Excess (+) */}
-        <div
-          className={`p-4 rounded-2xl border ${stats.excessQty > 0 ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-900/50 dark:text-emerald-100' : 'bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800'}`}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
-            <TrendingUp className="h-3 w-3" />
-            <span>Excess / Surplus (+)</span>
-          </p>
-          <p className={`text-xl font-extrabold font-mono mt-1 text-emerald-600 dark:text-emerald-400`}>
-            +{(stats.excessQty ?? 0).toLocaleString()}
-          </p>
-          <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">
-            +NPR {(stats.excessValue ?? 0).toLocaleString()}
-          </p>
-        </div>
-
-        {/* Card 5: Net Value Impact */}
-        <div
-          className={`p-4 rounded-2xl border ${
-            stats.netValueVariance !== 0
-              ? stats.netValueVariance < 0
-                ? isDarkMode ? 'bg-rose-500/10 border-rose-500/30 text-rose-100' : 'bg-rose-500/10 border-rose-500/30 text-rose-900'
-                : isDarkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-100' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900'
-              : 'bg-white border-slate-200 shadow-xs dark:bg-slate-900/60 dark:border-slate-800'
-          }`}
-        >
-          <p className={`text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400`}>
-            Net Value Impact
-          </p>
-          <p
-            className={`text-xl font-extrabold font-mono mt-1 ${
-              stats.netValueVariance < 0
-                ? 'text-rose-600'
-                : stats.netValueVariance > 0
-                ? 'text-emerald-600'
-                : 'text-slate-500'
-            }`}
-          >
-            {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
-          </p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Discrepancies: {stats.discrepancyCount} items
-          </p>
-        </div>
+        <StatCard
+          label="Total Audit SKUs"
+          icon={<ClipboardCheck className="h-4 w-4" />}
+          tone="slate"
+          value={stats.totalItems}
+          hint={`Counted: ${stats.countedItems} / ${stats.totalItems}`}
+          onClick={() => setFilterVariance('ALL')}
+          title="Show all stock rows"
+        />
+        <StatCard
+          label="Book System Qty"
+          icon={<TableProperties className="h-4 w-4" />}
+          tone="slate"
+          value={(stats.totalBookQty ?? 0).toLocaleString()}
+          hint={`Physical: ${(stats.totalCountedQty ?? 0).toLocaleString()}`}
+        />
+        <StatCard
+          label="Shortage (-)"
+          icon={<TrendingDown className="h-4 w-4" />}
+          tone="rose"
+          value={`-${(stats.shortageQty ?? 0).toLocaleString()}`}
+          hint={`-NPR ${(stats.shortageValue ?? 0).toLocaleString()} · show only losses`}
+          active={filterVariance === 'SHORTAGE'}
+          onClick={() => setFilterVariance(filterVariance === 'SHORTAGE' ? 'ALL' : 'SHORTAGE')}
+          title="Filter table: only negative variances (click again to clear)"
+        />
+        <StatCard
+          label="Excess / Surplus (+)"
+          icon={<TrendingUp className="h-4 w-4" />}
+          tone="emerald"
+          value={`+${(stats.excessQty ?? 0).toLocaleString()}`}
+          hint={`+NPR ${(stats.excessValue ?? 0).toLocaleString()} · show only gains`}
+          active={filterVariance === 'EXCESS'}
+          onClick={() => setFilterVariance(filterVariance === 'EXCESS' ? 'ALL' : 'EXCESS')}
+          title="Filter table: only positive variances (click again to clear)"
+        />
+        <StatCard
+          label="Net Value Impact"
+          icon={<ArrowRight className="h-4 w-4" />}
+          tone={
+            stats.netValueVariance < 0 ? 'rose' : stats.netValueVariance > 0 ? 'emerald' : 'slate'
+          }
+          value={`${stats.netValueVariance >= 0 ? '+' : ''}NPR ${(stats.netValueVariance ?? 0).toLocaleString()}`}
+          hint={`Discrepancies: ${stats.discrepancyCount} items`}
+          active={filterVariance === 'DISCREPANCY'}
+          onClick={() => setFilterVariance(filterVariance === 'DISCREPANCY' ? 'ALL' : 'DISCREPANCY')}
+          title="Filter table: only rows with any variance (click again to clear)"
+        />
       </div>
 
       {/* BLIND AUDIT ACTIVE BANNER & UNSEAL ACTION */}
@@ -1530,14 +1510,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {filteredRows.length === 0 ? (
+              {pagedAuditRows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-400">
                     No stock audit records match the current filter or search criteria.
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row) => {
+                pagedAuditRows.map((row) => {
                   const counted = typeof row.countedQty === 'number' ? row.countedQty : 0;
                   const variance = counted - row.bookQty;
                   const varianceVal = variance * row.unitCost;
@@ -1714,6 +1694,20 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           </table>
         </div>
       </div>
+
+      <TablePagination
+        page={safeAuditPage}
+        pageCount={auditPageCount}
+        totalItems={filteredRows.length}
+        rangeStart={filteredRows.length === 0 ? 0 : (safeAuditPage - 1) * auditPageSize + 1}
+        rangeEnd={Math.min(safeAuditPage * auditPageSize, filteredRows.length)}
+        pageSize={auditPageSize}
+        onPageChange={(p) => setAuditPage(Math.max(1, p))}
+        onPageSizeChange={(s) => {
+          setAuditPageSize(s);
+          setAuditPage(1);
+        }}
+      />
         </>
       )}
 
@@ -1990,23 +1984,29 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </span>
             </div>
 
-            {/* Audit Summary Grid */}
+            {/* Audit Summary Grid — shared StatCard component */}
             <div className="grid grid-cols-3 gap-3">
-              <div className={`p-3 rounded-2xl border text-xs bg-slate-50 dark:bg-slate-800/60`}>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Audited</span>
-                <span className={`font-extrabold text-base text-slate-800 dark:text-slate-200`}>{stats.totalItems} SKUs</span>
-                <span className="text-[10px] text-slate-400 block">Discrepancies: {stats.discrepancyCount}</span>
-              </div>
-              <div className={`p-3 rounded-2xl border text-xs bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-900/40`}>
-                <span className={`text-[10px] uppercase font-bold block text-rose-500 dark:text-rose-400`}>Shortages (-)</span>
-                <span className={`font-extrabold text-base font-mono text-rose-600 dark:text-rose-400`}>-{(stats.shortageQty ?? 0)} Units</span>
-                <span className={`text-[10px] block font-mono text-rose-500 dark:text-rose-500`}>-NPR {(stats.shortageValue ?? 0).toLocaleString()}</span>
-              </div>
-              <div className={`p-3 rounded-2xl border text-xs bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40`}>
-                <span className={`text-[10px] uppercase font-bold block text-emerald-500 dark:text-emerald-400`}>Excess (+)</span>
-                <span className={`font-extrabold text-base font-mono text-emerald-600 dark:text-emerald-400`}>+{(stats.excessQty ?? 0)} Units</span>
-                <span className={`text-[10px] block font-mono text-emerald-500 dark:text-emerald-500`}>+NPR {(stats.excessValue ?? 0).toLocaleString()}</span>
-              </div>
+              <StatCard
+                label="Total Audited"
+                icon={<ClipboardCheck className="h-4 w-4" />}
+                tone="slate"
+                value={`${stats.totalItems} SKUs`}
+                hint={`Discrepancies: ${stats.discrepancyCount}`}
+              />
+              <StatCard
+                label="Shortages (-)"
+                icon={<TrendingDown className="h-4 w-4" />}
+                tone="rose"
+                value={`-${(stats.shortageQty ?? 0)} Units`}
+                hint={`-NPR ${(stats.shortageValue ?? 0).toLocaleString()}`}
+              />
+              <StatCard
+                label="Excess (+)"
+                icon={<TrendingUp className="h-4 w-4" />}
+                tone="emerald"
+                value={`+${(stats.excessQty ?? 0)} Units`}
+                hint={`+NPR ${(stats.excessValue ?? 0).toLocaleString()}`}
+              />
             </div>
 
             {/* Discrepancy Breakdown Table */}
@@ -2391,34 +2391,34 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </div>
             </div>
 
-            {/* Consolidated High-level Metrics */}
-            <div className={`p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0 bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-800`}>
-              <div className={`p-3 rounded-2xl border text-xs bg-white dark:bg-slate-900`}>
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Company Book Stock</span>
-                <span className={`text-lg font-extrabold font-mono text-slate-900 dark:text-slate-100`}>
-                  {(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units
-                </span>
-              </div>
-              <div className={`p-3 rounded-2xl border text-xs bg-white dark:bg-slate-900`}>
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Physical Counted Stock</span>
-                <span className={`text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400`}>
-                  {(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units
-                </span>
-              </div>
-              <div className={`p-3 rounded-2xl border text-xs bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-900/50`}>
-                <span className={`text-[10px] font-bold uppercase block text-rose-500 dark:text-rose-400`}>Consolidated Shortage</span>
-                <span className={`text-lg font-extrabold font-mono text-rose-600 dark:text-rose-400`}>
-                  -{(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units
-                </span>
-                <span className={`text-[10px] font-mono block text-rose-500 dark:text-rose-500`}>-NPR {(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}</span>
-              </div>
-              <div className={`p-3 rounded-2xl border text-xs bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/50`}>
-                <span className={`text-[10px] font-bold uppercase block text-emerald-500 dark:text-emerald-400`}>Consolidated Excess</span>
-                <span className={`text-lg font-extrabold font-mono text-emerald-600 dark:text-emerald-400`}>
-                  +{(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units
-                </span>
-                <span className={`text-[10px] font-mono block text-emerald-500 dark:text-emerald-500`}>+NPR {(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}</span>
-              </div>
+            {/* Consolidated High-level Metrics — shared StatCard component */}
+            <div className="p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0 bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-800">
+              <StatCard
+                label="Company Book Stock"
+                icon={<TableProperties className="h-4 w-4" />}
+                tone="slate"
+                value={`${(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units`}
+              />
+              <StatCard
+                label="Physical Counted Stock"
+                icon={<ClipboardCheck className="h-4 w-4" />}
+                tone="indigo"
+                value={`${(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units`}
+              />
+              <StatCard
+                label="Consolidated Shortage"
+                icon={<TrendingDown className="h-4 w-4" />}
+                tone="rose"
+                value={`-${(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units`}
+                hint={`-NPR ${(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}`}
+              />
+              <StatCard
+                label="Consolidated Excess"
+                icon={<TrendingUp className="h-4 w-4" />}
+                tone="emerald"
+                value={`+${(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units`}
+                hint={`+NPR ${(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}`}
+              />
             </div>
 
             {/* Consolidated Matrix Table */}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { TablePagination } from '../../components/common/TablePagination';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   StockOperation,
   Product,
@@ -21,6 +22,7 @@ import {
 import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
+import { StatCard } from '../../components/common/StatCard';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
@@ -58,6 +60,7 @@ import {
   Clock,
   Undo2,
   Download,
+  TrendingDown,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
 import { BarcodeScannerModal } from '../../components/common/BarcodeScannerModal';
@@ -1974,6 +1977,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   const allCombinedOps = [...operations, ...synthesizedDamageOps];
 
+  // Damage-log register pagination: the DAMAGE_TRACKING tab renders this list
+  // without any server-side window, so cap the DOM with client pagination
+  // (same pattern as DamagedStockTracking).
+  const [damageLogPage, setDamageLogPage] = useState(1);
+  const [damageLogPageSize, setDamageLogPageSize] = useState(20);
+  const damageLogOps = useMemo(() => {
+    if (activeTab !== 'DAMAGE_TRACKING') return [];
+    return allCombinedOps.filter((op) => op.type === 'DAMAGE' || op.type === 'DISPOSAL');
+  }, [allCombinedOps, activeTab]);
+  const damageLogPageCount = Math.max(1, Math.ceil(damageLogOps.length / damageLogPageSize));
+  const safeDamageLogPage = Math.min(damageLogPage, damageLogPageCount);
+  const pagedDamageLogOps = useMemo(
+    () => damageLogOps.slice((safeDamageLogPage - 1) * damageLogPageSize, safeDamageLogPage * damageLogPageSize),
+    [damageLogOps, safeDamageLogPage, damageLogPageSize]
+  );
+
   // Filters for Stock Operations Logs
   const filteredOperations = allCombinedOps.filter((op) => {
     if (!isOpInAllowedBranch(op)) return false;
@@ -2041,22 +2060,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         </div>
       )}
 
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <AlertOctagon className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
-            <span>Stock Operations & Logistics Center</span>
-          </h2>
-          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-            Manage overstock pullouts, branch damage labeling, inter-branch transfers, fixed asset site assignments, and customer product sales.
-          </p>
-        </div>
-
-        {/* Top Action Buttons */}
-        <div className="shrink-0 flex flex-wrap items-center gap-2">
-        </div>
-      </div>
+      {/* Top Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Stock Operations & Logistics Center"
+        description="Manage overstock pullouts, branch damage labeling, inter-branch transfers, fixed asset site assignments, and customer product sales."
+        icon={<AlertOctagon className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
+      />
 
       {/* Navigation Sub-Tabs */}
       {!isStandalonePage && <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto border-slate-200 dark:border-slate-800`}>
@@ -2353,26 +2362,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
           )}
 
-          {/* KPI Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-              <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Log Records</div>
-              <div className={`text-xl font-bold font-mono text-rose-600 dark:text-rose-400`}>
-                {filteredOperations.length} Records
-              </div>
-            </div>
-            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-              <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Stock Units</div>
-              <div className={`text-xl font-bold font-mono text-amber-600 dark:text-amber-400`}>
-                {filteredOperations.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
-              </div>
-            </div>
-            <div className={`p-3.5 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-              <div className="text-xs font-semibold text-slate-500 mb-1">Total Estimated Loss Valuation</div>
-              <div className={`text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400`}>
-                {formatNPR(filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0))}
-              </div>
-            </div>
+          {/* Damage aggregate strip — deliberately NOT StatCards here: the
+              damage log renders below on the same screen, so a full KPI row
+              pushed it below the fold. One slim line in the table toolbar
+              keeps the aggregates visible at zero vertical cost. */}
+          <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800 text-xs`}>
+            <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+              <AlertTriangle className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400" />
+              {filteredOperations.length} Records
+            </span>
+            <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+              {filteredOperations.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
+            </span>
+            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+              {formatNPR(filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0))} Est. Loss
+            </span>
           </div>
 
           <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
@@ -2399,7 +2403,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   </tr>
                 </thead>
                 <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                  {filteredOperations.map((op) => (
+                  {pagedDamageLogOps.map((op) => (
                     <tr key={op.id} className={`hover:bg-slate-200 dark:hover:bg-slate-800/40 ${op.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
                       <td className={`p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400`}>{op.referenceNumber}</td>
                       <td className="p-2.5">
@@ -2457,6 +2461,20 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </table>
             </div>
           </div>
+
+          <TablePagination
+            page={safeDamageLogPage}
+            pageCount={damageLogPageCount}
+            totalItems={damageLogOps.length}
+            rangeStart={damageLogOps.length === 0 ? 0 : (safeDamageLogPage - 1) * damageLogPageSize + 1}
+            rangeEnd={Math.min(safeDamageLogPage * damageLogPageSize, damageLogOps.length)}
+            pageSize={damageLogPageSize}
+            onPageChange={(p) => setDamageLogPage(Math.max(1, p))}
+            onPageSizeChange={(s) => {
+              setDamageLogPageSize(s);
+              setDamageLogPage(1);
+            }}
+          />
         </div>
       )}
 
@@ -2954,11 +2972,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
         <FormCard className="space-y-4">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-            <h3 className="text-base font-serif font-bold flex items-center gap-2">
-              <Send className="h-5 w-5 text-sky-500" />
-              <span>Create Inter-Branch Multi-Stock Transfer Dispatch</span>
-            </h3>
+          {/* Slim context strip instead of a serif banner header: the tab bar
+              (or standalone sidebar item) already names this operation, so the
+              form leads with its fields and keeps only the status chip. */}
+          <div className="flex items-center justify-end">
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-200 border border-sky-200 dark:border-sky-800">
               Inter-Branch Shipment GRN
             </span>
@@ -3408,11 +3425,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
         <FormCard className="space-y-4">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-            <h3 className="text-base font-serif font-bold flex items-center gap-2">
-              <Wrench className={`h-5 w-5 text-amber-500 dark:text-amber-400`} />
-              <span>Issue Consumable Items (Splitter, Sleeve, Coupler, Fast Connector)</span>
-            </h3>
+          {/* Slim context strip instead of a serif banner header (tab bar already
+              names this operation); status chip retained. */}
+          <div className="flex items-center justify-end">
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
               Quantity Store Requisition
             </span>
@@ -3733,11 +3748,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLES_REGISTER' && (
         <div className="rounded-2xl border p-4 shadow-sm bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-            <h3 className="text-base font-serif font-bold flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-amber-500" />
-              <span>Consumables Issue Register</span>
-            </h3>
+          {/* Slim count chip instead of a serif banner header (the tab bar already
+              names this register). */}
+          <div className="flex items-center justify-end pb-2 mb-3 border-b border-slate-200 dark:border-slate-800">
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
               {consumableRegisterLoading ? '…' : consumableRegisterCount} Record(s)
             </span>
@@ -4028,11 +4041,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
         <FormCard className="space-y-4">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-            <h3 className="text-base font-serif font-bold flex items-center gap-2">
-              <PackageMinus className="h-5 w-5 text-purple-500" />
-              <span>Multi-Item Product Sales Invoice (Stock Out)</span>
-            </h3>
+          {/* Slim context strip instead of a serif banner header (tab bar already
+              names this operation); status chip retained. */}
+          <div className="flex items-center justify-end">
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
               Retail Sales Invoice
             </span>

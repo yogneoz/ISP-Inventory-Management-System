@@ -3,6 +3,7 @@ import { User } from '../../types';
 import { api } from '../../services/api';
 import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   ShieldCheck,
   Check,
@@ -548,42 +549,37 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            <span>Group-Wise Operations & Role Permission Control</span>
-          </h2>
-          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-1">
-            Configure system privileges and operations enable/disable matrix grouped logically by department. Total operations: {totalOpsCount}
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2.5">
-          <button
-            onClick={handleReset}
-            disabled={!isSuperAdmin || isSaving}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed ${isSuperAdmin && !isSaving ? 'cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700' : ''}`}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>Reset Defaults</span>
-          </button>
-          {!isSuperAdmin && (
-            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold self-center">
-              Only a Super Admin can save changes.
-            </span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!isSuperAdmin || isSaving}
-            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Save className="h-4 w-4" />
-            <span>{isSaving ? 'Saving…' : 'Save Permissions Matrix'}</span>
-          </button>
-        </div>
-      </div>
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Group-Wise Operations & Role Permission Control"
+        description={`Configure system privileges and operations enable/disable matrix grouped logically by department. Total operations: ${totalOpsCount}`}
+        icon={<ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+        actions={
+          <>
+            <button
+              onClick={handleReset}
+              disabled={!isSuperAdmin || isSaving}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed ${isSuperAdmin && !isSaving ? 'cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700' : ''}`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Reset Defaults</span>
+            </button>
+            {!isSuperAdmin && (
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold self-center">
+                Only a Super Admin can save changes.
+              </span>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={!isSuperAdmin || isSaving}
+              className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="h-4 w-4" />
+              <span>{isSaving ? 'Saving…' : 'Save Permissions Matrix'}</span>
+            </button>
+          </>
+        }
+      />
 
       {saveError && (
         <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs font-semibold flex items-center gap-2.5 shadow-xs">

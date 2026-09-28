@@ -11,8 +11,10 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { StatCard, StatCardGrid } from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface StockValuationProps {
   products: Product[];
@@ -213,106 +215,76 @@ export const StockValuation: React.FC<StockValuationProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white dark:text-white`}>
-            <Coins className="h-5 w-5 text-emerald-500" />
-            <span>Stock Valuation & Profit Margin Analysis</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Real-time calculation of total asset value at cost price, estimated retail value, gross profit potential, and category shares.
-          </p>
-        </div>
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Stock Valuation & Profit Margin Analysis"
+        description="Real-time calculation of total asset value at cost price, estimated retail value, gross profit potential, and category shares."
+        icon={<Coins className="h-5 w-5 text-emerald-500" />}
+        actions={
+          <button
+            onClick={exportValuationCSV}
+            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-md shadow-emerald-950/30 transition-all cursor-pointer"
+          >
+            <Download className="h-4 w-4 text-white" />
+            <span>Export Stock Valuation CSV</span>
+          </button>
+        }
+      />
 
-        <button
-          onClick={exportValuationCSV}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-md shadow-emerald-950/30 transition-all cursor-pointer"
-        >
-          <Download className="h-4 w-4 text-white" />
-          <span>Export Stock Valuation CSV</span>
-        </button>
-      </div>
+      {/* Financial KPI Cards — shared compact StatCard component. The
+          Potential Gross Profit card is clickable: it applies a "profitable"
+          filter focus by switching to the itemized view where margin columns
+          live; the others jump straight to the relevant sub-view. */}
+      <StatCardGrid>
+        <StatCard
+          label="Total Inventory Cost Value"
+          icon={<Coins className="h-4 w-4" />}
+          tone="indigo"
+          value={formatNPRInteger(grandCostValuation)}
+          hint={`At purchase cost across ${(grandTotalUnits ?? 0).toLocaleString('en-IN')} units`}
+          onClick={() => setSubView('ITEMIZED')}
+          title="Show itemized stock table"
+        />
+        <StatCard
+          label="Estimated Retail Value"
+          icon={<TrendingUp className="h-4 w-4" />}
+          tone="sky"
+          value={formatNPRInteger(grandRetailValuation)}
+          hint="At selling price market value"
+          onClick={() => setSubView('ITEMIZED')}
+          title="Show itemized stock table"
+        />
+        <StatCard
+          label="Potential Gross Profit"
+          icon={<ArrowUpRight className="h-4 w-4" />}
+          tone="emerald"
+          value={formatNPRInteger(grandPotentialMargin)}
+          hint={
+            <>
+              <span className="font-bold text-emerald-500 font-mono">{grandMarginPercent.toFixed(1)}%</span> average margin
+            </>
+          }
+          onClick={() => setSubView('ITEMIZED')}
+          title="Show itemized stock table"
+        />
+        <StatCard
+          label="Damaged Stock Loss Value"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone="rose"
+          value={formatNPRInteger(grandDamagedLoss)}
+          hint="Unusable damaged stock write-off"
+          onClick={() => setSubView('ITEMIZED')}
+          title="Show itemized stock table"
+        />
+      </StatCardGrid>
 
-      {/* Financial KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Cost Valuation */}
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Total Inventory Cost Value
-            </span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
-              <Coins className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
-            {formatNPRInteger(grandCostValuation)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-medium">
-            At purchase cost across {(grandTotalUnits ?? 0).toLocaleString('en-IN')} units
-          </div>
-        </div>
-
-        {/* Retail Valuation */}
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Estimated Retail Value
-            </span>
-            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-sky-600 dark:text-sky-400`}>
-            {formatNPRInteger(grandRetailValuation)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-medium">
-            At selling price market value
-          </div>
-        </div>
-
-        {/* Potential Profit Margin */}
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Potential Gross Profit
-            </span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
-              <ArrowUpRight className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-emerald-600 dark:text-emerald-400`}>
-            {formatNPRInteger(grandPotentialMargin)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-medium flex items-center gap-1">
-            <span className="font-bold text-emerald-500 font-mono">{grandMarginPercent.toFixed(1)}%</span> average margin
-          </div>
-        </div>
-
-        {/* Damaged Stock Loss */}
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Damaged Stock Loss Value
-            </span>
-            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-500">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            {formatNPRInteger(grandDamagedLoss)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-medium">
-            Unusable damaged stock write-off
-          </div>
-        </div>
-      </div>
-
-      {/* Controls & Sub-view Switcher */}
-      <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
+      {/* Controls & Sub-view Switcher — view tabs on their own row, with the
+          shared search/filter card below, so the bar never balloons in height
+          on narrower desktops (1366x768) where the side-by-side layout forced
+          the filter fields to wrap and double the row height. */}
+      <div className={`p-3 rounded-2xl border flex flex-col items-stretch gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         {/* View Switcher Buttons */}
-        <div className={`p-1 rounded-xl border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
+        <div className={`p-1 rounded-xl border flex items-center gap-1 self-start bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
           <button
             onClick={() => setSubView('ITEMIZED')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subView === 'ITEMIZED' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
@@ -334,7 +306,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
         </div>
 
         {/* Search & Filter Card — shared inline card */}
-        <div className="w-full md:w-auto md:ml-auto">
+        <div className="w-full">
           <FilterCard
             searchPlaceholder="Scan Barcode or Search & Enter Product Name / SKU:"
             searchValue={searchQuery}

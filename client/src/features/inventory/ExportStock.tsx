@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface ExportStockProps {
   currentUser?: User | null;
@@ -564,25 +565,18 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-2.5">
-      {/* 1. Header Row (Clean, dedicated title & summary) */}
-      <div className="flex-none flex flex-col md:flex-row md:items-center justify-between gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <DownloadCloud className="h-5 w-5 text-indigo-500" />
-            <span>Export Stock Data & Serialized Reports</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Audit-ready CSV exports for Serialized Hardware (SN/PON/MAC), Consolidated Reorder Levels, Master Stock Matrix, and Branch Breakdown.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300`}>
+      {/* 1. Header Row — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Export Stock Data & Serialized Reports"
+        description="Audit-ready CSV exports for Serialized Hardware (SN/PON/MAC), Consolidated Reorder Levels, Master Stock Matrix, and Branch Breakdown."
+        icon={<DownloadCloud className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300">
             <Building2 className="h-3.5 w-3.5 text-indigo-500" />
             <span>Scope: {currentBranchName}</span>
           </span>
-        </div>
-      </div>
+        }
+      />
 
       {/* 2. All Tabs Navigation Bar (Positioned directly above the Filter Card) */}
       <div className="flex-none">

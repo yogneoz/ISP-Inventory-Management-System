@@ -39,6 +39,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { FormCard } from '../../components/common/FormCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
@@ -663,42 +664,35 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <Truck className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
-            <span>Warehouse Logistics & Stock Dispatches</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Scan barcode or search products to dispatch stock transfers to destination branches or process warehouse sales.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search Tracking Code..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-              }`}
-            />
-          </div>
-
-          {!isSuperAdmin ? (
-            <div className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
-              <PackageCheck className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
-              <span>Branch Inbound Mode: Receive incoming stock shipments below.</span>
+      {/* Header & Controls — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Warehouse Logistics & Stock Dispatches"
+        description="Scan barcode or search products to dispatch stock transfers to destination branches or process warehouse sales."
+        icon={<Truck className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="relative w-full md:w-80 lg:w-96 shrink-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search Tracking Code..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              />
             </div>
-          ) : null}
-        </div>
-      </div>
+
+            {!isSuperAdmin ? (
+              <div className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                <PackageCheck className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                <span>Branch Inbound Mode: Receive incoming stock shipments below.</span>
+              </div>
+            ) : null}
+          </div>
+        }
+      />
 
       {/* Rail Sub-Navigation Tabs Bar (Like Purchase Invoices) */}
       {activeTab !== 'create-shipment' && activeTab !== 'shipment-list' && <div
@@ -782,20 +776,12 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* CREATE SUBTAB: Embedded Inline Form View */}
       {internalTab === 'CREATE_SHIPMENT' && (
         <FormCard className="p-0 space-y-0 overflow-hidden">
-          <div className={`flex items-center justify-between border-b p-4 ${
+          {/* No secondary form banner by design: the sub-tab indicator already
+              communicates context. Only a slim "Switch to Register" action
+              remains anchored to the form card. */}
+          <div className={`flex items-center justify-end border-b p-2.5 ${
             isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
           }`}>
-            <div>
-              <h3 className={`font-bold text-base flex items-center gap-2 ${
-                isDarkMode ? 'text-white' : 'text-slate-900'
-              }`}>
-                <Truck className={`h-5 w-5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
-                <span>Warehouse Dispatch & Sale Entry Form (Inline POS & Scan)</span>
-              </h3>
-              <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Select source warehouse/branch, destination branch, scan barcodes, and assign device serial numbers for dispatch.
-              </p>
-            </div>
             <button
               type="button"
               onClick={() => setInternalTab('REGISTER')}

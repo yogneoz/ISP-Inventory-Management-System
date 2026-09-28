@@ -72,6 +72,10 @@ const StockValuation = React.lazy(() =>
 const StockMovementLedger = React.lazy(() =>
   import('./features/inventory/StockMovementLedger').then((m) => ({ default: m.StockMovementLedger }))
 );
+// DEV-ONLY: StatCard design-review gallery (hidden dev-statcard tab).
+const StatCardShowcase = React.lazy(() =>
+  import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase }))
+);
 const WarrantyProducts = React.lazy(() =>
   import('./features/inventory/WarrantyProducts').then((m) => ({ default: m.WarrantyProducts }))
 );
@@ -1559,6 +1563,12 @@ export default function App() {
                   onCreateAsset={handleCreateAsset}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
+              )}
+
+              {activeTab === 'dev-statcard' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <StatCardShowcase />
+                </React.Suspense>
               )}
 
               {activeTab === 'customers' && (

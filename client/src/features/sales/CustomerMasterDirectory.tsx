@@ -4,7 +4,6 @@ import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import {
   Users,
-  Search,
   Plus,
   Upload,
   Download,
@@ -31,6 +30,8 @@ import {
   Tag,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
+import StatCard from '../../components/common/StatCard';
 
 interface CustomerMasterDirectoryProps {
   customers: CustomerRecord[];
@@ -320,81 +321,77 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </div>
         </div>
 
-        {/* Quick Summary Cards */}
+        {/* Quick Summary Cards — shared compact StatCard component */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Registered Customers</span>
-            <div className="text-lg font-bold mt-0.5 text-slate-900 dark:text-white">{customers.length} Accounts</div>
-          </div>
+          <StatCard
+            label="Total Registered Customers"
+            value={`${customers.length} Accounts`}
+            tone="slate"
+          />
 
-          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Active Status Accounts</span>
-            <div className="text-lg font-bold mt-0.5 text-emerald-700 dark:text-emerald-400">
-              {customers.filter((c) => c.status === 'ACTIVE').length} Active
-            </div>
-          </div>
+          <StatCard
+            label="Active Status Accounts"
+            value={`${customers.filter((c) => c.status === 'ACTIVE').length} Active`}
+            tone="emerald"
+          />
 
-          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
-            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Tracked Device Serials</span>
-            <div className="text-lg font-bold mt-0.5 text-indigo-700 dark:text-indigo-400">
-              {customerDevices.length} Hardware Devices
-            </div>
-          </div>
+          <StatCard
+            label="Tracked Device Serials"
+            value={`${customerDevices.length} Hardware Devices`}
+            tone="indigo"
+          />
 
-          <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
-            <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Total Credit Capacity</span>
-            <div className="text-lg font-bold mt-0.5 text-amber-700 dark:text-amber-400">
-              {formatNPR(customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className={`p-3 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by Cus. Code, Name, Username, Primary Mobile, Email, or Address..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border transition-colors outline-none bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-indigo-500`}
+          <StatCard
+            label="Total Credit Capacity"
+            value={formatNPR(customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
+            tone="amber"
           />
         </div>
-
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Branch Filter */}
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-slate-400" />
-            <select
-              value={selectedBranchFilter}
-              onChange={(e) => setSelectedBranchFilter(e.target.value)}
-              className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-medium bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
-            >
-              <option value="ALL">All Branches ({branches.length})</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status Filter */}
-          <div className="flex items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className={`px-3 py-1.5 text-xs rounded-xl border outline-none font-medium bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="ACTIVE">Active Only</option>
-              <option value="INACTIVE">Inactive Only</option>
-            </select>
-          </div>
-        </div>
       </div>
+
+      {/* Filter and Search Bar — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search by Cus. Code, Name, Username, Primary Mobile, Email, or Address..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={Boolean(searchQuery) || selectedBranchFilter !== 'ALL' || statusFilter !== 'ALL'}
+        onClearAll={() => {
+          setSearchQuery('');
+          setSelectedBranchFilter('ALL');
+          setStatusFilter('ALL');
+        }}
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+              <select
+                value={selectedBranchFilter}
+                onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Branches ({branches.length})</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="ACTIVE">Active Only</option>
+                <option value="INACTIVE">Inactive Only</option>
+              </select>
+            </div>
+          </>
+        }
+      />
 
       {/* Customer Master Directory Table */}
       <div className={`rounded-2xl border shadow-sm overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>

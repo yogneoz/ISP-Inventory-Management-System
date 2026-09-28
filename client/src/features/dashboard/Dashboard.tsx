@@ -18,6 +18,7 @@ import { isOperationAllowed, getAllowedBranches, getAllowedBranchIds, canUserSee
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
+import StatCard from '../../components/common/StatCard';
 import {
   TrendingUp,
   AlertTriangle,
@@ -315,117 +316,70 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* KPI Stats Grid */}
+      {/* KPI Stats Grid — shared StatCard 'hero' variant (serif display
+          numerals) so the dashboard keeps its intentional display style
+          while sharing surfaces, tones and layout with every other screen. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* KPI 1: Inventory Asset Value */}
-        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
-          <div className="flex items-center justify-between">
-            <span
-              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
-            >
-              Total Stock Valuation
+        <StatCard
+          variant="hero"
+          label="Total Stock Valuation"
+          value={formatNPR(totalStockValuation)}
+          icon={<Package className="h-3.5 w-3.5" />}
+          tone="indigo"
+          hint={
+            <span className="flex w-full items-center justify-between">
+              <span>{filteredStock.length} SKU Locations</span>
+              <span className="font-medium text-indigo-600 dark:text-indigo-400">Cost Basis</span>
             </span>
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-400 dark:border-indigo-500/20`}
-            >
-              <Package className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className={`mt-1 text-xl font-serif font-bold ${cardTitleText}`}>
-            {formatNPR(totalStockValuation)}
-          </div>
-          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
-            <span>{filteredStock.length} SKU Locations</span>
-            <span className={`font-medium text-indigo-600 dark:text-indigo-400`}>Cost Basis</span>
-          </div>
-        </div>
+          }
+        />
 
         {/* KPI 2: Fixed Assets Value */}
-        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
-          <div className="flex items-center justify-between">
-            <span
-              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
-            >
-              Fixed Asset Net Value
+        <StatCard
+          variant="hero"
+          label="Fixed Asset Net Value"
+          value={formatNPR(totalAssetNBV)}
+          icon={<Landmark className="h-3.5 w-3.5" />}
+          tone="emerald"
+          hint={
+            <span className="flex w-full items-center justify-between">
+              <span>{assets.length} Active Assets</span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">Net Book Value</span>
             </span>
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-500/20`}
-            >
-              <Landmark className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className={`mt-1 text-xl font-serif font-bold ${cardTitleText}`}>
-            {formatNPR(totalAssetNBV)}
-          </div>
-          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
-            <span>{assets.length} Active Assets</span>
-            <span className={`font-medium text-emerald-600 dark:text-emerald-400`}>Net Book Value</span>
-          </div>
-        </div>
+          }
+        />
 
-        {/* KPI 3: Low Stock Warning */}
-        <div
+        {/* KPI 3: Low Stock Warning — clickable, jumps to reorder tracker */}
+        <StatCard
+          variant="hero"
+          label="Low Stock Alerts"
+          value={`${consolidatedLowStockProducts.length} SKUs`}
+          icon={<AlertTriangle className="h-3.5 w-3.5" />}
+          tone="rose"
           onClick={() => onNavigateTab('reorder-stock')}
-          className={`rounded-xl p-3 border shadow-2xs transition-all cursor-pointer group bg-white border-rose-200 hover:border-rose-300 hover:shadow-xs dark:bg-[#0f1218] dark:border-slate-800 dark:hover:border-slate-700`}
-        >
-          <div className="flex items-center justify-between">
-            <span
-              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
-            >
-              Low Stock Alerts
+          title="View reorder stock tracking"
+          hint={
+            <span className="flex w-full items-center justify-between">
+              <span>Requires Action</span>
+              <span className="font-medium flex items-center gap-0.5 text-rose-600 dark:text-rose-400">
+                View Reorder
+              </span>
             </span>
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border group-hover:scale-105 transition-transform bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-500/20`}
-            >
-              <AlertTriangle className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className={`text-xl font-serif font-bold text-rose-600 dark:text-rose-400`}>
-              {consolidatedLowStockProducts.length} SKUs
-            </span>
-            <span className={`text-[10px] font-medium text-rose-600 dark:text-rose-400`}>Below Reorder</span>
-          </div>
-          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
-            <span>Requires Action</span>
-            <span className={`font-medium group-hover:underline flex items-center gap-0.5 text-rose-600 dark:text-rose-400`}>
-              <span>View Reorder</span>
-              <ArrowRight className="h-3 w-3" />
-            </span>
-          </div>
-        </div>
+          }
+        />
 
-        {/* KPI 4: Pending POs & In-Transit */}
-        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
-          <div className="flex items-center justify-between">
-            <span
-              className={`text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400`}
-            >
-              Procurement & Shipments
-            </span>
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-400 dark:border-blue-500/20`}
-            >
-              <Truck className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-1 flex items-center justify-between">
-            <div>
-              <div className={`text-lg font-serif font-bold ${cardTitleText}`}>
-                {pendingPOs.length} Pending POs
-              </div>
-              <div className={`text-[10px] mt-0.5 ${cardSubText}`}>
-                {activeShipments.length} Active Shipments
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigateTab('po-list')}
-              className={`p-1 rounded-lg transition-colors cursor-pointer text-blue-600 hover:bg-slate-200 dark:text-blue-400 dark:hover:bg-slate-800`}
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        {/* KPI 4: Pending POs & In-Transit — clickable, jumps to PO list */}
+        <StatCard
+          variant="hero"
+          label="Procurement & Shipments"
+          value={`${pendingPOs.length} Pending POs`}
+          icon={<Truck className="h-3.5 w-3.5" />}
+          tone="sky"
+          onClick={() => onNavigateTab('po-list')}
+          title="View purchase orders"
+          hint={`${activeShipments.length} Active Shipments`}
+        />
       </div>
 
       {/* 1. LOW STOCK & REORDER ALERTS (Consolidated Total - Top Priority) */}

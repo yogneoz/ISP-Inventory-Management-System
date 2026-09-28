@@ -5,6 +5,8 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   Calculator,
   Download,
@@ -19,6 +21,7 @@ import {
   FileText,
   Tag,
 } from 'lucide-react';
+import { StatCard } from '../../components/common/StatCard';
 
 interface DepreciationRegisterProps {
   assets: Asset[];
@@ -198,36 +201,31 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         subtitle="Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV)."
       />
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Calculator className="h-5 w-5 text-indigo-500" />
-            <span>Register Filter &amp; Overview</span>
-          </h2>
-          <p className="truncate text-slate-400 text-xs mt-0.5">
-            Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV).
-          </p>
-        </div>
+      {/* Header — shared PageHeader (single h2 per screen rule). */}
+      <PageHeader
+        title="Tax Depreciation Schedule"
+        description="Statutory tax depreciation schedules, lot-level acquisition date calculations, accumulated write-offs, and Net Book Value (NBV)."
+        icon={<Calculator className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Download className="h-3.5 w-3.5 text-slate-400" />
+              <span>Export Schedule ({activeTab === 'SUMMARY' ? 'Summary' : 'Datewise'})</span>
+            </button>
 
-        <div className="shrink-0 flex items-center gap-2">
-          <button
-            onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Download className="h-3.5 w-3.5 text-slate-400" />
-            <span>Export Schedule ({activeTab === 'SUMMARY' ? 'Summary' : 'Datewise'})</span>
-          </button>
-
-          <button
-            onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Printer className="h-3.5 w-3.5 text-slate-400" />
-            <span>Print Register</span>
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Printer className="h-3.5 w-3.5 text-slate-400" />
+              <span>Print Register</span>
+            </button>
+          </>
+        }
+      />
 
       {/* Sub-menu Navigation Tabs */}
       <div className={`p-1.5 rounded-2xl border flex items-center gap-2 w-fit bg-slate-100 border-slate-200 dark:bg-slate-900/80 dark:border-slate-800`}>
@@ -258,87 +256,59 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         </button>
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards — shared compact StatCard component */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>GROSS ACQUISITION COST</span>
-            <Landmark className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
-            {formatNPRPrecise(totalCost)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Total capital expenditure across {filteredAssets.length} purchase lots
-          </p>
-        </div>
-
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>TOTAL ACCUMULATED DEPRECIATION</span>
-            <TrendingDown className="h-4 w-4 text-rose-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-rose-500">
-            {formatNPRPrecise(totalAccumDep)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Cumulative depreciation write-offs to date
-          </p>
-        </div>
-
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>NET BOOK VALUE (NBV)</span>
-            <Calculator className="h-4 w-4 text-indigo-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-indigo-500">
-            {formatNPRPrecise(totalNBV)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Carrying value on corporate balance sheet
-          </p>
-        </div>
+        <StatCard
+          label="GROSS ACQUISITION COST"
+          icon={<Landmark className="h-4 w-4" />}
+          tone="emerald"
+          value={formatNPRPrecise(totalCost)}
+          hint={`Total capital expenditure across ${filteredAssets.length} purchase lots`}
+        />
+        <StatCard
+          label="TOTAL ACCUMULATED DEPRECIATION"
+          icon={<TrendingDown className="h-4 w-4" />}
+          tone="rose"
+          value={formatNPRPrecise(totalAccumDep)}
+          hint="Cumulative depreciation write-offs to date"
+        />
+        <StatCard
+          label="NET BOOK VALUE (NBV)"
+          icon={<Calculator className="h-4 w-4" />}
+          tone="indigo"
+          value={formatNPRPrecise(totalNBV)}
+          hint="Carrying value on corporate balance sheet"
+        />
       </div>
 
-      {/* Filter and Search Bar */}
-      <div
-        className={`p-3 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-start bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
-      >
-        <div
-          className={`flex items-center gap-2 px-3 py-2 rounded-xl border w-full md:w-96 text-xs bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-        >
-          <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search Asset Title, Invoice #, Tag #, Supplier..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent focus:outline-none placeholder:text-slate-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <span className="text-xs font-semibold text-slate-400">Category:</span>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-          >
-            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
-                {cat}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {/* Filter and Search Bar — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search Asset Title, Invoice #, Tag #, Supplier..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={Boolean(searchQuery) || categoryFilter !== 'ALL'}
+        onClearAll={() => {
+          setSearchQuery('');
+          setCategoryFilter('ALL');
+        }}
+        filterChildren={
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
+            >
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
+      />
 
       {/* Active Register View Table */}
       {activeTab === 'SUMMARY' ? (

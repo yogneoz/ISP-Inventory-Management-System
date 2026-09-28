@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PageHeader } from '../../components/common/PageHeader';
 import { DocumentNumberConfig } from '../../types';
 import { api } from '../../services/api';
 import {
@@ -111,18 +112,12 @@ export const DocumentNumbering: React.FC = () => {
 
   return (
     <div className="space-y-3">
-      {/* Page Title Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Hash className="h-5 w-5 text-indigo-500" />
-            <span>Document Numbering Setup</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Configure the document-type prefix. Branch, date and counter are issued automatically by the server.
-          </p>
-        </div>
-      </div>
+      {/* Page Title Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Document Numbering Setup"
+        description="Configure the document-type prefix. Branch, date and counter are issued automatically by the server."
+        icon={<Hash className="h-5 w-5 text-indigo-500" />}
+      />
 
       {/* Success Notification Banner */}
       {saveSuccessMsg && (

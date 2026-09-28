@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FiscalYear } from '../../types';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   convertADToBS,
   convertBSToAD,
@@ -431,26 +432,25 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <CalendarDays className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
-            <span>Nepali Bikram Sambat Calendar & Fiscal Year Management</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
+      {/* Page Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Nepali Bikram Sambat Calendar & Fiscal Year Management"
+        description={
+          <>
             Full Day-by-Day PostgreSQL/Lookup Database Engine & Fiscal Year Configuration (<code className="text-indigo-600 font-mono font-bold dark:text-indigo-300 dark:font-mono dark:font-bold">YYYY-YY</code> format).
-          </p>
-        </div>
-
-        <button
-          onClick={handleResetDefaults}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-200 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
-        >
-          <RotateCcw className="h-3.5 w-3.5 text-slate-400" />
-          <span>Reset Calendar Defaults</span>
-        </button>
-      </div>
+          </>
+        }
+        icon={<CalendarDays className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />}
+        actions={
+          <button
+            onClick={handleResetDefaults}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer w-fit bg-white hover:bg-slate-200 text-slate-700 border-slate-200 shadow-2xs dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700"
+          >
+            <RotateCcw className="h-3.5 w-3.5 text-slate-400" />
+            <span>Reset Calendar Defaults</span>
+          </button>
+        }
+      />
 
       {/* Database Bounds Limiter Banner */}
       <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 bg-indigo-50/70 border-indigo-200/80 dark:bg-gradient-to-r dark:from-indigo-950/80 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-800/60`}>

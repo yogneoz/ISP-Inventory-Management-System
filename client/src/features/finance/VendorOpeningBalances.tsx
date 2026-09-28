@@ -8,13 +8,13 @@ import {
   Pencil,
   RefreshCw,
   Save,
-  Search,
   Wallet,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
+import { FilterCard } from '../../components/common/FilterCard';
 import { formatNPR } from '../../utils/nprFormat';
 import {
   Branch,
@@ -393,57 +393,70 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
           </div>
         )}
 
-        {/* Vendor filters & actions */}
-        <div
-          className={`flex flex-wrap items-center gap-2 mt-3 rounded-xl border p-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
-        >
-          <div className="relative">
-            <Search className={`h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500`} />
-            <input
-              value={vendorSearch}
-              onChange={(e) => setVendorSearch(e.target.value)}
-              placeholder="Search supplier…"
-              className={`pl-8 pr-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 w-56 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-            />
-          </div>
-          <select
-            value={vendorBranchFilter}
-            onChange={(e) => setVendorBranchFilter(e.target.value)}
-            className={`px-3 py-2 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-          >
-            <option value="ALL">All Branches</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-          <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
-            <input type="checkbox" checked={vendorNonZeroOnly} onChange={(e) => setVendorNonZeroOnly(e.target.checked)} className="rounded" />
-            Non-zero only
-          </label>
-          <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300`}>
-            <input type="checkbox" checked={vendorChangedOnly} onChange={(e) => setVendorChangedOnly(e.target.checked)} className="rounded" />
-            Changed only
-          </label>
-          <div className="flex-1" />
-          <button
-            type="button"
-            onClick={handleExportVendor}
-            disabled={vendorLoading || filteredVendorRows.length === 0}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
-          >
-            <Download className="h-3.5 w-3.5" /> Export CSV
-          </button>
-          {canEditRole && (
-            <button
-              type="button"
-              onClick={handleGenerateVendorOpenings}
-              disabled={vendorGenerating}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-800`}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${vendorGenerating ? 'animate-spin' : ''}`} />
-              {vendorGenerating ? 'Rolling Forward…' : 'Roll Forward from Previous Close'}
-            </button>
-          )}
+        {/* Vendor filters & actions — shared FilterCard for register consistency. */}
+        <div className="mt-3">
+          <FilterCard
+            searchPlaceholder="Search supplier…"
+            searchValue={vendorSearch}
+            onSearchApply={setVendorSearch}
+            hasActiveFilters={
+              Boolean(vendorSearch) || vendorBranchFilter !== 'ALL' || vendorNonZeroOnly || vendorChangedOnly
+            }
+            onClearAll={() => {
+              setVendorSearch('');
+              setVendorBranchFilter('ALL');
+              setVendorNonZeroOnly(false);
+              setVendorChangedOnly(false);
+            }}
+            filterChildren={
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
+                  <select
+                    value={vendorBranchFilter}
+                    onChange={(e) => setVendorBranchFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <option value="ALL">All Branches</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <label className="flex items-center gap-1.5 px-2 py-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
+                  <input type="checkbox" checked={vendorNonZeroOnly} onChange={(e) => setVendorNonZeroOnly(e.target.checked)} className="rounded" />
+                  Non-zero only
+                </label>
+                <label className="flex items-center gap-1.5 px-2 py-2 text-xs font-semibold cursor-pointer text-slate-600 dark:text-slate-300">
+                  <input type="checkbox" checked={vendorChangedOnly} onChange={(e) => setVendorChangedOnly(e.target.checked)} className="rounded" />
+                  Changed only
+                </label>
+              </>
+            }
+            rightChildren={
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportVendor}
+                  disabled={vendorLoading || filteredVendorRows.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <Download className="h-3.5 w-3.5" /> Export CSV
+                </button>
+                {canEditRole && (
+                  <button
+                    type="button"
+                    onClick={handleGenerateVendorOpenings}
+                    disabled={vendorGenerating}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-800"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${vendorGenerating ? 'animate-spin' : ''}`} />
+                    {vendorGenerating ? 'Rolling Forward…' : 'Roll Forward from Previous Close'}
+                  </button>
+                )}
+              </>
+            }
+          />
         </div>
 
         {/* Vendor save / generate feedback */}

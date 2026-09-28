@@ -6,11 +6,12 @@ import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import {
   BookOpen,
-  Filter,
-  Download,
-  Search
+  Download
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import StatCard from '../../components/common/StatCard';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface StockMovementLedgerProps {
   transactionLogs: TransactionLog[];
@@ -430,20 +431,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div>
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <BookOpen className="h-5 w-5 text-indigo-500" />
-            <span>Stock Movement Ledger</span>
-          </h2>
-          <p className={`truncate text-[11px] mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Track opening stock balances, inbound receipts, dispatches, damaged stock, and closing valuations.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2">
-          {viewTab === 'SUMMARY_MATRIX' ? (
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Stock Movement Ledger"
+        description="Track opening stock balances, inbound receipts, dispatches, damaged stock, and closing valuations."
+        icon={<BookOpen className="h-5 w-5 text-indigo-500" />}
+        actions={
+          viewTab === 'SUMMARY_MATRIX' ? (
             <button
               onClick={exportLedgerCSV}
               className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500 shadow-xs transition-all cursor-pointer"
@@ -459,178 +453,157 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               <Download className="h-3.5 w-3.5" />
               <span>Export Detailed Logs</span>
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI Cards Banner - Compact horizontal bar */}
+          )
+        }
+      />
+      {/* KPI Cards Banner — shared compact StatCard component */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-        {/* Opening Value */}
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Opening Value</div>
-          <div className={`text-base font-bold font-mono mt-0.5 text-slate-800 dark:text-slate-200`}>
-            {formatNPR(totalOpeningVal ?? 0)}
-          </div>
-          <div className="text-[10px] text-slate-400 font-mono">{totalOpeningQty} Units</div>
-        </div>
-
-        {/* Received Value */}
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Inbound Received</div>
-          <div className={`text-base font-bold font-mono mt-0.5 text-emerald-500 dark:text-emerald-400`}>
-            +{formatNPR(totalReceivedVal ?? 0)}
-          </div>
-          <div className={`text-[10px] font-mono text-emerald-600/80 dark:text-emerald-400/80`}>+{totalReceivedQty} Units</div>
-        </div>
-
-        {/* Delivered Value */}
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Outbound Delivered</div>
-          <div className={`text-base font-bold font-mono mt-0.5 text-sky-500 dark:text-sky-400`}>
-            -{formatNPR(totalDeliveredVal ?? 0)}
-          </div>
-          <div className={`text-[10px] font-mono text-sky-600/80 dark:text-sky-400/80`}>-{totalDeliveredQty} Units</div>
-        </div>
-
-        {/* Damaged Value */}
-        <div className={`p-2.5 rounded-xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Damaged Loss</div>
-          <div className={`text-base font-bold font-mono mt-0.5 text-rose-500 dark:text-rose-400`}>
-            -{formatNPR(totalDamagedVal ?? 0)}
-          </div>
-          <div className={`text-[10px] font-mono text-rose-600/80 dark:text-rose-400/80`}>-{totalDamagedQty} Units</div>
-        </div>
-
-        {/* Closing Value */}
-        <div className={`p-2.5 rounded-xl border col-span-2 sm:col-span-1 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Closing Value</div>
-          <div className={`text-base font-bold font-mono mt-0.5 text-indigo-600 dark:text-indigo-400`}>
-            {formatNPR(totalClosingVal ?? 0)}
-          </div>
-          <div className={`text-[10px] font-mono text-indigo-500 dark:text-indigo-400`}>{totalClosingQty} Units</div>
-        </div>
+        <StatCard
+          label="Opening Value"
+          value={formatNPR(totalOpeningVal ?? 0)}
+          hint={`${totalOpeningQty} Units`}
+          tone="slate"
+        />
+        <StatCard
+          label="Inbound Received"
+          value={`+${formatNPR(totalReceivedVal ?? 0)}`}
+          hint={`+${totalReceivedQty} Units`}
+          tone="emerald"
+        />
+        <StatCard
+          label="Outbound Delivered"
+          value={`-${formatNPR(totalDeliveredVal ?? 0)}`}
+          hint={`-${totalDeliveredQty} Units`}
+          tone="sky"
+        />
+        <StatCard
+          label="Damaged Loss"
+          value={`-${formatNPR(totalDamagedVal ?? 0)}`}
+          hint={`-${totalDamagedQty} Units`}
+          tone="rose"
+        />
+        <StatCard
+          className="col-span-2 sm:col-span-1"
+          label="Closing Value"
+          value={formatNPR(totalClosingVal ?? 0)}
+          hint={`${totalClosingQty} Units`}
+          tone="indigo"
+        />
       </div>
 
-      {/* Date Filter & Control Bar - Compact layout */}
-      <div className={`p-2.5 rounded-xl border space-y-2 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Filter className="h-3.5 w-3.5 text-indigo-500" />
-            <span className={`text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300`}>
-              Ledger Filters
-            </span>
-          </div>
-
+      {/* Date Filter & Control Bar — shared FilterCard for consistency with
+          every other register screen. Presets + subview switcher ride in the
+          right-hand slot. */}
+      <FilterCard
+        searchPlaceholder="Search by Product Name, SKU or Barcode..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={
+          Boolean(searchQuery) || activeBranchId !== 'ALL' || selectedCategory !== 'ALL' ||
+          Boolean(startDateAD) || Boolean(endDateAD)
+        }
+        onClearAll={() => {
+          setSearchQuery('');
+          setActiveBranchId('ALL');
+          setSelectedCategory('ALL');
+          setStartDateAD('');
+          setEndDateAD('');
+        }}
+        rightChildren={
           <div className="flex items-center gap-1.5 text-[11px]">
-            <button onClick={() => applyPreset('THIS_MONTH')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
+            <button onClick={() => applyPreset('THIS_MONTH')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
               This Month
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('LAST_30_DAYS')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
+            <button onClick={() => applyPreset('LAST_30_DAYS')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
               Last 30 Days
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('THIS_YEAR')} className={`font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400`}>
+            <button onClick={() => applyPreset('THIS_YEAR')} className="font-semibold hover:underline cursor-pointer text-indigo-500 dark:text-indigo-400">
               This Year
             </button>
             <span className="text-slate-400">•</span>
-            <button onClick={() => applyPreset('ALL_TIME')} className={`font-semibold hover:underline cursor-pointer text-rose-500 dark:text-rose-400`}>
+            <button onClick={() => applyPreset('ALL_TIME')} className="font-semibold hover:underline cursor-pointer text-rose-500 dark:text-rose-400">
               All Time
             </button>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <div className="p-0.5 rounded-lg border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+              <button
+                onClick={() => setViewTab('SUMMARY_MATRIX')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'SUMMARY_MATRIX' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
+              >
+                Summary Matrix
+              </button>
+              <button
+                onClick={() => setViewTab('TRANSACTION_LOGS')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'TRANSACTION_LOGS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
+              >
+                Event Logs ({filteredLogs.length})
+              </button>
+            </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {/* Start Date */}
-          <div>
-            <DateField
-              label="From Date"
-              mode={dateMode}
-              value={startDateAD}
-              onChange={setStartDateAD}
-              compact
-              showHint={false}
-              max={endDateAD || undefined}
-            />
-          </div>
-
-          {/* End Date */}
-          <div>
-            <DateField
-              label="To Date"
-              mode={dateMode}
-              value={endDateAD}
-              onChange={setEndDateAD}
-              compact
-              showHint={false}
-              min={startDateAD || undefined}
-            />
-          </div>
-
-          {/* Branch Filter */}
-          <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">Branch Location</label>
-            <select
-              value={activeBranchId}
-              onChange={(e) => setActiveBranchId(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-            >
-              <option value="ALL">All Branch Locations</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Category Filter */}
-          <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">Category</label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className={`w-full rounded-lg border px-2 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-            >
-              <option value="ALL">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Search Bar & Subview Switcher */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-0.5">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0 ">
-            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Product Name, SKU or Barcode..."
-              className={`w-full rounded-lg border pl-8 pr-3 py-1 text-xs font-medium bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
-            />
-          </div>
-
-          <div className={`p-0.5 rounded-lg border flex items-center gap-1 bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
-            <button
-              onClick={() => setViewTab('SUMMARY_MATRIX')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'SUMMARY_MATRIX' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
-            >
-              Summary Matrix
-            </button>
-            <button
-              onClick={() => setViewTab('TRANSACTION_LOGS')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${viewTab === 'TRANSACTION_LOGS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
-            >
-              Event Logs ({filteredLogs.length})
-            </button>
-          </div>
-        </div>
-      </div>
+        }
+        filterChildren={
+          <>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">From Date</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={startDateAD}
+                  onChange={setStartDateAD}
+                  compact
+                  showHint={false}
+                  max={endDateAD || undefined}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">To Date</label>
+              <div className="w-40">
+                <DateField
+                  mode={dateMode}
+                  value={endDateAD}
+                  onChange={setEndDateAD}
+                  compact
+                  showHint={false}
+                  min={startDateAD || undefined}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch Location</label>
+              <select
+                value={activeBranchId}
+                onChange={(e) => setActiveBranchId(e.target.value)}
+                className="w-44 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Branch Locations</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Category</label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-40 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        }
+      />
 
       {/* VIEW 1: Summary Matrix Table - Maximize height */}
       {viewTab === 'SUMMARY_MATRIX' && (

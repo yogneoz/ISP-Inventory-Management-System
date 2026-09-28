@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Supplier, User } from '../../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { PageHeader } from '../../components/common/PageHeader';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 
@@ -114,26 +115,22 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Factory className={`h-5 w-5 text-indigo-600 dark:text-indigo-400`} />
-            <span>Supplier & Vendor Register</span>
-          </h2>
-          <p className="truncate text-slate-500 text-xs mt-0.5">
-            Add, edit, or remove hardware suppliers, PAN/VAT details, contact persons, and ratings.
-          </p>
-        </div>
-        {canManageSuppliers && (
-          <button
-            onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New Supplier</span>
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Supplier & Vendor Register"
+        description="Add, edit, or remove hardware suppliers, PAN/VAT details, contact persons, and ratings."
+        icon={<Factory className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
+        actions={
+          canManageSuppliers ? (
+            <button
+              onClick={handleOpenAddModal}
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New Supplier</span>
+            </button>
+          ) : null
+        }
+      />
 
       {/* Search Bar */}
       <div className={`p-4 rounded-xl border ${cardBg}`}>

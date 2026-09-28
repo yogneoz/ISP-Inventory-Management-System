@@ -29,6 +29,7 @@ import {
   Download,
 } from 'lucide-react';
 import { formCardClass } from '../../components/common/FormCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
@@ -590,65 +591,57 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   return (
     <div className="space-y-3" id="purchase-orders-container">
-      {/* Header & Title Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2
-            className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}
-          >
-            <ShoppingCart className="h-5 w-5 text-indigo-500" />
-            <span>Purchase Orders & Supplier Procurement</span>
-          </h2>
-          <p className={`text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Full-width inline PO creation with 13% VAT, Bill-wise Discount, and multi-branch supplier management.
-          </p>
-        </div>
-
-        {/* Top Action Buttons when in PO List */}
-        <div className="flex items-center gap-2">
-          {internalTab !== 'PO_LIST' && (
-            <button
-              type="button"
-              onClick={() => setInternalTab('PO_LIST')}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to PO List</span>
-            </button>
-          )}
-
-          {internalTab === 'PO_LIST' && (
-            <button
-              type="button"
-              onClick={handleExportPOCSV}
-              title="Export the visible register rows to CSV"
-              className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
-            >
-              <Download className="h-4 w-4 text-slate-500" />
-              <span>Export CSV</span>
-            </button>
-          )}
-
-          {internalTab === 'PO_LIST' && (() => {
-            const curBranch = branches.find((b) => b.id === branchId);
-            const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
-            if (!canCreatePo) return null;
-
-            return (
+      {/* Header & Title Section — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Purchase Orders & Supplier Procurement"
+        description="Full-width inline PO creation with 13% VAT, Bill-wise Discount, and multi-branch supplier management."
+        icon={<ShoppingCart className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <>
+            {internalTab !== 'PO_LIST' && (
               <button
                 type="button"
-                id="btn-new-purchase-order"
-                title="Issue new Purchase Order"
-                onClick={handleOpenCreateTab}
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 cursor-pointer transition-all"
+                onClick={() => setInternalTab('PO_LIST')}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
-                <Plus className="h-4 w-4" />
-                <span>New Purchase Order</span>
+                <ArrowLeft className="h-4 w-4" />
+                <span>Back to PO List</span>
               </button>
-            );
-          })()}
-        </div>
-      </div>
+            )}
+
+            {internalTab === 'PO_LIST' && (
+              <button
+                type="button"
+                onClick={handleExportPOCSV}
+                title="Export the visible register rows to CSV"
+                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+              >
+                <Download className="h-4 w-4 text-slate-500" />
+                <span>Export CSV</span>
+              </button>
+            )}
+
+            {internalTab === 'PO_LIST' && (() => {
+              const curBranch = branches.find((b) => b.id === branchId);
+              const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
+              if (!canCreatePo) return null;
+
+              return (
+                <button
+                  type="button"
+                  id="btn-new-purchase-order"
+                  title="Issue new Purchase Order"
+                  onClick={handleOpenCreateTab}
+                  className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 cursor-pointer transition-all"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>New Purchase Order</span>
+                </button>
+              );
+            })()}
+          </>
+        }
+      />
 
       {/* Navigation Sub-Tabs - hidden when a dedicated sidebar menu opened this page */}
       {activeTab !== 'create-po' && activeTab !== 'po-list' && (
@@ -1048,23 +1041,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
           id="po-inline-form-container"
           className={`${formCardClass} space-y-6`}
         >
-          {/* Form Banner Header */}
-          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800`}>
-            <div className="flex items-center gap-3">
-              <div className={`p-3 rounded-2xl border bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-400 dark:border-indigo-800`}>
-                <ShoppingCart className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className={`font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white`}>
-                  <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry (Full Page Inline Form)'}</span>
-                </h3>
-                <p className={`text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-                  Scan barcodes or search products, configure quantity & unit prices, and calculate 13% VAT with bill-wise discount.
-                </p>
-              </div>
-            </div>
-          </div>
-
+          {/* No secondary form banner by design: the sub-tab indicator
+              ("2. Create Purchase Order" / "Edit Purchase Order — #") already
+              communicates context, so the form goes straight to its fields. */}
           <form onSubmit={handleSubmit} className="space-y-6" id="po-form-element">
             {/* Top Form Fields: Vendor, Branch, Tax Mode, Expected Delivery */}
             <div className={`grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>

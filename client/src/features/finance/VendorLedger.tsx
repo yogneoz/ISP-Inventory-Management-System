@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Building,
 } from 'lucide-react';
+import StatCard from '../../components/common/StatCard';
 
 interface LedgerLine {
   id: string;
@@ -218,28 +219,28 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
       {/* Ledger summary + table */}
       {ledgerData && (
         <>
-          {/* Summary cards */}
+          {/* Summary cards — shared compact StatCard component */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Opening Balance</p>
-              <p className={`mt-1 text-xl font-bold ${ledgerData.openingBalance > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {numberFmt(ledgerData.openingBalance)}
-              </p>
-            </div>
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Purchases (Debit)</p>
-              <p className="mt-1 text-xl font-bold text-red-600 dark:text-red-400">{numberFmt(ledgerData.totalDebit)}</p>
-            </div>
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Payments (Credit)</p>
-              <p className="mt-1 text-xl font-bold text-emerald-600 dark:text-emerald-400">{numberFmt(ledgerData.totalCredit)}</p>
-            </div>
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Closing Balance</p>
-              <p className={`mt-1 text-xl font-bold ${ledgerData.closingBalance > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {numberFmt(ledgerData.closingBalance)}
-              </p>
-            </div>
+            <StatCard
+              label="Opening Balance"
+              value={numberFmt(ledgerData.openingBalance)}
+              tone={ledgerData.openingBalance > 0 ? 'rose' : 'emerald'}
+            />
+            <StatCard
+              label="Total Purchases (Debit)"
+              value={numberFmt(ledgerData.totalDebit)}
+              tone="rose"
+            />
+            <StatCard
+              label="Total Payments (Credit)"
+              value={numberFmt(ledgerData.totalCredit)}
+              tone="emerald"
+            />
+            <StatCard
+              label="Closing Balance"
+              value={numberFmt(ledgerData.closingBalance)}
+              tone={ledgerData.closingBalance > 0 ? 'rose' : 'emerald'}
+            />
           </div>
 
           {/* Ledger table */}

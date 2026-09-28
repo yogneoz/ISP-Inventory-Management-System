@@ -53,6 +53,7 @@ import {
 import { formCardClass } from '../../components/common/FormCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { api } from '../../services/api';
 
@@ -866,65 +867,57 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   return (
     <div className="space-y-3" id="purchase-invoices-container">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2
-            className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}
-          >
-            <Receipt className={`h-5 w-5 text-blue-600 dark:text-blue-400`} />
-            <span>Purchase Invoices & Vendor Bills</span>
-          </h2>
-          <p className={`text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Full-width inline Vendor Bill entry with live barcode scanning, device & PON serial tracking, 13% Input VAT, and PO linking.
-          </p>
-        </div>
-
-        {/* Top Actions */}
-        <div className="flex items-center gap-2">
-          {internalTab !== 'INVOICE_LIST' && (
-            <button
-              type="button"
-              onClick={() => setInternalTab('INVOICE_LIST')}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to Bills Register</span>
-            </button>
-          )}
-
-          {internalTab === 'INVOICE_LIST' && (
-            <>
+      {/* Header Section — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Purchase Invoices & Vendor Bills"
+        description="Full-width inline Vendor Bill entry with live barcode scanning, device & PON serial tracking, 13% Input VAT, and PO linking."
+        icon={<Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+        actions={
+          <>
+            {internalTab !== 'INVOICE_LIST' && (
               <button
                 type="button"
-                onClick={handleExportCSV}
-                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+                onClick={() => setInternalTab('INVOICE_LIST')}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
               >
-                <Download className="h-4 w-4 text-slate-500" />
-                <span>Export CSV</span>
+                <ArrowLeft className="h-4 w-4" />
+                <span>Back to Bills Register</span>
               </button>
+            )}
 
-              {(() => {
-                const curBranch = branches.find((b) => b.id === branchId);
-                const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
-                if (!canCreateInvoice) return null;
+            {internalTab === 'INVOICE_LIST' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+                >
+                  <Download className="h-4 w-4 text-slate-500" />
+                  <span>Export CSV</span>
+                </button>
 
-                return (
-                  <button
-                    type="button"
-                    id="btn-new-purchase-bill"
-                    onClick={handleOpenCreateTab}
-                    className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer transition-all"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>New Purchase Bill</span>
-                  </button>
-                );
-              })()}
-            </>
-          )}
-        </div>
-      </div>
+                {(() => {
+                  const curBranch = branches.find((b) => b.id === branchId);
+                  const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
+                  if (!canCreateInvoice) return null;
+
+                  return (
+                    <button
+                      type="button"
+                      id="btn-new-purchase-bill"
+                      onClick={handleOpenCreateTab}
+                      className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer transition-all"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>New Purchase Bill</span>
+                    </button>
+                  );
+                })()}
+              </>
+            )}
+          </>
+        }
+      />
 
       {/* Navigation Sub-Tabs - hidden when a dedicated sidebar menu opened this page */}
       {activeTab !== 'create-purchase' && activeTab !== 'purchase-list' && (
@@ -1282,23 +1275,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           id="pi-inline-form-container"
           className={`${formCardClass} space-y-6`}
         >
-          {/* Form Banner Header */}
-          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800`}>
-            <div className="flex items-center gap-3">
-              <div className={`p-3 rounded-2xl border bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/60 dark:text-blue-400 dark:border-blue-800`}>
-                <Receipt className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className={`font-bold text-base text-slate-900 dark:text-white`}>
-                  Record Vendor Purchase Bill (Inline POS Entry)
-                </h3>
-                <p className={`text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-                  Scan barcode / enter items, assign Device Serial, PON Serial & MAC, calculate 13% VAT, and record credit transaction.
-                </p>
-              </div>
-            </div>
-          </div>
-
+          {/* No secondary form banner by design: the sub-tab indicator already
+              communicates context, so the form goes straight to its fields. */}
           <form onSubmit={handleSubmit} className="space-y-6" id="pi-form-element">
             {/* Invoice Details: compact metadata and taxation controls in one card */}
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>

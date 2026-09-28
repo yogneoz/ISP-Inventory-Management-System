@@ -4,14 +4,13 @@ import { NavTab } from '../../components/layout/Sidebar';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
+import StatCard from '../../components/common/StatCard';
 import {
   AlertTriangle,
   Building2,
   Edit,
   CheckCircle2,
   X,
-  Search,
-  Filter,
   ShoppingCart,
   Plus,
   RefreshCw,
@@ -25,6 +24,8 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface ReorderStockTrackingProps {
@@ -301,125 +302,93 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header & Main Actions */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <BellRing className="h-5 w-5 text-rose-500 animate-pulse" />
-            <span>Per-Branch Reorder Level Matrix & Sync</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Each branch maintains individual min reorder thresholds based on localized demand & sales velocity. Easily configure or bulk-sync per-branch levels.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleExportReorderReport}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
-            title="Export Reorder Levels & Deficits report with uniform BS Date (YYYY-MM-DD)"
-          >
-            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <FileSpreadsheet className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <span>Export Reorder CSV (BS Date)</span>
-          </button>
-
-          {isStockManager && onBulkUpdateStockReorderLevels && (
+      {/* Header & Main Actions — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Per-Branch Reorder Level Matrix & Sync"
+        description="Each branch maintains individual min reorder thresholds based on localized demand & sales velocity. Easily configure or bulk-sync per-branch levels."
+        icon={<BellRing className="h-5 w-5 text-rose-500 animate-pulse" />}
+        actions={
+          <>
             <button
               type="button"
-              title="Bulk sync thresholds across branches"
-              onClick={() => setShowBulkModal(true)}
-              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-slate-900 dark:text-indigo-400 dark:border-slate-800 dark:hover:bg-slate-800`}
+              onClick={handleExportReorderReport}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+              title="Export Reorder Levels & Deficits report with uniform BS Date (YYYY-MM-DD)"
             >
-              <SlidersHorizontal className="h-4 w-4" />
-              <span>Bulk Sync Thresholds</span>
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Export Reorder CSV (BS Date)</span>
             </button>
-          )}
 
-          {isStockManager && onGroupLowStockPO && (
-            <button
-              type="button"
-              title="Group low stock products and generate PO (Stock Manager Decision)"
-              onClick={onGroupLowStockPO}
-              className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
-            >
-              <ShoppingCart className="h-4 w-4" />
-              <span>Group Low-Stock Items & Create PO</span>
-            </button>
-          )}
-        </div>
-      </div>
+            {isStockManager && onBulkUpdateStockReorderLevels && (
+              <button
+                type="button"
+                title="Bulk sync thresholds across branches"
+                onClick={() => setShowBulkModal(true)}
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-slate-900 dark:text-indigo-400 dark:border-slate-800 dark:hover:bg-slate-800"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>Bulk Sync Thresholds</span>
+              </button>
+            )}
 
-      {/* KPI Cards Banner */}
+            {isStockManager && onGroupLowStockPO && (
+              <button
+                type="button"
+                title="Group low stock products and generate PO (Stock Manager Decision)"
+                onClick={onGroupLowStockPO}
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span>Group Low-Stock Items & Create PO</span>
+              </button>
+            )}
+          </>
+        }
+      />
+
+      {/* KPI Cards Banner — shared compact StatCard component */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className={`p-3.5 rounded-2xl border shadow-2xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Low Stock Branch Items</span>
-            <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            {lowStockSKUCount} SKUs Below Min
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
-            At or below branch specific threshold
-          </div>
-        </div>
-
-        <div className={`p-3.5 rounded-2xl border shadow-2xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Required Stock (Deficit)</span>
-            <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
-              <ShoppingCart className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
-            {Math.round(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
-            Calculated against branch minimum levels
-          </div>
-        </div>
-
-        <div className={`p-3.5 rounded-2xl border shadow-2xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Est. Reorder Budget</span>
-            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
-              <RefreshCw className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-amber-600 dark:text-amber-400`}>
-            {formatNPR(grandTotalReorderCost ?? 0)}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
-            Procurement cost to achieve min levels
-          </div>
-        </div>
+        <StatCard
+          label="Low Stock Branch Items"
+          value={`${lowStockSKUCount} SKUs Below Min`}
+          hint="At or below branch specific threshold"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone="rose"
+        />
+        <StatCard
+          label="Total Required Stock (Deficit)"
+          value={`${Math.round(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units`}
+          hint="Calculated against branch minimum levels"
+          icon={<ShoppingCart className="h-4 w-4" />}
+          tone="indigo"
+        />
+        <StatCard
+          label="Est. Reorder Budget"
+          value={formatNPR(grandTotalReorderCost ?? 0)}
+          hint="Procurement cost to achieve min levels"
+          icon={<RefreshCw className="h-4 w-4" />}
+          tone="amber"
+        />
       </div>
 
-      {/* Filter and Search controls */}
-      <div className={`p-3 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="Search SKU, Product Name, Category..."
-            className={`w-full rounded-xl border pl-9 pr-4 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-white dark:placeholder-slate-500`}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
-          {/* Category Filter */}
-          <div className="flex items-center gap-1.5">
-            <Filter className="h-3.5 w-3.5 text-slate-400" />
+      {/* Filter and Search controls — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search SKU, Product Name, Category..."
+        searchValue={localSearch}
+        onSearchApply={setLocalSearch}
+        hasActiveFilters={Boolean(localSearch) || filterCategory !== 'ALL' || showOnlyReorder}
+        onClearAll={() => {
+          setLocalSearch('');
+          setFilterCategory('ALL');
+          setShowOnlyReorder(false);
+        }}
+        rightChildren={
+          <>
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className={`rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer bg-white border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
+              className="rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
             >
               <option value="ALL">All Categories</option>
               {categories.map((cat) => (
@@ -428,17 +397,15 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 </option>
               ))}
             </select>
-          </div>
-
-          {/* Toggle Reorder Filter */}
-          <button
-            onClick={() => setShowOnlyReorder(!showOnlyReorder)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${showOnlyReorder ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
-          >
-            {showOnlyReorder ? 'Reorder Alerts Only' : 'Show All Items'}
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={() => setShowOnlyReorder(!showOnlyReorder)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${showOnlyReorder ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
+            >
+              {showOnlyReorder ? 'Reorder Alerts Only' : 'Show All Items'}
+            </button>
+          </>
+        }
+      />
 
       {/* Main Reorder Table Matrix */}
       <div className={`rounded-2xl border shadow-lg overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>

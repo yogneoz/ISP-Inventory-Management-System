@@ -7,60 +7,53 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* =====================================================================
-   RESPONSIVE DENSITY — compact / low-resolution display support
+   RESPONSIVE DENSITY — proportional zoom for smaller displays
    ---------------------------------------------------------------------
-   Tailwind v4 derives ALL numeric spacing utilities from the single
-   --spacing theme variable (utility value = calc(var(--spacing) * N)),
-   which covers p-*, px-*, py-*, m-*, mx-*, gap-*, space-y-*, and the
-   numeric height/width icon-element scales across the whole app.
+   The whole app is sized in rem: Tailwind v4 derives every spacing
+   utility (p-*, gap-*, h-*, ...) from --spacing = 0.25rem, and the text
+   scale uses rem-based --text-* variables. Scaling the ROOT font-size
+   therefore zooms the entire UI (text, icons, padding, cards, tables,
+   modals) together — exactly like a browser zoom — so a 1366x768
+   business laptop sees the SAME proportions as an FHD 1920x1080
+   monitor, and a 1024x768 legacy display stays usable.
 
-   Redefining --spacing per breakpoint compresses every card, toolbar,
-   table padding, grid gap and icon size app-wide in ONE place, while
-   FONT SIZES (the rem-based --text-* variables) are left untouched, so
-   body/table text stays fully readable on a 1366x768 laptop without
-   forcing the user to browser-zoom out to 80%.
+   Tiering (max-width tiers cascade, so a 1024px screen matches the
+   tightest applicable tier):
+     >= 1537px  -> 100% (FHD and larger keep the design 1:1)
+     <= 1536px  ->  94% (gentle step for small laptops)
+     <= 1366px  ->  88% (1366x768 business laptops)
+     <= 1280px  ->  84% (small desktop windows)
+     <= 1024px  ->  78% (1024x768 legacy displays)
 
-   Tiering:
-     <= 1536px  -> spacing at 90%  (gentle compression for laptops)
-     <= 1366px  -> spacing at 84% + slightly smaller display numerals
-                   (exact fit for common 1366x768 business laptops)
-   Larger monitors (1600px+) keep the original design 1:1.
+   Micro-labels rendered in px (e.g. text-[11px] badges in the header
+   and sidebar) intentionally stay pixel-sized so they never shrink
+   below legibility.
 
    Scoped to `screen` so print media (reports, barcode labels) is not
    affected. Rules are outside Tailwind's @layer cascade, so they win
    over the generated utilities at equal specificity.
    ===================================================================== */
 @media screen and (max-width: 1536px) {
-  :root {
-    --spacing: 0.225rem; /* 90% of the default 0.25rem */
+  html {
+    font-size: 94%;
   }
 }
 
 @media screen and (max-width: 1366px) {
-  /* Compact desktop profile for common 1366x768 business displays. This is
-     intentionally modest so text remains readable while the application
-     gains useful horizontal and vertical room. */
   html {
-    font-size: 94%;
+    font-size: 88%;
   }
+}
 
-  .responsive-sidebar {
-    width: 15.5rem;
+@media screen and (max-width: 1280px) {
+  html {
+    font-size: 84%;
   }
+}
 
-  :root {
-    --spacing: 0.21rem; /* 84% of the default 0.25rem */
-  }
-  /* Keep large scorecard/stat numerals proportional to the compressed
-     cards (24px -> 20.8px, 20px -> 18.4px) while all smaller text
-     (text-base/text-sm/text-xs) stays at full, readable size. */
-  .text-2xl {
-    font-size: 1.3rem;
-    line-height: 1.7rem;
-  }
-  .text-xl {
-    font-size: 1.15rem;
-    line-height: 1.6rem;
+@media screen and (max-width: 1024px) {
+  html {
+    font-size: 78%;
   }
 }
 
@@ -165,16 +158,26 @@
    ---------------------------------------------------------------------
    The sidebar is a normal flex child of the app row — it never overlays
    or pushes content, so every page renders at the same stable width.
-   Width tiers mirror the old two-part sidebar tiers:
-     - >= 1367px -> w-72 = calc(var(--spacing) * 72)
-       (spacing-derived so it stays in sync with the responsive
-       --spacing compression tiers)
-     - 768..1366px -> 15.5rem (compact business displays like 1366x768)
+   Width tiers (rem-based, so the RENDERED width also shrinks with the
+   root font-size zoom tiers above):
+     - >= 1537px -> w-72 = calc(var(--spacing) * 72)
+       (spacing-derived so it stays in sync with Tailwind's scale)
+     - <= 1366px -> 15.5rem (compact business displays like 1366x768;
+       ~217px rendered at 88% zoom, leaving ~1140px for content)
+     - <= 1024px -> 13.5rem (legacy 1024x768 displays; ~168px rendered
+       at 78% zoom, leaving ~790px for content — roughly the content
+       width of an FHD screen). Long labels wrap instead of truncating.
    The collapsed state swaps the whole column for a slim toggle strip.
    ===================================================================== */
-@media screen and (min-width: 768px) and (max-width: 1366px) {
+@media screen and (max-width: 1366px) {
   .responsive-sidebar {
     width: 15.5rem;
+  }
+}
+
+@media screen and (max-width: 1024px) {
+  .responsive-sidebar {
+    width: 13.5rem;
   }
 }
 

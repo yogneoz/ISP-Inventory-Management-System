@@ -21,6 +21,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface FixedAssetRegisterProps {
   assets: Asset[];
@@ -134,43 +135,38 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Header & Stats */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
-            <Landmark className={`h-5 w-5 text-blue-600 dark:text-blue-400`} />
-            <span>Fixed Asset Register & Depreciation Ledger</span>
-          </h2>
-          <p className="truncate text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-            Click any asset row to view branch allocation, physical location, and quantity details.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-3">
-          <button
-            onClick={handleExportCSV}
-            title="Export Assets to CSV"
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300`}
-          >
-            <Download className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
-
-          {canManageAssets && (
+      {/* Header & Stats — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Fixed Asset Register & Depreciation Ledger"
+        description="Click any asset row to view branch allocation, physical location, and quantity details."
+        icon={<Landmark className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+        actions={
+          <>
             <button
-              onClick={() => {
-                setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
-                setName('');
-                setIsModalOpen(true);
-              }}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+              onClick={handleExportCSV}
+              title="Export Assets to CSV"
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer border-slate-300 bg-white hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300"
             >
-              <Plus className="h-4 w-4" />
-              <span>Register Fixed Asset</span>
+              <Download className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+              <span className="hidden sm:inline">Export CSV</span>
             </button>
-          )}
-        </div>
-      </div>
+
+            {canManageAssets && (
+              <button
+                onClick={() => {
+                  setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
+                  setName('');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Register Fixed Asset</span>
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Asset Valuation Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -47,6 +47,7 @@ import {
   HelpCircle,
   RefreshCw,
   Trash2,
+  Palette,
   Wallet,
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
@@ -113,7 +114,9 @@ export type NavTab =
   | 'company-setup'
   | 'data-recalculation'
   | 'help-documentation'
-  | 'clear-demo-data';
+  | 'clear-demo-data'
+  | /** DEV-ONLY: StatCard design-review gallery, hidden from normal nav. */
+    'dev-statcard';
 
 /** Every valid NavTab id, used to validate the tab restored from localStorage. */
 export const NAV_TABS: NavTab[] = [
@@ -176,6 +179,7 @@ export const NAV_TABS: NavTab[] = [
   'data-recalculation',
   'help-documentation',
   'clear-demo-data',
+  'dev-statcard',
 ];
 
 interface SidebarProps {
@@ -524,6 +528,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true }
     );
   }
+  if (isSuperAdmin) {
+    // DEV-ONLY: design-review gallery, invisible to non-superadmin users.
+    adminChildren.push({ id: 'dev-statcard' as NavTab, label: 'Dev: StatCard Gallery', icon: Palette });
+  }
   if (adminChildren.length > 0) {
     groups.push({
       id: 'admin',
@@ -552,6 +560,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
   const [globalSearch, setGlobalSearch] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Scroll container of the nav column + registered group header buttons.
+  // Used to reveal a newly expanded group inside the VISIBLE area: expanding
+  // a group near the bottom of the rail opens its sub-items below the fold,
+  // so after the expansion we scroll the group header up toward the top of
+  // the visible region (only when its content would overflow — expanding a
+  // group that already fits never yanks the list around).
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const groupButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   // Keep the accordion in sync when the active tab changes from outside
   // (e.g. Global Search modal, workflow navigation, search jump).
@@ -583,13 +600,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [globalSearch]);
 
+  // Scroll the given group's header into the visible area of the nav column
+  // if any of its expanded content currently sits below the fold. Runs in a
+  // rAF so the expanded children are rendered and measurable first.
+  const revealGroup = (groupId: string) => {
+    requestAnimationFrame(() => {
+      const container = navScrollRef.current;
+      const btn = groupButtonRefs.current.get(groupId);
+      if (!container || !btn) return;
+      const containerTop = container.getBoundingClientRect().top;
+      const btnTopInClient = btn.getBoundingClientRect().top - containerTop;
+      // The expanded sub-item list is the button's next sibling.
+      const content = btn.nextElementSibling as HTMLElement | null;
+      const contentBottomInClient = content
+        ? content.getBoundingClientRect().bottom - containerTop
+        : btnTopInClient + btn.offsetHeight;
+      if (contentBottomInClient > container.clientHeight) {
+        // Bring the group header to the top of the visible area (minus a
+        // small breathing gap), clamped to the scrollable range.
+        const target = container.scrollTop + (btnTopInClient - 8);
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        container.scrollTo({ top: Math.max(0, Math.min(target, maxScroll)), behavior: 'smooth' });
+      }
+    });
+  };
+
   const toggleGroup = (groupId: string) => {
+    const willExpand = !expandedGroups.has(groupId);
     setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(groupId)) next.delete(groupId);
       else next.add(groupId);
       return next;
     });
+    if (willExpand) revealGroup(groupId);
   };
 
   const allGroupIds = useMemo(() => groups.map((g) => g.id), [groups]);
@@ -660,7 +704,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
         <button
           onClick={() => handleSubItemClick(child.id)}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer font-medium ${
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[0.8125rem] transition-all cursor-pointer font-medium ${
             isActive
               ? 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs dark:bg-indigo-600/20 dark:text-indigo-300 dark:font-semibold dark:border-l-3 dark:border-indigo-500 dark:shadow-xs'
               : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:border-l-3 dark:border-transparent dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
@@ -673,7 +717,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {child.badge !== undefined && child.badge > 0 && (
             <span
-              className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
+              className={`ml-1.5 px-2 py-0.5 rounded-full text-[0.625rem] font-bold flex-shrink-0 ${
                 child.badgeColor ||
                 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
               }`}
@@ -683,7 +727,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </button>
         {opts.showGroupLabel && opts.groupTitle && (
-          <p className="px-3 pb-1 -mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
+          <p className="px-3 pb-1 -mt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
             {opts.groupTitle}
           </p>
         )}
@@ -715,7 +759,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <button
           onClick={toggleAllGroups}
-          className="flex-1 flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer min-w-0"
+          className="flex-1 flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-600/20 transition-colors cursor-pointer min-w-0"
           title={allExpanded ? 'Collapse all menu groups' : 'Expand all menu groups'}
         >
           <span className="truncate">Expand / Collapse Menu</span>
@@ -740,7 +784,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {globalSearch && (
             <button
               onClick={() => setGlobalSearch('')}
-              className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              className="text-[0.625rem] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
               title="Clear"
             >
               <X className="h-3.5 w-3.5" />
@@ -750,13 +794,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* NAV CONTENT: accordion — groups expand inline below their header */}
-      <div className="py-2 px-2 flex-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar">
+      <div
+        ref={navScrollRef}
+        className="py-2 px-2 flex-1 overflow-y-auto custom-scrollbar sidebar-hover-scrollbar"
+      >
         {globalSearch.trim() ? (
           globalSearchResults.length > 0 ? (
             globalSearchResults.map(({ child, group }) => (
               <div key={`${group.id}-${child.id}`}>
                 {renderItemButton(child, { query: globalSearch })}
-                <p className="pl-10 pr-3 pb-1 -mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
+                <p className="pl-10 pr-3 pb-1 -mt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate text-left">
                   {group.title}
                 </p>
               </div>
@@ -774,9 +821,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div key={group.id} className="mb-0.5">
                 <button
+                  ref={(el) => {
+                    if (el) groupButtonRefs.current.set(group.id, el);
+                    else groupButtonRefs.current.delete(group.id);
+                  }}
                   onClick={() => toggleGroup(group.id)}
                   title={group.title}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[0.8125rem] font-semibold transition-all cursor-pointer ${
                     containsActive
                       ? 'text-indigo-900 bg-indigo-50/60 dark:text-indigo-300 dark:bg-indigo-600/10'
                       : 'text-slate-700 hover:text-indigo-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800/60'
@@ -788,7 +839,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {group.badgeCount !== undefined && group.badgeCount > 0 && (
-                      <span className="flex h-4.5 min-w-4.5 px-1.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white shadow-xs">
+                      <span className="flex h-4.5 min-w-4.5 px-1.5 items-center justify-center rounded-full bg-rose-500 text-[0.625rem] font-bold text-white shadow-xs">
                         {group.badgeCount > 99 ? '99+' : group.badgeCount}
                       </span>
                     )}
@@ -818,7 +869,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="px-2 pb-2 space-y-1">
             <button
               onClick={() => handleSubItemClick('help-documentation')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[0.8125rem] font-medium transition-all cursor-pointer ${
                 activeTab === 'help-documentation'
                   ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-600/20 dark:text-indigo-300'
                   : 'text-slate-600 hover:text-indigo-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50'
@@ -859,14 +910,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
-                <p className="text-[11px] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                <p className="text-[0.6875rem] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                   {companyProfile?.name || 'Inventory'}
                 </p>
-                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="PostgreSQL Database Connected">
+                <span className="text-[0.5625rem] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="PostgreSQL Database Connected">
                   DB
                 </span>
               </div>
-              <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate leading-tight mt-0.5">
+              <p className="text-[0.5625rem] font-medium text-slate-500 dark:text-slate-400 truncate leading-tight mt-0.5">
                 {getCompanyLocation(companyProfile) || 'Enterprise Multi-Branch Ed.'}
               </p>
             </div>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Branch, CustomerRecord } from '../../types';
 import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { PageHeader } from '../../components/common/PageHeader';
 
 interface ImportCustomersProps {
   branches: Branch[];
@@ -259,36 +260,31 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
-      {/* Header */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <UserPlus className="h-5 w-5 text-indigo-500" />
-            <span>Import Customer Database (CSV)</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via CSV (.csv) template.
-          </p>
-        </div>
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Import Customer Database (CSV)"
+        description="Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via CSV (.csv) template."
+        icon={<UserPlus className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <>
+            <button
+              onClick={handleDownloadSampleCSV}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Download CSV Template (.csv)</span>
+            </button>
 
-        <div className="shrink-0 flex items-center gap-2">
-          <button
-            onClick={handleDownloadSampleCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all border-slate-300 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
-          >
-            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <span>Download CSV Template (.csv)</span>
-          </button>
-
-          <button
-            onClick={handleLoadSample}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-3 py-2 text-xs font-semibold hover:bg-indigo-100 transition-all cursor-pointer"
-          >
-            <Smartphone className="h-4 w-4" />
-            <span>Load Sample CSV Data</span>
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={handleLoadSample}
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-3 py-2 text-xs font-semibold hover:bg-indigo-100 transition-all cursor-pointer"
+            >
+              <Smartphone className="h-4 w-4" />
+              <span>Load Sample CSV Data</span>
+            </button>
+          </>
+        }
+      />
 
       {/* Success Banner */}
       {importSuccessMessage && (

@@ -4,6 +4,7 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
+import { PageHeader } from '../../components/common/PageHeader';
 import { getFinancialSummary } from '../../services/api/finance';
 import {
   Scale,
@@ -414,35 +415,30 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
 
   return (
     <div className="printable-document space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
-            <Scale className="h-5 w-5 text-indigo-500" />
-            <span>Financial Overview (Assets, Payables &amp; Trading)</span>
-          </h2>
-          <p className="truncate text-slate-400 text-xs mt-0.5">
-            Management view compiled from operational registers — not a statutory balance sheet. Pick a branch or the consolidated group; compare branches in the comparison report.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Download className="h-3.5 w-3.5 text-slate-400" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Printer className="h-3.5 w-3.5 text-slate-400" />
-            <span>Print Statement</span>
-          </button>
-        </div>
-      </div>
+      {/* Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Financial Overview (Assets, Payables & Trading)"
+        description="Management view compiled from operational registers — not a statutory balance sheet. Pick a branch or the consolidated group; compare branches in the comparison report."
+        icon={<Scale className="h-5 w-5 text-indigo-500" />}
+        actions={
+          <>
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Download className="h-3.5 w-3.5 text-slate-400" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Printer className="h-3.5 w-3.5 text-slate-400" />
+              <span>Print Statement</span>
+            </button>
+          </>
+        }
+      />
 
       {/* Controls row: view switch + statement type + comparative + entity filter */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">

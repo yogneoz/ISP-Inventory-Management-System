@@ -5,6 +5,8 @@ import { getWarrantyInfo } from '../../utils/warranty';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
+import StatCard from '../../components/common/StatCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   Users,
   Search,
@@ -418,80 +420,62 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 break-words leading-tight text-slate-900 dark:text-white`}>
-            <Wifi className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
-            <span>Customer Hardware Directory & Serial Number Lookup</span>
-          </h2>
-          <p className={`truncate text-xs mt-1 break-words leading-normal max-w-3xl text-slate-500 dark:text-slate-400`}>
-            Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name.
-          </p>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2.5">
-          <button
-            onClick={handleExportCSV}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white`}
-          >
-            <Download className={`h-4 w-4 text-blue-500 dark:text-blue-400`} />
-            <span>Export CSV ({filteredRecords.length})</span>
-          </button>
-
-          {canManageCustomers && (
+      {/* Top Header — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Customer Hardware Directory & Serial Number Lookup"
+        description="Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name."
+        icon={<Wifi className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />}
+        actions={
+          <>
             <button
-              onClick={() => {
-                setAssignType('RENTAL');
-                setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
-                setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-                setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-                setIsModalOpen(true);
-              }}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white"
             >
-              <Plus className="h-4 w-4" />
-              <span>Assign Customer Device</span>
+              <Download className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+              <span>Export CSV ({filteredRecords.length})</span>
             </button>
-          )}
-        </div>
-      </div>
 
-      {/* Overview Stat Cards */}
+            {canManageCustomers && (
+              <button
+                onClick={() => {
+                  setAssignType('RENTAL');
+                  setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+                  setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+                  setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Assign Customer Device</span>
+              </button>
+            )}
+          </>
+        }
+      />
+
+      {/* Overview Stat Cards — shared compact StatCard component */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
-          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Tracked Serials</div>
-          <div className="text-xl font-mono font-bold mt-1 text-slate-900 dark:text-white">
-            {customerDevices.length} Devices
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-blue-50/20 border-blue-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
-          <div className={`text-xs font-semibold text-blue-800 dark:text-blue-400`}>
-            Rental Products (CPE)
-          </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 text-blue-700 dark:text-blue-400`}>
-            {rentalCount} Rental
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-purple-50/20 border-purple-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
-          <div className={`text-xs font-semibold text-purple-800 dark:text-purple-400`}>
-            Sold Products (Customer)
-          </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 text-purple-700 dark:text-purple-400`}>
-            {soldCount} Sold
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors bg-rose-50/20 border-rose-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100`}>
-          <div className={`text-xs font-semibold text-rose-800 dark:text-rose-400`}>
-            Router Collected (Restocked)
-          </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 text-rose-700 dark:text-rose-400`}>
-            {routerCollectedCount} Collected
-          </div>
-        </div>
+        <StatCard
+          label="Total Tracked Serials"
+          value={`${customerDevices.length} Devices`}
+          tone="slate"
+        />
+        <StatCard
+          label="Rental Products (CPE)"
+          value={`${rentalCount} Rental`}
+          tone="sky"
+        />
+        <StatCard
+          label="Sold Products (Customer)"
+          value={`${soldCount} Sold`}
+          tone="violet"
+        />
+        <StatCard
+          label="Router Collected (Restocked)"
+          value={`${routerCollectedCount} Collected`}
+          tone="rose"
+        />
       </div>
 
       {/* Search & Filter Bar */}

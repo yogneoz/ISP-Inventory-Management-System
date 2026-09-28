@@ -6,6 +6,7 @@ import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/perm
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import {
   AlertTriangle,
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface DamagedStockTrackingProps {
@@ -510,73 +512,68 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         </div>
       )}
 
-      {/* Header & Actions */}
-      <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-            <span>Damaged Stock Matrix & Branch Loss Tracking</span>
-          </h2>
-          <p className={`truncate text-xs mt-0.5 text-slate-500 dark:text-slate-400`}>
-            Consolidated breakdown of damaged stock units, write-off accounting, and physical disposal workflows.
-          </p>
-        </div>
+      {/* Header & Actions — shared PageHeader (single h2 per screen rule) */}
+      <PageHeader
+        title="Damaged Stock Matrix & Branch Loss Tracking"
+        description="Consolidated breakdown of damaged stock units, write-off accounting, and physical disposal workflows."
+        icon={<AlertTriangle className="h-5 w-5 text-amber-500" />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleExportDamagedStockReport}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border cursor-pointer shadow-xs transition-all text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-700/60"
+              title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
+            >
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Export Damage CSV (BS Date)</span>
+            </button>
 
-        <div className="shrink-0 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={handleExportDamagedStockReport}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border cursor-pointer shadow-xs transition-all text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 dark:text-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-700/60`}
-            title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
-          >
-            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <FileSpreadsheet className={`h-4 w-4 text-emerald-600 dark:text-emerald-400`} />
-            <span>Export Damage CSV (BS Date)</span>
-          </button>
+            <button
+              onClick={() => setShowWriteOffGuide(!showWriteOffGuide)}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-white text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700"
+            >
+              <HelpCircle className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+              <span>Corporate Write-Off Guide</span>
+            </button>
 
-          <button
-            onClick={() => setShowWriteOffGuide(!showWriteOffGuide)}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-white text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700`}
-          >
-            <HelpCircle className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
-            <span>Corporate Write-Off Guide</span>
-          </button>
+            <button
+              onClick={handleTopDisposalClick}
+              title={canDispose ? "Dispose & Write-Off Damaged Stock" : "Restricted: Requires Inventory Manager or Super Admin role"}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
+                canDispose
+                  ? 'bg-rose-600 hover:bg-rose-500'
+                  : 'bg-slate-500 dark:bg-slate-700 hover:bg-slate-600 opacity-80'
+              }`}
+            >
+              <Flame className="h-4 w-4" />
+              <span>Dispose & Write-Off Stock</span>
+              {!canDispose && <Lock className="h-3 w-3 ml-0.5 text-amber-200" />}
+            </button>
 
-          <button
-            onClick={handleTopDisposalClick}
-            title={canDispose ? "Dispose & Write-Off Damaged Stock" : "Restricted: Requires Inventory Manager or Super Admin role"}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
-              canDispose
-                ? 'bg-rose-600 hover:bg-rose-500'
-                : 'bg-slate-500 dark:bg-slate-700 hover:bg-slate-600 opacity-80'
-            }`}
-          >
-            <Flame className="h-4 w-4" />
-            <span>Dispose & Write-Off Stock</span>
-            {!canDispose && <Lock className="h-3 w-3 ml-0.5 text-amber-200" />}
-          </button>
+            {onNavigateTab && (
+              <>
+                <button
+                  onClick={() => onNavigateTab('damage')}
+                  className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 dark:hover:bg-amber-900/60"
+                >
+                  <AlertOctagon className="h-4 w-4 text-amber-500" />
+                  <span>Tag Damaged Stock</span>
+                </button>
 
-          {onNavigateTab && (
-            <>
-              <button
-                onClick={() => onNavigateTab('damage')}
-                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 dark:hover:bg-amber-900/60`}
-              >
-                <AlertOctagon className="h-4 w-4 text-amber-500" />
-                <span>Tag Damaged Stock</span>
-              </button>
-
-              <button
-                onClick={() => onNavigateTab('pullout')}
-                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-              >
-                <Truck className="h-4 w-4" />
-                <span>Dispatch Pullout HQ</span>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+                <button
+                  onClick={() => onNavigateTab('pullout')}
+                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+                >
+                  <Truck className="h-4 w-4" />
+                  <span>Dispatch Pullout HQ</span>
+                </button>
+              </>
+            )}
+          </>
+        }
+      />
 
       {/* Corporate Write-Off Accounting Guide Banner */}
       {showWriteOffGuide && (
@@ -647,46 +644,29 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         </div>
       )}
 
-      {/* KPI Summary Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Damaged Units</span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-amber-600 dark:text-amber-400`}>
-            {(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Across all filtered branch stores</p>
-        </div>
-
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Damaged Valuation</span>
-            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-500">
-              <DollarSign className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            {formatNPR(grandTotalLossValuation ?? 0)}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Estimated gross cost inventory impairment</p>
-        </div>
-
-        <div className={`p-4 rounded-2xl border shadow-xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Affected Products</span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
-              <Layers className="h-4 w-4" />
-            </div>
-          </div>
-          <div className={`text-xl font-bold font-mono mt-1 text-indigo-600 dark:text-indigo-400`}>
-            {affectedSKUsCount} SKUs
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Items requiring quality action or disposal</p>
-        </div>
+      {/* KPI Summary Banner — shared compact StatCard component */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          label="Total Damaged Units"
+          value={`${(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs`}
+          hint="Across all filtered branch stores"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone="amber"
+        />
+        <StatCard
+          label="Total Damaged Valuation"
+          value={formatNPR(grandTotalLossValuation ?? 0)}
+          hint="Estimated gross cost inventory impairment"
+          icon={<DollarSign className="h-4 w-4" />}
+          tone="rose"
+        />
+        <StatCard
+          label="Affected Products"
+          value={`${affectedSKUsCount} SKUs`}
+          hint="Items requiring quality action or disposal"
+          icon={<Layers className="h-4 w-4" />}
+          tone="indigo"
+        />
       </div>
 
       {/* Filter & Search Card — shared inline card */}

@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
+import StatCard from '../../components/common/StatCard';
 
 interface SerialLogRegisterProps {
   /**
@@ -475,43 +477,39 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
 
   return (
     <div className="flex flex-col gap-3 h-full">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white">
-            <Barcode className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-            <span>Serial Log Register</span>
-          </h2>
-          <p className="text-xs mt-1 text-slate-500 dark:text-slate-400">
-            One row per device serial with full lifecycle history — purchases, transfers, customer assignments, returns and damage, converged from all sources.
-          </p>
-        </div>
-        <button
-          onClick={handleExportCSV}
-          className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          <Download className="h-4 w-4" />
-          <span>Export CSV</span>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-        {[
-          { key: 'IN_STOCK', label: 'In Stock', color: 'emerald' },
-          { key: 'IN_TRANSIT', label: 'In Transit', color: 'blue' },
-          { key: 'CUSTOMER_ASSIGNED', label: 'Customer', color: 'purple' },
-          { key: 'POP_LOCATION_ASSIGNED', label: 'POP Location', color: 'indigo' },
-          { key: 'DAMAGED', label: 'Damaged', color: 'rose' },
-          { key: 'RETURNED', label: 'Returned', color: 'amber' },
-        ].map((stat) => (
-          <div
-            key={stat.key}
-            className={`rounded-lg p-2.5 border text-center bg-${stat.color}-50/30 border-${stat.color}-200 dark:bg-slate-900/50 dark:border-slate-800`}
+      <PageHeader
+        title="Serial Log Register"
+        description="One row per device serial with full lifecycle history — purchases, transfers, customer assignments, returns and damage, converged from all sources."
+        icon={<Barcode className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
+        actions={
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
           >
-            <div className={`text-[10px] font-semibold text-${stat.color}-900 dark:text-${stat.color}-400`}>{stat.label}</div>
-            <div className={`text-lg font-mono font-bold mt-0.5 text-${stat.color}-700 dark:text-${stat.color}-300`}>
-              {statusCounts[stat.key] || 0}
-            </div>
-          </div>
+            <Download className="h-4 w-4" />
+            <span>Export CSV</span>
+          </button>
+        }
+      />
+
+      {/* Status count cards — shared compact StatCard component. Also fixes
+          the previous dynamic text-${color} classes, which Tailwind could
+          never compile. */}
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+        {([
+          { key: 'IN_STOCK', label: 'In Stock', tone: 'emerald' },
+          { key: 'IN_TRANSIT', label: 'In Transit', tone: 'sky' },
+          { key: 'CUSTOMER_ASSIGNED', label: 'Customer', tone: 'violet' },
+          { key: 'POP_LOCATION_ASSIGNED', label: 'POP Location', tone: 'indigo' },
+          { key: 'DAMAGED', label: 'Damaged', tone: 'rose' },
+          { key: 'RETURNED', label: 'Returned', tone: 'amber' },
+        ] as const).map((stat) => (
+          <StatCard
+            key={stat.key}
+            label={stat.label}
+            value={statusCounts[stat.key] || 0}
+            tone={stat.tone}
+          />
         ))}
       </div>
 

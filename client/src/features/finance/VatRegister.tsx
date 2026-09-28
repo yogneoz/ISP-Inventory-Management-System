@@ -4,6 +4,8 @@ import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
+import { FilterCard } from '../../components/common/FilterCard';
+import { PageHeader } from '../../components/common/PageHeader';
 import {
   Receipt,
   FileSpreadsheet,
@@ -17,6 +19,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { StatCard } from '../../components/common/StatCard';
 
 interface VatRegisterProps {
   invoices: PurchaseInvoice[];
@@ -94,124 +97,93 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
         subtitle="IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records."
       />
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className={`text-lg font-serif font-bold tracking-tight flex items-center gap-2 text-slate-900 dark:text-white`}>
-            <Receipt className="h-5 w-5 text-indigo-500" />
-            <span>Register Filter &amp; Overview</span>
-          </h2>
-          <p className="truncate text-slate-400 text-xs mt-0.5">
-            IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records.
-          </p>
-        </div>
+      {/* Header — shared PageHeader (single h2 per screen rule). The screen
+          description lives only here; the print letterhead keeps its own
+          print-only subtitle. */}
+      <PageHeader
+        title="Value Added Tax (VAT) Register"
+        description="IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records."
+        icon={<Receipt className="h-5 w-5 text-indigo-500" />}
+        actionsClassName="items-center"
+        actions={
+          <>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Download className="h-3.5 w-3.5 text-slate-400" />
+              <span>Export IRD CSV</span>
+            </button>
 
-        <div className="shrink-0 flex items-center gap-2">
-          <button
-            onClick={handleExportCSV}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Download className="h-3.5 w-3.5 text-slate-400" />
-            <span>Export IRD CSV</span>
-          </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Printer className="h-3.5 w-3.5 text-slate-400" />
+              <span>Print Register</span>
+            </button>
+          </>
+        }
+      />
 
-          <button
-            onClick={handlePrint}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer border-slate-300 bg-white text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800`}
-          >
-            <Printer className="h-3.5 w-3.5 text-slate-400" />
-            <span>Print Register</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards — shared compact StatCard component */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>TOTAL TAXABLE PURCHASE</span>
-            <DollarSign className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-slate-900 dark:text-white">
-            {formatNPR(totalTaxableAmount)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Subtotal before 13% VAT calculation
-          </p>
-        </div>
-
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>13% INPUT VAT CREDIT</span>
-            <Percent className="h-4 w-4 text-indigo-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-indigo-500">
-            {formatNPR(totalVatAmount)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Claimable Input Tax Credit from Purchase Invoices
-          </p>
-        </div>
-
-        <div
-          className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-1">
-            <span>GROSS INVOICE VALUE</span>
-            <FileSpreadsheet className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold font-mono text-amber-500">
-            {formatNPR(totalGrandAmount)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Total Purchase Cost including VAT ({filteredInvoices.length} Invoices)
-          </p>
-        </div>
+        <StatCard
+          label="TOTAL TAXABLE PURCHASE"
+          icon={<DollarSign className="h-4 w-4" />}
+          tone="emerald"
+          value={formatNPR(totalTaxableAmount)}
+          hint="Subtotal before 13% VAT calculation"
+        />
+        <StatCard
+          label="13% INPUT VAT CREDIT"
+          icon={<Percent className="h-4 w-4" />}
+          tone="indigo"
+          value={formatNPR(totalVatAmount)}
+          hint="Claimable Input Tax Credit from Purchase Invoices"
+        />
+        <StatCard
+          label="GROSS INVOICE VALUE"
+          icon={<FileSpreadsheet className="h-4 w-4" />}
+          tone="amber"
+          value={formatNPR(totalGrandAmount)}
+          hint={`Total Purchase Cost including VAT (${filteredInvoices.length} Invoices)`}
+        />
       </div>
 
-      {/* Filter and Search Bar */}
-      <div
-        className={`p-3 rounded-2xl border flex flex-col md:flex-row gap-3 items-center justify-start bg-white border-slate-200 dark:bg-slate-900/40 dark:border-slate-800`}
-      >
-        <div
-          className={`flex items-center gap-2 px-3 py-2 rounded-xl border w-full md:w-80 text-xs bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-        >
-          <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search Tax Invoice #, Supplier, PAN..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent focus:outline-none placeholder:text-slate-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <span className="text-xs font-semibold text-slate-400">VAT Rate:</span>
-          <button
-            onClick={() => setVatTypeFilter('ALL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
-          >
-            All Rates
-          </button>
-          <button
-            onClick={() => setVatTypeFilter('13%')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '13%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
-          >
-            13% Taxable
-          </button>
-          <button
-            onClick={() => setVatTypeFilter('0%')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '0%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
-          >
-            0% Exempt
-          </button>
-        </div>
-      </div>
+      {/* Filter and Search Bar — shared FilterCard for register consistency. */}
+      <FilterCard
+        searchPlaceholder="Search Tax Invoice #, Supplier, PAN..."
+        searchValue={searchQuery}
+        onSearchApply={setSearchQuery}
+        hasActiveFilters={Boolean(searchQuery) || vatTypeFilter !== 'ALL'}
+        onClearAll={() => {
+          setSearchQuery('');
+          setVatTypeFilter('ALL');
+        }}
+        rightChildren={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setVatTypeFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              All Rates
+            </button>
+            <button
+              onClick={() => setVatTypeFilter('13%')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '13%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              13% Taxable
+            </button>
+            <button
+              onClick={() => setVatTypeFilter('0%')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '0%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              0% Exempt
+            </button>
+          </div>
+        }
+      />
 
       {/* Tax Invoice Table */}
       <div
