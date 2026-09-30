@@ -92,6 +92,7 @@ export type NavTab =
   | 'damage-report'
   | 'stock-out'
   | 'assign-asset'
+  | 'asset-deployments'
   | 'consumable-issue'
   | 'consumables-register'
   | 'device-exchange'
@@ -156,6 +157,7 @@ export const NAV_TABS: NavTab[] = [
   'damage-report',
   'stock-out',
   'assign-asset',
+  'asset-deployments',
   'consumable-issue',
   'consumables-register',
   'device-exchange',
@@ -421,7 +423,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [{ id: 'damage' as NavTab, label: 'Label Local Damaged Stock', icon: HeartOff }]
       : []),
     ...(isOperationAllowed('branch-asset-assign', currentUser?.role)
-      ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }]
+      ? [
+          { id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench },
+          { id: 'asset-deployments' as NavTab, label: 'Asset Deployments', icon: MapPin },
+        ]
       : []),
   ];
   if (branchOpsChildren.length > 0) {
@@ -528,8 +533,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true }
     );
   }
-  if (isSuperAdmin) {
-    // DEV-ONLY: design-review gallery, invisible to non-superadmin users.
+  if (isSuperAdmin && import.meta.env.DEV) {
+    // DEV-ONLY: design-review gallery. Also gated at build time so it never
+    // appears in production builds (render block is inert there too).
     adminChildren.push({ id: 'dev-statcard' as NavTab, label: 'Dev: StatCard Gallery', icon: Palette });
   }
   if (adminChildren.length > 0) {

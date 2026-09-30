@@ -18,6 +18,7 @@ import {
   CustomerRecord,
   CustomerDeviceRecord,
   ApprovalRequest,
+  SerialLog,
 } from '../../types';
 import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -83,6 +84,7 @@ interface StockOperationsProps {
   locations?: LocationRecord[];
   customers?: CustomerRecord[];
   customerDevices?: CustomerDeviceRecord[];
+  serialLogs?: SerialLog[];
   approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
@@ -123,6 +125,29 @@ interface TransferFormLine extends ShipmentItem {
   quantity?: number;
 }
 
+// Asset deployment bin line: one assignable row inside the multi-item
+// Assign Fixed Asset form (Product Sale pattern).
+interface AssignBinLine {
+  id: string;
+  kind: 'PRODUCT' | 'ASSET';
+  productId?: string;      // PRODUCT: catalog source
+  assetId?: string;        // ASSET: existing ledger entity
+  productName: string;
+  sku: string;
+  unit: string;
+  quantity: number;        // always 1 for ASSET / serialized PRODUCT lines
+  isSerialized: boolean;
+  deviceSerial: string;
+  ponSerial: string;
+  macAddress: string;
+  usedAtType: 'FIELD' | 'POP' | 'CUSTOMER';
+  usedAtLocationId?: string;
+  usedAtLocationName?: string;
+  usedAtCustomerId?: string;
+  usedAtCustomerName?: string;
+  remarks: string;
+}
+
 // Central warehouse / head-office detection used by the inter-branch transfer
 // flow. Matches the legacy inline predicates (WH001, isWarehouse, WH-* codes,
 // and names containing warehouse / head office / central).
@@ -153,6 +178,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   locations = [],
   customers = [],
   customerDevices = [],
+  serialLogs = [],
   approvalRequests = [],
   onCreateOperation,
   onReceiveOperation,
@@ -247,17 +273,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Modals state
   const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(autoOpenModal && initialType === 'PULLOUT');
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(autoOpenModal && initialType === 'DAMAGE');
-  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
 
   // Selected asset or product for assignment modal
-  const [selectedAssetForAssign, setSelectedAssetForAssign] = useState<Asset | null>(null);
-  const [selectedProductForAssign, setSelectedProductForAssign] = useState<Product | null>(null);
-  const [productAssignSerial, setProductAssignSerial] = useState<string>('');
-  const [productAssignPon, setProductAssignPon] = useState<string>('');
-  const [productAssignMac, setProductAssignMac] = useState<string>('');
-  const [productAssignTag, setProductAssignTag] = useState<string>('');
-  const [customerSearchInAssignModal, setCustomerSearchInAssignModal] = useState<string>('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState<boolean>(false);
 
   // Device Exchange Tab State
@@ -312,6 +330,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     pulloutSourceBranches.length > 0
       ? pulloutSourceBranches
       : allowedBranches.filter((b) => b.id !== 'WH001');
+
+  // Product-group filtered catalogs (types/index.ts: 'Product Item' | 'Fixed Asset' |
+  // 'Consumable Item'; absent productGroup defaults to 'Product Item' everywhere else
+  // in the app, matching ProductManagement's display convention).
+  const saleEligibleProducts = useMemo(
+    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Product Item'),
+    [products]
+  );
+  const consumableProducts = useMemo(
+    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Consumable Item'),
+    [products]
+  );
 
   // 1. Pullout Bin Form State
   const userBranchId = allowedBranches[0]?.id || branches[0]?.id || '';
@@ -388,11 +418,68 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
   }, [xferSourceBranchId, branches, xferDestBranchId]);
 
-  // 4. Assign Fixed Asset Form State
-  const [assignTargetType, setAssignTargetType] = useState<'LOCATION' | 'CUSTOMER'>('LOCATION');
-  const [assignLocationId, setAssignLocationId] = useState<string>(locations[0]?.id || '');
-  const [assignCustomerId, setAssignCustomerId] = useState<string>(customers[0]?.id || '');
-  const [assignNotes, setAssignNotes] = useState<string>('Installed & commissioned as operational fixed asset');
+  // 4. Assign Fixed Asset Form State (multi-item bin, Product Sale pattern)
+  const [assignBranchId, setAssignBranchId] = useState<string>(userBranchId);
+  const [assignItems, setAssignItems] = useState<AssignBinLine[]>([]);
+  const [assignProductSearch, setAssignProductSearch] = useState<string>('');
+  const [isAssignProductDropdownOpen, setIsAssignProductDropdownOpen] = useState<boolean>(false);
+  const assignProductDropdownRef = useRef<HTMLDivElement | null>(null);
+  // Serial-log cache for IN_STOCK serial-pair validation (bootstrap payload
+  // excludes serialLogs, so fetch on demand when the deployment form is used).
+  const [assignSerialLogCache, setAssignSerialLogCache] = useState<SerialLog[]>([]);
+  const assignSerialLogLoaded = useRef(false);
+  useEffect(() => {
+    if (assignSerialLogLoaded.current) return;
+    assignSerialLogLoaded.current = true;
+    api.getSerialLogs({ all: true })
+      .then((res) => {
+        const rows = Array.isArray(res) ? res : res.data;
+        setAssignSerialLogCache(rows || []);
+      })
+      .catch(() => setAssignSerialLogCache([]));
+  }, []);
+
+  // Catalog candidates: productGroup 'Fixed Asset' plus ONU/Router/STB hardware.
+  const assignableCatalogProducts = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.productGroup === 'Fixed Asset' ||
+          (p?.category || '').toLowerCase().includes('router') ||
+          (p?.category || '').toLowerCase().includes('onu') ||
+          (p?.category || '').toLowerCase().includes('stb') ||
+          (p?.category || '').toLowerCase().includes('equipment') ||
+          (p?.name || '').toLowerCase().includes('onu') ||
+          (p?.name || '').toLowerCase().includes('router')
+      ),
+    [products]
+  );
+
+  const assetIsSerializedProduct = (p: Product): boolean =>
+    p.requiresSerialTracking !== false && p.trackingType !== 'QUANTITY_ONLY';
+
+  const filteredAssignProducts = useMemo(() => {
+    const q = assignProductSearch.trim().toLowerCase();
+    if (!q) return assignableCatalogProducts;
+    return assignableCatalogProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q)
+    );
+  }, [assignableCatalogProducts, assignProductSearch]);
+
+  // Close the product dropdown on outside click.
+  useEffect(() => {
+    if (!isAssignProductDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (assignProductDropdownRef.current && !assignProductDropdownRef.current.contains(e.target as Node)) {
+        setIsAssignProductDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [isAssignProductDropdownOpen]);
 
   // 5. Product Sale Form State (Multi-Item Sales Invoice)
   const [saleCustomerId, setSaleCustomerId] = useState<string>(customers[0]?.id || '');
@@ -401,12 +488,58 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [saleNotes, setSaleNotes] = useState<string>('Direct retail product item sale to customer');
   const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
 
+  // Customer SEARCH field state (searchable input + dropdown, not a native select).
+  // `saleCustomerQuery` is the visible text; `saleCustomerId` stays the canonical FK.
+  const saleCustomerDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [saleCustomerQuery, setSaleCustomerQuery] = useState<string>(() => {
+    const c = customers[0];
+    return c ? `${c.customerName} (${c.customerId})` : '';
+  });
+  const [isSaleCustomerDropdownOpen, setIsSaleCustomerDropdownOpen] = useState<boolean>(false);
+
+  const saleCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
+
+  // Keep the visible query in sync when the canonical id changes externally
+  // (form reset, customers list loads, default selection).
+  useEffect(() => {
+    const c = customers.find((x) => x.id === saleCustomerId);
+    if (c) setSaleCustomerQuery(saleCustomerDisplay(c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saleCustomerId, customers]);
+
+  // Close the customer dropdown on outside click.
+  useEffect(() => {
+    if (!isSaleCustomerDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (saleCustomerDropdownRef.current && !saleCustomerDropdownRef.current.contains(e.target as Node)) {
+        setIsSaleCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [isSaleCustomerDropdownOpen]);
+
+  const filteredSaleCustomers = useMemo(() => {
+    const q = saleCustomerQuery.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.customerName.toLowerCase().includes(q) ||
+        c.customerId.toLowerCase().includes(q) ||
+        (c.contactNumber || '').toLowerCase().includes(q) ||
+        (c.address || '').toLowerCase().includes(q)
+    );
+  }, [customers, saleCustomerQuery]);
+
   // 6. Consumable Issue Form State (Multi-Item Requisition)
   const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
   const [consumableTechnician, setConsumableTechnician] = useState<string>('Field Splicing Technician');
   const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
   const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
   const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
+  // Dismissible "Consumables Operational Rule" banner (resets on reload —
+  // intentionally not persisted so new sessions see the rule once).
+  const [isConsumableRuleBannerVisible, setIsConsumableRuleBannerVisible] = useState(true);
 
   // Consumables Register (Serial-Log-Register-style ledger) view state
   const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
@@ -911,7 +1044,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Sale Items Handlers
   const handleResetSaleForm = () => {
     setSaleItems([]);
-    setSaleCustomerId(customers[0]?.id || '');
+    const first = customers[0];
+    setSaleCustomerId(first?.id || '');
+    setSaleCustomerQuery(first ? saleCustomerDisplay(first) : '');
     setSaleBranchId(userBranchId);
     setSalePaymentMethod('Cash / Direct Payment');
     setSaleNotes('Direct retail product item sale to customer');
@@ -940,7 +1075,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const handleAddSaleItem = (prodId?: string) => {
-    const selProd = products.find((p) => p.id === prodId) || products[0];
+    // Only 'Product Item' group products are sellable on this invoice.
+    const selProd = saleEligibleProducts.find((p) => p.id === prodId) || saleEligibleProducts[0];
     if (!selProd) return;
 
     const isSerialized = selProd.requiresSerialTracking !== false && selProd.trackingType !== 'QUANTITY_ONLY';
@@ -1039,8 +1175,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const handleAddConsumableItem = (prodId?: string) => {
-    const consumableProducts = products.filter(p => p.productGroup === 'Consumable Item' || p.category.includes('Consumable'));
-    const selProd = products.find((p) => p.id === prodId) || consumableProducts[0] || products[0];
+    // Only 'Consumable Item' group products are issuable on this requisition.
+    const selProd = consumableProducts.find((p) => p.id === prodId) || consumableProducts[0];
     if (!selProd) return;
 
     const existingItem = consumableItems.find((i) => i.productId === selProd.id);
@@ -1464,153 +1600,239 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   // 4. Submit Assign Fixed Asset
-  const handleOpenAssignModal = (asset: Asset) => {
-    setSelectedAssetForAssign(asset);
-    setSelectedProductForAssign(null);
-    setIsAssignModalOpen(true);
+  // --- Asset deployment bin handlers (Product Sale pattern) ---
+  const handleAddAssignAssetToBin = (asset: Asset) => {
+    setAssignItems((prev) => [
+      ...prev,
+      {
+        id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        kind: 'ASSET' as const,
+        assetId: asset.id,
+        productName: asset.name,
+        sku: asset.tagNumber,
+        unit: 'Pcs',
+        quantity: 1,
+        isSerialized: false,
+        deviceSerial: '',
+        ponSerial: '',
+        macAddress: '',
+        usedAtType: 'FIELD' as const,
+        remarks: '',
+      },
+    ]);
+    setAssignProductSearch('');
+    setIsAssignProductDropdownOpen(false);
   };
 
-  const handleOpenProductAssignModal = (prod: Product) => {
-    setSelectedProductForAssign(prod);
-    setSelectedAssetForAssign(null);
-    setProductAssignTag(`FA-ONU-${Math.floor(1000 + Math.random() * 9000)}`);
-    setProductAssignSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-    setProductAssignPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-    setProductAssignMac('00:1A:2B:3C:4D:5E');
-    setAssignTargetType('CUSTOMER');
-    setAssignCustomerId(customers[0]?.id || '');
-    setAssignLocationId(locations[0]?.id || '');
-    setAssignNotes('Deployed as Customer Rental CPE Asset from inventory stock.');
-    setIsAssignModalOpen(true);
+  const handleAddAssignProductToBin = (prod: Product) => {
+    const serialized = assetIsSerializedProduct(prod);
+    setAssignItems((prev) => [
+      ...prev,
+      {
+        id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        kind: 'PRODUCT' as const,
+        productId: prod.id,
+        productName: prod.name,
+        sku: prod.sku,
+        unit: prod.unit,
+        quantity: 1,
+        isSerialized: serialized,
+        deviceSerial: serialized ? `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}` : '',
+        ponSerial: serialized ? `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}` : '',
+        macAddress: serialized ? '00:1A:2B:3C:4D:5E' : '',
+        usedAtType: 'FIELD' as const,
+        remarks: '',
+      },
+    ]);
+    setAssignProductSearch('');
+    setIsAssignProductDropdownOpen(false);
   };
 
+  const handleUpdateAssignItem = (id: string, updates: Partial<AssignBinLine>) => {
+    setAssignItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+  };
+
+  const handleRemoveAssignItem = (id: string) => {
+    setAssignItems((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleResetAssignForm = () => {
+    setAssignItems([]);
+    setAssignProductSearch('');
+    setAssignBranchId(userBranchId);
+  };
+
+  // 4. Submit Assign Fixed Asset (multi-bin deployment)
   const handleSubmitAssignAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
-    const todayAD = new Date().toISOString().split('T')[0];
-    // Derive the BS date from the seeded calendar — never hardcode.
-    const todayBS = tryConvertADToBS(todayAD)?.formattedBSShort || '';
-
-    // A) If assigning a Product directly as a Fixed Asset / Rental CPE
-    if (selectedProductForAssign) {
-      const custObj = customers.find((c) => c.id === assignCustomerId);
-      const locObj = locations.find((l) => l.id === assignLocationId);
-      const assetBranchId = selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId;
-      const availableAssetStock = stock.find((entry) => entry.productId === selectedProductForAssign.id && entry.branchId === assetBranchId);
-      if (!availableAssetStock || availableAssetStock.quantityOnHand < 1) {
-        alert(`Cannot assign "${selectedProductForAssign.name}": no available stock exists at the selected branch.`);
-        return;
-      }
-      const assetIsSerialized = selectedProductForAssign.requiresSerialTracking !== false && selectedProductForAssign.trackingType !== 'QUANTITY_ONLY';
-      if (assetIsSerialized) {
-        const matchingAssetDevice = customerDevices.find(
-          (device) =>
-            device.deviceSerial?.trim().toUpperCase() === productAssignSerial.trim().toUpperCase() &&
-            device.ponSerial?.trim().toUpperCase() === productAssignPon.trim().toUpperCase() &&
-            device.branchId === assetBranchId &&
-            device.status === 'IN_STOCK' &&
-            device.productName?.trim().toLowerCase() === selectedProductForAssign.name.trim().toLowerCase()
-        );
-        if (!matchingAssetDevice) {
-          alert('The assigned serialized product must use a matching Device Serial/PON pair from IN_STOCK inventory.');
-          return;
-        }
-      }
-
-      await api.createAsset({
-        tagNumber: productAssignTag || `FA-ONU-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: selectedProductForAssign.name,
-        category: selectedProductForAssign.category || 'IT Equipment',
-        branchId: assetBranchId,
-        acquisitionDateAD: todayAD,
-        acquisitionDateBS: todayBS,
-        acquisitionCost: selectedProductForAssign.costPrice,
-        depreciationMethod: 'STRAIGHT_LINE',
-        depreciationRatePercent: selectedProductForAssign.depreciationRate || 15,
-        status: assignTargetType === 'CUSTOMER' ? 'ASSIGNED_TO_CUSTOMER' : 'ASSIGNED_TO_LOCATION',
-        assignedType: assignTargetType,
-        assignedCustomerId: assignTargetType === 'CUSTOMER' ? assignCustomerId : undefined,
-        assignedCustomerName: assignTargetType === 'CUSTOMER' ? (custObj ? `${custObj.customerName} (${custObj.customerId})` : assignCustomerId) : undefined,
-        assignedLocationId: assignTargetType === 'LOCATION' ? assignLocationId : undefined,
-        assignedLocationName: assignTargetType === 'LOCATION' ? (locObj?.name || assignLocationId) : undefined,
-        assignmentDateAD: todayAD,
-        assignmentDateBS: todayBS,
-        assignmentNotes: assignNotes,
-      });
-
-      if (assignTargetType === 'CUSTOMER' && custObj) {
-        await api.createCustomerDevice({
-          customerId: custObj.id,
-          customerName: custObj.customerName,
-          customerCode: custObj.customerId,
-          contactPhone: custObj.contactNumber || '9800000000',
-          installationAddress: custObj.address || 'Nepal',
-          branchId: assetBranchId,
-          productName: selectedProductForAssign.name,
-          deviceSerial: productAssignSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: productAssignPon || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-          macAddress: productAssignMac || undefined,
-          status: 'RENTAL',
-          issuedDateAD: todayAD,
-          issuedDateBS: todayBS,
-          notes: `[RENTAL CPE ASSET - Tag: ${productAssignTag}] ${assignNotes}`,
-        });
-      }
-
-      setIsAssignModalOpen(false);
-      setSelectedProductForAssign(null);
-      alert(`Product "${selectedProductForAssign.name}" successfully registered as Fixed Asset Tag ${productAssignTag} & assigned!`);
-      if (typeof window !== 'undefined') window.location.reload();
+    if (assignItems.length === 0) {
+      alert('Add at least one asset/product line to the deployment bin.');
       return;
     }
+    const todayAD = new Date().toISOString().split('T')[0];
+    const todayBS = tryConvertADToBS(todayAD)?.formattedBSShort || '';
 
-    // B) If assigning an existing Asset from Asset Ledger
-    if (!selectedAssetForAssign || !onUpdateAssetStatus) return;
-
-    if (assignTargetType === 'LOCATION') {
-      const locObj = locations.find((l) => l.id === assignLocationId);
-      await onUpdateAssetStatus(selectedAssetForAssign.id, {
-        status: 'ASSIGNED_TO_LOCATION',
-        assignedType: 'LOCATION',
-        assignedLocationId: assignLocationId,
-        assignedLocationName: locObj?.name || assignLocationId,
-        assignmentDateAD: todayAD,
-        assignmentDateBS: todayBS,
-        assignmentNotes: assignNotes,
-      });
-    } else {
-      const custObj = customers.find((c) => c.id === assignCustomerId);
-      await onUpdateAssetStatus(selectedAssetForAssign.id, {
-        status: 'ASSIGNED_TO_CUSTOMER',
-        assignedType: 'CUSTOMER',
-        assignedCustomerId: assignCustomerId,
-        assignedCustomerName: custObj ? `${custObj.customerName} (${custObj.customerId})` : assignCustomerId,
-        assignmentDateAD: todayAD,
-        assignmentDateBS: todayBS,
-        assignmentNotes: assignNotes,
-      });
-
-      if (custObj) {
-        await api.createCustomerDevice({
-          customerId: custObj.id,
-          customerName: custObj.customerName,
-          customerCode: custObj.customerId,
-          contactPhone: custObj.contactNumber || '9800000000',
-          installationAddress: custObj.address || 'Nepal',
-          branchId: selectedAssetForAssign.branchId || 'WH001',
-          productName: selectedAssetForAssign.name,
-          deviceSerial: `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-          status: 'RENTAL',
-          issuedDateAD: todayAD,
-          issuedDateBS: todayBS,
-          notes: `[FIXED ASSET CPE - Tag: ${selectedAssetForAssign.tagNumber}] ${assignNotes}`,
-        });
+    // Per-line validation: destination + stock + serial pairs.
+    for (const item of assignItems) {
+      if (item.usedAtType === 'POP' && !item.usedAtLocationId) {
+        alert(`Line "${item.productName}": select a POP / Network Location.`);
+        return;
+      }
+      if (item.usedAtType === 'CUSTOMER' && !item.usedAtCustomerId) {
+        alert(`Line "${item.productName}": select a Customer.`);
+        return;
+      }
+      if (item.kind === 'PRODUCT') {
+        const availableAssetStock = stock.find((entry) => entry.productId === item.productId && entry.branchId === assignBranchId);
+        if (!availableAssetStock || availableAssetStock.quantityOnHand < item.quantity) {
+          alert(`Cannot assign "${item.productName}": requested ${item.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
+          return;
+        }
+        if (item.isSerialized) {
+          // IN_STOCK serial identity lives in the serial_log register (branch
+          // stock intake), so validate against it. customer_device_records only
+          // holds devices already issued to customers — kept as a fallback for
+          // legacy flows that seed that table directly.
+          const pair = (sn?: string, pon?: string) => ({
+            sn: (sn || '').trim().toUpperCase(),
+            pon: (pon || '').trim().toUpperCase(),
+          });
+          const want = pair(item.deviceSerial, item.ponSerial);
+          const inStockInSerialLog = (serialLogs.length > 0 ? serialLogs : assignSerialLogCache).some((log) => {
+            const got = pair(log.deviceSerial, log.ponSerial);
+            return (
+              got.sn === want.sn &&
+              got.pon === want.pon &&
+              log.branchId === assignBranchId &&
+              log.status === 'IN_STOCK' &&
+              (log.productName || '').trim().toLowerCase() === (item.productName || '').trim().toLowerCase()
+            );
+          });
+          const matchingAssetDevice = inStockInSerialLog
+            ? true
+            : customerDevices.find(
+                (device) =>
+                  device.deviceSerial?.trim().toUpperCase() === item.deviceSerial.trim().toUpperCase() &&
+                  device.ponSerial?.trim().toUpperCase() === item.ponSerial.trim().toUpperCase() &&
+                  device.branchId === assignBranchId &&
+                  device.status === 'IN_STOCK' &&
+                  device.productName?.trim().toLowerCase() === item.productName.trim().toLowerCase()
+              );
+          if (!matchingAssetDevice) {
+            alert(`Line "${item.productName}": the Device Serial/PON pair must match an IN_STOCK unit at the selected branch.`);
+            return;
+          }
+        }
       }
     }
 
-    setIsAssignModalOpen(false);
-    setSelectedAssetForAssign(null);
+    const createdTags: string[] = [];
+
+    for (const item of assignItems) {
+      if (item.kind === 'PRODUCT') {
+        const prodMeta = products.find((p) => p.id === item.productId);
+        for (let unitIdx = 0; unitIdx < item.quantity; unitIdx++) {
+          const unitTag = `FA-${item.sku.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10)}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await api.createAsset({
+            tagNumber: unitTag,
+            name: item.productName,
+            category: prodMeta?.category || 'IT Equipment',
+            branchId: assignBranchId,
+            acquisitionDateAD: todayAD,
+            acquisitionDateBS: todayBS,
+            acquisitionCost: prodMeta?.costPrice || 0,
+            depreciationMethod: 'STRAIGHT_LINE',
+            depreciationRatePercent: prodMeta?.depreciationRate || 15,
+            productId: item.productId,
+            status: item.usedAtType === 'CUSTOMER' ? 'ASSIGNED_TO_CUSTOMER' : 'ASSIGNED_TO_LOCATION',
+            assignedType: item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : 'LOCATION',
+            assignedCustomerId: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
+            assignedCustomerName: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
+            assignedLocationId: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationId : undefined,
+            assignedLocationName: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationName : undefined,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+            deployFromStock: true,
+            deviceSerial: item.deviceSerial || undefined,
+          });
+          createdTags.push(unitTag);
+
+          if (item.usedAtType === 'CUSTOMER' && item.usedAtCustomerId) {
+            const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
+            if (custObj) {
+              await api.createCustomerDevice({
+                customerId: custObj.id,
+                customerName: custObj.customerName,
+                customerCode: custObj.customerId,
+                contactPhone: custObj.contactNumber || '9800000000',
+                installationAddress: custObj.address || 'Nepal',
+                branchId: assignBranchId,
+                productName: item.productName,
+                deviceSerial: unitIdx === 0
+                  ? (item.deviceSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)
+                  : `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+                ponSerial: unitIdx === 0
+                  ? (item.ponSerial || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`)
+                  : `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                macAddress: unitIdx === 0 ? (item.macAddress || undefined) : undefined,
+                status: 'RENTAL',
+                issuedDateAD: todayAD,
+                issuedDateBS: todayBS,
+                notes: `[RENTAL CPE ASSET - Tag: ${unitTag}] ${item.remarks}`,
+              });
+            }
+          }
+        }
+      } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
+        const ledgerAsset = assets.find((x) => x.id === item.assetId);
+        if (item.usedAtType === 'CUSTOMER') {
+          const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
+          await onUpdateAssetStatus(item.assetId, {
+            status: 'ASSIGNED_TO_CUSTOMER',
+            assignedType: 'CUSTOMER',
+            assignedCustomerId: item.usedAtCustomerId,
+            assignedCustomerName: item.usedAtCustomerName,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+          });
+          if (custObj) {
+            await api.createCustomerDevice({
+              customerId: custObj.id,
+              customerName: custObj.customerName,
+              customerCode: custObj.customerId,
+              contactPhone: custObj.contactNumber || '9800000000',
+              installationAddress: custObj.address || 'Nepal',
+              branchId: ledgerAsset?.branchId || assignBranchId,
+              productName: ledgerAsset?.name || item.productName,
+              deviceSerial: `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+              ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+              status: 'RENTAL',
+              issuedDateAD: todayAD,
+              issuedDateBS: todayBS,
+              notes: `[FIXED ASSET CPE - Tag: ${ledgerAsset?.tagNumber}] ${item.remarks}`,
+            });
+          }
+        } else {
+          await onUpdateAssetStatus(item.assetId, {
+            status: 'ASSIGNED_TO_LOCATION',
+            assignedType: 'LOCATION',
+            assignedLocationId: item.usedAtLocationId,
+            assignedLocationName: item.usedAtLocationName,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+          });
+        }
+        createdTags.push(ledgerAsset?.tagNumber || item.sku);
+      }
+    }
+
+    alert(`Deployment complete — ${assignItems.length} bin line(s) processed. Tags: ${createdTags.join(', ')}`);
+    handleResetAssignForm();
+    if (typeof window !== 'undefined') window.location.reload();
   };
 
   const handleUnassignAsset = async (asset: Asset) => {
@@ -1694,7 +1916,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     const cust = customers.find((c) => c.id === saleCustomerId);
     const branchObj = branches.find((b) => b.id === saleBranchId);
 
-    if (!cust) return;
+    if (!cust) {
+      alert('Please select a customer from the search results before saving.');
+      return;
+    }
 
     if (saleItems.length === 0) {
       alert('Please add at least one product item to the sales invoice.');
@@ -1961,17 +2186,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       (d?.ponSerial || '').toLowerCase().includes(q) ||
       (d?.productName || '').toLowerCase().includes(q) ||
       (d.contactPhone && d.contactPhone.includes(q))
-    );
-  });
-
-  const filteredCustomersInAssignModal = customers.filter((c) => {
-    if (!customerSearchInAssignModal.trim()) return true;
-    const q = (customerSearchInAssignModal || '').toLowerCase();
-    return (
-      (c?.customerName || '').toLowerCase().includes(q) ||
-      (c?.customerId || '').toLowerCase().includes(q) ||
-      (c.contactNumber && c.contactNumber.includes(q)) ||
-      (c.address && (c?.address || '').toLowerCase().includes(q))
     );
   });
 
@@ -3239,204 +3453,372 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 5: ASSIGN FIXED ASSET (Locations & Customer Sites) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'ASSIGN_ASSET' && (
-        <div className="space-y-3">
-          <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-800 dark:text-indigo-300 flex items-center justify-between text-xs font-medium">
-            <div className="flex items-center gap-2">
-              <Wrench className="h-5 w-5 text-indigo-500 flex-shrink-0" />
-              <span>
-                <strong>Fixed Asset Location & Customer Assignment:</strong> Fixed Assets & CPE Devices (Routers/ONUs/STBs) deployed in POP Server Rooms, Fiber Network Nodes, or Customer Sites are assigned directly to their operational location or rented to customers and managed as depreciable assets.
-              </span>
+        <FormCard className="space-y-4">
+          {/* Form header */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-serif font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                <Wrench className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Assign Fixed Asset</span>
+              </h3>
+              <p className="text-[11px] mt-0.5 text-slate-500 dark:text-slate-400">
+                Search a fixed-asset product or ledger asset, set its destination (POP / Customer) per line, add it to the bin — repeat for multi-item deployments, then record all at once.
+              </p>
             </div>
+            <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
+              Asset Deployment
+            </span>
           </div>
 
-          {/* Section A: Catalog Routers, ONUs & Fixed Asset Products (Deploy from Available Inventory) */}
-          <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className={`font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white`}>
-                <Wifi className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
-                <span>Product Catalog: Routers, ONUs & Fixed Assets for Rental CPE Deployment ({catalogFixedAssetProducts.length})</span>
-              </h3>
-              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
-                Deploy / Rent Product Item
-              </span>
-            </div>
+          <form onSubmit={handleSubmitAssignAsset} className="space-y-4 text-xs">
+            {/* Row 1: stock source + search-to-bin (Product Sale pattern) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+              <div className="lg:col-span-4">
+                <label className="block font-bold mb-1">Fulfilling Branch (stock source) *</label>
+                <select
+                  value={assignBranchId}
+                  onChange={(e) => setAssignBranchId(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-1.5 h-9 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {allowedBranches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-              Items defined with Product Group <strong>"Fixed Asset"</strong> or ONU/Router hardware can be directly deployed to customer homes as Rental CPEs or assigned to POP network locations.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[320px] overflow-y-auto pr-1">
-              {catalogFixedAssetProducts.length === 0 ? (
-                <p className="text-xs text-slate-400 p-4 text-center col-span-3">No Fixed Asset or ONU Router products found in product catalog.</p>
-              ) : (
-                catalogFixedAssetProducts.map((prod) => {
-                  const branchStock = stock.filter((s) => s.productId === prod.id);
-                  const totalOnHand = branchStock.reduce((acc, s) => acc + s.quantityOnHand, 0);
-
-                  return (
-                    <div
-                      key={prod.id}
-                      className={`p-3.5 rounded-2xl border flex flex-col justify-between transition-all hover:border-indigo-500/50 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
+              <div className="relative sm:col-span-2 lg:col-span-8" ref={assignProductDropdownRef}>
+                <label className="block font-bold mb-1">Scan Barcode or Search Asset / Product to Add to Bin *</label>
+                <div className="relative w-full flex items-center">
+                  <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    id="assign-product-search-input"
+                    value={assignProductSearch}
+                    onFocus={() => setIsAssignProductDropdownOpen(true)}
+                    onChange={(e) => {
+                      setAssignProductSearch(e.target.value);
+                      setIsAssignProductDropdownOpen(true);
+                    }}
+                    placeholder="Search fixed asset product or asset tag, then press Enter / pick from list..."
+                    className="w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                  {assignProductSearch ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignProductSearch('');
+                        setIsAssignProductDropdownOpen(true);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
+                      title="Clear search"
                     >
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono font-bold text-slate-400">{prod.sku}</span>
-                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                            prod.productGroup === 'Fixed Asset'
-                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                              : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                          }`}>
-                            {prod.productGroup || 'Product / Rental'}
-                          </span>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsAssignProductDropdownOpen((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Floating dropdown: picking a row ADDS it to the bin */}
+                {isAssignProductDropdownOpen && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto rounded-xl border shadow-xl divide-y border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
+                    <div className="px-2.5 py-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Existing Assets in Ledger (assigns that unit, tag stays)</div>
+                      {availableStockAssets.length === 0 ? (
+                        <div className="p-2 text-[11px] text-slate-400 text-center">No unassigned ledger assets.</div>
+                      ) : (
+                        <div className="max-h-32 overflow-y-auto space-y-0.5">
+                          {availableStockAssets
+                            .filter((a) => !assignProductSearch || a.name.toLowerCase().includes(assignProductSearch.toLowerCase()) || a.tagNumber.toLowerCase().includes(assignProductSearch.toLowerCase()))
+                            .slice(0, 20)
+                            .map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                onClick={() => handleAddAssignAssetToBin(a)}
+                                className="w-full text-left p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <div className="font-semibold text-xs truncate text-slate-900 dark:text-white">
+                                    {a.name} <span className="font-mono text-[10px] text-slate-500">Tag: {a.tagNumber}</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">{a.category} | {formatNPR(a.acquisitionCost)}</div>
+                                </div>
+                                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">+ Add to bin</span>
+                              </button>
+                            ))}
                         </div>
-                        <h4 className="font-bold text-xs text-slate-900 dark:text-white mt-1 line-clamp-1">{prod.name}</h4>
-                        <p className="text-[10px] text-slate-500 mt-0.5">
-                          Cost: {formatNPR(prod.costPrice)} | Cat: {prod.category}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <span className={`text-[10px] font-bold text-emerald-600 dark:text-emerald-400 font-mono`}>
-                          Stock: {totalOnHand} Pcs
-                        </span>
-                        <button
-                          onClick={() => handleOpenProductAssignModal(prod)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold shadow-xs cursor-pointer"
-                        >
-                          <UserCheck className="h-3.5 w-3.5" />
-                          <span>Assign / Rent CPE</span>
-                        </button>
-                      </div>
+                      )}
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Available Fixed Assets in Stock */}
-            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between text-slate-900 dark:text-white`}>
-                <span className="flex items-center gap-2">
-                  <Package className={`h-4 w-4 text-emerald-500 dark:text-emerald-400`} />
-                  <span>Available Fixed Assets in Stock ({availableStockAssets.length})</span>
-                </span>
-                <span className={`text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-bold`}>Unassigned</span>
-              </h3>
-
-              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                {availableStockAssets.length === 0 ? (
-                  <p className="text-xs text-slate-400 p-6 text-center">No unassigned fixed assets available in stock.</p>
-                ) : (
-                  availableStockAssets.map((asset) => (
-                    <div
-                      key={asset.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-                    >
-                      <div>
-                        <span className={`text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block`}>
-                          Tag: {asset.tagNumber}
-                        </span>
-                        <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          Cost: {formatNPR(asset.acquisitionCost)} | Category: {asset.category}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => handleOpenAssignModal(asset)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 shadow-xs cursor-pointer flex-shrink-0"
-                      >
-                        <Wrench className="h-3.5 w-3.5" />
-                        <span>Assign Asset</span>
-                      </button>
+                    <div className="px-2.5 py-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Catalog Products (new asset(s) created from branch stock)</div>
+                      {filteredAssignProducts.length === 0 ? (
+                        <div className="p-2 text-[11px] text-slate-400 text-center">No matching catalog product.</div>
+                      ) : (
+                        <div className="max-h-32 overflow-y-auto space-y-0.5">
+                          {filteredAssignProducts.slice(0, 20).map((p) => {
+                            const onHand = stock.filter((st) => st.productId === p.id && st.branchId === assignBranchId).reduce((acc, st) => acc + st.quantityOnHand, 0);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleAddAssignProductToBin(p)}
+                                className="w-full text-left p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <div className="font-semibold text-xs truncate text-slate-900 dark:text-white">
+                                    {p.name} <span className="font-mono text-[10px] text-slate-500">[{p.sku}]</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">{p.productGroup || 'Product'} | {p.category}{assetIsSerializedProduct(p) ? ' | serialized' : ''}</div>
+                                </div>
+                                <span className={`text-[10px] font-bold font-mono shrink-0 ${onHand > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                                  {onHand} in stock
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  ))
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Assigned Fixed Assets Register */}
-            <div className={`p-4 rounded-2xl border bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
-              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between text-slate-900 dark:text-white`}>
-                <span className="flex items-center gap-2">
-                  <MapPin className={`h-4 w-4 text-indigo-500 dark:text-indigo-400`} />
-                  <span>Assigned & Deployed Fixed Assets ({assignedAssets.length})</span>
-                </span>
-                <span className={`text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold`}>In-Use / Installed</span>
-              </h3>
+            {/* Deployment Bin: multi-line, per-line destination/serials/remarks */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pt-1">
+                <label className="block font-bold">Deployment Bin Lines ({assignItems.length}) *</label>
+                <span className="text-[10px] text-slate-400">Each line keeps its own destination, serial identity & remarks</span>
+              </div>
 
-              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                {assignedAssets.length === 0 ? (
-                  <p className="text-xs text-slate-400 p-6 text-center">No assigned assets logged yet.</p>
-                ) : (
-                  assignedAssets.map((asset) => (
-                    <div
-                      key={asset.id}
-                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-2 bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className={`text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block`}>
-                            Tag: {asset.tagNumber}
-                          </span>
-                          <h4 className="font-bold text-xs text-slate-900 dark:text-white">{asset.name}</h4>
+              {assignItems.length === 0 ? (
+                <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
+                  <Wrench className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+                  <p>No assets in the deployment bin yet.</p>
+                  <p className="text-[11px] mt-1">Search above and pick a ledger asset or catalog product to add a line.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {assignItems.map((item, idx) => {
+                    const onHand = item.kind === 'PRODUCT'
+                      ? stock.filter((st) => st.productId === item.productId && st.branchId === assignBranchId).reduce((acc, st) => acc + st.quantityOnHand, 0)
+                      : null;
+                    return (
+                      <div key={item.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-2.5">
+                        {/* Line header: identity + remove */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-2 min-w-0">
+                            <span className="text-slate-400">{idx + 1}.</span>
+                            <span className="truncate">{item.productName}</span>
+                            <span className="font-mono text-[10px] font-semibold text-slate-500">[{item.sku}]</span>
+                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${item.kind === 'PRODUCT' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'}`}>
+                              {item.kind === 'PRODUCT' ? 'NEW FROM STOCK' : 'LEDGER ASSET'}
+                            </span>
+                            {item.kind === 'PRODUCT' && onHand !== null && (
+                              <span className={`text-[10px] font-mono shrink-0 ${onHand >= item.quantity ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                                {onHand} in stock
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAssignItem(item.id)}
+                            className="text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1 shrink-0"
+                            title="Remove this bin line"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30`}>
-                          {asset.assignedType === 'LOCATION' ? 'POP / Node Site' : 'Customer Site'}
-                        </span>
-                      </div>
 
-                      <div className="p-2 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-slate-200/60 text-xs space-y-0.5">
-                        <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                          <MapPin className={`h-3 w-3 text-indigo-500 dark:text-indigo-400`} />
-                          <span>
-                            {asset.assignedType === 'LOCATION'
-                              ? asset.assignedLocationName || asset.assignedLocationId
-                              : asset.assignedCustomerName || asset.assignedCustomerId}
-                          </span>
+                        {/* Line fields: Qty (serialized locked) + destination + per-line remarks */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2">
+                          <div className="lg:col-span-2">
+                            <label className="block font-bold text-[10px] text-slate-500 mb-1">
+                              Qty *
+                              {item.isSerialized && <span className="ml-1 font-normal normal-case text-slate-400">(serialized)</span>}
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={999}
+                              value={item.quantity}
+                              disabled={item.isSerialized}
+                              onChange={(e) => handleUpdateAssignItem(item.id, { quantity: Math.max(1, Math.min(999, Number(e.target.value) || 1)) })}
+                              className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono font-bold text-center bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                          </div>
+
+                          <div className="lg:col-span-3">
+                            <label className="block font-bold text-[10px] text-slate-500 mb-1">Deploy To *</label>
+                            <select
+                              value={item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : item.usedAtType === 'POP' ? 'POP' : 'FIELD'}
+                              onChange={(e) => {
+                                const t = e.target.value as AssignBinLine['usedAtType'];
+                                handleUpdateAssignItem(item.id, {
+                                  usedAtType: t,
+                                  usedAtLocationId: t === 'POP' ? item.usedAtLocationId : undefined,
+                                  usedAtLocationName: t === 'POP' ? item.usedAtLocationName : undefined,
+                                  usedAtCustomerId: t === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
+                                  usedAtCustomerName: t === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
+                                });
+                              }}
+                              className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] font-bold bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="FIELD">Field / General Asset</option>
+                              <option value="POP">POP / Network Site</option>
+                              <option value="CUSTOMER">Customer / Rental CPE</option>
+                            </select>
+                          </div>
+
+                          {item.usedAtType === 'POP' && (
+                            <div className="lg:col-span-4">
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">POP / Network Location *</label>
+                              <select
+                                value={item.usedAtLocationId || ''}
+                                onChange={(e) => {
+                                  const loc = locations.find((l) => l.id === e.target.value);
+                                  handleUpdateAssignItem(item.id, { usedAtLocationId: loc?.id, usedAtLocationName: loc?.name });
+                                }}
+                                className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              >
+                                <option value="">Select POP location...</option>
+                                {locations
+                                  .filter((l) => l.type === 'POP_SERVER_ROOM' || l.type === 'FIBER_NETWORK_NODE' || !l.type)
+                                  .map((l) => (
+                                    <option key={l.id} value={l.id}>{l.name} ({l.type.replace(/_/g, ' ')})</option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {item.usedAtType === 'CUSTOMER' && (
+                            <div className="lg:col-span-4">
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">Customer *</label>
+                              <select
+                                value={item.usedAtCustomerId || ''}
+                                onChange={(e) => {
+                                  const cust = customers.find((c) => c.id === e.target.value);
+                                  handleUpdateAssignItem(item.id, { usedAtCustomerId: cust?.id, usedAtCustomerName: cust ? `${cust.customerName} (${cust.customerId})` : undefined });
+                                }}
+                                className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              >
+                                <option value="">Select customer...</option>
+                                {customers.map((c) => (
+                                  <option key={c.id} value={c.id}>{c.customerName} ({c.customerId})</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className={`${item.usedAtType === 'FIELD' ? 'lg:col-span-7' : 'lg:col-span-3'}`}>
+                            <label className="block font-bold text-[10px] text-slate-500 mb-1">Remarks</label>
+                            <input
+                              type="text"
+                              value={item.remarks}
+                              onChange={(e) => handleUpdateAssignItem(item.id, { remarks: e.target.value })}
+                              placeholder="e.g. Installed at POP rack 2 / rented to customer..."
+                              className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
                         </div>
-                        {asset.assignmentNotes && (
-                          <div className="text-[10px] text-slate-400 italic">{asset.assignmentNotes}</div>
+
+                        {/* Serial identity verification (serialized PRODUCT lines only) */}
+                        {item.kind === 'PRODUCT' && item.isSerialized && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-0.5">
+                            <div>
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">Device Serial (SN) *</label>
+                              <input type="text" required value={item.deviceSerial} onChange={(e) => handleUpdateAssignItem(item.id, { deviceSerial: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono font-bold bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                            </div>
+                            <div>
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">PON Serial *</label>
+                              <input type="text" required value={item.ponSerial} onChange={(e) => handleUpdateAssignItem(item.id, { ponSerial: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono font-bold bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                            </div>
+                            <div>
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">MAC Address</label>
+                              <input type="text" value={item.macAddress} onChange={(e) => handleUpdateAssignItem(item.id, { macAddress: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                            </div>
+                            <div className="flex items-end">
+                              <button type="button" onClick={() => setIsBarcodeScannerOpen(true)} className="w-full px-3 py-1.5 h-9 rounded-xl border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 cursor-pointer flex items-center justify-center gap-1.5">
+                                <Barcode className="h-3.5 w-3.5" />
+                                <span>Scan Serial</span>
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
-
-                      <div className="flex items-center justify-between pt-1 text-[10px]">
-                        <span className="text-slate-400 font-mono">Assigned: {asset.assignmentDateAD || '2026-08-01'}</span>
-                        <button
-                          onClick={() => handleUnassignAsset(asset)}
-                          className={`text-rose-600 dark:text-rose-400 dark:text-rose-400 hover:underline font-bold cursor-pointer`}
-                        >
-                          Unassign / Return to Stock
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
 
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleResetAssignForm}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset / Cancel Form</span>
+              </button>
+
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-500 shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Wrench className="h-4 w-4" />
+                <span>Record {assignItems.length > 1 ? `${assignItems.length}-Item ` : ''}Asset Deployment & Register Asset(s)</span>
+              </button>
+            </div>
+          </form>
+        </FormCard>
+      )}
       {/* ------------------------------------------------------------- */}
       {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
         <FormCard className="space-y-4">
-          {/* Slim context strip instead of a serif banner header (tab bar already
-              names this operation); status chip retained. */}
-          <div className="flex items-center justify-end">
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+          {/* Form header */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-serif font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                <Wrench className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <span>Issue Consumable Product</span>
+              </h3>
+              <p className="text-[11px] mt-0.5 text-slate-500 dark:text-slate-400">
+                Issue field materials (splitters, sleeves, couplers, connectors) to technicians against a work order — stock is deducted from the source store immediately.
+              </p>
+            </div>
+            <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
               Quantity Store Requisition
             </span>
           </div>
 
           <form onSubmit={handleSubmitConsumableIssue} className="space-y-4 text-xs">
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] leading-relaxed">
-              <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
-            </div>
+            {/* Dismissible operational-rule banner */}
+            {isConsumableRuleBannerVisible && (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] leading-relaxed flex items-start justify-between gap-3">
+                <span>
+                  <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsConsumableRuleBannerVisible(false)}
+                  className="shrink-0 p-1 rounded-lg cursor-pointer text-amber-500 hover:text-amber-700 hover:bg-amber-100 dark:text-amber-400 dark:hover:text-amber-200 dark:hover:bg-amber-900/40"
+                  title="Dismiss this notice"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-3">
               <div>
@@ -3482,7 +3864,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div className="space-y-1">
                 <label className="block font-bold">Scan Barcode or Search & Enter Consumable Material / SKU to Add *</label>
                 <ProductSearchBar
-                  products={products}
+                  products={consumableProducts}
                   onAddOrIncrementProduct={(prod) => handleAddConsumableItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Consumable Product / SKU to Issue..."
                 />
@@ -3696,50 +4078,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
           </form>
 
-          {/* Table of Issued Consumables */}
-          <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800">
-            <h4 className="text-sm font-bold flex items-center gap-2 mb-3">
-              <ClipboardList className={`h-4 w-4 text-amber-500 dark:text-amber-400`} />
-              <span>Logged Consumable Field Issues ({consumableOperations.length})</span>
-            </h4>
-
-            {consumableOperations.length === 0 ? (
-              <p className="text-xs text-slate-400 italic py-3">No consumable field issues recorded yet.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-left text-xs">
-                  <thead className={`font-bold text-[10px] tracking-wider border-b bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}>
-                    <tr>
-                      <th className="px-2.5 py-1.5">Date</th>
-                      <th className="px-2.5 py-1.5">Ref / WO</th>
-                      <th className="px-2.5 py-1.5">Branch</th>
-                      <th className="px-2.5 py-1.5">Consumable Material</th>
-                      <th className="px-2.5 py-1.5 text-center">Qty Issued</th>
-                      <th className="px-2.5 py-1.5">Technician</th>
-                      <th className="px-2.5 py-1.5 text-right">Value (NPR)</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                    {consumableOperations.map((op) => (
-                      <tr key={op.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40">
-                        <td className="p-2.5 font-mono text-slate-400 text-[11px]">{op.dateAD}</td>
-                        <td className={`p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400`}>{op.workOrderRef || op.referenceNumber}</td>
-                        <td className="p-2.5 font-medium">{op.branchName || op.branchId}</td>
-                        <td className="p-2.5 font-bold text-slate-900 dark:text-white">{op.productName || (op.items && op.items[0]?.productName) || 'Multiple Line Items'}</td>
-                        <td className={`p-2.5 text-center font-mono font-bold text-rose-600 dark:text-rose-400`}>
-                          {Math.abs(op.quantityChanged || (op.items ? op.items.reduce((s,i)=>s+i.quantity,0) : 1))} Pcs
-                        </td>
-                        <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
-                        <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {formatNPR(op.totalValue)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {/* Logged Consumable Field Issues table REMOVED — the Consumables
+              Register tab is the single home for issued-consumable history. */}
         </FormCard>
       )}
 
@@ -4041,10 +4381,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
         <FormCard className="space-y-4">
-          {/* Slim context strip instead of a serif banner header (tab bar already
-              names this operation); status chip retained. */}
-          <div className="flex items-center justify-end">
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
+          {/* Form header */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-serif font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                <PackageMinus className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                <span>Product Sales</span>
+              </h3>
+              <p className="text-[11px] mt-0.5 text-slate-500 dark:text-slate-400">
+                Create a retail sales invoice — pick the customer, fulfill from a branch, and scan or add each product line; devices are auto-registered as SOLD (Customer Owned).
+              </p>
+            </div>
+            <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
               Retail Sales Invoice
             </span>
           </div>
@@ -4054,28 +4402,102 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           </div>
 
           <form onSubmit={handleSubmitProductSale} className="space-y-4 text-xs">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
+            {/* 12-col alignment pattern (matches procurement forms):
+                Row 1 = Customer search (full width), Row 2 = Branch + Payment Method. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+              {/* Row 1: Customer SEARCH field (searches the customer directory; not a native dropdown) */}
+              <div className="relative sm:col-span-2 lg:col-span-12" ref={saleCustomerDropdownRef}>
                 <label className="block font-bold mb-1">Select Customer *</label>
-                <select
-                  value={saleCustomerId}
-                  onChange={(e) => setSaleCustomerId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                >
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.customerName} ({c.customerId}) - {c.address}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative w-full flex items-center">
+                  <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    required
+                    id="sale-customer-search-input"
+                    value={saleCustomerQuery}
+                    onFocus={() => setIsSaleCustomerDropdownOpen(true)}
+                    onChange={(e) => {
+                      setSaleCustomerQuery(e.target.value);
+                      // Only clear the FK when the text no longer matches the selected customer.
+                      const exact = customers.find((c) => saleCustomerDisplay(c).toLowerCase() === e.target.value.trim().toLowerCase());
+                      setSaleCustomerId(exact?.id || '');
+                      setIsSaleCustomerDropdownOpen(true);
+                    }}
+                    placeholder="Search customer name, code, phone, or address..."
+                    className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+                  />
+                  {saleCustomerQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaleCustomerQuery('');
+                        setSaleCustomerId('');
+                        setIsSaleCustomerDropdownOpen(true);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
+                      title="Clear customer selection"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsSaleCustomerDropdownOpen((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Floating Search Dropdown Overlay */}
+                {isSaleCustomerDropdownOpen && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl divide-y border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
+                    {filteredSaleCustomers.length === 0 ? (
+                      <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
+                        <div>No matching customer in the directory.</div>
+                      </div>
+                    ) : (
+                      filteredSaleCustomers.slice(0, 50).map((c) => {
+                        const isSelected = c.id === saleCustomerId;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setSaleCustomerId(c.id);
+                              setSaleCustomerQuery(saleCustomerDisplay(c));
+                              setIsSaleCustomerDropdownOpen(false);
+                            }}
+                            className={`w-full text-left p-2.5 hover:bg-purple-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
+                              isSelected ? 'bg-purple-50/70 dark:bg-purple-950/40' : ''
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="font-semibold text-xs truncate text-slate-900 dark:text-white">
+                                {c.customerName} <span className="font-mono text-[10px] text-slate-500">({c.customerId})</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] font-mono mt-0.5 text-slate-500 dark:text-slate-400">
+                                {c.contactNumber && <span>{c.contactNumber}</span>}
+                                {c.address && <span>• {c.address}</span>}
+                              </div>
+                            </div>
+                            {isSelected && <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-purple-600 dark:text-purple-400" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div>
+              {/* Row 2: Branch + Payment Method */}
+              <div className="lg:col-span-6">
                 <label className="block font-bold mb-1">Fulfilling Branch *</label>
                 <select
                   value={saleBranchId}
                   onChange={(e) => setSaleBranchId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                  className="w-full rounded-xl border px-3 py-1.5 h-9 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -4083,12 +4505,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="lg:col-span-6">
                 <label className="block font-bold mb-1">Payment Method</label>
                 <select
                   value={salePaymentMethod}
                   onChange={(e) => setSalePaymentMethod(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
+                  className="w-full rounded-xl border px-3 py-1.5 h-9 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="Cash / Direct Payment">Cash / Direct Payment</option>
                   <option value="eSewa / Khalti Digital Mobile Wallet">eSewa / Khalti Digital Mobile Wallet</option>
@@ -4103,7 +4525,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div className="space-y-1">
                 <label className="block font-bold">Scan Barcode or Search & Enter Product Name / SKU to Add *</label>
                 <ProductSearchBar
-                  products={products}
+                  products={saleEligibleProducts}
                   onAddOrIncrementProduct={(prod) => handleAddSaleItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Sales Invoice..."
                   inputId="sale-product-search-input"
@@ -5104,210 +5526,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </form>
           </div>
         </FormCard>
-      )}
-
-      {/* ============================================================ */}
-      {/* MODAL 3: Assign Fixed Asset / Product Rental CPE Modal */}
-      {/* ============================================================ */}
-      {isAssignModalOpen && (selectedAssetForAssign || selectedProductForAssign) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden p-6 max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900 dark:bg-[#0f1218] dark:border-slate-800 dark:text-white`}>
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-              <h3 className="text-base font-serif font-bold flex items-center gap-2">
-                <Wrench className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
-                <span>
-                  {selectedProductForAssign
-                    ? `Deploy Catalog Product as CPE Rental: ${selectedProductForAssign.name}`
-                    : `Assign Fixed Asset: ${selectedAssetForAssign?.name}`}
-                </span>
-              </h3>
-              <button onClick={() => { setIsAssignModalOpen(false); setSelectedProductForAssign(null); setSelectedAssetForAssign(null); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitAssignAsset} className="space-y-4 mt-4 text-xs">
-              {selectedAssetForAssign ? (
-                <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
-                  Tag: <strong>{selectedAssetForAssign.tagNumber}</strong> | Category: {selectedAssetForAssign.category}
-                </div>
-              ) : selectedProductForAssign ? (
-                <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 space-y-3">
-                  <div className="flex items-center justify-between font-bold text-indigo-950 dark:text-indigo-200 text-xs">
-                    <span>Product: {selectedProductForAssign.name}</span>
-                    <span>SKU: {selectedProductForAssign.sku}</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">Asset Tag Number *</label>
-                      <input
-                        type="text"
-                        required
-                        value={productAssignTag}
-                        onChange={(e) => setProductAssignTag(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-indigo-600 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-400`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">Device Serial (SN) *</label>
-                      <input
-                        type="text"
-                        required
-                        value={productAssignSerial}
-                        onChange={(e) => setProductAssignSerial(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">PON Serial Number *</label>
-                      <input
-                        type="text"
-                        required
-                        value={productAssignPon}
-                        onChange={(e) => setProductAssignPon(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">MAC Address (Optional)</label>
-                      <input
-                        type="text"
-                        value={productAssignMac}
-                        onChange={(e) => setProductAssignMac(e.target.value)}
-                        className={`w-full rounded-xl border p-2 font-mono border-slate-300 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100`}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              <div>
-                <label className="block font-bold mb-1">Assign Target Category *</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAssignTargetType('LOCATION')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${assignTargetType === 'LOCATION' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}
-                  >
-                    <MapPin className="h-4 w-4" />
-                    <span>POP / Network Site</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAssignTargetType('CUSTOMER')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${assignTargetType === 'CUSTOMER' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    <span>Customer Home / Rental CPE</span>
-                  </button>
-                </div>
-              </div>
-
-              {assignTargetType === 'LOCATION' ? (
-                <div>
-                  <label className="block font-bold mb-1">Select POP / Network Location *</label>
-                  <select
-                    value={assignLocationId}
-                    onChange={(e) => setAssignLocationId(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                  >
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.type.replace(/_/g, ' ')}) - {loc.address}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block font-bold">Select Customer (Customer Master Directory Search) *</label>
-                    <span className="text-[10px] text-indigo-500 font-mono font-bold">
-                      {customers.length} Directory Records
-                    </span>
-                  </div>
-
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Type customer name, account ID, phone, or location to filter..."
-                      value={customerSearchInAssignModal}
-                      onChange={(e) => setCustomerSearchInAssignModal(e.target.value)}
-                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold bg-slate-50 border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
-                    />
-                  </div>
-
-                  <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredCustomersInAssignModal.length === 0 ? (
-                      <div className="p-3 text-center text-slate-400 text-xs">
-                        No customer matching "{customerSearchInAssignModal}" in Master Directory.
-                      </div>
-                    ) : (
-                      filteredCustomersInAssignModal.map((c) => {
-                        const isSelected = assignCustomerId === c.id;
-                        return (
-                          <div
-                            key={c.id}
-                            onClick={() => setAssignCustomerId(c.id)}
-                            className={`p-2.5 text-left flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer transition-all ${
-                              isSelected
-                                ? 'bg-indigo-100 dark:bg-indigo-950/90 border-l-4 border-indigo-600 font-bold'
-                                : ''
-                            }`}
-                          >
-                            <div>
-                              <div className="text-xs font-bold text-slate-900 dark:text-white">
-                                {c.customerName} <span className={`font-mono text-indigo-600 dark:text-indigo-400 text-[11px]`}>({c.customerId})</span>
-                              </div>
-                              <div className="text-[10px] text-slate-500">
-                                📍 {c.address} | 📞 {c.contactNumber}
-                              </div>
-                            </div>
-                            {isSelected && (
-                              <CheckCircle2 className={`h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0`} />
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold mb-1">Installation / Assignment Remarks</label>
-                <textarea
-                  rows={2}
-                  value={assignNotes}
-                  onChange={(e) => setAssignNotes(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAssignModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 shadow-md cursor-pointer"
-                >
-                  Confirm Asset Assignment
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
 
       {/* Inbound Physical Stock Verification & Security Audit Modal */}

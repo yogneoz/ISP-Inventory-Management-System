@@ -27,7 +27,7 @@ import {
   buildAssetListQuery,
   ASSET_UPSERT_SQL,
   assetUpsertParams,
-  ASSET_SET_STATUS_SQL,
+  ASSET_SET_ASSIGNMENT_SQL,
   buildStockOperationListQuery,
   buildStockOperationPagedQuery,
   buildStockOperationCountQuery,
@@ -207,9 +207,9 @@ describe('fixed assets', () => {
     assert.ok(!buildAssetListQuery('ALL').sql.includes(' WHERE '));
   });
 
-  test('upsert passes 21 binds and refreshes the documented columns on conflict', () => {
-    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 21);
-    for (const col of ['tag_number', 'acquisition_cost', 'net_book_value', 'status', 'placed_in_service_date_ad']) {
+  test('upsert passes 29 binds and refreshes the documented columns on conflict', () => {
+    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 29);
+    for (const col of ['tag_number', 'acquisition_cost', 'net_book_value', 'status', 'placed_in_service_date_ad', 'assigned_type', 'assignment_date_ad']) {
       assert.ok(ASSET_UPSERT_SQL.includes(`${col} = EXCLUDED.${col}`), `missing conflict update for ${col}`);
     }
     // accumulated_depreciation is intentionally NOT refreshed on conflict.
@@ -217,11 +217,16 @@ describe('fixed assets', () => {
     assert.deepEqual(assetUpsertParams({ id: 'a1', tagNumber: 'T-1', name: 'N', category: 'IT', branchId: 'WH001' }), [
       'a1', 'T-1', 'N', 'IT', 'WH001', undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      null, null, null, null, null, null, null, null,
     ]);
   });
 
-  test('status update is a narrow id-scoped statement', () => {
-    assert.equal(ASSET_SET_STATUS_SQL, 'UPDATE fixed_assets SET status = $1 WHERE id = $2');
+  test('assignment update persists status plus every assignment field, id-scoped', () => {
+    assert.match(ASSET_SET_ASSIGNMENT_SQL, /^UPDATE fixed_assets SET/);
+    for (const col of ['status', 'assigned_type', 'assigned_customer_id', 'assigned_customer_name', 'assigned_location_id', 'assigned_location_name', 'assignment_date_ad', 'assignment_date_bs', 'assignment_notes']) {
+      assert.ok(ASSET_SET_ASSIGNMENT_SQL.includes(`${col} = `), `assignment SQL missing ${col}`);
+    }
+    assert.ok(ASSET_SET_ASSIGNMENT_SQL.includes('WHERE id = $10'));
   });
 });
 

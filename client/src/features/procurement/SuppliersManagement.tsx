@@ -233,31 +233,23 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             <h3 className="text-base font-bold mb-4">
               {editingSupplier ? '✏️ Edit Supplier Details' : '🏭 Register New Supplier'}
             </h3>
+            {/* 12-col alignment pattern (matches PO / Purchase Bill forms):
+                Row 1 = Company Name + PAN, Row 2 = Contact + Phone + Email,
+                Row 3 = Address. All controls share h-9 so baselines line up. */}
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold mb-1">Company / Supplier Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Fiber Optics Nepal Pvt. Ltd."
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Contact Person</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+                <div className="sm:col-span-2 lg:col-span-7">
+                  <label className="block font-semibold mb-1">Company / Supplier Name *</label>
                   <input
                     type="text"
-                    value={contactPerson}
-                    onChange={(e) => setContactPerson(e.target.value)}
-                    placeholder="e.g., Rajesh Hamal"
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g., Fiber Optics Nepal Pvt. Ltd."
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
                   />
                 </div>
-                <div>
+                <div className="lg:col-span-5">
                   <label className="block font-semibold mb-1">PAN / VAT No. *</label>
                   <input
                     type="text"
@@ -265,43 +257,51 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                     value={panVatNumber}
                     onChange={(e) => setPanVatNumber(e.target.value)}
                     placeholder="301928374"
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className="lg:col-span-4">
+                  <label className="block font-semibold mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    value={contactPerson}
+                    onChange={(e) => setContactPerson(e.target.value)}
+                    placeholder="e.g., Rajesh Hamal"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
+                  />
+                </div>
+                <div className="lg:col-span-4">
                   <label className="block font-semibold mb-1">Phone</label>
                   <input
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+977-1-4200000"
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
                   />
                 </div>
-                <div>
+                <div className="lg:col-span-4">
                   <label className="block font-semibold mb-1">Email</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="orders@vendor.com.np"
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold mb-1">Office / Warehouse Address</label>
-                <input
-                  type="text"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Example Street, Example City"
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2"
-                />
+                <div className="sm:col-span-2 lg:col-span-12">
+                  <label className="block font-semibold mb-1">Office / Warehouse Address</label>
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Example Street, Example City"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-1.5 h-9"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">

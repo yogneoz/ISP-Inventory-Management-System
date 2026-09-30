@@ -1045,10 +1045,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               ("2. Create Purchase Order" / "Edit Purchase Order — #") already
               communicates context, so the form goes straight to its fields. */}
           <form onSubmit={handleSubmit} className="space-y-6" id="po-form-element">
-            {/* Top Form Fields: Vendor, Branch, Tax Mode, Expected Delivery */}
-            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
-              {/* Vendor Searchable Field */}
-              <div className="relative" ref={supplierDropdownRef}>
+            {/* Top Form Fields: Vendor, Branch, Expected Delivery, Tax Mode.
+                Rows on lg: Row 1 = Destination Branch + Expected Delivery, Row 2 = Vendor
+                (full-width search), Row 3 = Taxation Term. The date field uses a compact
+                max-width so the control hugs its content instead of stretching. */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
+              {/* Vendor Searchable Field — its own row (10/12 so it doesn't dominate) */}
+              <div className="relative sm:col-span-2 lg:col-span-10" ref={supplierDropdownRef}>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Vendor / Supplier Name *
                 </label>
@@ -1067,7 +1070,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       setIsSupplierDropdownOpen(true);
                     }}
                     placeholder="Search supplier name or PAN..."
-                    className={`w-full rounded-xl border pl-9 pr-8 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-indigo-500`}
+                    className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-indigo-500`}
                   />
                   {supplierName ? (
                     <button
@@ -1137,7 +1140,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 )}
               </div>
 
-              <div>
+              <div className="lg:col-span-4">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Destination Branch *
                 </label>
@@ -1145,7 +1148,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   id="po-branch-select"
                   value={branchId}
                   onChange={(e) => setBranchId(e.target.value)}
-                  className={`w-full rounded-xl border px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
                 >
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -1155,7 +1158,20 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="lg:col-span-4 lg:max-w-[15rem]">
+                <DateField
+                  label="Expected Delivery Date"
+                  mode={dateMode}
+                  value={expectedDeliveryDateAD}
+                  onChange={setExpectedDeliveryDateAD}
+                  required
+                  id="po-delivery-date"
+                  compact
+                />
+              </div>
+
+              {/* Taxation Term — own row so the long option labels never squeeze the date fields */}
+              <div className="sm:col-span-2 lg:col-span-6 lg:col-start-1 border-t pt-2 border-slate-200 dark:border-slate-800">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Taxation Term *
                 </label>
@@ -1167,22 +1183,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     setTaxationType(val);
                     setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
                   }}
-                  className={`w-full rounded-xl border px-2.5 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
                 >
                   <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
                   <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
                 </select>
-              </div>
-
-              <div>
-                <DateField
-                  label="Expected Delivery Date"
-                  mode={dateMode}
-                  value={expectedDeliveryDateAD}
-                  onChange={setExpectedDeliveryDateAD}
-                  required
-                  id="po-delivery-date"
-                />
               </div>
             </div>
 

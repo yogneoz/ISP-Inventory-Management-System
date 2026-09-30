@@ -542,6 +542,16 @@ export async function syncDatabaseAndIndexes() {
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS received_date_bs VARCHAR(20);
       ALTER TABLE shipments ADD COLUMN IF NOT EXISTS has_discrepancy BOOLEAN DEFAULT FALSE;
       ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS items JSONB;
+      -- Fixed-asset assignment fields (Assign Fixed Asset multi-item deployment):
+      -- persist who/where an asset is deployed to so it survives server restarts.
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_type VARCHAR(10);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_customer_id VARCHAR(50);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_customer_name VARCHAR(200);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_location_id VARCHAR(50);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assigned_location_name VARCHAR(200);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_date_ad DATE;
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_date_bs VARCHAR(20);
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_notes TEXT;
       -- Currency & locale columns for globally-configurable money formatting.
       ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS postal_code VARCHAR(30);
       ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_code VARCHAR(10) DEFAULT 'NPR';

@@ -1278,10 +1278,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           {/* No secondary form banner by design: the sub-tab indicator already
               communicates context, so the form goes straight to its fields. */}
           <form onSubmit={handleSubmit} className="space-y-6" id="pi-form-element">
-            {/* Invoice Details: compact metadata and taxation controls in one card */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
-              {/* Destination Branch is first because it determines where stock is received. */}
-              <div className="lg:max-w-[11rem]">
+            {/* Invoice Details: compact metadata and taxation controls in one card.
+                Three aligned rows on lg: Row 1 = Destination Branch + Purchase Date,
+                Row 2 = Supplier / Vendor (full width search), Row 3 = Vendor Bill # +
+                Vendor Bill Date. Date fields use a compact max-width so the control
+                hugs its content (BS value + AD suffix) instead of stretching. */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
+              {/* Destination Branch — first because it determines where stock is received.
+                  Same 4/12 width as Vendor Bill # so both rows share one rhythm. */}
+              <div className="lg:col-span-4">
                 <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400`}>
                   Destination Branch *
                 </label>
@@ -1300,7 +1305,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
 
               {/* Purchase Date Field (must be selected by the user; never auto-filled to today) */}
-              <div className="lg:max-w-[11rem]">
+              <div className="lg:col-span-4 lg:max-w-[15rem]">
                 <DateField
                   label="Purchase Date"
                   mode={dateMode}
@@ -1310,16 +1315,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   id="pi-purchase-date"
                   min={vendorBillDateAD || undefined}
                   compact
-                  controlClassName={`h-9 ${
+                  controlClassName={
                     purchaseDateAD && vendorBillDateAD > purchaseDateAD
                       ? 'border-rose-400 dark:border-rose-700'
-                      : 'border-slate-300 dark:border-slate-700'
-                  }`}
+                      : ''
+                  }
                 />
               </div>
 
-              {/* Vendor Searchable Field */}
-              <div className="relative sm:col-span-2 lg:col-span-2" ref={supplierDropdownRef}>
+              {/* Vendor Searchable Field — its own row (10/12 so it doesn't dominate) */}
+              <div className="relative sm:col-span-2 lg:col-span-10" ref={supplierDropdownRef}>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Supplier / Vendor *
                 </label>
@@ -1410,7 +1415,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 )}
               </div>
 
-              <div className="lg:max-w-[11rem]">
+              <div className="lg:col-span-4">
                 <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400`}>
                   Vendor Bill / Invoice # *
                 </label>
@@ -1425,7 +1430,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 />
               </div>
 
-              <div className="lg:max-w-[11rem]">
+              <div className="lg:col-span-4 lg:max-w-[15rem]">
                 <DateField
                   label="Vendor Bill Date"
                   mode={dateMode}
@@ -1435,7 +1440,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   id="pi-vendor-bill-date"
                   max={purchaseDateAD || undefined}
                   compact
-                  controlClassName={`h-9 purchaseDateAD && vendorBillDateAD > purchaseDateAD ? border-rose-400 dark:border-rose-700 : border-slate-300 dark:border-slate-700`}
+                  controlClassName={
+                    purchaseDateAD && vendorBillDateAD > purchaseDateAD
+                      ? 'border-rose-400 dark:border-rose-700'
+                      : ''
+                  }
                 />
                 {purchaseDateAD && vendorBillDateAD > purchaseDateAD && (
                   <div className={`mt-1 text-[10px] font-bold text-rose-600 dark:text-rose-400`}>
@@ -1445,7 +1454,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
 
               {/* Whole Bill Taxation Terms Selection */}
-              <div className={`sm:col-span-2 lg:col-span-6 border-t pt-2 border-slate-200 dark:border-slate-800`}>
+              <div className={`sm:col-span-2 lg:col-span-12 border-t pt-2 border-slate-200 dark:border-slate-800`}>
               <span className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400`}>
                 Whole-Bill Taxation Mode
               </span>
@@ -1481,7 +1490,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             {/* Purchase Order Linking — kept in the same compact invoice details card */}
-            <div className={`sm:col-span-2 lg:col-span-6 border-t pt-2 border-indigo-200 dark:border-indigo-800/60`}>
+            <div className={`sm:col-span-2 lg:col-span-12 border-t pt-2 border-indigo-200 dark:border-indigo-800/60`}>
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <div className={`p-1.5 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300`}>

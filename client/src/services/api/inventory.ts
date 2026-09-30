@@ -75,7 +75,14 @@ export async function getAssets(branchId?: string): Promise<Asset[]> {
   return fetchJson(`/api/assets${query}`);
 }
 
-export async function createAsset(asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>): Promise<Asset> {
+export async function createAsset(
+  asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
+    /** Server-side stock deduction for assets created straight into deployment. */
+    deployFromStock?: boolean;
+    /** Serial of the IN_STOCK unit this asset consumes (serial_log flip). */
+    deviceSerial?: string;
+  }
+): Promise<Asset> {
   return fetchJson('/api/assets', {
     method: 'POST',
     body: JSON.stringify(asset),

@@ -72,10 +72,16 @@ const StockValuation = React.lazy(() =>
 const StockMovementLedger = React.lazy(() =>
   import('./features/inventory/StockMovementLedger').then((m) => ({ default: m.StockMovementLedger }))
 );
-// DEV-ONLY: StatCard design-review gallery (hidden dev-statcard tab).
-const StatCardShowcase = React.lazy(() =>
-  import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase }))
+// Asset Deployments register (assigned fixed assets incl. non-serialized items)
+const AssetDeployments = React.lazy(() =>
+  import('./features/inventory/AssetDeployments').then((m) => ({ default: m.AssetDeployments }))
 );
+// DEV-ONLY: StatCard design-review gallery (hidden dev-statcard tab).
+// Gated behind import.meta.env.DEV so the chunk is tree-shaken out of
+// production builds entirely; the sidebar entry is gated the same way.
+const StatCardShowcase = import.meta.env.DEV
+  ? React.lazy(() => import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase })))
+  : () => null;
 const WarrantyProducts = React.lazy(() =>
   import('./features/inventory/WarrantyProducts').then((m) => ({ default: m.WarrantyProducts }))
 );
@@ -239,6 +245,7 @@ export default function App() {
     'receive-branch-transfer': 'branch-transfer-receive',
     'create-transfer': 'branch-transfer-create',
     'assign-asset': 'branch-asset-assign',
+    'asset-deployments': 'branch-asset-assign',
     'stock-out': 'stock-out',
     'opening-stock': 'opening-stock-view',
     'category-management': 'category-manage',
@@ -267,6 +274,10 @@ export default function App() {
   const SUPER_ADMIN_ONLY_TABS = ['permissions', 'import-customers', 'data-recalculation', 'clear-demo-data'];
 
   const canAccessTab = (tab: NavTab): boolean => {
+    // DEV-ONLY guard: the design-review gallery does not exist in production
+    // builds. Without this, a stale localStorage tab could land a user on a
+    // blank page; with it, the enforcement effect below redirects to dashboard.
+    if (tab === 'dev-statcard' && !import.meta.env.DEV) return false;
     if (SUPER_ADMIN_ONLY_TABS.includes(tab)) return currentUser?.role === 'SUPER_ADMIN';
     const perm = TAB_PERMISSIONS[tab];
     if (!perm) return true;
@@ -1565,7 +1576,7 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'dev-statcard' && (
+              {activeTab === 'dev-statcard' && import.meta.env.DEV && (
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <StatCardShowcase />
                 </React.Suspense>
@@ -1773,6 +1784,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1821,6 +1833,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1878,6 +1891,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1910,6 +1924,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1942,6 +1957,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1965,6 +1981,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -1987,6 +2004,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2019,6 +2037,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2043,6 +2062,20 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'asset-deployments' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <AssetDeployments
+                    assets={assets}
+                    branches={branches}
+                    locations={locations}
+                    customers={customers}
+                    currentUser={currentUser}
+                    dateMode={dateMode}
+                    onUnassignAsset={handleUpdateAssetStatus}
+                  />
+                </React.Suspense>
+              )}
+
               {activeTab === 'consumable-issue' && (
                 <StockOperations
                   operations={stockOperations}
@@ -2051,6 +2084,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2083,6 +2117,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2119,6 +2154,7 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
+                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}

@@ -34,9 +34,9 @@ interface DateFieldProps {
   /** Tighter padding for filter toolbars. */
   compact?: boolean;
   /**
-   * Hide the BS/AD equivalent hint line under the input (default false).
-   * Used in filter cards so picking a date cannot change the card height;
-   * the conversion moves into the input's hover tooltip instead.
+   * DEPRECATED — no-op. The converted BS/AD date is now always rendered as a
+   * suffix INSIDE the input (right side), so there is no hint line below and
+   * no hover-only behavior. Kept only so existing call sites type-check.
    */
   showHint?: boolean;
 }
@@ -157,9 +157,14 @@ export function DateField({
     }
   }, [adValue]);
 
-  const pad = compact ? 'px-2' : 'px-3 py-2';
-  const baseCls = `w-full rounded-xl border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 ${pad} ${compact ? 'h-9' : ''} bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100`;
+  const pad = compact ? 'px-2' : 'px-3';
   const showNepaliPicker = mode === 'BS' && bsYears.length > 0 && (Boolean(derivedBS) || !adValue);
+  // Shared shell: border + height live here so the input and the converted-
+  // date suffix sit inside ONE bordered control (fixed h-9 in compact mode,
+  // matching the form-grid alignment used across procurement forms).
+  const shellCls = `flex w-full items-center rounded-xl border bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${
+    compact ? 'h-9' : 'py-2'
+  } border-slate-300 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-500 ${controlClassName}`;
 
   return (
     <div className="w-full">
@@ -177,26 +182,36 @@ export function DateField({
 
       {showNepaliPicker ? (
         <div ref={wrapperRef} className="relative">
-          <div className="relative">
+          <div className={shellCls}>
             <input
               id={id}
               readOnly
               required={required}
               disabled={disabled}
               aria-label="BS date (click to open the Nepali calendar)"
-              title={adValue && !showHint ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
-              className={`${baseCls} cursor-pointer pr-9`}
+              title={adValue ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
+              className={`min-w-0 flex-1 bg-transparent text-xs font-mono focus:outline-none cursor-pointer ${pad}`}
               value={derivedBS ? derivedBS.formattedBSShort : ''}
               placeholder="Select BS date"
               onClick={() => !disabled && openPopover()}
             />
+            {/* Converted date suffix — always visible INSIDE the control (no
+                hover needed, no hint line below). Hidden while empty. */}
+            {adValue && (
+              <span
+                className="shrink-0 whitespace-nowrap pr-1 text-[10px] font-mono text-slate-400 dark:text-slate-500"
+                title={`= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}`}
+              >
+                = {adValue} AD
+              </span>
+            )}
             <button
               type="button"
               tabIndex={-1}
               disabled={disabled}
               aria-label="Open Nepali calendar"
               onClick={() => openPopover()}
-              className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-lg p-1 text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mr-1 flex shrink-0 items-center justify-center rounded-lg p-1 text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <svg
                 className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}
@@ -237,27 +252,33 @@ export function DateField({
           )}
         </div>
       ) : (
-        <input
-          id={id}
-          type="date"
-          className={baseCls}
-          value={adValue}
-          min={min}
-          max={max}
-          required={required}
-          disabled={disabled}
-          title={adValue && !showHint ? `${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
-          onChange={(e) => {
-            onChange(e.target.value);
-          }}
-        />
-      )}
-
-      {adValue && showHint && (
-        <div className="mt-1 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-          {mode === 'BS' ? `= ${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : bsHint ? `Nepali: ${bsHint}` : ''}
+        <div className={shellCls}>
+          <input
+            id={id}
+            type="date"
+            className={`min-w-0 flex-1 bg-transparent text-xs font-mono focus:outline-none ${pad}`}
+            value={adValue}
+            min={min}
+            max={max}
+            required={required}
+            disabled={disabled}
+            title={adValue ? `${adValue} AD${bsHint ? ` | ${bsHint}` : ''}` : undefined}
+            onChange={(e) => {
+              onChange(e.target.value);
+            }}
+          />
+          {/* Nepali (BS) equivalent suffix — always visible inside the control. */}
+          {bsHint && (
+            <span
+              className="shrink-0 whitespace-nowrap pr-2 text-[10px] font-mono text-slate-400 dark:text-slate-500"
+              title={`Nepali: ${bsHint}`}
+            >
+              {bsHint}
+            </span>
+          )}
         </div>
       )}
+
       {!showNepaliPicker && mode === 'BS' && adValue && !bsHint && (
         <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
           Outside the seeded BS calendar range — AD entry is used directly.

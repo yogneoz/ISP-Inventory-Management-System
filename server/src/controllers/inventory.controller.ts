@@ -47,7 +47,7 @@ import {
   buildAssetListQuery,
   ASSET_UPSERT_SQL,
   assetUpsertParams,
-  ASSET_SET_STATUS_SQL,
+  ASSET_SET_ASSIGNMENT_SQL,
   buildStockOperationListQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
@@ -623,6 +623,18 @@ try {
       invoiceNo: req.body.invoiceNo || '',
       purchaseInvoiceId: req.body.purchaseInvoiceId || null,
       productId: req.body.productId || null,
+      // Assignment metadata for assets created already-deployed (Assign Fixed
+      // Asset flow creates serialized assets straight into POP/customer use).
+      assignedType: req.body.assignedType || null,
+      assignedCustomerId: req.body.assignedCustomerId || null,
+      assignedCustomerName: req.body.assignedCustomerName || null,
+      assignedLocationId: req.body.assignedLocationId || null,
+      assignedLocationName: req.body.assignedLocationName || null,
+      assignmentDateAD: req.body.assignmentDateAD || null,
+      assignmentDateBS: req.body.assignmentDateBS || null,
+      assignmentNotes: req.body.assignmentNotes || null,
+      // Serial of the IN_STOCK unit consumed from branch stock (deploy-from-stock flow).
+      deviceSerial: req.body.deviceSerial || null,
     };
 
     const linkedInvoice = newAsset.purchaseInvoiceId
@@ -642,10 +654,111 @@ try {
     const idx = assetRegister.findIndex((a) => a.id === newAsset.id);
     setAssetRegister(idx >= 0 ? withReplaced(assetRegister, idx, newAsset as any) : withPrepended(assetRegister, newAsset as any));
 
+    // Deploy-from-stock deduction: an asset created straight into deployment
+    // (ASSIGNED_TO_*) from a catalog product consumes one unit of that
+    // product's quantity_on_hand at the fulfilling branch. This mirrors the
+    // STOCK_OUT the legacy handleCreateAsset path posts, so the flag is opt-in
+    // and the two paths can never double-deduct. Serialized units also flip
+    // their serial_log row IN_STOCK → POP_LOCATION_ASSIGNED / CUSTOMER_ASSIGNED.
+    const deployFromStock = req.body.deployFromStock === true &&
+      ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(String(newAsset.status)) &&
+      Boolean(newAsset.productId);
+    if (deployFromStock) {
+      const qty = 1;
+      const branchId = String(newAsset.branchId);
+      const stockRecord = inventoryStock.find((entry) => entry.productId === newAsset.productId && entry.branchId === branchId);
+      if (!stockRecord || Number(stockRecord.quantityOnHand) < qty) {
+        res.status(400).json({ message: `Insufficient inventory for ${newAsset.name}. Available: ${stockRecord ? Number(stockRecord.quantityOnHand) : 0}, requested: ${qty}.` });
+        return;
+      }
+      const product = products.find((entry) => entry.id === newAsset.productId);
+      const txn = {
+        id: `txn-asset-${newAsset.id}`,
+        transactionNumber: `${newAsset.tagNumber}-1`,
+        productId: newAsset.productId,
+        productSku: product?.sku || '',
+        productName: product?.name || newAsset.name,
+        branchId,
+        changeType: 'STOCK_OUT' as const,
+        quantityBefore: Number(stockRecord.quantityOnHand),
+        quantityChanged: -qty,
+        quantityAfter: Math.max(0, Number(stockRecord.quantityOnHand) - qty),
+        unitCost: Number(newAsset.acquisitionCost) || product?.costPrice || 0,
+        referenceDocId: newAsset.tagNumber,
+        timestampAD: String(newAsset.acquisitionDateAD).split('T')[0],
+        timestampBS: newAsset.acquisitionDateBS || '',
+      };
+
+      if (getPgConnected()) {
+        await withTransaction(async (client) => {
+          // C3 pattern: lock the stock row and re-verify availability from
+          // database truth before writing (mirror pre-flight can race).
+          const locked = await client.query(
+            STOCK_LOCK_FOR_UPDATE_SQL,
+            stockLockForUpdateParams([{ productId: newAsset.productId }], branchId)
+          );
+          const row = (locked.rows || [])[0] as LockedStockRow | undefined;
+          if (!row || Number(row.quantity_on_hand) < qty) {
+            throw new Error(`Insufficient inventory in the database for ${newAsset.name}. Available: ${row ? Number(row.quantity_on_hand) : 0}, requested: ${qty}.`);
+          }
+          const result = await client.query(STOCK_CONSUME_QOH_SQL, [qty, newAsset.productId, branchId]);
+          if (result.rowCount !== 1) {
+            throw new Error(`Stock changed before this asset could be registered. Please retry.`);
+          }
+          await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
+
+          // Flip the deployed unit's serial_log row so the register reflects
+          // the deployment without waiting for a refresh.
+          if (newAsset.deviceSerial) {
+            const histRes = await client.query(
+              `SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1)) AND status = 'IN_STOCK' LIMIT 1`,
+              [String(newAsset.deviceSerial)]
+            );
+            if (histRes.rowCount) {
+              let hist: any[] = [];
+              try {
+                hist = typeof histRes.rows[0].history_json === 'string'
+                  ? JSON.parse(histRes.rows[0].history_json || '[]')
+                  : histRes.rows[0].history_json || [];
+              } catch {
+                hist = [];
+              }
+              hist.push({
+                status: newAsset.status,
+                sourceType: 'FIXED_ASSET',
+                sourceId: newAsset.id,
+                dateAD: newAsset.acquisitionDateAD,
+                notes: `Deployed as fixed asset ${newAsset.tagNumber}`,
+              });
+              await client.query(
+                `UPDATE serial_log SET status = $1, source_type = 'FIXED_ASSET', source_id = $2, history_json = $3, updated_at = $4
+                 WHERE id = $5`,
+                [newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED', newAsset.id, JSON.stringify(hist), new Date().toISOString(), histRes.rows[0].id]
+              );
+            }
+          }
+        });
+      }
+
+      // In-memory mirrors so the UI reflects the deduction immediately.
+      stockRecord.quantityOnHand -= qty;
+      stockRecord.lastUpdated = new Date().toISOString();
+      setTransactionLogs([txn as any, ...transactionLogs]);
+      if (newAsset.deviceSerial) {
+        const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(newAsset.deviceSerial).trim().toLowerCase() && e.status === 'IN_STOCK');
+        if (sl) {
+          sl.status = newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED';
+          sl.sourceType = 'FIXED_ASSET';
+          sl.sourceId = newAsset.id;
+          sl.updatedAt = new Date().toISOString();
+        }
+      }
+    }
+
     if (getPgConnected()) {
       await pgPool.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
     }
-    logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}`);
+    logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
     res.status(201).json(newAsset);
   } catch (err: any) {
     console.error('Error creating fixed asset:', err);
@@ -662,7 +775,22 @@ try {
     if (asset) Object.assign(asset, req.body);
 
     if (getPgConnected()) {
-      await pgPool.query(ASSET_SET_STATUS_SQL, [req.body.status || 'ACTIVE', id]);
+      // Persist the full assignment payload, not just status: the Assign
+      // Fixed Asset flow sends assignedType/customer/location and dates, and
+      // clearing any of them (unassign) must also reach the database.
+      const b = req.body || {};
+      await pgPool.query(ASSET_SET_ASSIGNMENT_SQL, [
+        b.status || 'ACTIVE',
+        b.assignedType || null,
+        b.assignedCustomerId || null,
+        b.assignedCustomerName || null,
+        b.assignedLocationId || null,
+        b.assignedLocationName || null,
+        b.assignmentDateAD || null,
+        b.assignmentDateBS || null,
+        b.assignmentNotes || null,
+        id,
+      ]);
     }
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);

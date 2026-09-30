@@ -394,7 +394,7 @@ export function flattenTxnParams(rows: unknown[][]): unknown[] {
 // ---------------------------------------------------------------------------
 
 export const ASSET_SELECT_COLUMNS =
-  'id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId"';
+  'id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", purchase_invoice_date_ad AS "purchaseInvoiceDateAD", purchase_invoice_date_bs AS "purchaseInvoiceDateBS", capitalization_date_ad AS "capitalizationDateAD", placed_in_service_date_ad AS "placedInServiceDateAD", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId", assigned_type AS "assignedType", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_date_ad AS "assignmentDateAD", assignment_date_bs AS "assignmentDateBS", assignment_notes AS "assignmentNotes"';
 
 /** Builds the asset list query with an optional branch filter. */
 export function buildAssetListQuery(branchId?: unknown): { sql: string; params: unknown[] } {
@@ -409,8 +409,9 @@ export function buildAssetListQuery(branchId?: unknown): { sql: string; params: 
 }
 
 export const ASSET_UPSERT_SQL = `INSERT INTO fixed_assets (
-   id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, placed_in_service_date_ad, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id
- ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+   id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs, purchase_invoice_date_ad, purchase_invoice_date_bs, capitalization_date_ad, placed_in_service_date_ad, acquisition_cost, depreciation_method, depreciation_rate_percent, accumulated_depreciation, net_book_value, status, supplier_name, invoice_no, purchase_invoice_id, product_id,
+   assigned_type, assigned_customer_id, assigned_customer_name, assigned_location_id, assigned_location_name, assignment_date_ad, assignment_date_bs, assignment_notes
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
  ON CONFLICT (id) DO UPDATE SET
    tag_number = EXCLUDED.tag_number,
    name = EXCLUDED.name,
@@ -422,7 +423,15 @@ export const ASSET_UPSERT_SQL = `INSERT INTO fixed_assets (
   placed_in_service_date_ad = EXCLUDED.placed_in_service_date_ad,
    acquisition_cost = EXCLUDED.acquisition_cost,
    net_book_value = EXCLUDED.net_book_value,
-   status = EXCLUDED.status;`;
+   status = EXCLUDED.status,
+   assigned_type = EXCLUDED.assigned_type,
+   assigned_customer_id = EXCLUDED.assigned_customer_id,
+   assigned_customer_name = EXCLUDED.assigned_customer_name,
+   assigned_location_id = EXCLUDED.assigned_location_id,
+   assigned_location_name = EXCLUDED.assigned_location_name,
+   assignment_date_ad = EXCLUDED.assignment_date_ad,
+   assignment_date_bs = EXCLUDED.assignment_date_bs,
+   assignment_notes = EXCLUDED.assignment_notes;`;
 
 export function assetUpsertParams(a: Record<string, any>): unknown[] {
   return [
@@ -447,10 +456,33 @@ export function assetUpsertParams(a: Record<string, any>): unknown[] {
     a.invoiceNo,
     a.purchaseInvoiceId,
     a.productId,
+    a.assignedType ?? null,
+    a.assignedCustomerId ?? null,
+    a.assignedCustomerName ?? null,
+    a.assignedLocationId ?? null,
+    a.assignedLocationName ?? null,
+    a.assignmentDateAD ?? null,
+    a.assignmentDateBS ?? null,
+    a.assignmentNotes ?? null,
   ];
 }
 
-export const ASSET_SET_STATUS_SQL = 'UPDATE fixed_assets SET status = $1 WHERE id = $2';
+/**
+ * Persists an asset assignment (or clears it on unassign): status plus the full
+ * set of assignment fields the Assign Fixed Asset form sends. Setting a field
+ * to NULL clears it, so the controller must always pass the complete body.
+ */
+export const ASSET_SET_ASSIGNMENT_SQL = `UPDATE fixed_assets SET
+  status = $1,
+  assigned_type = $2,
+  assigned_customer_id = $3,
+  assigned_customer_name = $4,
+  assigned_location_id = $5,
+  assigned_location_name = $6,
+  assignment_date_ad = $7,
+  assignment_date_bs = $8,
+  assignment_notes = $9
+ WHERE id = $10`;
 
 // ---------------------------------------------------------------------------
 // Stock operations
