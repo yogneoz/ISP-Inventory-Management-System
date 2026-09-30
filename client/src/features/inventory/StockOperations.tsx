@@ -3186,11 +3186,20 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
         <FormCard className="space-y-4">
-          {/* Slim context strip instead of a serif banner header: the tab bar
-              (or standalone sidebar item) already names this operation, so the
-              form leads with its fields and keeps only the status chip. */}
-          <div className="flex items-center justify-end">
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-200 border border-sky-200 dark:border-sky-800">
+          {/* Form header — names the form per the form-header pattern (same
+              style as the Create Shipment / Assign Fixed Asset forms); the
+              status chip stays on the right. */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-serif font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                <Send className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Create Inter-Branch Transfer</span>
+              </h3>
+              <p className="text-[11px] mt-0.5 text-slate-500 dark:text-slate-400">
+                Select source and destination branches, scan or search products to add transfer lines, then dispatch the multi-item inter-branch stock transfer.
+              </p>
+            </div>
+            <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-200 border border-sky-200 dark:border-sky-800">
               Inter-Branch Shipment GRN
             </span>
           </div>

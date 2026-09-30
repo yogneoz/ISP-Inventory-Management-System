@@ -776,16 +776,24 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* CREATE SUBTAB: Embedded Inline Form View */}
       {internalTab === 'CREATE_SHIPMENT' && (
         <FormCard className="p-0 space-y-0 overflow-hidden">
-          {/* No secondary form banner by design: the sub-tab indicator already
-              communicates context. Only a slim "Switch to Register" action
-              remains anchored to the form card. */}
-          <div className={`flex items-center justify-end border-b p-2.5 ${
+          {/* Form header — names the form per the StockOperations form-header
+              pattern; the slim "Switch to Register" action stays on the right. */}
+          <div className={`flex items-start justify-between gap-3 p-4 border-b ${
             isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
           }`}>
+            <div>
+              <h3 className="font-serif font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                <Send className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Create Shipment</span>
+              </h3>
+              <p className="text-[11px] mt-0.5 text-slate-500 dark:text-slate-400">
+                Select source and destination, scan or search products to add dispatch lines, then generate the waybill.
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setInternalTab('REGISTER')}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer ${
+              className={`shrink-0 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer ${
                 isDarkMode
                   ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
                   : 'border-slate-200 text-slate-600 hover:bg-slate-100'
