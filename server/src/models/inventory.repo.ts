@@ -738,6 +738,9 @@ export const CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL = `SELECT id FROM customer_device_
 export const CDR_CLOSE_ON_ASSET_REVERSAL_SQL =
   'UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3';
 
+/** CDR_NOTES_BY_ID_SQL — current notes of a CDR row (for reversal note appending). */
+export const CDR_NOTES_BY_ID_SQL = 'SELECT notes FROM customer_device_records WHERE id = $1';
+
 /** Plain insert used when an exchange creates the replacement device row. */
 export const CDR_EXCHANGE_INSERT_SQL = `INSERT INTO customer_device_records (
      id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
@@ -881,6 +884,21 @@ export const SERIAL_LOG_SELECT_PREFIX =
 
 /** Counts serial_log rows with the same filter fragment (pagination totals). */
 export const SERIAL_LOG_COUNT_PREFIX = 'SELECT COUNT(*)::int AS count FROM serial_log';
+
+/** SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL — IN_STOCK unit lookup for deploy-from-stock. */
+export const SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL =
+  `SELECT id, history_json AS "historyJson" FROM serial_log
+   WHERE lower(trim(device_serial)) = lower(trim($1)) AND status = 'IN_STOCK' LIMIT 1`;
+
+/** SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL — flips an IN_STOCK unit to its deployed status. */
+export const SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL =
+  `UPDATE serial_log SET status = $1, source_type = 'FIXED_ASSET', source_id = $2, history_json = $3, updated_at = $4
+   WHERE id = $5`;
+
+/** SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL — flips a deployed unit back to IN_STOCK (unassign restock). */
+export const SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL =
+  `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, updated_at = $2
+   WHERE lower(trim(device_serial)) = lower(trim($3)) AND status IN ('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED')`;
 
 /** Per-status counts with the same filter fragment (register KPI cards). */
 export const SERIAL_LOG_STATUS_COUNT_SQL = 'SELECT status, COUNT(*)::int AS count FROM serial_log';

@@ -52,6 +52,7 @@ import {
   STOCK_RETURN_FROM_ASSET_SQL,
   CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL,
   CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
+  CDR_NOTES_BY_ID_SQL,
   buildStockOperationListQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
@@ -92,6 +93,9 @@ import {
   serialLogUpdateParams,
   SERIAL_LOG_INSERT_SQL,
   serialLogInsertParams,
+  SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
+  SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
+  SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
 } from '../models/inventory.repo';
 /** Forwarded from inventory.routes.ts (get_stock). */
 export async function get_stock(req: any, res: Response): Promise<any> {
@@ -715,7 +719,7 @@ try {
           // the deployment without waiting for a refresh.
           if (newAsset.deviceSerial) {
             const histRes = await client.query(
-              `SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1)) AND status = 'IN_STOCK' LIMIT 1`,
+              SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
               [String(newAsset.deviceSerial)]
             );
             if (histRes.rowCount) {
@@ -735,8 +739,7 @@ try {
                 notes: `Deployed as fixed asset ${newAsset.tagNumber}`,
               });
               await client.query(
-                `UPDATE serial_log SET status = $1, source_type = 'FIXED_ASSET', source_id = $2, history_json = $3, updated_at = $4
-                 WHERE id = $5`,
+                SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
                 [newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED', newAsset.id, JSON.stringify(hist), new Date().toISOString(), histRes.rows[0].id]
               );
             }
@@ -800,8 +803,7 @@ try {
             // Flip the unit's serial back to IN_STOCK at the branch.
             if (asset.deviceSerial) {
               await client.query(
-                `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, updated_at = $2
-                 WHERE lower(trim(device_serial)) = lower(trim($3)) AND status IN ('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED')`,
+                SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
                 [asset.id, new Date().toISOString(), String(asset.deviceSerial)]
               );
             }
@@ -817,7 +819,7 @@ try {
               if (row?.id) { cpeId = row.id; break; }
             }
             if (cpeId) {
-              const cpeNotesRes = await client.query('SELECT notes FROM customer_device_records WHERE id = $1', [cpeId]);
+              const cpeNotesRes = await client.query(CDR_NOTES_BY_ID_SQL, [cpeId]);
               const close = buildCpeReversalClose({
                 prevNotes: String(cpeNotesRes.rows?.[0]?.notes || ''),
                 tag: asset.tagNumber,
