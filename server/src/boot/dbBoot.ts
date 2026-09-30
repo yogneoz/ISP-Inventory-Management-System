@@ -552,6 +552,9 @@ export async function syncDatabaseAndIndexes() {
       ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_date_ad DATE;
       ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_date_bs VARCHAR(20);
       ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS assignment_notes TEXT;
+      -- Serial of the IN_STOCK unit consumed by a deploy-from-stock asset, so
+      -- unassign can flip the serial_log row back to IN_STOCK.
+      ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS device_serial VARCHAR(100);
       -- Currency & locale columns for globally-configurable money formatting.
       ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS postal_code VARCHAR(30);
       ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS currency_code VARCHAR(10) DEFAULT 'NPR';

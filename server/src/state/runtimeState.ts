@@ -169,7 +169,7 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
   },
   {
     name: 'fixed_assets',
-    query: 'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId" FROM fixed_assets',
+    query: 'SELECT id, tag_number AS "tagNumber", name, category, branch_id AS "branchId", acquisition_date_ad AS "acquisitionDateAD", acquisition_date_bs AS "acquisitionDateBS", acquisition_cost AS "acquisitionCost", depreciation_method AS "depreciationMethod", depreciation_rate_percent AS "depreciationRatePercent", accumulated_depreciation AS "accumulatedDepreciation", net_book_value AS "netBookValue", status, supplier_name AS "supplierName", invoice_no AS "invoiceNo", purchase_invoice_id AS "purchaseInvoiceId", product_id AS "productId", assigned_type AS "assignedType", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_date_ad AS "assignmentDateAD", assignment_date_bs AS "assignmentDateBS", assignment_notes AS "assignmentNotes", device_serial AS "deviceSerial" FROM fixed_assets',
     apply: (rows) => { assetRegister = rows as any; },
   },
   {

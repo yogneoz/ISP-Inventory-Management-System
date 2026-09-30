@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     assignment_date_ad DATE,
     assignment_date_bs VARCHAR(20),
     assignment_notes TEXT,
+    device_serial VARCHAR(100),
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),

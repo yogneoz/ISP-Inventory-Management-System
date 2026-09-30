@@ -119,6 +119,7 @@ export const BOOTSTRAP_TABLES = {
       ['assignment_date_ad', 'assignmentDateAD'],
       ['assignment_date_bs', 'assignmentDateBS'],
       ['assignment_notes', 'assignmentNotes'],
+      ['device_serial', 'deviceSerial'],
     ],
   },
   customerDevices: {

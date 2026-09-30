@@ -226,6 +226,8 @@ export interface Asset {
   invoiceNo?: string;
   purchaseInvoiceId?: string;
   productId?: string;
+  /** Serial of the IN_STOCK unit consumed from branch stock (deploy-from-stock flow). */
+  deviceSerial?: string;
   // Fixed Asset Assignment fields
   assignedType?: 'CUSTOMER' | 'LOCATION';
   assignedCustomerId?: string;

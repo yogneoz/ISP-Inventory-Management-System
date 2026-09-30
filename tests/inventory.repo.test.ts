@@ -207,8 +207,8 @@ describe('fixed assets', () => {
     assert.ok(!buildAssetListQuery('ALL').sql.includes(' WHERE '));
   });
 
-  test('upsert passes 29 binds and refreshes the documented columns on conflict', () => {
-    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 29);
+  test('upsert passes 30 binds and refreshes the documented columns on conflict', () => {
+    assert.equal(maxPlaceholder(ASSET_UPSERT_SQL), 30);
     for (const col of ['tag_number', 'acquisition_cost', 'net_book_value', 'status', 'placed_in_service_date_ad', 'assigned_type', 'assignment_date_ad']) {
       assert.ok(ASSET_UPSERT_SQL.includes(`${col} = EXCLUDED.${col}`), `missing conflict update for ${col}`);
     }
@@ -217,7 +217,7 @@ describe('fixed assets', () => {
     assert.deepEqual(assetUpsertParams({ id: 'a1', tagNumber: 'T-1', name: 'N', category: 'IT', branchId: 'WH001' }), [
       'a1', 'T-1', 'N', 'IT', 'WH001', undefined, undefined, undefined, undefined, undefined, undefined,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null,
     ]);
   });
 

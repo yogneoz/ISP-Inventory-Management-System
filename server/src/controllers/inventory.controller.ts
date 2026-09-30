@@ -48,6 +48,7 @@ import {
   ASSET_UPSERT_SQL,
   assetUpsertParams,
   ASSET_SET_ASSIGNMENT_SQL,
+  STOCK_RETURN_FROM_ASSET_SQL,
   buildStockOperationListQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
@@ -772,7 +773,77 @@ export async function patch_status(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
     const asset = assetRegister.find((a) => a.id === id);
+    const prevStatus = asset ? String(asset.status || '') : '';
     if (asset) Object.assign(asset, req.body);
+
+    // Unassign restock: a deploy-from-stock asset (catalog product created
+    // straight into deployment, proven by its STOCK_OUT ledger row) returns
+    // one unit to branch stock and its serial back to IN_STOCK. Guarded by
+    // the ledger row so non-stock assets (already-registered in the ledger)
+    // and duplicate unassign calls never double-restore.
+    const isUnassign = String(req.body?.status || '') === 'ACTIVE' &&
+      ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(prevStatus);
+    if (isUnassign && asset?.productId) {
+      const branchId = String(asset.branchId);
+      const txnRef = `${asset.tagNumber}-1`;
+      const deployTxnExists = transactionLogs.some(
+        (t) => t.referenceDocId === asset.tagNumber && t.productId === asset.productId && t.changeType === 'STOCK_OUT'
+      );
+      const restockTxnExists = transactionLogs.some(
+        (t) => t.referenceDocId === asset.tagNumber && t.productId === asset.productId && t.changeType === 'MANUAL_ADJUSTMENT'
+      );
+      if (deployTxnExists && !restockTxnExists) {
+        const product = products.find((entry) => entry.id === asset.productId);
+        const stockRecord = inventoryStock.find((entry) => entry.productId === asset.productId && entry.branchId === branchId);
+        const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+        const restockTxn = {
+          id: `txn-asset-unassign-${asset.id}`,
+          transactionNumber: `${asset.tagNumber}-RESTOCK`,
+          productId: asset.productId,
+          productSku: product?.sku || '',
+          productName: product?.name || asset.name,
+          branchId,
+          changeType: 'MANUAL_ADJUSTMENT' as const,
+          quantityBefore,
+          quantityChanged: 1,
+          quantityAfter: quantityBefore + 1,
+          unitCost: Number(asset.acquisitionCost) || product?.costPrice || 0,
+          referenceDocId: asset.tagNumber,
+          timestampAD: new Date().toISOString().split('T')[0],
+          timestampBS: '',
+        };
+
+        if (getPgConnected()) {
+          await withTransaction(async (client) => {
+            await client.query(STOCK_RETURN_FROM_ASSET_SQL, [asset.productId, branchId, 1, `stk-${asset.productId}-${branchId}`]);
+            await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(restockTxn));
+            // Flip the unit's serial back to IN_STOCK at the branch.
+            if (asset.deviceSerial) {
+              await client.query(
+                `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, updated_at = $2
+                 WHERE lower(trim(device_serial)) = lower(trim($3)) AND status IN ('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED')`,
+                [asset.id, new Date().toISOString(), String(asset.deviceSerial)]
+              );
+            }
+          });
+        }
+
+        // In-memory mirrors so the UI reflects the restoration immediately.
+        if (stockRecord) {
+          stockRecord.quantityOnHand += 1;
+          stockRecord.lastUpdated = new Date().toISOString();
+        }
+        setTransactionLogs([restockTxn as any, ...transactionLogs]);
+        if (asset.deviceSerial) {
+          const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(asset.deviceSerial).trim().toLowerCase() && e.status !== 'IN_STOCK');
+          if (sl) {
+            sl.status = 'IN_STOCK';
+            sl.updatedAt = new Date().toISOString();
+          }
+        }
+        logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
+      }
+    }
 
     if (getPgConnected()) {
       // Persist the full assignment payload, not just status: the Assign
