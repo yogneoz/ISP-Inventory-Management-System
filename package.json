@@ -15,7 +15,7 @@
     "setup:pg": "node scripts/setup_db.js",
     "setup:postgres": "bash scripts/setup_postgres.sh",
     "lint": "tsc --noEmit",
-    "test": "tsc --noEmit && tsx --test tests/*.test.ts",
+    "test": "tsc --noEmit && node scripts/run_tests.mjs",
     "check:no-inline-sql": "tsx scripts/check_no_inline_sql.ts",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs"
   },
