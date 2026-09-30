@@ -103,6 +103,35 @@ export function buildRestockTransaction(opts: {
 }
 
 /**
+ * notes-LIKE patterns matching the rental-CPE customer_device_records row a
+ * deployment creates. The deployment flow stamps the asset tag into the
+ * record's notes with one of these two markers.
+ */
+export function cpeFindPatterns(tag: string): string[] {
+  return [
+    `%[FIXED ASSET CPE - Tag: ${tag}]%`,
+    `%[RENTAL CPE ASSET - Tag: ${tag}]%`,
+  ];
+}
+
+/**
+ * Builds the CPE close payload for a reversed deployment. The status MUST be
+ * ROUTER_COLLECTED — the canonical collected status the live
+ * customer_device_records_status_check constraint allows (COLLECTED is not in
+ * the list and would roll back the whole restock transaction).
+ */
+export function buildCpeReversalClose(opts: {
+  prevNotes: string;
+  tag: string;
+  todayAD: string;
+}): { status: 'ROUTER_COLLECTED'; notes: string } {
+  return {
+    status: 'ROUTER_COLLECTED',
+    notes: `${opts.prevNotes} | [REVERSED ${opts.todayAD}] Deployment of ${opts.tag} reversed.`,
+  };
+}
+
+/**
  * In-memory mirror of the serial restore: flips the deployed serial back to
  * IN_STOCK in the runtime register (case/trim-insensitive match, only when it
  * is not already IN_STOCK). Accepts a readonly register and finds the live row

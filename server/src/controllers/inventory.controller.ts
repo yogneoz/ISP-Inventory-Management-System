@@ -10,7 +10,7 @@ import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, w
 import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
-import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial } from '../services/unassignRestock.service';
+import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
@@ -810,17 +810,20 @@ try {
             // created (joined via the asset tag stamped in its notes) so the
             // customer device register never shows an active rental for a
             // reversed deployment. Atomic with the stock restore.
-            const cpeRes = await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [`%[FIXED ASSET CPE - Tag: ${asset.tagNumber}]%`]);
-            const cpeRow = (cpeRes.rows || [])[0];
-            const cpeRow2 = cpeRow ? null : (await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [`%[RENTAL CPE ASSET - Tag: ${asset.tagNumber}]%`])).rows?.[0];
-            const cpeId = (cpeRow || cpeRow2)?.id;
+            let cpeId: string | undefined;
+            for (const pattern of cpeFindPatterns(asset.tagNumber)) {
+              const cpeRes = await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [pattern]);
+              const row = (cpeRes.rows || [])[0];
+              if (row?.id) { cpeId = row.id; break; }
+            }
             if (cpeId) {
               const cpeNotesRes = await client.query('SELECT notes FROM customer_device_records WHERE id = $1', [cpeId]);
-              const prevNotes = String(cpeNotesRes.rows?.[0]?.notes || '');
-              await client.query(
-                CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
-                ['ROUTER_COLLECTED', `${prevNotes} | [REVERSED ${new Date().toISOString().split('T')[0]}] Deployment of ${asset.tagNumber} reversed.`, cpeId]
-              );
+              const close = buildCpeReversalClose({
+                prevNotes: String(cpeNotesRes.rows?.[0]?.notes || ''),
+                tag: asset.tagNumber,
+                todayAD: new Date().toISOString().split('T')[0],
+              });
+              await client.query(CDR_CLOSE_ON_ASSET_REVERSAL_SQL, [close.status, close.notes, cpeId]);
             }
           });
         }

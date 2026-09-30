@@ -15,6 +15,8 @@ import {
   shouldRestockOnUnassign,
   buildRestockTransaction,
   restoreInMemorySerial,
+  cpeFindPatterns,
+  buildCpeReversalClose,
 } from '../server/src/services/unassignRestock.service';
 
 const ASSET = {
@@ -184,6 +186,45 @@ describe('buildRestockTransaction', () => {
     assert.equal(txn.productSku, '');
     assert.equal(txn.productName, ASSET.name);
     assert.equal(txn.quantityAfter, 6);
+  });
+});
+
+describe('rental CPE record close', () => {
+  it('builds both notes-LIKE patterns that can match the deployment\'s CPE record', () => {
+    const patterns = cpeFindPatterns('FA-CAR004-5555');
+    assert.deepEqual(patterns, [
+      '%[FIXED ASSET CPE - Tag: FA-CAR004-5555]%',
+      '%[RENTAL CPE ASSET - Tag: FA-CAR004-5555]%',
+    ]);
+  });
+
+  it('closes the CPE with ROUTER_COLLECTED — the status the live CHECK constraint allows', () => {
+    // customer_device_records_status_check allows ACTIVE, SUSPENDED,
+    // DISCONNECTED, RETURNED, REFUND, EXCHANGED, RENTAL, ROUTER_COLLECTED,
+    // IN_STOCK. 'COLLECTED' is NOT among them and would violate the
+    // constraint, rolling back the whole restock transaction.
+    const close = buildCpeReversalClose({
+      prevNotes: '[RENTAL CPE ASSET - Tag: FA-CAR004-5555] E2E reverse test',
+      tag: 'FA-CAR004-5555',
+      todayAD: '2026-09-30',
+    });
+    assert.equal(close.status, 'ROUTER_COLLECTED');
+    assert.match(close.notes, /\[REVERSED 2026-09-30\] Deployment of FA-CAR004-5555 reversed\.$/);
+  });
+
+  it('preserves the original CPE notes and appends the reversal audit line', () => {
+    const prevNotes = '[FIXED ASSET CPE - Tag: FA-XYZ-1] rack 2 install';
+    const close = buildCpeReversalClose({ prevNotes, tag: 'FA-XYZ-1', todayAD: '2026-01-15' });
+    assert.ok(close.notes.startsWith(prevNotes), 'original notes must be preserved verbatim');
+    assert.ok(close.notes.includes('[REVERSED 2026-01-15] Deployment of FA-XYZ-1 reversed.'));
+  });
+
+  it('never produces a status outside the customer_device_records_status_check whitelist', () => {
+    // Guard against regression: this exact test would have caught the
+    // COLLECTED constraint violation before it reached the database.
+    const allowed = ['ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'EXCHANGED', 'RENTAL', 'ROUTER_COLLECTED', 'IN_STOCK'];
+    const close = buildCpeReversalClose({ prevNotes: 'x', tag: 'FA-1', todayAD: '2026-09-30' });
+    assert.ok(allowed.includes(close.status), `${close.status} is not an allowed customer_device_records status`);
   });
 });
 
