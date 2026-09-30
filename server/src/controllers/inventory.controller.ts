@@ -10,6 +10,7 @@ import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, w
 import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
+import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial } from '../services/unassignRestock.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
@@ -49,6 +50,8 @@ import {
   assetUpsertParams,
   ASSET_SET_ASSIGNMENT_SQL,
   STOCK_RETURN_FROM_ASSET_SQL,
+  CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL,
+  CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
   buildStockOperationListQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
@@ -785,33 +788,10 @@ try {
       ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(prevStatus);
     if (isUnassign && asset?.productId) {
       const branchId = String(asset.branchId);
-      const txnRef = `${asset.tagNumber}-1`;
-      const deployTxnExists = transactionLogs.some(
-        (t) => t.referenceDocId === asset.tagNumber && t.productId === asset.productId && t.changeType === 'STOCK_OUT'
-      );
-      const restockTxnExists = transactionLogs.some(
-        (t) => t.referenceDocId === asset.tagNumber && t.productId === asset.productId && t.changeType === 'MANUAL_ADJUSTMENT'
-      );
-      if (deployTxnExists && !restockTxnExists) {
-        const product = products.find((entry) => entry.id === asset.productId);
+      if (shouldRestockOnUnassign({ newStatus: req.body?.status, prevStatus, asset, transactionLogs })) {
         const stockRecord = inventoryStock.find((entry) => entry.productId === asset.productId && entry.branchId === branchId);
         const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
-        const restockTxn = {
-          id: `txn-asset-unassign-${asset.id}`,
-          transactionNumber: `${asset.tagNumber}-RESTOCK`,
-          productId: asset.productId,
-          productSku: product?.sku || '',
-          productName: product?.name || asset.name,
-          branchId,
-          changeType: 'MANUAL_ADJUSTMENT' as const,
-          quantityBefore,
-          quantityChanged: 1,
-          quantityAfter: quantityBefore + 1,
-          unitCost: Number(asset.acquisitionCost) || product?.costPrice || 0,
-          referenceDocId: asset.tagNumber,
-          timestampAD: new Date().toISOString().split('T')[0],
-          timestampBS: '',
-        };
+        const restockTxn = buildRestockTransaction({ asset, branchId, quantityBefore, todayAD: new Date().toISOString().split('T')[0], products });
 
         if (getPgConnected()) {
           await withTransaction(async (client) => {
@@ -825,6 +805,23 @@ try {
                 [asset.id, new Date().toISOString(), String(asset.deviceSerial)]
               );
             }
+
+            // Close the rental-CPE customer_device_records row the deployment
+            // created (joined via the asset tag stamped in its notes) so the
+            // customer device register never shows an active rental for a
+            // reversed deployment. Atomic with the stock restore.
+            const cpeRes = await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [`%[FIXED ASSET CPE - Tag: ${asset.tagNumber}]%`]);
+            const cpeRow = (cpeRes.rows || [])[0];
+            const cpeRow2 = cpeRow ? null : (await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [`%[RENTAL CPE ASSET - Tag: ${asset.tagNumber}]%`])).rows?.[0];
+            const cpeId = (cpeRow || cpeRow2)?.id;
+            if (cpeId) {
+              const cpeNotesRes = await client.query('SELECT notes FROM customer_device_records WHERE id = $1', [cpeId]);
+              const prevNotes = String(cpeNotesRes.rows?.[0]?.notes || '');
+              await client.query(
+                CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
+                ['ROUTER_COLLECTED', `${prevNotes} | [REVERSED ${new Date().toISOString().split('T')[0]}] Deployment of ${asset.tagNumber} reversed.`, cpeId]
+              );
+            }
           });
         }
 
@@ -834,13 +831,7 @@ try {
           stockRecord.lastUpdated = new Date().toISOString();
         }
         setTransactionLogs([restockTxn as any, ...transactionLogs]);
-        if (asset.deviceSerial) {
-          const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(asset.deviceSerial).trim().toLowerCase() && e.status !== 'IN_STOCK');
-          if (sl) {
-            sl.status = 'IN_STOCK';
-            sl.updatedAt = new Date().toISOString();
-          }
-        }
+        restoreInMemorySerial(serialLogs, asset);
         logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
       }
     }

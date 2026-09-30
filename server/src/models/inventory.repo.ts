@@ -724,6 +724,20 @@ export const CDR_FIND_ALL_BY_ID_SQL = 'SELECT * FROM customer_device_records WHE
 export const CDR_EXCHANGE_STATUS_SQL =
   'UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3';
 
+/**
+ * Finds the ACTIVE rental-CPE record created for a deployed fixed asset. The
+ * deployment flow stamps the asset tag into the record's notes
+ * ("[RENTAL CPE ASSET - Tag: FA-…]" / "[FIXED ASSET CPE - Tag: …]"), so the
+ * tag is the join key. Active = not already collected/exchanged/cancelled.
+ */
+export const CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL = `SELECT id FROM customer_device_records
+ WHERE notes LIKE $1 AND status NOT IN ('ROUTER_COLLECTED', 'EXCHANGED', 'REFUND')
+ ORDER BY created_at DESC LIMIT 1`;
+
+/** Reversal close: marks the rental CPE COLLECTED and appends the reason to notes. */
+export const CDR_CLOSE_ON_ASSET_REVERSAL_SQL =
+  'UPDATE customer_device_records SET status = $1, notes = $2 WHERE id = $3';
+
 /** Plain insert used when an exchange creates the replacement device row. */
 export const CDR_EXCHANGE_INSERT_SQL = `INSERT INTO customer_device_records (
      id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes

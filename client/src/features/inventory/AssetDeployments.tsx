@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { MapPin, UserCheck, Building, Download } from 'lucide-react';
+import { MapPin, UserCheck, Building, Download, Undo2 } from 'lucide-react';
 import { Asset, Branch, LocationRecord, CustomerRecord, User } from '../../types';
 import { FilterCard } from '../../components/common/FilterCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
@@ -35,7 +35,7 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
   dateMode,
   onUnassignAsset,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
   const [appliedSearch, setAppliedSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [locationFilter, setLocationFilter] = useState('ALL');
@@ -74,24 +74,45 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
 
   const pagination = useClientPagination(filtered, 15, [appliedSearch, branchFilter, locationFilter, typeFilter]);
 
-  const handleUnassign = async (asset: Asset) => {
-    if (
-      await confirmDialog(
-        `Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`
-      )
-    ) {
-      await onUnassignAsset(asset.id, {
-        status: 'ACTIVE',
-        assignedType: undefined,
-        assignedLocationId: undefined,
-        assignedLocationName: undefined,
-        assignedCustomerId: undefined,
-        assignedCustomerName: undefined,
-        assignmentDateAD: undefined,
-        assignmentDateBS: undefined,
-        assignmentNotes: undefined,
-      });
+  /**
+   * Reverse a deployment: clears the assignment and — server-side, guarded by
+   * the asset's STOCK_OUT ledger row — restores one unit of branch stock,
+   * writes a balanced restock ledger row, flips the unit's serial back to
+   * IN_STOCK, and closes the rental CPE record for customer deployments.
+   */
+  const handleReverse = async (asset: Asset) => {
+    const isCustomer = asset.assignedType === 'CUSTOMER';
+    const reason = await promptDialog(
+      `You are about to reverse deployment ${asset.tagNumber}.\n\n` +
+        `● Asset: ${asset.name}\n` +
+        `● Deployed to: ${isCustomer ? asset.assignedCustomerName || asset.assignedCustomerId : asset.assignedLocationName || asset.assignedLocationId}\n` +
+        `● Branch: ${branches.find((b) => b.id === asset.branchId)?.name || asset.branchId}\n` +
+        (isCustomer ? `● The rental CPE record for this deployment will be marked COLLECTED.\n` : '') +
+        `Reversing clears the assignment and restores the unit to Available Stock. ` +
+        `This action is logged to the audit trail under your credentials.`,
+      {
+        title: 'Reverse Asset Deployment — Safeguard',
+        confirmLabel: 'Reverse Deployment',
+        cancelLabel: 'Keep Deployment',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      await confirmDialog('Reversal aborted — a reason is required as a safeguard.');
+      return;
     }
+    await onUnassignAsset(asset.id, {
+      status: 'ACTIVE',
+      assignedType: undefined,
+      assignedLocationId: undefined,
+      assignedLocationName: undefined,
+      assignedCustomerId: undefined,
+      assignedCustomerName: undefined,
+      assignmentDateAD: undefined,
+      assignmentDateBS: undefined,
+      assignmentNotes: `Reversed: ${reason.trim()}`,
+    });
   };
 
   const handleExport = () => {
@@ -273,10 +294,11 @@ export const AssetDeployments: React.FC<AssetDeploymentsProps> = ({
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">{formatNPR(a.netBookValue)}</td>
                     <td className="p-2.5 text-center">
                       <button
-                        onClick={() => handleUnassign(a)}
-                        className="text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer text-[11px]"
+                        onClick={() => handleReverse(a)}
+                        className="text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer text-[11px] inline-flex items-center gap-1"
                       >
-                        Unassign
+                        <Undo2 className="h-3 w-3" />
+                        Reverse
                       </button>
                     </td>
                   </tr>
