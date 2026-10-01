@@ -1238,3 +1238,83 @@ UPDATE purchase_invoices SET fiscal_year_id = (SELECT id FROM fiscal_years fy WH
 UPDATE shipments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE dispatch_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
 UPDATE stock_operations SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
 UPDATE customer_device_records SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE issued_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+
+-- ============================================================================
+-- RUNTIME PARITY SECTION (phase-2 duplication cleanup)
+-- ============================================================================
+-- dbBoot.ts executes THIS FILE as its schema source of truth. The statements
+-- below are the dbBoot-only runtime statements (migration ALTERs, legacy index
+-- aliases kept so old deployments don't accumulate orphan indexes, and the
+-- serial-log legacy helper index) ported verbatim so that "apply schema.sql"
+-- and "boot the server" produce byte-identical schemas. The static drift
+-- guard (tests/schemaSource.parity.test.ts) fails CI if the two sources
+-- diverge again.
+-- ============================================================================
+
+-- Legacy index-name aliases: these ran under the old names in dbBoot before
+-- the consolidation. Kept as no-ops so upgraded deployments that only ever
+-- ran dbBoot do not lose the index coverage (same columns as the canonical
+-- indexes above).
+CREATE INDEX IF NOT EXISTS idx_stock_prod_branch ON inventory_stock(product_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_assets_tag ON fixed_assets(tag_number);
+CREATE INDEX IF NOT EXISTS idx_assets_branch ON fixed_assets(branch_id);
+CREATE INDEX IF NOT EXISTS idx_assets_status ON fixed_assets(status);
+CREATE INDEX IF NOT EXISTS idx_orders_num ON purchase_orders(po_number);
+CREATE INDEX IF NOT EXISTS idx_orders_branch ON purchase_orders(branch_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON purchase_orders(status);
+CREATE INDEX IF NOT EXISTS idx_invoices_num ON purchase_invoices(invoice_number);
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON purchase_invoices(payment_status);
+CREATE INDEX IF NOT EXISTS idx_shipments_track ON shipments(tracking_code);
+CREATE INDEX IF NOT EXISTS idx_shipments_src_dst ON shipments(source_branch_id, destination_branch_id);
+CREATE INDEX IF NOT EXISTS idx_customers_id ON customer_records(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customers_branch ON customer_records(branch_id);
+CREATE INDEX IF NOT EXISTS idx_device_serials ON customer_device_records(device_serial, pon_serial, mac_address);
+CREATE INDEX IF NOT EXISTS idx_device_branch ON customer_device_records(branch_id, status);
+CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status, branch_id);
+CREATE INDEX IF NOT EXISTS idx_approval_type ON approval_requests(type);
+CREATE INDEX IF NOT EXISTS idx_bs_days_date ON bs_day_records(bs_date);
+CREATE INDEX IF NOT EXISTS idx_bs_days_ym ON bs_day_records(bs_year, bs_month);
+
+-- dbBoot runtime ALTERs that schema.sql did not previously carry.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS allow_warehouse_transfer BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Serial-log backfill support columns (dbBoot runtime additions).
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
+ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_serial_log_device_serial ON serial_log((lower(trim(device_serial))));
+
+-- Legacy shipment/stock-ops date indexes (dbBoot-only before consolidation).
+CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad);
+CREATE INDEX IF NOT EXISTS idx_stock_ops_date ON stock_operations(date_ad);
+
+-- company_profile currency backfill for pre-currency-config databases.
+UPDATE company_profile SET
+  currency_code = 'NPR',
+  currency_locale = 'en-IN',
+  currency_position = 'before',
+  currency_decimals = 2
+WHERE currency_code IS NULL OR currency_code = '';
+
+-- stock_operations.fiscal_year: drop the stale hard-coded fiscal-year default
+-- (legacy databases only; fresh installs declare no default).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'stock_operations'
+               AND column_name = 'fiscal_year'
+               AND column_default IS NOT NULL) THEN
+    ALTER TABLE stock_operations ALTER COLUMN fiscal_year DROP DEFAULT;
+  END IF;
+END $$;
+
+-- vendor_payments fiscal-year backfill (ran in dbBoot before consolidation).
+UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE payment_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
