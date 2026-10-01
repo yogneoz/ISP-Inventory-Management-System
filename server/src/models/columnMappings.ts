@@ -1,11 +1,14 @@
 /**
- * Column mappings for the /api/bootstrap endpoint — the SINGLE SOURCE OF TRUTH
- * for which columns are read from each table and how they are aliased to
- * camelCase for the client payload.
+ * Column mappings for /api/bootstrap AND the server's operational cache
+ * (CACHE_LOADS in state/runtimeState.ts) — the SINGLE SOURCE OF TRUTH for
+ * which columns are read from each table and how they are aliased to
+ * camelCase for the payload.
  *
- * To add a column to the bootstrap payload: add one tuple here. Nothing else
- * changes — the SQL, the Promise.all fan-out, and the response assembly are
- * all generated from these definitions (see ./bootstrap.repo.ts).
+ * To add a column to the bootstrap payload and the operational cache: add one
+ * tuple here. Nothing else changes — the SQL, the Promise.all fan-out, and
+ * the response assembly are all generated from these definitions (see
+ * ./bootstrap.repo.ts), and runtimeState.ts builds its cache refresh queries
+ * from the same configs via buildCacheLoads().
  *
  * Each column is a tuple: [db_column, camelCaseAlias, optionalCast?]
  * e.g. ['start_date_ad', 'startDateAD', '::text'] produces
@@ -23,22 +26,39 @@ export interface ScopeOptions {
   dateCol?: string;
 }
 
+/** Per-table knobs that differ between the bootstrap payload and CACHE_LOADS. */
+export interface CacheOptions {
+  /** Extra column (db name only) selected by CACHE_LOADS but not bootstrap. */
+  cacheOnlyColumns?: string[];
+  /** CACHE_LOADS keeps a table's FULL history; bootstrap caps it at this many rows. */
+  bootstrapLimitOnly?: number;
+  /** CACHE_LOADS applies an extra static WHERE (e.g. fiscal-year scope), bootstrap does not. */
+  cacheWhere?: string;
+  /** CACHE_LOADS appends this LIMIT (used by company_profile). */
+  cacheLimit?: number;
+}
+
 export interface TableQueryConfig {
   table: string;
   columns: ColumnDef[];
   scope?: ScopeOptions;
   orderBy?: string;
   limit?: number;
+  /** CACHE_LOADS list (state/runtimeState.ts); absent = table is not cached. */
+  cache?: CacheOptions;
 }
 
 /**
  * All tables read by GET /api/bootstrap, keyed by the payload field name the
  * server.ts handler consumes. Scoped tables are filtered by branch and/or the
  * selected fiscal year's AD date range in SQL (never in JavaScript).
+ * Every entry carrying a `cache` block also feeds the operational-cache
+ * refresh queries (see buildCacheLoads in state/runtimeState.ts).
  */
 export const BOOTSTRAP_TABLES = {
   branches: {
     table: 'branches',
+    cache: { cacheOnlyColumns: ['is_demo'], cacheWhere: 'ORDER BY code' },
     columns: [
       ['id', 'id'],
       ['code', 'code'],
@@ -53,6 +73,7 @@ export const BOOTSTRAP_TABLES = {
   },
   products: {
     table: 'products',
+    cache: { cacheOnlyColumns: ['is_demo'] },
     columns: [
       ['id', 'id'],
       ['sku', 'sku'],
@@ -74,6 +95,7 @@ export const BOOTSTRAP_TABLES = {
   stock: {
     table: 'inventory_stock',
     scope: { branchCol: 'branch_id' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['product_id', 'productId'],
@@ -90,6 +112,7 @@ export const BOOTSTRAP_TABLES = {
     // Fixed assets are long-term assets that persist across all fiscal years —
     // branch-scoped only, never filtered by fiscal year date range.
     scope: { branchCol: 'branch_id' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['tag_number', 'tagNumber'],
@@ -125,6 +148,7 @@ export const BOOTSTRAP_TABLES = {
   customerDevices: {
     table: 'customer_device_records',
     scope: { branchCol: 'branch_id', dateCol: 'issued_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['customer_id', 'customerId'],
@@ -147,6 +171,7 @@ export const BOOTSTRAP_TABLES = {
   customers: {
     table: 'customer_records',
     scope: { branchCol: 'branch_id' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['customer_id', 'customerId'],
@@ -164,6 +189,7 @@ export const BOOTSTRAP_TABLES = {
   purchaseOrders: {
     table: 'purchase_orders',
     scope: { branchCol: 'branch_id', dateCol: 'order_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['po_number', 'poNumber'],
@@ -184,6 +210,7 @@ export const BOOTSTRAP_TABLES = {
   purchaseInvoices: {
     table: 'purchase_invoices',
     scope: { branchCol: 'branch_id', dateCol: 'invoice_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['invoice_number', 'invoiceNumber'],
@@ -208,6 +235,7 @@ export const BOOTSTRAP_TABLES = {
   salesInvoices: {
     table: 'sales_invoices',
     scope: { branchCol: 'branch_id', dateCol: 'invoice_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['invoice_number', 'invoiceNumber'],
@@ -230,6 +258,7 @@ export const BOOTSTRAP_TABLES = {
   purchaseReturns: {
     table: 'purchase_returns',
     scope: { branchCol: 'branch_id', dateCol: 'return_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['return_number', 'returnNumber'],
@@ -252,6 +281,7 @@ export const BOOTSTRAP_TABLES = {
   salesReturns: {
     table: 'sales_returns',
     scope: { branchCol: 'branch_id', dateCol: 'return_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['return_number', 'returnNumber'],
@@ -275,6 +305,7 @@ export const BOOTSTRAP_TABLES = {
   shipments: {
     table: 'shipments',
     scope: { branchOrCols: ['source_branch_id', 'destination_branch_id'], dateCol: 'dispatch_date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['tracking_code', 'trackingCode'],
@@ -298,6 +329,7 @@ export const BOOTSTRAP_TABLES = {
   stockOperations: {
     table: 'stock_operations',
     scope: { branchCol: 'branch_id', dateCol: 'date_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['reference_number', 'referenceNumber'],
@@ -325,7 +357,8 @@ export const BOOTSTRAP_TABLES = {
     table: 'audit_logs',
     scope: { dateCol: 'timestamp_ad' },
     orderBy: 'timestamp_ad DESC',
-    limit: 200,
+    // CACHE_LOADS keeps the full audit history; bootstrap caps the payload.
+    cache: { bootstrapLimitOnly: 200 },
     columns: [
       ['id', 'id'],
       ['user_email', 'userEmail'],
@@ -342,6 +375,7 @@ export const BOOTSTRAP_TABLES = {
     table: 'transaction_logs',
     scope: { dateCol: 'timestamp_ad' },
     orderBy: 'timestamp_ad DESC',
+    cache: {},
     columns: [
       ['id', 'id'],
       ['transaction_number', 'transactionNumber'],
@@ -361,6 +395,7 @@ export const BOOTSTRAP_TABLES = {
   },
   suppliers: {
     table: 'suppliers',
+    cache: { cacheOnlyColumns: ['is_demo'], cacheWhere: 'ORDER BY name ASC' },
     columns: [
       ['id', 'id'],
       ['supplier_code', 'supplierCode'],
@@ -376,6 +411,9 @@ export const BOOTSTRAP_TABLES = {
   },
   users: {
     table: 'users',
+    // Password hashes ride along in the users cache: the login endpoint
+    // authenticates from this array.
+    cache: { cacheOnlyColumns: ['password'], cacheWhere: 'ORDER BY created_at ASC' },
     columns: [
       ['id', 'id'],
       ['email', 'email'],
@@ -389,6 +427,7 @@ export const BOOTSTRAP_TABLES = {
   approvalRequests: {
     table: 'approval_requests',
     scope: { branchCol: 'branch_id', dateCol: 'requested_at_ad' },
+    cache: {},
     columns: [
       ['id', 'id'],
       ['request_number', 'requestNumber'],
@@ -417,6 +456,7 @@ export const BOOTSTRAP_TABLES = {
   categories: {
     table: 'categories',
     orderBy: 'name ASC',
+    cache: { cacheOnlyColumns: ['is_demo'] },
     columns: [
       ['id', 'id'],
       ['name', 'name'],
@@ -428,6 +468,7 @@ export const BOOTSTRAP_TABLES = {
   uom: {
     table: 'uom',
     orderBy: 'name ASC',
+    cache: {},
     columns: [
       ['id', 'id'],
       ['name', 'name'],
@@ -439,6 +480,7 @@ export const BOOTSTRAP_TABLES = {
   locations: {
     table: 'locations',
     scope: { branchCol: 'branch_id' },
+    cache: { cacheOnlyColumns: ['is_demo'], cacheWhere: 'ORDER BY name ASC' },
     columns: [
       ['id', 'id'],
       ['name', 'name'],
@@ -455,6 +497,7 @@ export const BOOTSTRAP_TABLES = {
   companyProfile: {
     table: 'company_profile',
     limit: 1,
+    cache: { cacheLimit: 1 },
     columns: [
       ['id', 'id'],
       ['name', 'name'],
@@ -484,6 +527,7 @@ export const BOOTSTRAP_TABLES = {
     table: 'damage_records',
     scope: { branchCol: 'branch_id', dateCol: 'damage_date_ad' },
     orderBy: 'damage_date_ad DESC',
+    cache: {},
     columns: [
       ['id', 'id'],
       ['damage_reference', 'damageReference'],
@@ -515,6 +559,7 @@ export const BOOTSTRAP_TABLES = {
     table: 'vendor_payments',
     scope: { branchCol: 'branch_id', dateCol: 'payment_date_ad' },
     orderBy: 'payment_date_ad DESC, created_at DESC',
+    cache: {},
     columns: [
       ['id', 'id'],
       ['payment_number', 'paymentNumber'],
@@ -553,6 +598,7 @@ export const BOOTSTRAP_TABLES = {
     // only, never fiscal-year-scoped.
     scope: { branchCol: 'branch_id' },
     orderBy: 'created_at DESC',
+    cache: {},
     columns: [
       ['id', 'id'],
       ['device_serial', 'deviceSerial'],
@@ -571,6 +617,79 @@ export const BOOTSTRAP_TABLES = {
       ['updated_at', 'updatedAt'],
     ],
   },
-  // fiscal_years uses a custom query (has ::text casts on AD dates and a
-  // needed ordering) — see fetchFiscalYears in ./bootstrap.repo.ts.
+  // -----------------------------------------------------------------------------
+  // CACHE-ONLY TABLES — read by the operational cache (CACHE_LOADS in
+  // state/runtimeState.ts) but NOT fetched by GET /api/bootstrap (which gets
+  // fiscal years via fetchFiscalYears's ::text-cast query and never ships the
+  // customer-payments sub-ledger wholesale).
+  // -----------------------------------------------------------------------------
+  fiscalYears: {
+    table: 'fiscal_years',
+    cache: { cacheWhere: 'ORDER BY start_date_ad DESC' },
+    columns: [
+      ['id', 'id'],
+      ['code', 'code'],
+      ['start_date_ad', 'startDateAD', '::text'],
+      ['end_date_ad', 'endDateAD', '::text'],
+      ['start_date_bs', 'startDateBS'],
+      ['end_date_bs', 'endDateBS'],
+      ['is_current', 'isCurrent'],
+      ['is_closed', 'isClosed'],
+      ['is_demo', 'isDemo'],
+    ],
+  },
+  customerPayments: {
+    table: 'customer_payments',
+    cache: { cacheWhere: 'ORDER BY payment_date_ad DESC, created_at DESC' },
+    columns: [
+      ['id', 'id'],
+      ['payment_number', 'paymentNumber'],
+      ['customer_id', 'customerId'],
+      ['customer_name', 'customerName'],
+      ['branch_id', 'branchId'],
+      ['invoice_id', 'invoiceId'],
+      ['invoice_number', 'invoiceNumber'],
+      ['payment_date_ad', 'paymentDateAD'],
+      ['payment_date_bs', 'paymentDateBS'],
+      ['amount', 'amount'],
+      ['payment_method', 'paymentMethod'],
+      ['bank_name', 'bankName'],
+      ['bank_branch', 'bankBranch'],
+      ['account_number', 'accountNumber'],
+      ['cheque_number', 'chequeNumber'],
+      ['cheque_date_ad', 'chequeDateAD'],
+      ['cheque_date_bs', 'chequeDateBS'],
+      ['transaction_reference', 'transactionReference'],
+      ['notes', 'notes'],
+      ['status', 'status'],
+      ['reversal_reason', 'reversalReason'],
+      ['reversed_by', 'reversedBy'],
+      ['reversed_at_ad', 'reversedAtAD'],
+      ['original_payment_id', 'originalPaymentId'],
+      ['fiscal_year_id', 'fiscalYearId'],
+      ['is_demo', 'isDemo'],
+      ['created_by', 'createdBy'],
+      ['created_at', 'createdAt'],
+      ['updated_at', 'updatedAt'],
+    ],
+  },
 } as const satisfies Record<string, TableQueryConfig>;
+
+/**
+ * Build the operational-cache refresh query for one table config (no WHERE
+ * scoping: the cache always reads every branch and every fiscal year).
+ * Ordering: the per-table cache override wins, otherwise the table's standard
+ * orderBy applies (the cache previously ordered these the same way).
+ */
+export function buildCacheSelectSql(cfg: TableQueryConfig): string {
+  const cache = cfg.cache || {};
+  const selectList = [
+    ...cfg.columns.map(([col, alias, cast]) => `${col}${cast || ''} AS "${alias}"`),
+    ...(cache.cacheOnlyColumns || []).map((col) => `${col} AS "${col.replace(/_([a-z])/g, (_, c) => c.toUpperCase())}"`),
+  ].join(', ');
+  let sql = `SELECT ${selectList} FROM ${cfg.table}`;
+  const order = cache.cacheWhere || (cfg.orderBy ? `ORDER BY ${cfg.orderBy}` : '');
+  if (order) sql += ` ${order}`;
+  if (cache.cacheLimit) sql += ` LIMIT ${cache.cacheLimit}`;
+  return sql;
+}
