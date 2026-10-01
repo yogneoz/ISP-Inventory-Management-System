@@ -1,18 +1,23 @@
+/**
+ * Customer Ledger & Receivables — mirrors the Vendor Ledger for the sales side.
+ *
+ * Lines: sales invoices (debits), payments recorded on invoices (credits),
+ * and posted sales returns / credit notes (credits). Closing balance is the
+ * customer's outstanding receivable. CSV export matches the vendor ledger's.
+ */
 import React, { useState, useEffect, useMemo } from 'react';
-import { Supplier, Branch } from '../../types';
+import { CustomerRecord, Branch } from '../../types';
 import { api } from '../../services/api';
-import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import {
   Wallet,
   Search,
   Download,
-  Loader2,
   ArrowDownRight,
   ArrowUpRight,
   RefreshCw,
-  Building,
   Undo2,
+  Users,
 } from 'lucide-react';
 import StatCard from '../../components/common/StatCard';
 
@@ -24,34 +29,33 @@ interface LedgerLine {
   amount: number;
   type: 'INVOICE' | 'PAYMENT' | 'RETURN';
   notes?: string | null;
-  vatAmount?: number;
   paymentMethod?: string;
   debit: number;
   credit: number;
   balance: number;
 }
 
-interface VendorLedgerProps {
-  suppliers: Supplier[];
+interface CustomerLedgerProps {
+  customers: CustomerRecord[];
   branches: Branch[];
   selectedBranchId?: string;
   dateMode: 'BS' | 'AD';
 }
 
-export const VendorLedger: React.FC<VendorLedgerProps> = ({
-  suppliers,
+export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
+  customers,
   branches,
   selectedBranchId,
   dateMode,
 }) => {
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fromAd, setFromAd] = useState<string>('');
   const [toAd, setToAd] = useState<string>('');
   const [branchId, setBranchId] = useState<string>('ALL');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<{
-    supplier: { id: string; name: string };
+    customer: { id: string; customerId?: string; name: string };
     openingBalance: number;
     totalDebit: number;
     totalCredit: number;
@@ -59,24 +63,24 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
     ledger: LedgerLine[];
   } | null>(null);
 
-  const supplier = useMemo(
-    () => suppliers.find((s) => s.id === selectedSupplierId) || null,
-    [suppliers, selectedSupplierId]
+  const customer = useMemo(
+    () => customers.find((c) => c.id === selectedCustomerId) || null,
+    [customers, selectedCustomerId]
   );
 
   const fetchLedger = async () => {
-    if (!selectedSupplierId) return;
+    if (!selectedCustomerId) return;
     setLoading(true);
     setError('');
     try {
-      const data = await api.getVendorLedger(selectedSupplierId, {
+      const data = await api.getCustomerLedger(selectedCustomerId, {
         fromAd: fromAd || undefined,
         toAd: toAd || undefined,
         branchId: branchId === 'ALL' ? undefined : branchId,
       });
       setLedgerData(data);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load vendor ledger.');
+      setError(err?.message || 'Failed to load customer ledger.');
       setLedgerData(null);
     } finally {
       setLoading(false);
@@ -86,7 +90,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
   useEffect(() => {
     fetchLedger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSupplierId]);
+  }, [selectedCustomerId]);
 
   const handleExport = () => {
     if (!ledgerData) return;
@@ -94,20 +98,20 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
       Date: dateMode === 'BS' ? line.dateBS : line.dateAD,
       'Document No': line.documentNumber,
       Type: line.type,
-      'Debit (Purchase)': line.debit,
-      'Credit (Payment)': line.credit,
+      'Debit (Sale)': line.debit,
+      'Credit (Payment/Return)': line.credit,
       'Running Balance': line.balance,
       Notes: line.notes || '',
     }));
     exportToCSV(
-      `Vendor_Ledger_${ledgerData.supplier.name.replace(/\s+/g, '_')}`,
+      `Customer_Ledger_${ledgerData.customer.name.replace(/\s+/g, '_')}`,
       rows,
       [
         { key: 'Date', label: dateMode === 'BS' ? 'Nepali (BS) Date' : 'English (AD) Date' },
         { key: 'Document No', label: 'Document Number' },
         { key: 'Type', label: 'Type' },
-        { key: 'Debit (Purchase)', label: 'Debit / Purchases (NPR)' },
-        { key: 'Credit (Payment)', label: 'Credit / Payments (NPR)' },
+        { key: 'Debit (Sale)', label: 'Debit / Sales (NPR)' },
+        { key: 'Credit (Payment/Return)', label: 'Credit / Payments & Credit Notes (NPR)' },
         { key: 'Running Balance', label: 'Running Balance (NPR)' },
         { key: 'Notes', label: 'Notes' },
       ]
@@ -124,16 +128,16 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Wallet className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-            Vendor Ledger & Payments
+            Customer Ledger & Receivables
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Sub-ledger of supplier bills (debits), recorded payments (credits) with running balance, bank & reversal details.
+            Sub-ledger of customer sales invoices (debits), recorded payments and credit notes from sales returns (credits) with running balance.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={fetchLedger}
-            disabled={!selectedSupplierId || loading}
+            disabled={!selectedCustomerId || loading}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium transition"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -153,17 +157,17 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60">
         <div className="lg:col-span-2">
-          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Supplier</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Customer</label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <select
-              value={selectedSupplierId}
-              onChange={(e) => setSelectedSupplierId(e.target.value)}
+              value={selectedCustomerId}
+              onChange={(e) => setSelectedCustomerId(e.target.value)}
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 dark:text-white"
             >
-              <option value="">Select supplier...</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              <option value="">Select customer...</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.customerName} ({c.customerId})</option>
               ))}
             </select>
           </div>
@@ -202,7 +206,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
         <div className="md:col-span-1 lg:col-span-5 flex items-end">
           <button
             onClick={fetchLedger}
-            disabled={!selectedSupplierId || loading}
+            disabled={!selectedCustomerId || loading}
             className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-80 disabled:opacity-40 text-sm font-medium transition"
           >
             <Search className="h-4 w-4" />
@@ -220,27 +224,27 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
       {/* Ledger summary + table */}
       {ledgerData && (
         <>
-          {/* Summary cards — shared compact StatCard component */}
+          {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               label="Opening Balance"
               value={numberFmt(ledgerData.openingBalance)}
-              tone={ledgerData.openingBalance > 0 ? 'rose' : 'emerald'}
+              tone={ledgerData.openingBalance > 0 ? 'emerald' : 'rose'}
             />
             <StatCard
-              label="Total Purchases (Debit)"
+              label="Total Sales (Debit)"
               value={numberFmt(ledgerData.totalDebit)}
-              tone="rose"
-            />
-            <StatCard
-              label="Total Payments (Credit)"
-              value={numberFmt(ledgerData.totalCredit)}
               tone="emerald"
             />
             <StatCard
-              label="Closing Balance"
+              label="Payments & Credit Notes"
+              value={numberFmt(ledgerData.totalCredit)}
+              tone="rose"
+            />
+            <StatCard
+              label="Receivable (Closing)"
               value={numberFmt(ledgerData.closingBalance)}
-              tone={ledgerData.closingBalance > 0 ? 'rose' : 'emerald'}
+              tone={ledgerData.closingBalance > 0 ? 'emerald' : 'rose'}
             />
           </div>
 
@@ -248,8 +252,11 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-semibold">
-                <Building className="h-4 w-4 text-indigo-500" />
-                {ledgerData.supplier.name}
+                <Users className="h-4 w-4 text-indigo-500" />
+                {ledgerData.customer.name}
+                {ledgerData.customer.customerId && (
+                  <span className="text-xs font-normal text-slate-500 dark:text-slate-400">({ledgerData.customer.customerId})</span>
+                )}
                 <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
                   {ledgerData.ledger.length} entries
                 </span>
@@ -262,8 +269,8 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
                     <th className="px-4 py-3 text-left font-semibold">Date</th>
                     <th className="px-4 py-3 text-left font-semibold">Document No</th>
                     <th className="px-4 py-3 text-left font-semibold">Type</th>
-                    <th className="px-4 py-3 text-right font-semibold">Debit (Purchases)</th>
-                    <th className="px-4 py-3 text-right font-semibold">Credit (Payments)</th>
+                    <th className="px-4 py-3 text-right font-semibold">Debit (Sales)</th>
+                    <th className="px-4 py-3 text-right font-semibold">Credit (Payment/Return)</th>
                     <th className="px-4 py-3 text-right font-semibold">Balance</th>
                   </tr>
                 </thead>
@@ -287,29 +294,29 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
                       <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">{line.documentNumber}</td>
                       <td className="px-4 py-2">
                         {line.type === 'INVOICE' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium">
-                            <ArrowDownRight className="h-3 w-3" /> Bill
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-medium">
+                            <ArrowDownRight className="h-3 w-3" /> Invoice
                           </span>
                         ) : line.type === 'RETURN' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-medium">
-                            <Undo2 className="h-3 w-3" /> Debit Note
+                            <Undo2 className="h-3 w-3" /> Credit Note
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-medium">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-xs font-medium">
                             <ArrowUpRight className="h-3 w-3" /> Payment{line.paymentMethod ? ` (${line.paymentMethod})` : ''}
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-right text-red-600 dark:text-red-400">{line.debit > 0 ? numberFmt(line.debit) : '—'}</td>
-                      <td className="px-4 py-2 text-right text-emerald-600 dark:text-emerald-400">{line.credit > 0 ? numberFmt(line.credit) : '—'}</td>
-                      <td className={`px-4 py-2 text-right font-semibold ${line.balance > 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                      <td className="px-4 py-2 text-right text-emerald-600 dark:text-emerald-400">{line.debit > 0 ? numberFmt(line.debit) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-rose-600 dark:text-rose-400">{line.credit > 0 ? numberFmt(line.credit) : '—'}</td>
+                      <td className={`px-4 py-2 text-right font-semibold ${line.balance > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-300'}`}>
                         {numberFmt(line.balance)}
                       </td>
                     </tr>
                   ))}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/50 font-semibold">
-                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100" colSpan={5}>Closing Balance</td>
-                    <td className={`px-4 py-3 text-right ${ledgerData.closingBalance > 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                    <td className="px-4 py-3 text-slate-800 dark:text-slate-100" colSpan={5}>Receivable (Closing Balance)</td>
+                    <td className={`px-4 py-3 text-right ${ledgerData.closingBalance > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-300'}`}>
                       {numberFmt(ledgerData.closingBalance)}
                     </td>
                   </tr>
@@ -319,15 +326,8 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
           </div>
         </>
       )}
-
-      {!ledgerData && !error && (
-        <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
-          <Wallet className="h-12 w-12 mb-3 opacity-40" />
-          <p>Select a supplier to view their payment ledger.</p>
-        </div>
-      )}
     </div>
   );
 };
 
-export default VendorLedger;
+export default CustomerLedger;

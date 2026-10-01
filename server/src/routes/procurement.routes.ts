@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_purchaseOrders, post_purchaseOrders, put_Id, delete_Id, patch_status, get_purchaseInvoices, post_purchaseInvoices, delete_Id2, post_pay, post_reversePayments, get_vendorPayments, get_payments, post_vendorPayments, post_reverse, get_ledger } from '../controllers/procurement.controller';
+import { get_purchaseOrders, post_purchaseOrders, put_Id, delete_Id, patch_status, get_purchaseInvoices, post_purchaseInvoices, delete_Id2, post_pay, post_reversePayments, get_vendorPayments, get_payments, post_vendorPayments, post_reverse, get_ledger, get_purchaseReturns, post_purchaseReturns, post_purchaseReturnCancel, post_purchaseReturnApprove } from '../controllers/procurement.controller';
 import {
   branches,
   broadcastChange,
@@ -67,5 +67,13 @@ app.post('/api/vendor-payments', requirePermission('inv-pay'), async (req, res, 
 app.post('/api/vendor-payments/:id/reverse', requirePermission('inv-pay'), async (req, res, next) => { post_reverse(req as any, res as any).catch(next); });
 
 app.get('/api/vendors/:supplierId/ledger', async (req, res, next) => { get_ledger(req as any, res as any).catch(next); });
+
+app.get('/api/purchase-returns', async (req, res, next) => { get_purchaseReturns(req as any, res as any).catch(next); });
+
+app.post('/api/purchase-returns', requirePermission('purchase-return-create'), async (req, res, next) => { post_purchaseReturns(req as any, res as any).catch(next); });
+
+app.post('/api/purchase-returns/:id/cancel', requirePermission('purchase-return-create'), async (req, res, next) => { post_purchaseReturnCancel(req as any, res as any).catch(next); });
+
+app.post('/api/purchase-returns/:id/post', requirePermission('purchase-return-create'), async (req, res, next) => { post_purchaseReturnApprove(req as any, res as any).catch(next); });
 
 }

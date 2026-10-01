@@ -26,6 +26,7 @@ import * as auth from './auth';
 import * as bootstrap from './bootstrap';
 import * as inventory from './inventory';
 import * as procurement from './procurement';
+import * as sales from './sales';
 import * as finance from './finance';
 import * as admin from './admin';
 
@@ -102,6 +103,19 @@ export const api = {
   reverseVendorPayment: procurement.reverseVendorPayment,
   reverseInvoicePayments: procurement.reverseInvoicePayments,
   getVendorLedger: procurement.getVendorLedger,
+
+  // Sales Invoices & Returns
+  getSalesInvoices: sales.getSalesInvoices,
+  createSalesInvoice: sales.createSalesInvoice,
+  getPurchaseReturns: sales.getPurchaseReturns,
+  createPurchaseReturn: sales.createPurchaseReturn,
+  cancelPurchaseReturn: sales.cancelPurchaseReturn,
+  postPurchaseReturn: sales.postPurchaseReturn,
+  getSalesReturns: sales.getSalesReturns,
+  createSalesReturn: sales.createSalesReturn,
+  cancelSalesReturn: sales.cancelSalesReturn,
+  postSalesReturn: sales.postSalesReturn,
+  getCustomerLedger: sales.getCustomerLedger,
 
   // Shipments
   getShipments: procurement.getShipments,

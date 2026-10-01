@@ -10,6 +10,9 @@ import {
   SerialLog,
   PurchaseOrder,
   PurchaseInvoice,
+  SalesInvoice,
+  PurchaseReturn,
+  SalesReturn,
   Shipment,
   StockOperation,
   FiscalYear,
@@ -53,6 +56,12 @@ import { PurchaseOrders, OrderFormLine } from './features/procurement/PurchaseOr
 // PurchaseOrders, modals, and anything referenced in the synchronous render path.
 const PurchaseInvoices = React.lazy(() =>
   import('./features/procurement/PurchaseInvoices').then((m) => ({ default: m.PurchaseInvoices }))
+);
+const SalesInvoices = React.lazy(() =>
+  import('./features/sales/SalesInvoices').then((m) => ({ default: m.SalesInvoices }))
+);
+const ReturnsRegister = React.lazy(() =>
+  import('./features/sales/ReturnsRegister').then((m) => ({ default: m.ReturnsRegister }))
 );
 const Shipments = React.lazy(() =>
   import('./features/procurement/Shipments').then((m) => ({ default: m.Shipments }))
@@ -120,6 +129,9 @@ const VendorOpeningBalances = React.lazy(() =>
 );
 const VendorLedger = React.lazy(() =>
   import('./features/finance/VendorLedger').then((m) => ({ default: m.VendorLedger }))
+);
+const CustomerLedger = React.lazy(() =>
+  import('./features/finance/CustomerLedger').then((m) => ({ default: m.CustomerLedger }))
 );
 const FiscalYearClosingWizard = React.lazy(() =>
   import('./features/finance/FiscalYearClosingWizard').then((m) => ({ default: m.FiscalYearClosingWizard }))
@@ -347,6 +359,9 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
+  const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [stockOperations, setStockOperations] = useState<StockOperation[]>([]);
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
@@ -391,6 +406,9 @@ export default function App() {
     if (data.customers) setCustomers(data.customers);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
     if (data.purchaseInvoices) setPurchaseInvoices(data.purchaseInvoices);
+    if (data.salesInvoices) setSalesInvoices(data.salesInvoices);
+    if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
+    if (data.salesReturns) setSalesReturns(data.salesReturns);
     if (data.shipments) setShipments(data.shipments);
     if (data.stockOperations) setStockOperations(data.stockOperations);
     if (data.fiscalYears) setFiscalYears(data.fiscalYears);
@@ -911,6 +929,45 @@ export default function App() {
       }
     }
 
+    refreshAllData();
+  };
+
+  const handleCreateSalesInvoice = async (
+    inv: Omit<SalesInvoice, 'id' | 'invoiceNumber'>
+  ) => {
+    await api.createSalesInvoice(inv);
+    refreshAllData();
+  };
+
+  const handleCreatePurchaseReturn = async (payload: any) => {
+    const created = await api.createPurchaseReturn(payload);
+    refreshAllData();
+    return created;
+  };
+
+  const handleCancelPurchaseReturn = async (id: string, reason: string) => {
+    await api.cancelPurchaseReturn(id, reason);
+    refreshAllData();
+  };
+
+  const handleApprovePurchaseReturn = async (id: string) => {
+    await api.postPurchaseReturn(id);
+    refreshAllData();
+  };
+
+  const handleCreateSalesReturn = async (payload: any) => {
+    const created = await api.createSalesReturn(payload);
+    refreshAllData();
+    return created;
+  };
+
+  const handleCancelSalesReturn = async (id: string, reason: string) => {
+    await api.cancelSalesReturn(id, reason);
+    refreshAllData();
+  };
+
+  const handleApproveSalesReturn = async (id: string) => {
+    await api.postSalesReturn(id);
     refreshAllData();
   };
 
@@ -1751,6 +1808,122 @@ export default function App() {
                 </React.Suspense>
               )}
 
+              {activeTab === 'create-sale' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <SalesInvoices
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    invoices={salesInvoices}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    activeTab="create-sale"
+                    onCreateInvoice={handleCreateSalesInvoice}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'sales-list' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <SalesInvoices
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    invoices={salesInvoices}
+                    products={products}
+                    branches={branches}
+                    stock={stock}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    activeTab="sales-list"
+                    onCreateInvoice={handleCreateSalesInvoice}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'purchase-returns' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ReturnsRegister
+                    kind="PURCHASE"
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    purchaseInvoices={purchaseInvoices}
+                    salesInvoices={salesInvoices}
+                    returns={purchaseReturns}
+                    products={products}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    onCreateReturn={handleCreatePurchaseReturn}
+                    onCancelReturn={handleCancelPurchaseReturn}
+                    onApproveReturn={handleApprovePurchaseReturn}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'create-purchase-return' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ReturnsRegister
+                    kind="PURCHASE"
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    purchaseInvoices={purchaseInvoices}
+                    salesInvoices={salesInvoices}
+                    returns={purchaseReturns}
+                    products={products}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    autoOpenCreate
+                    onCreateReturn={handleCreatePurchaseReturn}
+                    onCancelReturn={handleCancelPurchaseReturn}
+                    onApproveReturn={handleApprovePurchaseReturn}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'sales-returns' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ReturnsRegister
+                    kind="SALES"
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    purchaseInvoices={purchaseInvoices}
+                    salesInvoices={salesInvoices}
+                    returns={salesReturns}
+                    products={products}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    onCreateReturn={handleCreateSalesReturn}
+                    onCancelReturn={handleCancelSalesReturn}
+                    onApproveReturn={handleApproveSalesReturn}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'create-sales-return' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <ReturnsRegister
+                    kind="SALES"
+                    companyProfile={companyProfile}
+                    currentUser={currentUser}
+                    purchaseInvoices={purchaseInvoices}
+                    salesInvoices={salesInvoices}
+                    returns={salesReturns}
+                    products={products}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                    autoOpenCreate
+                    onCreateReturn={handleCreateSalesReturn}
+                    onCancelReturn={handleCancelSalesReturn}
+                    onApproveReturn={handleApproveSalesReturn}
+                  />
+                </React.Suspense>
+              )}
+
               {activeTab === 'create-shipment' && (
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <Shipments
@@ -2317,6 +2490,17 @@ export default function App() {
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <VendorLedger
                     suppliers={suppliers}
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    dateMode={dateMode}
+                  />
+                </React.Suspense>
+              )}
+
+              {activeTab === 'customer-ledger' && (
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <CustomerLedger
+                    customers={customers}
                     branches={branches}
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}

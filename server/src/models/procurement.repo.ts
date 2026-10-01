@@ -551,3 +551,125 @@ export const VENDOR_PAYMENT_SELECT = `
 
 
 
+
+// ---------------------------------------------------------------------------
+// Purchase Returns (Debit Notes, DN-…)
+// ---------------------------------------------------------------------------
+
+export const PR_SELECT_COLUMNS =
+  'id, return_number AS "returnNumber", original_invoice_id AS "originalInvoiceId", original_invoice_number AS "originalInvoiceNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", return_date_ad AS "returnDateAD", return_date_bs AS "returnDateBS", reason, notes, taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", status, items, fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt"';
+
+export function buildPurchaseReturnListSql(branchId?: unknown): { sql: string; params: unknown[] } {
+  const filter = branchId && branchId !== 'ALL';
+  return {
+    sql:
+      `SELECT ${PR_SELECT_COLUMNS} FROM purchase_returns` +
+      (filter ? ' WHERE branch_id = $1' : '') +
+      ' ORDER BY created_at DESC',
+    params: filter ? [branchId] : [],
+  };
+}
+
+export const PR_INSERT_SQL = `INSERT INTO purchase_returns (
+   id, return_number, original_invoice_id, original_invoice_number, supplier_id, supplier_name, branch_id,
+   return_date_ad, return_date_bs, reason, notes, taxable_amount, vat_amount, non_taxable_amount,
+   grand_total, status, items
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`;
+
+export function prInsertParams(ret: Record<string, any>, itemsJson: string): unknown[] {
+  return [
+    ret.id,
+    ret.returnNumber,
+    ret.originalInvoiceId || null,
+    ret.originalInvoiceNumber || null,
+    ret.supplierId || null,
+    ret.supplierName || 'Vendor',
+    ret.branchId,
+    ret.returnDateAD,
+    ret.returnDateBS,
+    ret.reason || 'DEFECTIVE',
+    ret.notes || '',
+    Number(ret.taxableAmount) || 0,
+    Number(ret.vatAmount) || 0,
+    Number(ret.nonTaxableAmount) || 0,
+    Number(ret.grandTotal) || 0,
+    ret.status || 'POSTED',
+    itemsJson,
+  ];
+}
+
+/** Finds a return by id or number (duplicate guard before insert). */
+export const PR_EXISTS_SQL = 'SELECT 1 FROM purchase_returns WHERE id = $1 OR return_number = $2 LIMIT 1';
+
+/** Locks the original purchase-invoice row for the over-return calculation. */
+export const PR_LOCK_INVOICE_SQL =
+  'SELECT id, invoice_number AS "invoiceNumber", branch_id AS "branchId", items FROM purchase_invoices WHERE id = $1 OR invoice_number = $1 FOR UPDATE';
+
+/** Total already-returned quantity for one (invoice, product) pair across POSTED returns. */
+export const PR_RETURNED_QTY_SQL =
+  `SELECT COALESCE(SUM((item->>'quantity')::numeric), 0)::float AS returned_qty
+   FROM purchase_returns, jsonb_array_elements(items) AS item
+   WHERE original_invoice_id = $1 AND item->>'productId' = $2 AND status = 'POSTED'`;
+
+/** Deducts returned stock from the branch, guarding on quantity (over-draw prevention). */
+export const PR_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
+ SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`;
+
+/** Restores stock when a posted return is cancelled. */
+export const PR_RESTORE_STOCK_SQL = `UPDATE inventory_stock
+ SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $2 AND branch_id = $3`;
+
+/** Cancels a return only while it is still POSTED (idempotent no-op otherwise). */
+export const PR_CANCEL_SQL = `UPDATE purchase_returns SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'POSTED'`;
+
+/** Appends a PURCHASE_RETURN ledger row (quantity_changed negative). Mirrors PI_TXN_LOG_SQL. */
+export const PR_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
+
+export function prTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
+  return [
+    `txn-${Date.now()}-${item.productId}-pr-${itemIndex}`,
+    `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+    item.productId,
+    item.sku || '',
+    item.productName || 'Product',
+    branchId,
+    'PURCHASE_RETURN',
+    -(Math.abs(Number(item.quantity)) || 0),
+    Number(item.unitPrice) || 0,
+    ret.returnNumber,
+    ret.returnDateAD || new Date().toISOString(),
+    ret.returnDateBS || BS_DATE_FALLBACK,
+  ];
+}
+
+/** Loads one purchase return by id or number (cancel flow). */
+export const PR_FIND_ONE_SQL = `SELECT ${PR_SELECT_COLUMNS} FROM purchase_returns WHERE id = $1 OR return_number = $1 LIMIT 1`;
+
+/** Posted purchase returns (debit notes) for one supplier — vendor-ledger lines. */
+export const LEDGER_RETURNS_SQL =
+  `SELECT id, return_number AS "returnNumber", original_invoice_number AS "originalInvoiceNumber",
+          branch_id AS "branchId", return_date_ad AS "returnDateAD", return_date_bs AS "returnDateBS",
+          grand_total AS "grandTotal", notes
+   FROM purchase_returns
+   WHERE status = 'POSTED'
+     AND (supplier_id = $1 OR (supplier_id IS NULL AND (LOWER(supplier_name) = LOWER($2) OR LOWER(supplier_name) LIKE LOWER($3))))`;
+
+/**
+ * Flips serial-tracked units when a purchase return posts. history_json is a
+ * TEXT JSON array; the append keeps the {status, sourceType, sourceId, dateAD,
+ * notes} entry shape used by serials.service.ts.
+ */
+export const PR_SERIAL_FLIP_SQL = `UPDATE serial_log
+ SET status = $2,
+     updated_at = CURRENT_TIMESTAMP,
+     history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text
+ WHERE device_serial = ANY($1::text[])`;
+
+/** Approves a DRAFT return: flips status only while still DRAFT (race-safe). */
+export const PR_POST_DRAFT_SQL = `UPDATE purchase_returns SET status = 'POSTED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'DRAFT'`;
+
+/** Cancels a DRAFT return (no stock effect — it never posted). */
+export const PR_CANCEL_DRAFT_SQL = `UPDATE purchase_returns SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'DRAFT'`;

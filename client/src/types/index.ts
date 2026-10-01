@@ -634,7 +634,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_RETURN' | 'SALES_RETURN' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;
@@ -757,6 +757,82 @@ export interface ApprovalRequest {
   rejectionReason?: string;
 }
 
+/** One line of a sales invoice / return document (mirrors PurchaseInvoiceItem). */
+export interface SalesInvoiceItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  discount?: number;
+  isTaxExempt?: boolean;
+  taxRate?: number;
+  subtotal?: number;
+  taxAmount?: number;
+  total?: number;
+}
+
+/** Sales invoice (INV-…) — lean sales module, prerequisite for Sales Returns. */
+export interface SalesInvoice {
+  id: string;
+  invoiceNumber: string;
+  customerId?: string;
+  customerName: string;
+  branchId: string;
+  invoiceDateAD: string;
+  invoiceDateBS: string;
+  dueDateAD?: string;
+  dueDateBS?: string;
+  items?: SalesInvoiceItem[];
+  taxableAmount: number;
+  vatAmount: number;
+  nonTaxableAmount: number;
+  grandTotal: number;
+  paymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
+  paymentMethod?: 'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
+  amountPaid: number;
+  notes?: string;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+}
+
+/** Shared header fields of a return document (debit/credit note). */
+export interface ReturnDocumentBase {
+  id: string;
+  returnNumber: string;
+  originalInvoiceId?: string;
+  originalInvoiceNumber?: string;
+  branchId: string;
+  returnDateAD: string;
+  returnDateBS: string;
+  reason: 'DEFECTIVE' | 'WRONG_ITEM' | 'SHORT_SUPPLY' | 'OTHER';
+  notes?: string;
+  items?: SalesInvoiceItem[];
+  taxableAmount: number;
+  vatAmount: number;
+  nonTaxableAmount: number;
+  grandTotal: number;
+  status: 'DRAFT' | 'POSTED' | 'CANCELLED';
+  fiscalYearId?: string;
+  isDemo?: boolean;
+}
+
+/** Purchase return (DN-…) — goods returned to a vendor against a purchase invoice. */
+export interface PurchaseReturn extends ReturnDocumentBase {
+  supplierId?: string;
+  supplierName: string;
+}
+
+/** Sales return (CN-…) — goods returned by a customer against a sales invoice. */
+export interface SalesReturn extends ReturnDocumentBase {
+  customerId?: string;
+  customerName: string;
+  /** When false the returned units are damaged and are NOT restocked. */
+  restockable?: boolean;
+}
+
 export interface BootstrapState {
   branches: Branch[];
   products: Product[];
@@ -767,6 +843,9 @@ export interface BootstrapState {
   customers: CustomerRecord[];
   purchaseOrders: PurchaseOrder[];
   purchaseInvoices: PurchaseInvoice[];
+  salesInvoices?: SalesInvoice[];
+  purchaseReturns?: PurchaseReturn[];
+  salesReturns?: SalesReturn[];
   shipments: Shipment[];
   stockOperations: StockOperation[];
   fiscalYears: FiscalYear[];

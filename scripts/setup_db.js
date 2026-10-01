@@ -695,6 +695,75 @@ async function seedDemoData(client) {
     summary.purchase_invoices = demoInvoices.length;
   }
 
+  // Seed sales_invoices demo rows (is_demo = TRUE) — lean sales module;
+  // sales returns validate against the sold quantities recorded here.
+  if (!(await skipTable('sales_invoices'))) {
+    const demoSIs = dataset.salesInvoices || [];
+    for (const inv of demoSIs) {
+      await client.query(
+        `INSERT INTO sales_invoices (
+           id, invoice_number, customer_id, customer_name, branch_id,
+           invoice_date_ad, invoice_date_bs, taxable_amount, vat_amount,
+           non_taxable_amount, grand_total, payment_status, payment_method, amount_paid, notes, items, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          inv.id, inv.invoiceNumber, inv.customerId || null, inv.customerName || 'Walk-in Customer', inv.branchId,
+          inv.invoiceDateAD, inv.invoiceDateBS, inv.taxableAmount || 0, inv.vatAmount || 0,
+          inv.nonTaxableAmount || 0, inv.grandTotal || 0, inv.paymentStatus || 'UNPAID', inv.paymentMethod || 'CREDIT',
+          inv.amountPaid || 0, inv.notes || '', JSON.stringify(inv.items || []),
+        ]
+      );
+    }
+    summary.sales_invoices = demoSIs.length;
+  }
+
+  // Seed purchase_returns demo rows (is_demo = TRUE) — debit notes.
+  if (!(await skipTable('purchase_returns'))) {
+    const demoPRs = dataset.purchaseReturns || [];
+    for (const ret of demoPRs) {
+      await client.query(
+        `INSERT INTO purchase_returns (
+           id, return_number, original_invoice_id, original_invoice_number, supplier_id, supplier_name, branch_id,
+           return_date_ad, return_date_bs, reason, taxable_amount, vat_amount, non_taxable_amount,
+           grand_total, status, notes, items, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          ret.id, ret.returnNumber, ret.originalInvoiceId || null, ret.originalInvoiceNumber || null,
+          ret.supplierId || null, ret.supplierName, ret.branchId,
+          ret.returnDateAD, ret.returnDateBS, ret.reason || 'DEFECTIVE',
+          ret.taxableAmount || 0, ret.vatAmount || 0, ret.nonTaxableAmount || 0,
+          ret.grandTotal || 0, ret.status || 'POSTED', ret.notes || '', JSON.stringify(ret.items || []),
+        ]
+      );
+    }
+    summary.purchase_returns = demoPRs.length;
+  }
+
+  // Seed sales_returns demo rows (is_demo = TRUE) — credit notes.
+  if (!(await skipTable('sales_returns'))) {
+    const demoSRs = dataset.salesReturns || [];
+    for (const ret of demoSRs) {
+      await client.query(
+        `INSERT INTO sales_returns (
+           id, return_number, original_invoice_id, original_invoice_number, customer_id, customer_name, branch_id,
+           return_date_ad, return_date_bs, reason, restockable, taxable_amount, vat_amount, non_taxable_amount,
+           grand_total, status, notes, items, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          ret.id, ret.returnNumber, ret.originalInvoiceId || null, ret.originalInvoiceNumber || null,
+          ret.customerId || null, ret.customerName || 'Walk-in Customer', ret.branchId,
+          ret.returnDateAD, ret.returnDateBS, ret.reason || 'DEFECTIVE', ret.restockable !== false,
+          ret.taxableAmount || 0, ret.vatAmount || 0, ret.nonTaxableAmount || 0,
+          ret.grandTotal || 0, ret.status || 'POSTED', ret.notes || '', JSON.stringify(ret.items || []),
+        ]
+      );
+    }
+    summary.sales_returns = demoSRs.length;
+  }
+
   // Seed vendor_payments demo rows (is_demo = TRUE) — the sub-ledger entries
   // behind the Vendor Ledger report and invoice payment history.
   if (!(await skipTable('vendor_payments'))) {
@@ -739,6 +808,9 @@ async function backfillFiscalYearIds(client) {
     { table: 'fixed_assets', dateCol: 'acquisition_date_ad' },
     { table: 'purchase_orders', dateCol: 'order_date_ad' },
     { table: 'purchase_invoices', dateCol: 'invoice_date_ad' },
+    { table: 'sales_invoices', dateCol: 'invoice_date_ad' },
+    { table: 'purchase_returns', dateCol: 'return_date_ad' },
+    { table: 'sales_returns', dateCol: 'return_date_ad' },
     { table: 'vendor_payments', dateCol: 'payment_date_ad' },
     { table: 'shipments', dateCol: 'dispatch_date_ad' },
     { table: 'stock_operations', dateCol: 'date_ad' },
@@ -861,6 +933,9 @@ async function runSetup() {
         (SELECT COUNT(*) FROM fixed_assets WHERE is_demo)    AS assets,
         (SELECT COUNT(*) FROM purchase_orders WHERE is_demo) AS orders,
         (SELECT COUNT(*) FROM purchase_invoices WHERE is_demo) AS invoices,
+        (SELECT COUNT(*) FROM sales_invoices WHERE is_demo) AS sales_invoices,
+        (SELECT COUNT(*) FROM purchase_returns WHERE is_demo) AS purchase_returns,
+        (SELECT COUNT(*) FROM sales_returns WHERE is_demo) AS sales_returns,
         (SELECT COUNT(*) FROM vendor_payments WHERE is_demo) AS vendor_payments,
         (SELECT COUNT(*) FROM serial_log WHERE is_demo)      AS serial_log,
         (SELECT COUNT(*) FROM damage_records WHERE is_demo)  AS damage_records

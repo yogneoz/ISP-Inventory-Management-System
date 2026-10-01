@@ -155,6 +155,9 @@ export async function fetchOperationalData(
   customers: any[];
   purchaseOrders: any[];
   purchaseInvoices: any[];
+  salesInvoices: any[];
+  purchaseReturns: any[];
+  salesReturns: any[];
   shipments: any[];
   stockOperations: any[];
   auditLogs: any[];
@@ -178,6 +181,9 @@ export async function fetchOperationalData(
     customers,
     purchaseOrders,
     purchaseInvoices,
+    salesInvoices,
+    purchaseReturns,
+    salesReturns,
     shipments,
     stockOperations,
     auditLogs,
@@ -201,6 +207,9 @@ export async function fetchOperationalData(
     fetchTable(pool, BOOTSTRAP_TABLES.customers, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseOrders, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.purchaseInvoices, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.salesInvoices, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.purchaseReturns, scopeParams),
+    fetchTable(pool, BOOTSTRAP_TABLES.salesReturns, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.shipments, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.stockOperations, scopeParams),
     fetchTable(pool, BOOTSTRAP_TABLES.auditLogs, scopeParams),
@@ -232,6 +241,9 @@ export async function fetchOperationalData(
     customers,
     purchaseOrders,
     purchaseInvoices,
+    salesInvoices,
+    purchaseReturns,
+    salesReturns,
     shipments,
     stockOperations,
     auditLogs,

@@ -20,6 +20,7 @@ import type {
   AuditLog, TransactionLog, CustomerDeviceRecord, CustomerRecord,
   ApprovalRequest, Category, UnitOfMeasure, LocationRecord,
   DocumentNumberConfig, DamageRecord, SerialLog, VendorPayment,
+  SalesInvoice, PurchaseReturn, SalesReturn,
 } from '../../../client/src/types';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,9 @@ export let customerDeviceRecords: readonly CustomerDeviceRecord[] = [];
 export let customerMasterRecords: readonly CustomerRecord[] = [];
 export let purchaseOrders: readonly PurchaseOrder[] = [];
 export let purchaseInvoices: readonly PurchaseInvoice[] = [];
+export let salesInvoices: readonly SalesInvoice[] = [];
+export let purchaseReturns: readonly PurchaseReturn[] = [];
+export let salesReturns: readonly SalesReturn[] = [];
 export let shipments: readonly Shipment[] = [];
 export let stockOperations: readonly StockOperation[] = [];
 export let auditTrail: readonly AuditLog[] = [];
@@ -81,6 +85,9 @@ export function setCustomerDeviceRecords(value: readonly CustomerDeviceRecord[])
 export function setCustomerMasterRecords(value: readonly CustomerRecord[]): void { customerMasterRecords = value; }
 export function setPurchaseOrders(value: readonly PurchaseOrder[]): void { purchaseOrders = value; }
 export function setPurchaseInvoices(value: readonly PurchaseInvoice[]): void { purchaseInvoices = value; }
+export function setSalesInvoices(value: readonly SalesInvoice[]): void { salesInvoices = value; }
+export function setPurchaseReturns(value: readonly PurchaseReturn[]): void { purchaseReturns = value; }
+export function setSalesReturns(value: readonly SalesReturn[]): void { salesReturns = value; }
 export function setShipments(value: readonly Shipment[]): void { shipments = value; }
 export function setStockOperations(value: readonly StockOperation[]): void { stockOperations = value; }
 export function setAuditTrail(value: readonly AuditLog[]): void { auditTrail = value; }
@@ -186,6 +193,21 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
     name: 'shipments',
     query: 'SELECT id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy" FROM shipments',
     apply: (rows) => { shipments = rows as any; },
+  },
+  {
+    name: 'sales_invoices',
+    query: 'SELECT id, invoice_number AS "invoiceNumber", customer_id AS "customerId", customer_name AS "customerName", branch_id AS "branchId", invoice_date_ad AS "invoiceDateAD", invoice_date_bs AS "invoiceDateBS", due_date_ad AS "dueDateAD", due_date_bs AS "dueDateBS", taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", payment_status AS "paymentStatus", amount_paid AS "amountPaid", items FROM sales_invoices',
+    apply: (rows) => { salesInvoices = rows as any; },
+  },
+  {
+    name: 'purchase_returns',
+    query: 'SELECT id, return_number AS "returnNumber", original_invoice_id AS "originalInvoiceId", original_invoice_number AS "originalInvoiceNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", return_date_ad AS "returnDateAD", return_date_bs AS "returnDateBS", reason, taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", status, items FROM purchase_returns',
+    apply: (rows) => { purchaseReturns = rows as any; },
+  },
+  {
+    name: 'sales_returns',
+    query: 'SELECT id, return_number AS "returnNumber", original_invoice_id AS "originalInvoiceId", original_invoice_number AS "originalInvoiceNumber", customer_id AS "customerId", customer_name AS "customerName", branch_id AS "branchId", return_date_ad AS "returnDateAD", return_date_bs AS "returnDateBS", reason, restockable, taxable_amount AS "taxableAmount", vat_amount AS "vatAmount", non_taxable_amount AS "nonTaxableAmount", grand_total AS "grandTotal", status, items FROM sales_returns',
+    apply: (rows) => { salesReturns = rows as any; },
   },
   {
     name: 'stock_operations',

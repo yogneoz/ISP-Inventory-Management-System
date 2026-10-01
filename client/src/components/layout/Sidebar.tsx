@@ -49,6 +49,7 @@ import {
   Trash2,
   Palette,
   Wallet,
+  Undo2,
 } from 'lucide-react';
 import { User, CompanyProfile } from '../../types';
 import { getCompanyLocation } from '../../utils/companyProfile';
@@ -81,6 +82,12 @@ export type NavTab =
   | 'po-list'
   | 'create-purchase'
   | 'purchase-list'
+  | 'create-sale'
+  | 'sales-list'
+  | 'purchase-returns'
+  | 'create-purchase-return'
+  | 'sales-returns'
+  | 'create-sales-return'
   | 'create-shipment'
   | 'create-transfer'
   | 'receive-shipment'
@@ -103,6 +110,7 @@ export type NavTab =
   | 'permissions'
   | 'financial-statements'
   | 'vendor-ledger'
+  | 'customer-ledger'
   | 'vendor-opening-balances'
   | 'vat-register'
   | 'depreciation-register'
@@ -146,6 +154,12 @@ export const NAV_TABS: NavTab[] = [
   'po-list',
   'create-purchase',
   'purchase-list',
+  'create-sale',
+  'sales-list',
+  'purchase-returns',
+  'create-purchase-return',
+  'sales-returns',
+  'create-sales-return',
   'create-shipment',
   'create-transfer',
   'receive-shipment',
@@ -168,6 +182,7 @@ export const NAV_TABS: NavTab[] = [
   'permissions',
   'financial-statements',
   'vendor-ledger',
+  'customer-ledger',
   'vendor-opening-balances',
   'vat-register',
   'depreciation-register',
@@ -367,6 +382,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
+  // 3b. Purchase Returns (debit notes) — gated by its own permission.
+  if (isOperationAllowed('purchase-return-create', currentUser?.role)) {
+    groups.push({
+      id: 'purchase-returns',
+      title: 'Purchase Returns',
+      icon: Undo2,
+      children: [
+        {
+          id: 'create-purchase-return' as NavTab,
+          label: 'Create Purchase Return',
+          icon: PlusCircle,
+        },
+        {
+          id: 'purchase-returns' as NavTab,
+          label: 'Purchase Returns Register',
+          icon: Undo2,
+          hasSeparatorAbove: true,
+        },
+      ],
+    });
+  }
+
+  // 3c. Sales group — invoices + returns (lean sales module).
+  const salesChildren: NavChildDef[] = [
+    ...(isOperationAllowed('sales-invoice-create', currentUser?.role)
+      ? [{ id: 'create-sale' as NavTab, label: 'Create Sales Invoice', icon: PlusCircle }]
+      : []),
+    {
+      id: 'sales-list' as NavTab,
+      label: 'Sales Invoices Register',
+      icon: Receipt,
+      hasSeparatorAbove: true,
+    },
+    ...(isOperationAllowed('sales-return-create', currentUser?.role)
+      ? [{ id: 'create-sales-return' as NavTab, label: 'Create Sales Return', icon: PlusCircle }]
+      : []),
+    ...(isOperationAllowed('sales-return-create', currentUser?.role)
+      ? [{ id: 'sales-returns' as NavTab, label: 'Sales Returns Register', icon: Undo2 }]
+      : []),
+  ];
+  groups.push({
+    id: 'sales',
+    title: 'Sales & Returns',
+    icon: Receipt,
+    children: salesChildren,
+  });
+
   // 4. Warehouse & Transfers Group (warehouse dispatch/receive + inter-branch transfers + pullouts)
   const warehouseChildren: NavChildDef[] = [];
   if (isOperationAllowed('shipment-create', currentUser?.role)) {
@@ -451,6 +513,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
   if (isOperationAllowed('inv-pay', currentUser?.role)) {
     financeChildren.push({ id: 'vendor-ledger' as NavTab, label: 'Vendor Ledger & Payments', icon: Wallet });
+  }
+  if (isOperationAllowed('fin-statements', currentUser?.role)) {
+    financeChildren.push({ id: 'customer-ledger' as NavTab, label: 'Customer Ledger & Receivables', icon: Wallet });
   }
   if (isOperationAllowed('opening-stock-view', currentUser?.role)) {
     financeChildren.push({ id: 'vendor-opening-balances' as NavTab, label: 'Vendor Opening Balances', icon: Wallet });

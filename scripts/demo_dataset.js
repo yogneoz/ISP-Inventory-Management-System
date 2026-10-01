@@ -492,6 +492,155 @@ export function buildDemoDataset(branches) {
   // Demo vendor payments (demo-vp-* namespace) linked to the demo invoices
   // above so the vendor ledger + payment history have real sub-ledger rows.
   // One payment is deliberately REVERSED to demonstrate the reversal trail.
+  // Demo sales invoices (INV-…) — lean sales module; sales returns validate
+  // against the sold quantities recorded here.
+  const demoSalesInvoices = [
+    {
+      id: 'demo-si-101',
+      invoiceNumber: `INV-${HQ_BRANCH_CODE}-202608200001`,
+      customerId: 'CUS-10291',
+      customerName: 'Example Customer 1',
+      branchId: HQ_BRANCH_ID,
+      invoiceDateAD: '2026-08-20',
+      invoiceDateBS: '2083-05-06 BS',
+      items: [
+        {
+          id: 'demo-sii-101-1',
+          productId: 'prod-onu001',
+          productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
+          sku: 'ONU001',
+          quantity: 8,
+          unitPrice: 3200,
+          taxRate: 13,
+          subtotal: 25600,
+          taxAmount: 3328,
+          total: 28928,
+        },
+      ],
+      taxableAmount: 25600,
+      vatAmount: 3328,
+      nonTaxableAmount: 0,
+      grandTotal: 28928,
+      // PARTIAL (not PAID) so the demo credit note demo-sr-101 leaves a small
+      // positive receivable on the Customer Ledger instead of a refund-due
+      // negative balance.
+      paymentStatus: 'PARTIAL',
+      paymentMethod: 'CASH',
+      amountPaid: 20000,
+      notes: 'Demo sales invoice 1 (partial cash payment).',
+      isDemo: true,
+    },
+    {
+      id: 'demo-si-102',
+      invoiceNumber: `INV-${BRANCH2_CODE}-202608250001`,
+      customerId: 'CUS-10292',
+      customerName: 'Example Customer 2',
+      branchId: BRANCH2_ID,
+      invoiceDateAD: '2026-08-25',
+      invoiceDateBS: '2083-05-11 BS',
+      items: [
+        {
+          id: 'demo-sii-102-1',
+          productId: 'prod-drp002',
+          productName: 'DROP CABLE 100 MTR ROLL',
+          sku: 'DRP002',
+          quantity: 4,
+          unitPrice: 1800,
+          taxRate: 13,
+          subtotal: 7200,
+          taxAmount: 936,
+          total: 8136,
+        },
+      ],
+      taxableAmount: 7200,
+      vatAmount: 936,
+      nonTaxableAmount: 0,
+      grandTotal: 8136,
+      paymentStatus: 'UNPAID',
+      paymentMethod: 'CREDIT',
+      amountPaid: 0,
+      notes: 'Demo sales invoice 2 (credit sale).',
+      isDemo: true,
+    },
+  ];
+
+  // Demo purchase return (DN-…) — defective goods back to the vendor against
+  // the first demo purchase invoice.
+  const demoPurchaseReturns = [
+    {
+      id: 'demo-pr-101',
+      returnNumber: `DN-${HQ_BRANCH_CODE}-202608150001`,
+      originalInvoiceId: 'demo-pi-101',
+      originalInvoiceNumber: `PI-${HQ_BRANCH_CODE}-202608100001`,
+      supplierId: demoSuppliers[0].id,
+      supplierName: demoSuppliers[0].name,
+      branchId: HQ_BRANCH_ID,
+      returnDateAD: '2026-08-15',
+      returnDateBS: '2083-05-01 BS',
+      reason: 'DEFECTIVE',
+      items: [
+        {
+          id: 'demo-pri-101-1',
+          productId: 'prod-onu001',
+          productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
+          sku: 'ONU001',
+          quantity: 2,
+          unitPrice: 2500,
+          taxRate: 13,
+          subtotal: 5000,
+          taxAmount: 650,
+          total: 5650,
+        },
+      ],
+      taxableAmount: 5000,
+      vatAmount: 650,
+      nonTaxableAmount: 0,
+      grandTotal: 5650,
+      status: 'POSTED',
+      notes: 'Demo purchase return — 2 defective units.',
+      isDemo: true,
+    },
+  ];
+
+  // Demo sales return (CN-…) — customer returns part of a cash sale;
+  // restockable so the units return to sellable stock.
+  const demoSalesReturns = [
+    {
+      id: 'demo-sr-101',
+      returnNumber: `CN-${HQ_BRANCH_CODE}-202608220001`,
+      originalInvoiceId: 'demo-si-101',
+      originalInvoiceNumber: `INV-${HQ_BRANCH_CODE}-202608200001`,
+      customerId: 'CUS-10291',
+      customerName: 'Example Customer 1',
+      branchId: HQ_BRANCH_ID,
+      returnDateAD: '2026-08-22',
+      returnDateBS: '2083-05-08 BS',
+      reason: 'WRONG_ITEM',
+      restockable: true,
+      items: [
+        {
+          id: 'demo-sri-101-1',
+          productId: 'prod-onu001',
+          productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
+          sku: 'ONU001',
+          quantity: 1,
+          unitPrice: 3200,
+          taxRate: 13,
+          subtotal: 3200,
+          taxAmount: 416,
+          total: 3616,
+        },
+      ],
+      taxableAmount: 3200,
+      vatAmount: 416,
+      nonTaxableAmount: 0,
+      grandTotal: 3616,
+      status: 'POSTED',
+      notes: 'Demo sales return — customer picked the wrong model.',
+      isDemo: true,
+    },
+  ];
+
   const demoVendorPayments = [
     {
       id: 'demo-vp-101',
@@ -688,6 +837,9 @@ export function buildDemoDataset(branches) {
     serialLogs: demoSerialLogs,
     purchaseOrders: demoPurchaseOrders,
     purchaseInvoices: demoPurchaseInvoices,
+    salesInvoices: demoSalesInvoices,
+    purchaseReturns: demoPurchaseReturns,
+    salesReturns: demoSalesReturns,
     vendorPayments: demoVendorPayments,
     shipments: [],
     stockOperations: demoStockOperations,

@@ -68,6 +68,7 @@ import { registerAuthRoutes } from './routes/auth.routes';
 import { registerMasterdataRoutes } from './routes/masterdata.routes';
 import { registerInventoryRoutes } from './routes/inventory.routes';
 import { registerProcurementRoutes } from './routes/procurement.routes';
+import { registerSalesRoutes } from './routes/sales.routes';
 import { registerShipmentsRoutes } from './routes/shipments.routes';
 import { registerReportsRoutes } from './routes/reports.routes';
 import { registerLeftoverFiscalRoutes } from './routes/fiscal.routes';
@@ -79,11 +80,13 @@ export {
   companyProfile, docNumberConfigs, users, suppliers, uomList, locationRecords,
   branches, fiscalYears, products, categories, inventoryStock, assetRegister,
   customerDeviceRecords, customerMasterRecords, purchaseOrders, purchaseInvoices,
+  salesInvoices, purchaseReturns, salesReturns,
   shipments, stockOperations, auditTrail, transactionLogs, vendorPayments,
   approvalRequests, damageRecords, serialLogs, activeUser, permissionMatrix,
   setCompanyProfile, setDocNumberConfigs, setUsers, setSuppliers, setUomList,
   setLocationRecords, setBranches, setFiscalYears, setProducts, setCategories,
   setInventoryStock, setAssetRegister, setPurchaseOrders, setPurchaseInvoices,
+  setSalesInvoices, setPurchaseReturns, setSalesReturns,
   setShipments, setStockOperations, setAuditTrail, setTransactionLogs,
   setCustomerDeviceRecords, setCustomerMasterRecords,
   setVendorPayments, setApprovalRequests, setDamageRecords, setSerialLogs,
@@ -283,6 +286,7 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerMasterdataRoutes(expressApp);
   registerInventoryRoutes(expressApp);
   registerProcurementRoutes(expressApp);
+  registerSalesRoutes(expressApp);
   registerShipmentsRoutes(expressApp);
   registerReportsRoutes(expressApp);
 

@@ -6,10 +6,11 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments } from '../app';
+import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
 import { computeBillTotals } from '../utils/money';
 import { resolveBsDateForLedger, BS_DATE_FALLBACK } from '../utils/bsDate';
+import { intFromEnv } from '../utils/envGuard';
 import {
   buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
@@ -23,6 +24,10 @@ import {
   FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
+  buildPurchaseReturnListSql, PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
+  PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
+  PR_TXN_LOG_SQL, prTxnLogParams, PR_SELECT_COLUMNS, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
+  PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
 } from '../models/procurement.repo';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
@@ -931,6 +936,9 @@ try {
     let payments: VendorPayment[] = vendorPayments.filter((p) =>
       (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
     );
+    let returns: any[] = purchaseReturns.filter((r: any) =>
+      (r.supplierId && r.supplierId === supplier.id) || byLegacyName(r)
+    );
 
     if (getPgConnected()) {
       try {
@@ -941,6 +949,9 @@ try {
           ledgerNameParams(supplier) as any[]
         );
         payments = payRes.rows;
+        // Posted purchase returns (debit notes) reduce the payable like payments.
+        const retRes = await pgPool.query(LEDGER_RETURNS_SQL, ledgerNameParams(supplier));
+        returns = retRes.rows;
       } catch (err: any) {
         console.error('Vendor ledger DB query failed, using cache:', err?.message || err);
       }
@@ -990,7 +1001,27 @@ try {
         credit: Number(p.amount) || 0,
       }));
 
-    const allLines = [...invoiceLines, ...paymentLines].sort((a, b) =>
+    // Posted purchase returns (debit notes) are CREDIT lines: goods (and VAT)
+    // go back to the vendor, so the closing payable reconciles as
+    // opening + invoices − payments − returns.
+    const returnLines = returns
+      .filter((r: any) => r.status === 'POSTED' || r.status === undefined)
+      .filter((r: any) => inScope(r.branchId, r.returnDateAD))
+      .map((r: any) => ({
+        id: `ret-${r.id}`,
+        documentNumber: r.returnNumber,
+        dateAD: String(r.returnDateAD || '').split('T')[0],
+        dateBS: r.returnDateBS || '',
+        amount: Number(r.grandTotal) || 0,
+        vatAmount: undefined,
+        type: 'RETURN' as const,
+        notes: r.notes || `Purchase return${r.originalInvoiceNumber ? ` against ${r.originalInvoiceNumber}` : ''}`,
+        paymentMethod: undefined,
+        debit: 0,
+        credit: Number(r.grandTotal) || 0,
+      }));
+
+    const allLines = [...invoiceLines, ...paymentLines, ...returnLines].sort((a, b) =>
       a.dateAD === b.dateAD ? a.documentNumber.localeCompare(b.documentNumber) : a.dateAD.localeCompare(b.dateAD)
     );
 
@@ -1072,5 +1103,321 @@ try {
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 
+}
+
+
+// ---------------------------------------------------------------------------
+// Purchase Returns (Debit Notes, DN-…) — HTTP orchestration
+// ---------------------------------------------------------------------------
+
+/** Over-return validation shared by post_purchaseReturns: returnable = invoiced − posted-returned. */
+function prValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alreadyReturned: Map<string, number>): string | null {
+  for (const item of returnItems) {
+    const invoiced = invoiceItems.find((i) => i.productId === item.productId);
+    if (!invoiced) return `Product not present in the original invoice: ${item.productName || item.productId}.`;
+    const invoicedQty = Math.abs(Number(invoiced.quantity)) || 0;
+    const returned = alreadyReturned.get(item.productId) || 0;
+    const requesting = Math.abs(Number(item.quantity)) || 0;
+    if (requesting > invoicedQty - returned) {
+      return `Over-return for ${item.productName || item.productId}: invoiced ${invoicedQty}, already returned ${returned}, requested ${requesting}.`;
+    }
+  }
+  return null;
+}
+
+/** Forwarded from procurement.routes.ts (get_purchaseReturns). */
+export async function get_purchaseReturns(req: any, res: Response): Promise<any> {
+  const { branchId } = req.query;
+  if (getPgConnected()) {
+    try {
+      const { sql, params } = buildPurchaseReturnListSql(branchId);
+      const r = await pgPool.query(sql, params as any[]);
+      return res.json(r.rows);
+    } catch (err) {
+      console.error('Error fetching purchase returns from DB:', err);
+    }
+  }
+  const list = branchId && branchId !== 'ALL'
+    ? purchaseReturns.filter((r) => r.branchId === branchId)
+    : purchaseReturns;
+  res.json(list);
+}
+
+/**
+ * Approval threshold for returns (extras item): a return whose recomputed
+ * grand total exceeds this many NPR is inserted as DRAFT (no stock/ledger
+ * effect) until explicitly approved via POST /:id/post. Override with
+ * RETURNS_APPROVAL_THRESHOLD_NPR; 0 disables the gating.
+ */
+const RETURNS_APPROVAL_THRESHOLD_NPR = intFromEnv('RETURNS_APPROVAL_THRESHOLD_NPR', 200000, { min: 0 });
+
+/** Extracts device serials from a return item (accepts strings or pairs). */
+function returnItemSerials(item: any): string[] {
+  return (item.deviceSerials || [])
+    .map((s: any) => (typeof s === 'string' ? s : s?.deviceSerial))
+    .filter((s: any) => typeof s === 'string' && s.trim())
+    .map((s: string) => s.trim());
+}
+
+/**
+ * Serial-tracked products must return with exactly one serial per unit
+ * (plan Milestone B §7). Validated before the return row is inserted.
+ */
+function validateReturnSerials(items: any[]): string | null {
+  for (const item of items) {
+    const product = products.find((p) => p.id === item.productId);
+    if (!product?.requiresSerialTracking) continue;
+    const qty = Math.abs(Number(item.quantity)) || 0;
+    const serials = returnItemSerials(item);
+    if (serials.length !== qty) {
+      return `${item.productName || item.productId} is serial-tracked: ${qty} serial(s) required, ${serials.length} provided.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Applies a purchase return's posting effects inside an open transaction:
+ * stock deduction, PURCHASE_RETURN ledger rows, and serial_log flips to
+ * RETURNED_TO_VENDOR with a history entry.
+ */
+async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], branchId: string): Promise<void> {
+  for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+    const item = items[itemIdx];
+    const qty = Math.abs(Number(item.quantity)) || 0;
+    const deducted = await client.query(PR_DEDUCT_STOCK_SQL, [qty, item.productId, branchId]);
+    if (deducted.rowCount !== 1) {
+      throw new Error(`Insufficient stock to return ${qty} × ${item.productName || item.productId} at branch ${branchId}.`);
+    }
+    await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx));
+    const serials = returnItemSerials(item);
+    if (serials.length > 0) {
+      await client.query(PR_SERIAL_FLIP_SQL, [
+        serials,
+        'RETURNED_TO_VENDOR',
+        JSON.stringify([{
+          status: 'RETURNED_TO_VENDOR',
+          sourceType: 'PURCHASE_RETURN',
+          sourceId: ret.id,
+          dateAD: String(ret.returnDateAD || '').split('T')[0],
+          notes: `Returned to vendor via ${ret.returnNumber}`,
+        }]),
+      ]);
+    }
+  }
+}
+
+/** Forwarded from procurement.routes.ts (post_purchaseReturns). */
+export async function post_purchaseReturns(req: any, res: Response): Promise<any> {
+  try {
+    const items = req.body.items || [];
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: 'A purchase return requires at least one item line.' });
+    }
+    const originalRef = req.body.originalInvoiceId || req.body.invoiceId || req.body.invoiceNumber;
+    if (!originalRef) {
+      return res.status(400).json({ message: 'A purchase return must reference the original purchase invoice.' });
+    }
+
+    // C1: totals are recomputed from line primitives; client aggregates ignored.
+    const totals = computeBillTotals(items);
+    const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
+    const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
+    const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'DN', retDate));
+
+    let invoiceRow: any = purchaseInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
+    if (!invoiceRow && getPgConnected()) {
+      const r = await pgPool.query(PR_LOCK_INVOICE_SQL, [originalRef]);
+      invoiceRow = r.rows[0];
+      if (invoiceRow && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
+    }
+    if (!invoiceRow) {
+      return res.status(400).json({ message: 'The original purchase invoice was not found.' });
+    }
+    if (getPgConnected() && !invoiceRow.items) {
+      // Re-read items inside the locked row if the cache copy lacked them.
+      const r = await pgPool.query(PR_LOCK_INVOICE_SQL, [invoiceRow.id]);
+      invoiceRow = { ...invoiceRow, ...r.rows[0] };
+      if (invoiceRow.items && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
+    }
+
+    const newRet: any = {
+      id: req.body.id || `pr-${Date.now()}`,
+      returnNumber,
+      originalInvoiceId: invoiceRow.id,
+      originalInvoiceNumber: invoiceRow.invoiceNumber,
+      supplierId: req.body.supplierId || invoiceRow.supplierId || null,
+      supplierName: req.body.supplierName || invoiceRow.supplierName || 'Vendor',
+      branchId: targetBranchId,
+      returnDateAD: retDate,
+      returnDateBS: req.body.returnDateBS || req.body.returnDateBs || await resolveBsDateForLedger(retDate),
+      reason: req.body.reason || 'DEFECTIVE',
+      notes: req.body.notes || '',
+      taxableAmount: totals.taxableAmount,
+      vatAmount: totals.vatAmount,
+      nonTaxableAmount: totals.nonTaxableAmount,
+      grandTotal: totals.grandTotal,
+      // Approval gating: above the threshold the return is held as DRAFT with
+      // no stock/ledger effect until POST /:id/post approves it.
+      status: totals.grandTotal > RETURNS_APPROVAL_THRESHOLD_NPR ? 'DRAFT' : 'POSTED',
+      items,
+    };
+
+    const serialViolation = validateReturnSerials(items);
+    if (serialViolation) return res.status(400).json({ message: serialViolation });
+
+    if (getPgConnected()) {
+      // Over-return guard: per (invoice, product) already-returned quantity,
+      // computed inside the same transaction that inserts the return.
+      const perProductReturned = new Map<string, number>();
+      for (const item of items) {
+        const r = await pgPool.query(PR_RETURNED_QTY_SQL, [invoiceRow.id, item.productId]);
+        perProductReturned.set(item.productId, Number(r.rows[0]?.returned_qty || 0));
+      }
+      const violation = prValidateAgainstInvoice(invoiceRow.items || [], items, perProductReturned);
+      if (violation) return res.status(400).json({ message: violation });
+
+      let dup = purchaseReturns.some((r) => r.id === newRet.id || r.returnNumber === returnNumber);
+      if (!dup) {
+        const e = await pgPool.query(PR_EXISTS_SQL, [newRet.id, returnNumber]);
+        dup = e.rowCount === 1;
+      }
+      if (dup) return res.status(409).json({ message: `Purchase return ${returnNumber} already exists.` });
+
+      // All-or-nothing: return insert + (when POSTED) per-item stock
+      // deduction + ledger rows + serial flips. DRAFT inserts alone.
+      await withTransaction(async (client) => {
+        await client.query(PR_INSERT_SQL, prInsertParams(newRet, JSON.stringify(items)));
+        if (newRet.status === 'POSTED') {
+          await applyPurchaseReturnEffects(client, newRet, items, targetBranchId);
+        }
+      });
+    }
+
+    if (newRet.status === 'DRAFT') {
+      logAuditEvent(req, 'CREATE_PURCHASE_RETURN_DRAFT', 'PROCUREMENT', `Purchase Return #${newRet.returnNumber} (Rs. ${newRet.grandTotal}) held for approval (threshold Rs. ${RETURNS_APPROVAL_THRESHOLD_NPR})`);
+      return res.status(201).json({ ...newRet, pendingApproval: true, approvalThreshold: RETURNS_APPROVAL_THRESHOLD_NPR });
+    }
+
+    logAuditEvent(req, 'CREATE_PURCHASE_RETURN', 'PROCUREMENT', `Created Purchase Return #${newRet.returnNumber} against invoice ${newRet.originalInvoiceNumber} (supplier ${newRet.supplierName})`);
+    res.status(201).json(newRet);
+  } catch (err: any) {
+    console.error('Error creating purchase return:', err);
+    res.status(400).json({ message: err.message || 'Failed to create purchase return.' });
+  }
+}
+
+/** Forwarded from procurement.routes.ts (post_purchaseReturnCancel). */
+export async function post_purchaseReturnCancel(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    let ret: any = purchaseReturns.find((r) => r.id === id || r.returnNumber === id);
+    if (!ret && getPgConnected()) {
+      const r = await pgPool.query(PR_FIND_ONE_SQL, [id]);
+      ret = r.rows[0];
+      if (ret && typeof ret.items === 'string') ret.items = JSON.parse(ret.items);
+    }
+    if (!ret) return res.status(404).json({ message: 'Purchase return not found.' });
+    if (ret.status !== 'POSTED' && ret.status !== 'DRAFT') {
+      return res.status(400).json({ message: `Only POSTED or DRAFT returns can be cancelled (current status: ${ret.status}).` });
+    }
+
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        // Guarded cancel: flips status only when still POSTED/DRAFT (race-safe).
+        // POSTED returns also restore the stock the return took out; DRAFT
+        // returns had no stock effect, so there is nothing to restore.
+        const cancelled = ret.status === 'DRAFT'
+          ? await client.query(PR_CANCEL_DRAFT_SQL, [ret.id])
+          : await client.query(PR_CANCEL_SQL, [ret.id]);
+        if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
+        if (ret.status === 'POSTED') {
+          for (const item of ret.items || []) {
+            await client.query(PR_RESTORE_STOCK_SQL, [Math.abs(Number(item.quantity)) || 0, item.productId, ret.branchId]);
+            const serials = returnItemSerials(item);
+            if (serials.length > 0) {
+              await client.query(PR_SERIAL_FLIP_SQL, [
+                serials,
+                'IN_STOCK',
+                JSON.stringify([{
+                  status: 'IN_STOCK',
+                  sourceType: 'PURCHASE_RETURN_CANCELLED',
+                  sourceId: ret.id,
+                  dateAD: new Date().toISOString().split('T')[0],
+                  notes: `Purchase return ${ret.returnNumber} cancelled`,
+                }]),
+              ]);
+            }
+          }
+        }
+      });
+    }
+
+    logAuditEvent(req, 'CANCEL_PURCHASE_RETURN', 'PROCUREMENT', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Purchase Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
+    res.json({ ...ret, status: 'CANCELLED' });
+  } catch (err: any) {
+    console.error('Error cancelling purchase return:', err);
+    res.status(400).json({ message: err.message || 'Failed to cancel purchase return.' });
+  }
+}
+
+/**
+ * Forwarded from procurement.routes.ts (post_purchaseReturnApprove).
+ *
+ * Approves a DRAFT purchase return (above-threshold gating): re-validates the
+ * over-return guard, then flips DRAFT → POSTED and applies the full posting
+ * effects (stock deduction, ledger rows, serial flips) in one transaction.
+ */
+export async function post_purchaseReturnApprove(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    let ret: any = purchaseReturns.find((r) => r.id === id || r.returnNumber === id);
+    if (!ret && getPgConnected()) {
+      const r = await pgPool.query(PR_FIND_ONE_SQL, [id]);
+      ret = r.rows[0];
+      if (ret && typeof ret.items === 'string') ret.items = JSON.parse(ret.items);
+    }
+    if (!ret) return res.status(404).json({ message: 'Purchase return not found.' });
+    if (ret.status !== 'DRAFT') return res.status(400).json({ message: `Only DRAFT returns can be approved (current status: ${ret.status}).` });
+
+    const items = ret.items || [];
+    if (items.length === 0) return res.status(400).json({ message: 'Draft return has no item lines.' });
+
+    // Re-validate the over-return guard against the ORIGINAL invoice at
+    // approval time (other returns may have posted since the draft was made).
+    let invoiceRow: any = purchaseInvoices.find((i) => i.id === ret.originalInvoiceId);
+    if (!invoiceRow && getPgConnected()) {
+      const r = await pgPool.query(PR_LOCK_INVOICE_SQL, [ret.originalInvoiceId]);
+      invoiceRow = r.rows[0];
+      if (invoiceRow && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
+    }
+    if (!invoiceRow) return res.status(400).json({ message: 'The original purchase invoice no longer exists; the draft return cannot be approved.' });
+
+    if (getPgConnected()) {
+      const perProductReturned = new Map<string, number>();
+      for (const item of items) {
+        const r = await pgPool.query(PR_RETURNED_QTY_SQL, [ret.originalInvoiceId, item.productId]);
+        perProductReturned.set(item.productId, Number(r.rows[0]?.returned_qty || 0));
+      }
+      const violation = prValidateAgainstInvoice(invoiceRow.items || [], items, perProductReturned);
+      if (violation) return res.status(400).json({ message: violation });
+
+      const serialViolation = validateReturnSerials(items);
+      if (serialViolation) return res.status(400).json({ message: serialViolation });
+
+      await withTransaction(async (client) => {
+        const posted = await client.query(PR_POST_DRAFT_SQL, [ret.id]);
+        if (posted.rowCount !== 1) throw new Error('Return was already approved or cancelled by another user.');
+        await applyPurchaseReturnEffects(client, ret, items, ret.branchId);
+      });
+    }
+
+    logAuditEvent(req, 'APPROVE_PURCHASE_RETURN', 'PROCUREMENT', `Approved Purchase Return #${ret.returnNumber} (draft → posted)`);
+    res.json({ ...ret, status: 'POSTED' });
+  } catch (err: any) {
+    console.error('Error approving purchase return:', err);
+    res.status(400).json({ message: err.message || 'Failed to approve purchase return.' });
+  }
 }
 

@@ -71,7 +71,13 @@ const { branchId, fiscalYearId } = req.query;
       const postedPayments = data.vendorPayments
         .filter((p: any) => p.status === 'POSTED')
         .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-      const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments;
+      // Posted purchase returns (debit notes) reduce the payable exactly like
+      // payments, so the dashboard AP reconciles with the Vendor Ledger's
+      // opening + invoices − payments − returns formula.
+      const postedPurchaseReturns = (data.purchaseReturns || [])
+        .filter((r: any) => r.status === 'POSTED')
+        .reduce((sum: number, r: any) => sum + Number(r.grandTotal || 0), 0);
+      const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments - postedPurchaseReturns;
       const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
       const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
       const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
@@ -101,6 +107,9 @@ const { branchId, fiscalYearId } = req.query;
         customers: data.customers,
         purchaseOrders: pgPurchaseOrders,
         purchaseInvoices: pgInvoices,
+        salesInvoices: data.salesInvoices,
+        purchaseReturns: data.purchaseReturns,
+        salesReturns: data.salesReturns,
         shipments: pgShipments,
         stockOperations: pgOps,
         fiscalYears: pgFiscalYears,
