@@ -7,6 +7,11 @@ import assert from 'node:assert/strict';
 import {
   DEMO_DATA_TABLES,
   demoDataDeleteSql,
+  DEMO_FY_PRESERVED_TABLES,
+  DEMO_FY_REFERENCE_COUNT_SQL,
+  DEMO_FY_VENDOR_OB_COUNT_SQL,
+  DEMO_FY_DELETE_SQL,
+  DEMO_FY_RELINK_DAY_RECORDS_SQL,
   COMPANY_PROFILE_SELECT_SQL,
   COMPANY_PROFILE_UPSERT_SQL,
   companyProfileUpsertParams,
@@ -85,6 +90,29 @@ describe('demo data cleanup', () => {
 
   test('demoDataDeleteSql scopes the delete to is_demo rows', () => {
     assert.equal(demoDataDeleteSql('products'), 'DELETE FROM products WHERE is_demo = TRUE');
+  });
+
+  test('demo fiscal-year clear preserves the Nepali calendar and cascade targets', () => {
+    // The per-FY delete is scoped to is_demo rows (belt-and-braces next to the
+    // SELECT that enumerates the target ids).
+    assert.match(DEMO_FY_DELETE_SQL, /DELETE FROM fiscal_years/);
+    assert.match(DEMO_FY_DELETE_SQL, /is_demo = TRUE/);
+
+    // bs_day_records is the preserved Nepali calendar: after demo FY deletion
+    // (FK ON DELETE SET NULL nulls the link) the relink statement re-points
+    // day records to a fiscal year covering their AD date.
+    assert.match(DEMO_FY_RELINK_DAY_RECORDS_SQL, /UPDATE bs_day_records/);
+    assert.match(DEMO_FY_RELINK_DAY_RECORDS_SQL, /fiscal_year_id IS NULL/);
+    assert.match(DEMO_FY_RELINK_DAY_RECORDS_SQL, /FROM fiscal_years fy/);
+    assert.match(DEMO_FY_RELINK_DAY_RECORDS_SQL, /b\.ad_date >= fy\.start_date_ad/);
+    assert.match(DEMO_FY_RELINK_DAY_RECORDS_SQL, /b\.ad_date <= fy\.end_date_ad/);
+
+    // Opening-balance tables reference fiscal_years with ON DELETE CASCADE:
+    // a demo FY with such rows must be skipped, never cascade-deleted.
+    assert.ok(DEMO_FY_PRESERVED_TABLES.includes('fiscal_year_opening_stock'));
+    assert.ok(DEMO_FY_PRESERVED_TABLES.includes('vendor_opening_balances'));
+    assert.match(DEMO_FY_REFERENCE_COUNT_SQL, /fiscal_year_opening_stock WHERE fiscal_year_id = \$1/);
+    assert.match(DEMO_FY_VENDOR_OB_COUNT_SQL, /vendor_opening_balances WHERE fiscal_year_id = \$1/);
   });
 });
 

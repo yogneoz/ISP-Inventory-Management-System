@@ -227,6 +227,22 @@ async function seedFiscalYears(client) {
     return;
   }
 
+  // Re-link the preserved Nepali BS calendar day records. The demo-clear
+  // action deletes the demo fiscal_years master rows while bs_day_records
+  // survive (FK ON DELETE SET NULL) — this restores their fiscal_year_id
+  // pointer by AD-date overlap so the calendar keeps its FY links.
+  const relink = await client.query(
+    `UPDATE bs_day_records b
+     SET fiscal_year_id = fy.id
+     FROM fiscal_years fy
+     WHERE b.fiscal_year_id IS NULL
+       AND b.ad_date >= fy.start_date_ad
+       AND b.ad_date <= fy.end_date_ad`
+  );
+  if ((relink.rowCount || 0) > 0) {
+    console.log(`🔗 Re-linked ${relink.rowCount} BS day record(s) to fiscal years (preserved calendar, restored FK links).`);
+  }
+
   const today = todayADString();
   const current = await client.query(
     `SELECT id FROM fiscal_years

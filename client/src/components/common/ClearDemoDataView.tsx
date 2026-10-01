@@ -82,11 +82,12 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Clear Operational Demo & Dummy Data</h1>
             <p className="text-sm text-red-100 max-w-2xl leading-relaxed">
               Removes the sample dataset seeded by <span className="font-mono text-xs">npm run setup:pg</span> — the rows flagged with
-              <span className="font-mono text-xs"> is_demo = TRUE</span>, including the <strong>demo branches</strong> and <strong>demo user accounts</strong>
-              (e.g. <span className="font-mono text-xs">superadmin@example.com</span>). Your real products, stock balances, assets, device serials,
+              <span className="font-mono text-xs"> is_demo = TRUE</span>, including the <strong>demo branches</strong>, <strong>demo user accounts</strong>
+              (e.g. <span className="font-mono text-xs">superadmin@example.com</span>), and the <strong>demo fiscal years</strong>.
+              Your real products, stock balances, assets, device serials,
               orders, branches, users, and transaction logs are never touched. The Nepali BS calendar reference data
-              (<span className="font-mono text-xs">bs_calendar_years</span> / <span className="font-mono text-xs">bs_day_records</span>) is always preserved.
-              Run <span className="font-mono text-xs">npm run setup:pg</span> any time to re-seed the demo dataset.
+              (<span className="font-mono text-xs">bs_calendar_years</span> / <span className="font-mono text-xs">bs_day_records</span>) is always preserved and
+              its fiscal-year links are re-pointed automatically. Run <span className="font-mono text-xs">npm run setup:pg</span> any time to re-seed the demo dataset.
             </p>
           </div>
           <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20 text-center shrink-0">
@@ -106,7 +107,7 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
             Demo Data Successfully Cleared!
           </h2>
           <p className="text-sm text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
-            All demo-flagged records (is_demo = TRUE) have been removed — including the demo branches and demo user accounts.
+            All demo-flagged records (is_demo = TRUE) have been removed — including the demo branches, demo user accounts, and demo fiscal years.
             Your real business data is untouched and the Nepali BS calendar is preserved. Redirecting to Executive Dashboard...
           </p>
         </div>

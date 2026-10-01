@@ -12,6 +12,12 @@ import { calculateFixedAssetValues } from '../../../client/src/utils/depreciatio
 import {
   DEMO_DATA_TABLES,
   demoDataDeleteSql,
+  DEMO_FY_PRESERVED_TABLES,
+  DEMO_FY_REFERENCE_COUNT_SQL,
+  DEMO_FY_VENDOR_OB_COUNT_SQL,
+  DEMO_FY_IDS_SELECT_SQL,
+  DEMO_FY_DELETE_SQL,
+  DEMO_FY_RELINK_DAY_RECORDS_SQL,
   COMPANY_PROFILE_SELECT_SQL,
   COMPANY_PROFILE_UPSERT_SQL,
   companyProfileUpsertParams,
@@ -76,10 +82,45 @@ import {
 export async function post_clearDemoData(req: any, res: Response): Promise<any> {
 try {
     const removed: Record<string, number> = {};
+    let demoFySkipped = 0;
+    let demoFyDeleted = 0;
+    let dayRecordsRelinked = 0;
+
+    // Fiscal years are cleared LAST and differently from the flag-delete
+    // tables: the Nepali BS calendar (bs_day_records) must survive untouched,
+    // and opening-balance tables reference fiscal_years with ON DELETE
+    // CASCADE, so a demo FY with such rows must not be deleted silently.
     for (const table of DEMO_DATA_TABLES) {
+      if (table === 'fiscal_years') continue;
       const result = await pgPool.query(demoDataDeleteSql(table));
       removed[table] = result.rowCount || 0;
     }
+
+    // Demo fiscal-year clear (is_demo = TRUE master rows only). Per FY:
+    //  1. Abort that FY if real opening-balance rows (CASCADE target) exist.
+    //  2. Delete the FY — bs_day_records.fiscal_year_id is ON DELETE SET NULL,
+    //     so the Nepali calendar day rows are preserved with a nulled link.
+    //  3. Re-link the preserved bs_day_records to any surviving fiscal year
+    //     covering their AD date (inside the same transaction).
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        const fyIds = await client.query(DEMO_FY_IDS_SELECT_SQL);
+        for (const row of fyIds.rows) {
+          const fyId = String(row.id);
+          const osRes = await client.query(DEMO_FY_REFERENCE_COUNT_SQL, [fyId]);
+          const obRes = await client.query(DEMO_FY_VENDOR_OB_COUNT_SQL, [fyId]);
+          if ((osRes.rows[0]?.count || 0) > 0 || (obRes.rows[0]?.count || 0) > 0) {
+            demoFySkipped += 1;
+            continue;
+          }
+          const delRes = await client.query(DEMO_FY_DELETE_SQL, [fyId]);
+          demoFyDeleted += delRes.rowCount || 0;
+        }
+        const relink = await client.query(DEMO_FY_RELINK_DAY_RECORDS_SQL);
+        dayRecordsRelinked = relink.rowCount || 0;
+      });
+    }
+    removed['fiscal_years'] = demoFyDeleted;
 
     // Re-hydrate the runtime caches so memory matches the database again.
     await withConnection((client) => hydrateOperationalData(client));
@@ -92,10 +133,16 @@ try {
     });
 
     const totalRemoved = Object.values(removed).reduce((a, b) => a + b, 0);
+    const fyNote = demoFySkipped > 0
+      ? ` ${demoFySkipped} demo fiscal year(s) were kept because real opening-balance rows reference them.`
+      : '';
     return res.json({
-      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, and branches are intact.`,
+      message: `Demo data only removed (${totalRemoved} rows where is_demo = TRUE). Real data, users, and branches are intact.${fyNote} The Nepali BS calendar is preserved (${dayRecordsRelinked} day record link(s) refreshed).`,
       removedRows: removed,
       totalRemoved,
+      demoFiscalYearsDeleted: demoFyDeleted,
+      demoFiscalYearsSkipped: demoFySkipped,
+      bsDayRecordsRelinked: dayRecordsRelinked,
       userCount: users.length,
       superAdminCount: users.filter((u) => u.role === 'SUPER_ADMIN').length,
     });

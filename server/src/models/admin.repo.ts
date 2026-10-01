@@ -43,6 +43,52 @@ export function demoDataDeleteSql(table: string): string {
   return `DELETE FROM ${table} WHERE is_demo = TRUE`;
 }
 
+/**
+ * DEMO_FY_PRESERVED_TABLES — tables whose is_demo = TRUE fiscal-year rows may
+ * NOT simply be deleted by the demo clear:
+ *
+ *  - fiscal_year_opening_stock / vendor_opening_balances reference fiscal_years
+ *    with ON DELETE CASCADE, so deleting a demo FY would silently take real
+ *    opening-balance rows with it. If such rows exist for a demo FY the FY
+ *    delete is aborted for that year instead.
+ *  - bs_day_records is the Nepali calendar reference data (never demo-cleared);
+ *    its fiscal_year_id FK is ON DELETE SET NULL, so after demo FY deletion the
+ *    day records survive with a nulled link. DEMO_FY_RELINK_DAY_RECORDS_SQL
+ *    re-points those links (by AD-date overlap) inside the same transaction.
+ */
+export const DEMO_FY_PRESERVED_TABLES = [
+  'fiscal_year_opening_stock',
+  'vendor_opening_balances',
+] as const;
+
+export const DEMO_FY_REFERENCE_COUNT_SQL =
+  'SELECT COUNT(*)::int AS count FROM fiscal_year_opening_stock WHERE fiscal_year_id = $1';
+
+export const DEMO_FY_VENDOR_OB_COUNT_SQL =
+  'SELECT COUNT(*)::int AS count FROM vendor_opening_balances WHERE fiscal_year_id = $1';
+
+/** All demo fiscal-year ids (the clear-demo target set). */
+export const DEMO_FY_IDS_SELECT_SQL =
+  'SELECT id FROM fiscal_years WHERE is_demo = TRUE';
+
+/** Deletes one demo fiscal year (called per-id inside the clear transaction). */
+export const DEMO_FY_DELETE_SQL = 'DELETE FROM fiscal_years WHERE id = $1 AND is_demo = TRUE';
+
+/**
+ * Re-links the preserved Nepali calendar day records to (re)seeded fiscal
+ * years by their AD date. Runs after demo FY deletion/reseed inside the same
+ * clear-demo transaction, so bs_day_records keep a correct fiscal_year_id even
+ * though the demo FY master rows were replaced. Rows whose date falls in no
+ * fiscal year (calendar coverage wider than the FY master) keep NULL — the
+ * fiscal_year code column on bs_day_records is NOT NULL and untouched.
+ */
+export const DEMO_FY_RELINK_DAY_RECORDS_SQL = `UPDATE bs_day_records b
+ SET fiscal_year_id = fy.id
+ FROM fiscal_years fy
+ WHERE b.fiscal_year_id IS NULL
+   AND b.ad_date >= fy.start_date_ad
+   AND b.ad_date <= fy.end_date_ad`;
+
 // ---------------------------------------------------------------------------
 // Company profile
 // ---------------------------------------------------------------------------
