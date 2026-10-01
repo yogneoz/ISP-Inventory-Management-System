@@ -302,121 +302,6 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
 );
 
 -- ==========================================
--- 10a-1. Sales Invoices Table (with items JSONB)
--- ==========================================
--- Lean sales module (prerequisite for Sales Returns): mirrors
--- purchase_invoices with customer fields instead of supplier fields.
--- Posting a sales invoice DECREMENTS branch stock (guard: quantity_on_hand).
-CREATE TABLE IF NOT EXISTS sales_invoices (
-    id VARCHAR(50) PRIMARY KEY,
-    invoice_number VARCHAR(100) UNIQUE NOT NULL,
-    customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
-    customer_name VARCHAR(200) NOT NULL,
-    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    invoice_date_ad DATE NOT NULL,
-    invoice_date_bs VARCHAR(20) NOT NULL,
-    due_date_ad DATE,
-    due_date_bs VARCHAR(20),
-    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
-    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    grand_total NUMERIC(14, 2) DEFAULT 0.00,
-    payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
-    payment_method VARCHAR(30) DEFAULT 'CREDIT' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
-    amount_paid NUMERIC(14, 2) DEFAULT 0.00,
-    notes TEXT,
-    items JSONB DEFAULT '[]'::jsonb,
-    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by VARCHAR(150),
-    updated_by VARCHAR(150),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer ON sales_invoices(customer_id);
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch ON sales_invoices(branch_id);
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_date ON sales_invoices(invoice_date_ad);
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_demo ON sales_invoices(id) WHERE is_demo = TRUE;
-
--- ==========================================
--- 10a-2. Purchase Returns Table (Debit Notes, items JSONB)
--- ==========================================
--- Returning goods to a vendor against a purchase invoice. Status lifecycle:
--- DRAFT (editable) -> POSTED (stock deducted + payable reduced) -> CANCELLED.
--- original_invoice_id is SET NULL on invoice delete; supplier snapshot
--- columns preserve history.
-CREATE TABLE IF NOT EXISTS purchase_returns (
-    id VARCHAR(50) PRIMARY KEY,
-    return_number VARCHAR(100) UNIQUE NOT NULL,
-    original_invoice_id VARCHAR(50) REFERENCES purchase_invoices(id) ON DELETE SET NULL,
-    original_invoice_number VARCHAR(100),
-    supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
-    supplier_name VARCHAR(200) NOT NULL,
-    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    return_date_ad DATE NOT NULL,
-    return_date_bs VARCHAR(20) NOT NULL,
-    reason VARCHAR(30) NOT NULL DEFAULT 'DEFECTIVE' CHECK (reason IN ('DEFECTIVE', 'WRONG_ITEM', 'SHORT_SUPPLY', 'OTHER')),
-    notes TEXT,
-    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
-    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    grand_total NUMERIC(14, 2) DEFAULT 0.00,
-    status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
-    items JSONB DEFAULT '[]'::jsonb,
-    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by VARCHAR(150),
-    updated_by VARCHAR(150),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_purchase_returns_invoice ON purchase_returns(original_invoice_id);
-CREATE INDEX IF NOT EXISTS idx_purchase_returns_branch ON purchase_returns(branch_id);
-CREATE INDEX IF NOT EXISTS idx_purchase_returns_date ON purchase_returns(return_date_ad);
-CREATE INDEX IF NOT EXISTS idx_purchase_returns_demo ON purchase_returns(id) WHERE is_demo = TRUE;
-
--- ==========================================
--- 10a-3. Sales Returns Table (Credit Notes, items JSONB)
--- ==========================================
--- Customer returning goods against a sales invoice. Same lifecycle as
--- purchase_returns: DRAFT -> POSTED (stock restored + receivable reduced).
-CREATE TABLE IF NOT EXISTS sales_returns (
-    id VARCHAR(50) PRIMARY KEY,
-    return_number VARCHAR(100) UNIQUE NOT NULL,
-    original_invoice_id VARCHAR(50) REFERENCES sales_invoices(id) ON DELETE SET NULL,
-    original_invoice_number VARCHAR(100),
-    customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
-    customer_name VARCHAR(200) NOT NULL,
-    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    return_date_ad DATE NOT NULL,
-    return_date_bs VARCHAR(20) NOT NULL,
-    reason VARCHAR(30) NOT NULL DEFAULT 'DEFECTIVE' CHECK (reason IN ('DEFECTIVE', 'WRONG_ITEM', 'OTHER')),
-    restockable BOOLEAN NOT NULL DEFAULT TRUE,
-    notes TEXT,
-    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
-    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
-    grand_total NUMERIC(14, 2) DEFAULT 0.00,
-    status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
-    items JSONB DEFAULT '[]'::jsonb,
-    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by VARCHAR(150),
-    updated_by VARCHAR(150),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_sales_returns_customer ON sales_returns(customer_id);
-CREATE INDEX IF NOT EXISTS idx_sales_returns_invoice ON sales_returns(original_invoice_id);
-CREATE INDEX IF NOT EXISTS idx_sales_returns_branch ON sales_returns(branch_id);
-CREATE INDEX IF NOT EXISTS idx_sales_returns_date ON sales_returns(return_date_ad);
-CREATE INDEX IF NOT EXISTS idx_sales_returns_demo ON sales_returns(id) WHERE is_demo = TRUE;
-
--- ==========================================
 -- 10b. Vendor Payments Sub-ledger Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS vendor_payments (
@@ -626,6 +511,121 @@ CREATE TABLE IF NOT EXISTS customer_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ==========================================
+-- 10a-1. Sales Invoices Table (with items JSONB)
+-- ==========================================
+-- Lean sales module (prerequisite for Sales Returns): mirrors
+-- purchase_invoices with customer fields instead of supplier fields.
+-- Posting a sales invoice DECREMENTS branch stock (guard: quantity_on_hand).
+CREATE TABLE IF NOT EXISTS sales_invoices (
+    id VARCHAR(50) PRIMARY KEY,
+    invoice_number VARCHAR(100) UNIQUE NOT NULL,
+    customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
+    customer_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    invoice_date_ad DATE NOT NULL,
+    invoice_date_bs VARCHAR(20) NOT NULL,
+    due_date_ad DATE,
+    due_date_bs VARCHAR(20),
+    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
+    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    grand_total NUMERIC(14, 2) DEFAULT 0.00,
+    payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
+    payment_method VARCHAR(30) DEFAULT 'CREDIT' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+    amount_paid NUMERIC(14, 2) DEFAULT 0.00,
+    notes TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer ON sales_invoices(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_branch ON sales_invoices(branch_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_date ON sales_invoices(invoice_date_ad);
+CREATE INDEX IF NOT EXISTS idx_sales_invoices_demo ON sales_invoices(id) WHERE is_demo = TRUE;
+
+-- ==========================================
+-- 10a-2. Purchase Returns Table (Debit Notes, items JSONB)
+-- ==========================================
+-- Returning goods to a vendor against a purchase invoice. Status lifecycle:
+-- DRAFT (editable) -> POSTED (stock deducted + payable reduced) -> CANCELLED.
+-- original_invoice_id is SET NULL on invoice delete; supplier snapshot
+-- columns preserve history.
+CREATE TABLE IF NOT EXISTS purchase_returns (
+    id VARCHAR(50) PRIMARY KEY,
+    return_number VARCHAR(100) UNIQUE NOT NULL,
+    original_invoice_id VARCHAR(50) REFERENCES purchase_invoices(id) ON DELETE SET NULL,
+    original_invoice_number VARCHAR(100),
+    supplier_id VARCHAR(50) REFERENCES suppliers(id) ON DELETE SET NULL,
+    supplier_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    return_date_ad DATE NOT NULL,
+    return_date_bs VARCHAR(20) NOT NULL,
+    reason VARCHAR(30) NOT NULL DEFAULT 'DEFECTIVE' CHECK (reason IN ('DEFECTIVE', 'WRONG_ITEM', 'SHORT_SUPPLY', 'OTHER')),
+    notes TEXT,
+    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
+    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    grand_total NUMERIC(14, 2) DEFAULT 0.00,
+    status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
+    items JSONB DEFAULT '[]'::jsonb,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_invoice ON purchase_returns(original_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_branch ON purchase_returns(branch_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_date ON purchase_returns(return_date_ad);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_demo ON purchase_returns(id) WHERE is_demo = TRUE;
+
+-- ==========================================
+-- 10a-3. Sales Returns Table (Credit Notes, items JSONB)
+-- ==========================================
+-- Customer returning goods against a sales invoice. Same lifecycle as
+-- purchase_returns: DRAFT -> POSTED (stock restored + receivable reduced).
+CREATE TABLE IF NOT EXISTS sales_returns (
+    id VARCHAR(50) PRIMARY KEY,
+    return_number VARCHAR(100) UNIQUE NOT NULL,
+    original_invoice_id VARCHAR(50) REFERENCES sales_invoices(id) ON DELETE SET NULL,
+    original_invoice_number VARCHAR(100),
+    customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
+    customer_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    return_date_ad DATE NOT NULL,
+    return_date_bs VARCHAR(20) NOT NULL,
+    reason VARCHAR(30) NOT NULL DEFAULT 'DEFECTIVE' CHECK (reason IN ('DEFECTIVE', 'WRONG_ITEM', 'OTHER')),
+    restockable BOOLEAN NOT NULL DEFAULT TRUE,
+    notes TEXT,
+    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
+    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    grand_total NUMERIC(14, 2) DEFAULT 0.00,
+    status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
+    items JSONB DEFAULT '[]'::jsonb,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    updated_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_returns_customer ON sales_returns(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_invoice ON sales_returns(original_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_branch ON sales_returns(branch_id);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_date ON sales_returns(return_date_ad);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_demo ON sales_returns(id) WHERE is_demo = TRUE;
 
 -- ==========================================
 -- 17. Customer Device Records Table
