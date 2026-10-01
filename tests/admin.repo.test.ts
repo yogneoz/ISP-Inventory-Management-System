@@ -80,7 +80,7 @@ function maxPlaceholder(sql: string): number {
 
 describe('demo data cleanup', () => {
   test('clears every operational table by the is_demo flag only', () => {
-    assert.equal(DEMO_DATA_TABLES.length, 20);
+    assert.equal(DEMO_DATA_TABLES.length, 21);
     assert.ok(DEMO_DATA_TABLES.includes('serial_log'));
     // Users, branches and company profile are never demo-cleared.
     assert.ok(!(DEMO_DATA_TABLES as readonly string[]).includes('users'));

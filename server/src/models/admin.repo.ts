@@ -31,6 +31,7 @@ export const DEMO_DATA_TABLES = [
   'sales_invoices',
   'purchase_returns',
   'sales_returns',
+  'customer_payments',
   'shipments',
   'inventory_stock',
   'fixed_assets',

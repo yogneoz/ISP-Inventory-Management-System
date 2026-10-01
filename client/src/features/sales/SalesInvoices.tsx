@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   Loader2,
   Eye,
+  Banknote,
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
@@ -35,6 +36,8 @@ interface SalesInvoicesProps {
   dateMode: 'BS' | 'AD';
   activeTab?: 'create-sale' | 'sales-list';
   onCreateInvoice: (inv: Omit<SalesInvoice, 'id' | 'invoiceNumber'>) => Promise<void>;
+  /** Records a dated customer receipt (customer_payments sub-ledger). */
+  onRecordPayment?: (invoice: SalesInvoice, amount: number, paymentMethod: string) => Promise<void>;
 }
 
 const inputClass =
@@ -68,6 +71,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   dateMode,
   activeTab = 'sales-list',
   onCreateInvoice,
+  onRecordPayment,
 }) => {
   const { isDarkMode } = useDarkMode();
   const { confirm } = useDialog();
@@ -91,6 +95,13 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [formError, setFormError] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [query, setQuery] = useState('');
+
+  // Record-payment state (customer_payments sub-ledger)
+  const [payInvoice, setPayInvoice] = useState<SalesInvoice | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('CASH');
+  const [paySubmitting, setPaySubmitting] = useState(false);
+  const [payError, setPayError] = useState('');
 
   const lineTotals = useMemo(() => {
     let taxable = 0, nonTaxable = 0, vat = 0;
@@ -180,6 +191,29 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       setFormError(e?.message || 'Failed to create sales invoice.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openPayment = (inv: SalesInvoice) => {
+    setPayInvoice(inv);
+    setPayAmount(String(Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.amountPaid) || 0))));
+    setPayMethod('CASH');
+    setPayError('');
+  };
+
+  const submitPayment = async () => {
+    if (!payInvoice) return;
+    const amt = Number(payAmount);
+    if (!Number.isFinite(amt) || amt <= 0) { setPayError('Enter a payment amount greater than 0.'); return; }
+    setPaySubmitting(true);
+    setPayError('');
+    try {
+      await onRecordPayment?.(payInvoice, amt, payMethod);
+      setPayInvoice(null);
+    } catch (e: any) {
+      setPayError(e?.message || 'Failed to record the payment.');
+    } finally {
+      setPaySubmitting(false);
     }
   };
 
@@ -402,11 +436,17 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="px-4 py-2">{dateMode === 'BS' && inv.invoiceDateBS ? inv.invoiceDateBS : inv.invoiceDateAD}</td>
                     <td className="px-4 py-2">{inv.paymentStatus}</td>
                     <td className="px-4 py-2 text-right">{fmtMoney(inv.grandTotal)}</td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="whitespace-nowrap px-4 py-2 text-right">
                       <button className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" title="View"
                         onClick={() => { setViewing(inv); }}>
                         <Eye className="h-4 w-4" />
                       </button>
+                      {onRecordPayment && inv.paymentStatus !== 'PAID' && (
+                        <button className="ml-2 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400" title="Record payment"
+                          onClick={() => openPayment(inv)}>
+                          <Banknote className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -426,6 +466,40 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             onPageChange={setPage}
           />
         </>
+      )}
+
+      {payInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !paySubmitting && setPayInvoice(null)}>
+          <div className={`${formCardClass} w-full max-w-md space-y-4`} onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg font-semibold">Record Customer Payment</div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><div className={labelClass}>Invoice</div><div className="font-medium">{payInvoice.invoiceNumber}</div></div>
+              <div><div className={labelClass}>Customer</div><div className="font-medium">{payInvoice.customerName}</div></div>
+              <div><div className={labelClass}>Grand Total</div><div>{fmtMoney(payInvoice.grandTotal)}</div></div>
+              <div><div className={labelClass}>Already Paid</div><div>{fmtMoney(payInvoice.amountPaid)}</div></div>
+            </div>
+            <div>
+              <label className={labelClass}>Amount *</label>
+              <input type="number" min="0" step="0.01" className={inputClass} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+            </div>
+            <div>
+              <label className={labelClass}>Method</label>
+              <select className={inputClass} value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                {['CASH', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER'].map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+              </select>
+            </div>
+            {payError && (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{payError}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button className={btnGhost} onClick={() => setPayInvoice(null)} disabled={paySubmitting}>Cancel</button>
+              <button className={btnPrimary} onClick={submitPayment} disabled={paySubmitting}>
+                {paySubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                Record Payment
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

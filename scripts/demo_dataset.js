@@ -564,6 +564,27 @@ export function buildDemoDataset(branches) {
     },
   ];
 
+  // Demo customer receipts (CR-…) — dated entries behind the Customer
+  // Ledger's payment lines; keep consistent with demo-si-101's amount_paid.
+  const demoCustomerPayments = [
+    {
+      id: 'demo-cp-101',
+      paymentNumber: `CR-${HQ_BRANCH_CODE}-202608210001`,
+      customerId: 'CUS-10291',
+      customerName: 'Example Customer 1',
+      branchId: HQ_BRANCH_ID,
+      invoiceId: 'demo-si-101',
+      invoiceNumber: `INV-${HQ_BRANCH_CODE}-202608200001`,
+      paymentDateAD: '2026-08-21',
+      paymentDateBS: '2083-05-07 BS',
+      amount: 20000,
+      paymentMethod: 'CASH',
+      notes: 'Demo cash receipt (partial settlement of demo-si-101).',
+      status: 'POSTED',
+      isDemo: true,
+    },
+  ];
+
   // Demo purchase return (DN-…) — defective goods back to the vendor against
   // the first demo purchase invoice.
   const demoPurchaseReturns = [
@@ -838,6 +859,7 @@ export function buildDemoDataset(branches) {
     purchaseOrders: demoPurchaseOrders,
     purchaseInvoices: demoPurchaseInvoices,
     salesInvoices: demoSalesInvoices,
+    customerPayments: demoCustomerPayments,
     purchaseReturns: demoPurchaseReturns,
     salesReturns: demoSalesReturns,
     vendorPayments: demoVendorPayments,

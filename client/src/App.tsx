@@ -13,6 +13,7 @@ import {
   SalesInvoice,
   PurchaseReturn,
   SalesReturn,
+  CustomerPayment,
   Shipment,
   StockOperation,
   FiscalYear,
@@ -939,6 +940,29 @@ export default function App() {
     refreshAllData();
   };
 
+  const handleRecordCustomerPayment = async (
+    invoice: SalesInvoice,
+    amount: number,
+    paymentMethod: string
+  ) => {
+    await api.createCustomerPayment({
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      customerId: invoice.customerId,
+      customerName: invoice.customerName,
+      branchId: invoice.branchId,
+      amount,
+      paymentMethod: paymentMethod as CustomerPayment['paymentMethod'],
+      paymentDateAD: new Date().toISOString().split('T')[0],
+    });
+    refreshAllData();
+  };
+
+  const handleReverseCustomerPayment = async (id: string, reason: string) => {
+    await api.reverseCustomerPayment(id, reason);
+    refreshAllData();
+  };
+
   const handleCreatePurchaseReturn = async (payload: any) => {
     const created = await api.createPurchaseReturn(payload);
     refreshAllData();
@@ -1821,6 +1845,7 @@ export default function App() {
                     dateMode={dateMode}
                     activeTab="create-sale"
                     onCreateInvoice={handleCreateSalesInvoice}
+                    onRecordPayment={handleRecordCustomerPayment}
                   />
                 </React.Suspense>
               )}
@@ -1838,6 +1863,7 @@ export default function App() {
                     dateMode={dateMode}
                     activeTab="sales-list"
                     onCreateInvoice={handleCreateSalesInvoice}
+                    onRecordPayment={handleRecordCustomerPayment}
                   />
                 </React.Suspense>
               )}

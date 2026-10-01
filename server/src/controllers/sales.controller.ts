@@ -8,7 +8,8 @@ import type { Request, Response } from 'express';
 import {
   getPgConnected, pgPool, issueNextDocNumber, inventoryStock, logAuditEvent,
   withTransaction, branches, products, suppliers, setInventoryStock, withAppended,
-  getUserFromReq, purchaseReturns, customerMasterRecords,
+  getUserFromReq, purchaseReturns, customerMasterRecords, findBsDayRecordForAdDate,
+  customerPayments,
 } from '../app';
 import { salesInvoices, salesReturns } from '../state/runtimeState';
 import { computeBillTotals } from '../utils/money';
@@ -22,6 +23,8 @@ import {
   LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
+  CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL,
+  SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, LEDGER_CUSTOMER_PAYMENTS_SQL,
 } from '../models/sales.repo';
 import { intFromEnv } from '../utils/envGuard';
 
@@ -440,11 +443,9 @@ export async function post_salesReturnApprove(req: any, res: Response): Promise<
  *
  * Ledger lines (customer's perspective: we hold THEIR receivable):
  *   - INVOICE  debit  = sales invoice grand total (customer owes us)
- *   - PAYMENT  credit = amount recorded on the invoice (amount_paid). There is
- *     no customer-payments sub-ledger yet, so the paid amount is emitted as a
- *     credit line dated on the invoice date — the closing balance stays the
- *     true outstanding receivable. When a customer-payments sub-ledger ships,
- *     these synthetic lines are replaced by dated payment rows.
+ *   - PAYMENT  credit = dated receipt from the customer_payments sub-ledger
+ *     (POSTED rows only; the invoice's amount_paid is kept in sync by the
+ *     payment endpoints so the register still shows settlement state)
  *   - RETURN   credit = posted sales return (credit note) grand total
  *
  * Closing balance = opening + debits − credits = what the customer still owes.
@@ -470,6 +471,9 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
 
     let invoices: any[] = salesInvoices.filter((i: any) => byCustomerId(i) || byLegacyName(i));
     let returns: any[] = salesReturns.filter((r: any) => byCustomerId(r) || byLegacyName(r));
+    let payments: any[] = customerPayments.filter((p: any) =>
+      (p.customerId && p.customerId === customer.id) || byLegacyName(p)
+    );
 
     if (getPgConnected()) {
       try {
@@ -477,6 +481,10 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
         invoices = invRes.rows;
         const retRes = await pgPool.query(LEDGER_CUSTOMER_RETURNS_SQL, [customer.id, customer.customerName, `%${customer.customerName}%`]);
         returns = retRes.rows;
+        // Real dated receipts from the customer-payments sub-ledger replace
+        // the earlier synthetic amount_paid mirror lines.
+        const payRes = await pgPool.query(LEDGER_CUSTOMER_PAYMENTS_SQL, [customer.id, customer.customerName, `%${customer.customerName}%`]);
+        payments = payRes.rows;
       } catch (err: any) {
         console.error('Customer ledger DB query failed, using cache:', err?.message || err);
       }
@@ -509,21 +517,20 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
         credit: 0,
       }));
 
-    // Synthetic payment credit lines from each invoice's amount_paid (see doc
-    // comment above for why these live on the invoice date for now).
-    const paymentLines = invoices
-      .filter((inv: any) => Number(inv.amountPaid) > 0 && inScope(inv.branchId, inv.invoiceDateAD))
-      .map((inv: any) => ({
-        id: `pay-${inv.id}`,
-        documentNumber: inv.invoiceNumber,
-        dateAD: String(inv.invoiceDateAD || '').split('T')[0],
-        dateBS: inv.invoiceDateBS || '',
-        amount: Number(inv.amountPaid) || 0,
+    // Dated receipt lines from the customer-payments sub-ledger (POSTED only).
+    const paymentLines = payments
+      .filter((p: any) => p.status === 'POSTED' || p.status === undefined)
+      .filter((p: any) => inScope(p.branchId, p.paymentDateAD))
+      .map((p: any) => ({
+        id: `pay-${p.id}`,
+        documentNumber: p.paymentNumber,
+        dateAD: String(p.paymentDateAD || '').split('T')[0],
+        dateBS: p.paymentDateBS || '',
+        amount: Number(p.amount) || 0,
         type: 'PAYMENT' as const,
-        notes: `Payment recorded with invoice${inv.paymentStatus === 'PAID' ? ' (settled)' : inv.paymentStatus === 'PARTIAL' ? ' (partial)' : ''}`,
-        paymentMethod: inv.paymentMethod || undefined,
+        notes: p.notes || `Receipt via ${p.paymentMethod}${p.chequeNumber ? ` (Chq ${p.chequeNumber})` : ''}`,        paymentMethod: p.paymentMethod,
         debit: 0,
-        credit: Number(inv.amountPaid) || 0,
+        credit: Number(p.amount) || 0,
       }));
 
     // Posted sales returns (credit notes) reduce the receivable.
@@ -579,5 +586,142 @@ export async function get_customerLedger(req: any, res: Response): Promise<any> 
   } catch (err: any) {
     console.error('Error building customer ledger:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Customer Payments Sub-ledger — record / reverse receipts (CR-/BR-…)
+// ---------------------------------------------------------------------------
+
+/** Forwarded from sales.routes.ts (post_customerPayments). */
+export async function post_customerPayments(req: any, res: Response): Promise<any> {
+  try {
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: 'Payment amount must be greater than 0.' });
+    }
+
+    // Resolve the invoice first so customer + branch can be inherited from it.
+    let linkedInvoice: any = body.invoiceId
+      ? salesInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
+      : undefined;
+    if (!linkedInvoice && body.invoiceId && getPgConnected()) {
+      const invRes = await pgPool.query(SI_FIND_SQL, [body.invoiceId]);
+      linkedInvoice = invRes.rows[0];
+    }
+
+    let customerId: string | null = body.customerId || linkedInvoice?.customerId || null;
+    let customerName = body.customerName || linkedInvoice?.customerName || '';
+    if (!customerId && customerName) {
+      const matched = customerMasterRecords.find((c: any) =>
+        c.customerName.toLowerCase() === customerName.toLowerCase()
+      ) || customerMasterRecords.find((c: any) =>
+        customerName.toLowerCase().includes(c.customerName.toLowerCase())
+      );
+      customerId = matched?.id || null;
+    }
+    if (!customerName && customerId) {
+      const cust = customerMasterRecords.find((c: any) => c.id === customerId);
+      customerName = cust?.customerName || '';
+    }
+    if (!customerName) {
+      return res.status(400).json({ message: 'Customer is required to record a customer payment.' });
+    }
+
+    const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req)?.branchId || branches[0]?.id || 'WH001';
+    const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
+    let paymentDateBS = body.paymentDateBS || '';
+    try {
+      const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
+      if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
+    } catch (_e) {}
+    if (!paymentDateBS) paymentDateBS = await resolveBsDateForLedger(paymentDateAD);
+
+    const paymentMethod = String(body.paymentMethod || 'CASH').toUpperCase();
+    // CR = cash receipt, BR = bank receipt (transfer/cheque/card/online) —
+    // mirrors the vendor side's CP/BP split.
+    const payDocType = paymentMethod === 'CASH' ? 'CR' : 'BR';
+    const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
+
+    const newPayment = {
+      id: `cp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      paymentNumber,
+      customerId,
+      customerName,
+      branchId,
+      invoiceId: linkedInvoice?.id || body.invoiceId || null,
+      invoiceNumber: linkedInvoice?.invoiceNumber || body.invoiceNumber || null,
+      paymentDateAD,
+      paymentDateBS,
+      amount,
+      paymentMethod,
+      bankName: body.bankName || null,
+      bankBranch: body.bankBranch || null,
+      accountNumber: body.accountNumber || null,
+      chequeNumber: body.chequeNumber || null,
+      chequeDateAD: body.chequeDateAD || null,
+      chequeDateBS: body.chequeDateBS || null,
+      transactionReference: body.transactionReference || null,
+      notes: body.notes || null,
+      status: 'POSTED',
+      createdBy: getUserFromReq(req)?.email || 'system',
+    };
+
+    if (getPgConnected()) {
+      // Payment row + invoice balance adjustment commit atomically.
+      await withTransaction(async (client) => {
+        await client.query(CP_INSERT_SQL, cpInsertParams(newPayment));
+        if (newPayment.invoiceId) {
+          await client.query(SI_RECORD_PAYMENT_SQL, [amount, newPayment.invoiceId]);
+        }
+      });
+    }
+
+    logAuditEvent(req, 'RECORD_CUSTOMER_PAYMENT', 'SALES', `Recorded customer payment #${paymentNumber} of NPR ${amount.toLocaleString()} from ${customerName} via ${paymentMethod}`, branchId);
+    res.status(201).json(newPayment);
+  } catch (err: any) {
+    console.error('Error creating customer payment:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
+}
+
+/** Forwarded from sales.routes.ts (post_customerPaymentReverse). */
+export async function post_customerPaymentReverse(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ message: 'A reversal reason is required.' });
+    const payment = customerPayments.find((p) => p.id === id);
+    if (!payment) return res.status(404).json({ message: 'Customer payment not found.' });
+    if (payment.status !== 'POSTED') {
+      return res.status(409).json({ message: `Payment #${payment.paymentNumber} is already ${String(payment.status).toLowerCase()}.` });
+    }
+
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        const current = await client.query(CP_LOCK_STATUS_SQL, [id]);
+        if (!current.rows[0]) {
+          const notFound: any = new Error('Customer payment not found.');
+          notFound.statusCode = 404;
+          throw notFound;
+        }
+        if (current.rows[0].status !== 'POSTED') {
+          const conflict: any = new Error(`Payment #${payment.paymentNumber} is already ${String(current.rows[0].status).toLowerCase()}.`);
+          conflict.statusCode = 409;
+          throw conflict;
+        }
+        await client.query(CP_REVERSE_SQL, [reason, getUserFromReq(req)?.email || 'system', id]);
+        if (payment.invoiceId) {
+          await client.query(SI_UNDO_PAYMENT_SQL, [Number(payment.amount), payment.invoiceId]);
+        }
+      });
+    }
+
+    logAuditEvent(req, 'REVERSE_CUSTOMER_PAYMENT', 'SALES', `Reversed customer payment #${payment.paymentNumber} — ${reason}`);
+    res.json({ ...payment, status: 'REVERSED', reversalReason: reason });
+  } catch (err: any) {
+    console.error('Error reversing customer payment:', err);
+    res.status(err.statusCode || 500).json({ message: err.message || 'Failed to reverse customer payment.' });
   }
 }

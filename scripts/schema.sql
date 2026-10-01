@@ -628,6 +628,53 @@ CREATE INDEX IF NOT EXISTS idx_sales_returns_date ON sales_returns(return_date_a
 CREATE INDEX IF NOT EXISTS idx_sales_returns_demo ON sales_returns(id) WHERE is_demo = TRUE;
 
 -- ==========================================
+-- 16b. Customer Payments Sub-ledger Table
+-- ==========================================
+-- Mirrors vendor_payments for the sales side: dated customer receipts
+-- against sales invoices (CR-… cash receipt / BR-… bank receipt numbering).
+-- The Customer Ledger's PAYMENT lines come from these rows, not from
+-- sales_invoices.amount_paid.
+CREATE TABLE IF NOT EXISTS customer_payments (
+    id VARCHAR(50) PRIMARY KEY,
+    payment_number VARCHAR(100) UNIQUE NOT NULL,
+    customer_id VARCHAR(50) REFERENCES customer_records(id) ON DELETE SET NULL,
+    customer_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    invoice_id VARCHAR(50) REFERENCES sales_invoices(id) ON DELETE SET NULL,
+    invoice_number VARCHAR(100),
+    payment_date_ad DATE NOT NULL,
+    payment_date_bs VARCHAR(20),
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+    payment_method VARCHAR(30) DEFAULT 'CASH' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
+    bank_name VARCHAR(150),
+    bank_branch VARCHAR(150),
+    account_number VARCHAR(100),
+    cheque_number VARCHAR(100),
+    cheque_date_ad DATE,
+    cheque_date_bs VARCHAR(20),
+    transaction_reference VARCHAR(200),
+    notes TEXT,
+    status VARCHAR(30) DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'REVERSED', 'VOIDED')),
+    reversal_reason TEXT,
+    reversed_by VARCHAR(150),
+    reversed_at_ad TIMESTAMP WITH TIME ZONE,
+    original_payment_id VARCHAR(50) REFERENCES customer_payments(id) ON DELETE SET NULL,
+    fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR(150),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_branch ON customer_payments(branch_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_invoice ON customer_payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(payment_date_ad);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_status ON customer_payments(status);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_fiscal_year ON customer_payments(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_demo ON customer_payments(id) WHERE is_demo = TRUE;
+
+-- ==========================================
 -- 17. Customer Device Records Table
 -- ==========================================
 CREATE TABLE IF NOT EXISTS customer_device_records (
@@ -1176,6 +1223,7 @@ CREATE OR REPLACE TRIGGER trg_purchase_invoices_fiscal_year BEFORE INSERT OR UPD
 CREATE OR REPLACE TRIGGER trg_sales_invoices_fiscal_year BEFORE INSERT OR UPDATE ON sales_invoices FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('invoice_date_ad');
 CREATE OR REPLACE TRIGGER trg_purchase_returns_fiscal_year BEFORE INSERT OR UPDATE ON purchase_returns FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('return_date_ad');
 CREATE OR REPLACE TRIGGER trg_sales_returns_fiscal_year BEFORE INSERT OR UPDATE ON sales_returns FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('return_date_ad');
+CREATE OR REPLACE TRIGGER trg_customer_payments_fiscal_year BEFORE INSERT OR UPDATE ON customer_payments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('payment_date_ad');
 CREATE OR REPLACE TRIGGER trg_shipments_fiscal_year BEFORE INSERT OR UPDATE ON shipments FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('dispatch_date_ad');
 CREATE OR REPLACE TRIGGER trg_stock_operations_fiscal_year BEFORE INSERT OR UPDATE ON stock_operations FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('date_ad');
 CREATE OR REPLACE TRIGGER trg_audit_logs_fiscal_year BEFORE INSERT OR UPDATE ON audit_logs FOR EACH ROW EXECUTE FUNCTION assign_fiscal_year_id_from_date('timestamp_ad');

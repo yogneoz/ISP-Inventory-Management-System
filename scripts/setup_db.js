@@ -764,6 +764,27 @@ async function seedDemoData(client) {
     summary.sales_returns = demoSRs.length;
   }
 
+  // Seed customer_payments demo rows (is_demo = TRUE) — dated receipts
+  // behind the Customer Ledger's payment lines.
+  if (!(await skipTable('customer_payments'))) {
+    const demoCPs = dataset.customerPayments || [];
+    for (const p of demoCPs) {
+      await client.query(
+        `INSERT INTO customer_payments (
+           id, payment_number, customer_id, customer_name, branch_id, invoice_id, invoice_number,
+           payment_date_ad, payment_date_bs, amount, payment_method, notes, status, is_demo, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, 'setup:pg demo seeder')
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          p.id, p.paymentNumber, p.customerId || null, p.customerName || 'Walk-in Customer', p.branchId,
+          p.invoiceId || null, p.invoiceNumber || null, p.paymentDateAD, p.paymentDateBS || null,
+          p.amount, p.paymentMethod || 'CASH', p.notes || null, p.status || 'POSTED',
+        ]
+      );
+    }
+    summary.customer_payments = demoCPs.length;
+  }
+
   // Seed vendor_payments demo rows (is_demo = TRUE) — the sub-ledger entries
   // behind the Vendor Ledger report and invoice payment history.
   if (!(await skipTable('vendor_payments'))) {
@@ -811,6 +832,7 @@ async function backfillFiscalYearIds(client) {
     { table: 'sales_invoices', dateCol: 'invoice_date_ad' },
     { table: 'purchase_returns', dateCol: 'return_date_ad' },
     { table: 'sales_returns', dateCol: 'return_date_ad' },
+    { table: 'customer_payments', dateCol: 'payment_date_ad' },
     { table: 'vendor_payments', dateCol: 'payment_date_ad' },
     { table: 'shipments', dateCol: 'dispatch_date_ad' },
     { table: 'stock_operations', dateCol: 'date_ad' },
@@ -936,6 +958,7 @@ async function runSetup() {
         (SELECT COUNT(*) FROM sales_invoices WHERE is_demo) AS sales_invoices,
         (SELECT COUNT(*) FROM purchase_returns WHERE is_demo) AS purchase_returns,
         (SELECT COUNT(*) FROM sales_returns WHERE is_demo) AS sales_returns,
+        (SELECT COUNT(*) FROM customer_payments WHERE is_demo) AS customer_payments,
         (SELECT COUNT(*) FROM vendor_payments WHERE is_demo) AS vendor_payments,
         (SELECT COUNT(*) FROM serial_log WHERE is_demo)      AS serial_log,
         (SELECT COUNT(*) FROM damage_records WHERE is_demo)  AS damage_records

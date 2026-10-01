@@ -20,7 +20,7 @@ import type {
   AuditLog, TransactionLog, CustomerDeviceRecord, CustomerRecord,
   ApprovalRequest, Category, UnitOfMeasure, LocationRecord,
   DocumentNumberConfig, DamageRecord, SerialLog, VendorPayment,
-  SalesInvoice, PurchaseReturn, SalesReturn,
+  SalesInvoice, PurchaseReturn, SalesReturn, CustomerPayment,
 } from '../../../client/src/types';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +53,7 @@ export let stockOperations: readonly StockOperation[] = [];
 export let auditTrail: readonly AuditLog[] = [];
 export let transactionLogs: readonly TransactionLog[] = [];
 export let vendorPayments: readonly VendorPayment[] = [];
+export let customerPayments: readonly CustomerPayment[] = [];
 export let approvalRequests: readonly ApprovalRequest[] = [];
 export let damageRecords: readonly DamageRecord[] = [];
 export let serialLogs: readonly SerialLog[] = [];
@@ -93,6 +94,7 @@ export function setStockOperations(value: readonly StockOperation[]): void { sto
 export function setAuditTrail(value: readonly AuditLog[]): void { auditTrail = value; }
 export function setTransactionLogs(value: readonly TransactionLog[]): void { transactionLogs = value; }
 export function setVendorPayments(value: readonly VendorPayment[]): void { vendorPayments = value; }
+export function setCustomerPayments(value: readonly CustomerPayment[]): void { customerPayments = value; }
 export function setApprovalRequests(value: readonly ApprovalRequest[]): void { approvalRequests = value; }
 export function setDamageRecords(value: readonly DamageRecord[]): void { damageRecords = value; }
 export function setSerialLogs(value: readonly SerialLog[]): void { serialLogs = value; }
@@ -238,6 +240,11 @@ export const CACHE_LOADS: Array<{ name: string; query: string; apply: (rows: any
     name: 'vendor_payments',
     query: 'SELECT id, payment_number AS "paymentNumber", supplier_id AS "supplierId", supplier_name AS "supplierName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM vendor_payments ORDER BY payment_date_ad DESC, created_at DESC',
     apply: (rows) => { vendorPayments = rows as any; },
+  },
+  {
+    name: 'customer_payments',
+    query: 'SELECT id, payment_number AS "paymentNumber", customer_id AS "customerId", customer_name AS "customerName", branch_id AS "branchId", invoice_id AS "invoiceId", invoice_number AS "invoiceNumber", payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS", amount, payment_method AS "paymentMethod", bank_name AS "bankName", bank_branch AS "bankBranch", account_number AS "accountNumber", cheque_number AS "chequeNumber", cheque_date_ad AS "chequeDateAD", cheque_date_bs AS "chequeDateBS", transaction_reference AS "transactionReference", notes, status, reversal_reason AS "reversalReason", reversed_by AS "reversedBy", reversed_at_ad AS "reversedAtAD", original_payment_id AS "originalPaymentId", fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo", created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt" FROM customer_payments ORDER BY payment_date_ad DESC, created_at DESC',
+    apply: (rows) => { customerPayments = rows as any; },
   },
   {
     name: 'serial_log',

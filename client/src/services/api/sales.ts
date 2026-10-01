@@ -3,7 +3,7 @@
  * Mirrors the procurement module's fetchJson patterns.
  */
 import { fetchJson } from './http';
-import type { SalesInvoice, SalesReturn } from '../../types';
+import type { SalesInvoice, SalesReturn, CustomerPayment } from '../../types';
 
 export async function getSalesInvoices(params?: { branchId?: string }): Promise<SalesInvoice[]> {
   const qs = params?.branchId ? `?branchId=${encodeURIComponent(params.branchId)}` : '';
@@ -69,6 +69,21 @@ export async function postSalesReturn(id: string): Promise<SalesReturn> {
   return fetchJson(`/api/sales-returns/${encodeURIComponent(id)}/post`, {
     method: 'POST',
     body: JSON.stringify({}),
+  });
+}
+
+export async function createCustomerPayment(p: Partial<CustomerPayment>): Promise<CustomerPayment> {
+  // The server issues the receipt number via issueNextDocNumber (CR/BR).
+  return fetchJson('/api/customer-payments', {
+    method: 'POST',
+    body: JSON.stringify(p),
+  });
+}
+
+export async function reverseCustomerPayment(id: string, reason: string): Promise<CustomerPayment> {
+  return fetchJson(`/api/customer-payments/${encodeURIComponent(id)}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   });
 }
 

@@ -290,3 +290,81 @@ export const SR_POST_DRAFT_SQL = `UPDATE sales_returns SET status = 'POSTED', up
 
 /** Cancels a DRAFT return (no stock effect — it never posted). */
 export const SR_CANCEL_DRAFT_SQL = `UPDATE sales_returns SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'DRAFT'`;
+
+// ---------------------------------------------------------------------------
+// Customer Payments Sub-ledger (CR-… cash receipts / BR-… bank receipts)
+// ---------------------------------------------------------------------------
+
+export const CP_INSERT_SQL = `INSERT INTO customer_payments (
+   id, payment_number, customer_id, customer_name, branch_id, invoice_id, invoice_number,
+   payment_date_ad, payment_date_bs, amount, payment_method, bank_name, bank_branch,
+   account_number, cheque_number, cheque_date_ad, cheque_date_bs, transaction_reference,
+   notes, status, created_by
+ ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'POSTED', $20)`;
+
+export function cpInsertParams(p: Record<string, any>): unknown[] {
+  return [
+    p.id,
+    p.paymentNumber,
+    p.customerId || null,
+    p.customerName || 'Walk-in Customer',
+    p.branchId || null,
+    p.invoiceId || null,
+    p.invoiceNumber || null,
+    p.paymentDateAD,
+    p.paymentDateBS || null,
+    Number(p.amount),
+    p.paymentMethod || 'CASH',
+    p.bankName || null,
+    p.bankBranch || null,
+    p.accountNumber || null,
+    p.chequeNumber || null,
+    p.chequeDateAD || null,
+    p.chequeDateBS || null,
+    p.transactionReference || null,
+    p.notes || null,
+    p.createdBy || 'system',
+  ];
+}
+
+/** Locks a payment row (FOR UPDATE) before a status transition. */
+export const CP_LOCK_STATUS_SQL = 'SELECT status FROM customer_payments WHERE id = $1 FOR UPDATE';
+
+/** Reverses a payment (mirrors VP_REVERSE_SQL). */
+export const CP_REVERSE_SQL = `UPDATE customer_payments SET
+   status = 'REVERSED',
+   reversal_reason = $1,
+   reversed_by = $2,
+   reversed_at_ad = CURRENT_TIMESTAMP,
+   updated_at = CURRENT_TIMESTAMP
+ WHERE id = $3 AND status = 'POSTED'`;
+
+/**
+ * Applies a payment to its sales invoice (additive amount_paid + status case),
+ * mirroring PI_RECORD_PAYMENT_SQL. Guarded on the invoice still existing.
+ */
+export const SI_RECORD_PAYMENT_SQL = `UPDATE sales_invoices SET
+   amount_paid = amount_paid + $1,
+   payment_status = CASE WHEN (amount_paid + $1) >= grand_total THEN 'PAID' ELSE 'PARTIAL' END,
+   updated_at = CURRENT_TIMESTAMP
+ WHERE id = $2`;
+
+/** Restores an invoice balance after reversing one payment (mirrors PI_UNDO_PAYMENT_SQL). */
+export const SI_UNDO_PAYMENT_SQL = `UPDATE sales_invoices SET
+   amount_paid = GREATEST(0, amount_paid - $1),
+   payment_status = CASE WHEN (amount_paid - $1) >= grand_total THEN 'PAID'
+                         WHEN (amount_paid - $1) > 0 THEN 'PARTIAL'
+                         ELSE 'UNPAID' END,
+   updated_at = CURRENT_TIMESTAMP
+ WHERE id = $2`;
+
+/** Posted customer payments for the receivables ledger (FK match + name fallback). */
+export const LEDGER_CUSTOMER_PAYMENTS_SQL =
+  `SELECT id, payment_number AS "paymentNumber", customer_id AS "customerId",
+          customer_name AS "customerName", branch_id AS "branchId",
+          invoice_id AS "invoiceId", invoice_number AS "invoiceNumber",
+          payment_date_ad AS "paymentDateAD", payment_date_bs AS "paymentDateBS",
+          amount, payment_method AS "paymentMethod", cheque_number AS "chequeNumber",
+          notes, status
+   FROM customer_payments
+   WHERE customer_id = $1 OR (customer_id IS NULL AND (LOWER(customer_name) = LOWER($2) OR LOWER(customer_name) LIKE LOWER($3)))`;

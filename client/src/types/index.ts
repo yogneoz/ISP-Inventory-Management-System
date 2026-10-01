@@ -798,6 +798,37 @@ export interface SalesInvoice {
   isDemo?: boolean;
 }
 
+/** Customer receipt against a sales invoice (CR-… / BR-…) — mirrors VendorPayment. */
+export interface CustomerPayment {
+  id: string;
+  paymentNumber: string;
+  customerId?: string;
+  customerName: string;
+  branchId?: string;
+  invoiceId?: string;
+  invoiceNumber?: string;
+  paymentDateAD: string;
+  paymentDateBS?: string;
+  amount: number;
+  paymentMethod: 'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
+  bankName?: string | null;
+  bankBranch?: string | null;
+  accountNumber?: string | null;
+  chequeNumber?: string | null;
+  chequeDateAD?: string | null;
+  chequeDateBS?: string | null;
+  transactionReference?: string | null;
+  notes?: string | null;
+  status: 'POSTED' | 'REVERSED' | 'VOIDED';
+  reversalReason?: string | null;
+  reversedBy?: string | null;
+  reversedAtAD?: string | null;
+  originalPaymentId?: string | null;
+  fiscalYearId?: string;
+  isDemo?: boolean;
+  createdBy?: string;
+}
+
 /** Shared header fields of a return document (debit/credit note). */
 export interface ReturnDocumentBase {
   id: string;
@@ -846,6 +877,7 @@ export interface BootstrapState {
   salesInvoices?: SalesInvoice[];
   purchaseReturns?: PurchaseReturn[];
   salesReturns?: SalesReturn[];
+  customerPayments?: CustomerPayment[];
   shipments: Shipment[];
   stockOperations: StockOperation[];
   fiscalYears: FiscalYear[];

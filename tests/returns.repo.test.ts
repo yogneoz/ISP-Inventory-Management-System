@@ -46,6 +46,12 @@ import {
   SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL,
   SR_CANCEL_DRAFT_SQL,
+  CP_INSERT_SQL,
+  cpInsertParams,
+  CP_REVERSE_SQL,
+  SI_RECORD_PAYMENT_SQL,
+  SI_UNDO_PAYMENT_SQL,
+  LEDGER_CUSTOMER_PAYMENTS_SQL,
 } from '../server/src/models/sales.repo';
 import { LEDGER_RETURNS_SQL } from '../server/src/models/procurement.repo';
 
@@ -270,5 +276,32 @@ describe('sales returns repo', () => {
     assert.match(SR_POST_DRAFT_SQL, /status = 'POSTED'/);
     assert.match(SR_POST_DRAFT_SQL, /status = 'DRAFT'/);
     assert.match(SR_CANCEL_DRAFT_SQL, /status = 'DRAFT'/);
+  });
+
+  test('customer payments: receipt insert has 20 params; payment applies to invoice atomically', () => {
+    assert.equal((CP_INSERT_SQL.match(/\$\d+/g) || []).length, 20);
+    const p = cpInsertParams({
+      id: 'cp-1', paymentNumber: 'CR-WH001-202609010001', customerId: 'cus-1',
+      customerName: 'Customer', branchId: 'WH001', invoiceId: 'si-1',
+      invoiceNumber: 'INV-1', paymentDateAD: '2026-09-01', paymentDateBS: '2083-05-18 BS',
+      amount: 500, paymentMethod: 'CASH', createdBy: 'tester@example.com',
+    });
+    assert.equal(p.length, 20);
+    assert.equal(p[9], 500);
+    assert.equal(p[19], 'tester@example.com');
+    // Payment + reversal adjust the invoice balance additively, guarded.
+    assert.match(SI_RECORD_PAYMENT_SQL, /amount_paid = amount_paid \+ \$1/);
+    assert.match(SI_UNDO_PAYMENT_SQL, /GREATEST\(0, amount_paid - \$1\)/);
+  });
+
+  test('customer payments: reversal flips status only while POSTED', () => {
+    assert.match(CP_REVERSE_SQL, /status = 'REVERSED'/);
+    assert.match(CP_REVERSE_SQL, /status = 'POSTED'/);
+  });
+
+  test('customer ledger payment lines come from the customer_payments sub-ledger', () => {
+    assert.match(LEDGER_CUSTOMER_PAYMENTS_SQL, /FROM customer_payments/);
+    assert.match(LEDGER_CUSTOMER_PAYMENTS_SQL, /customer_id = \$1/);
+    assert.match(LEDGER_CUSTOMER_PAYMENTS_SQL, /payment_number AS "paymentNumber"/);
   });
 });

@@ -115,6 +115,8 @@ export const api = {
   createSalesReturn: sales.createSalesReturn,
   cancelSalesReturn: sales.cancelSalesReturn,
   postSalesReturn: sales.postSalesReturn,
+  createCustomerPayment: sales.createCustomerPayment,
+  reverseCustomerPayment: sales.reverseCustomerPayment,
   getCustomerLedger: sales.getCustomerLedger,
 
   // Shipments
