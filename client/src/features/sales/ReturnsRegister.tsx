@@ -25,6 +25,8 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { formatMoney } from '../../utils/nprFormat';
+import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import type {
   PurchaseInvoice, SalesInvoice, PurchaseReturn, SalesReturn, Product, Branch, CompanyProfile, User,
@@ -52,15 +54,7 @@ interface ReturnsRegisterProps {
   onApproveReturn?: (id: string) => Promise<void>;
 }
 
-const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white';
-const labelClass = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
-const btnPrimary =
-  'inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50';
-const btnGhost =
-  'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
 
-const fmtMoney = (n: number) => `Rs. ${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const REASONS = ['DEFECTIVE', 'WRONG_ITEM', 'SHORT_SUPPLY', 'OTHER'] as const;
 
@@ -345,7 +339,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
             <div><div className={labelClass}>Date</div><div className="font-medium">{dateMode === 'BS' && viewing.returnDateBS ? viewing.returnDateBS : viewing.returnDateAD}</div></div>
             <div><div className={labelClass}>Reason</div><div className="font-medium">{viewing.reason}</div></div>
             <div><div className={labelClass}>Status</div><div>{statusChip(viewing.status)}</div></div>
-            <div><div className={labelClass}>Grand Total</div><div className="font-semibold">{fmtMoney(viewing.grandTotal)}</div></div>
+            <div><div className={labelClass}>Grand Total</div><div className="font-semibold">{formatMoney(viewing.grandTotal)}</div></div>
             {!isPurchase && (
               <div><div className={labelClass}>Restocked</div><div className="font-medium">{(viewing as SalesReturn).restockable !== false ? 'Yes' : 'No (damaged)'}</div></div>
             )}
@@ -364,8 +358,8 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <td className="py-2">{it.productName}</td>
                     <td className="py-2">{it.sku}</td>
                     <td className="py-2">{it.quantity}</td>
-                    <td className="py-2">{fmtMoney(it.unitPrice)}</td>
-                    <td className="py-2">{fmtMoney(it.total || it.quantity * it.unitPrice)}</td>
+                    <td className="py-2">{formatMoney(it.unitPrice)}</td>
+                    <td className="py-2">{formatMoney(it.total || it.quantity * it.unitPrice)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -381,7 +375,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                 <option value="">— Select invoice —</option>
                 {invoices.map((inv) => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.invoiceNumber} · {isPurchase ? (inv as PurchaseInvoice).supplierName : (inv as SalesInvoice).customerName} · {fmtMoney(inv.grandTotal)}
+                    {inv.invoiceNumber} · {isPurchase ? (inv as PurchaseInvoice).supplierName : (inv as SalesInvoice).customerName} · {formatMoney(inv.grandTotal)}
                   </option>
                 ))}
               </select>
@@ -439,7 +433,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                   </div>
                   <div className="col-span-2">
                     <div className={`rounded-lg border px-3 py-2 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/60' : 'border-slate-200 bg-slate-50'}`}>
-                      {fmtMoney(line.unitPrice)}
+                      {formatMoney(line.unitPrice)}
                     </div>
                   </div>
                   <div className="col-span-2 text-xs text-slate-500">
@@ -465,10 +459,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
           )}
 
           <div className={`rounded-lg border p-3 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/40' : 'border-slate-200 bg-slate-50'}`}>
-            <div className="flex justify-between"><span>Taxable</span><span>{fmtMoney(lineTotals.taxable)}</span></div>
-            <div className="flex justify-between"><span>VAT (13%)</span><span>{fmtMoney(lineTotals.vat)}</span></div>
+            <div className="flex justify-between"><span>Taxable</span><span>{formatMoney(lineTotals.taxable)}</span></div>
+            <div className="flex justify-between"><span>VAT (13%)</span><span>{formatMoney(lineTotals.vat)}</span></div>
             <div className="mt-1 flex justify-between border-t pt-1 font-semibold" style={{ borderColor: isDarkMode ? '#334155' : '#e2e8f0' }}>
-              <span>{isPurchase ? 'Debit Note Total' : 'Credit Note Total'}</span><span>{fmtMoney(lineTotals.grand)}</span>
+              <span>{isPurchase ? 'Debit Note Total' : 'Credit Note Total'}</span><span>{formatMoney(lineTotals.grand)}</span>
             </div>
           </div>
 
@@ -541,7 +535,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                     <td className="px-4 py-2">{dateMode === 'BS' && ret.returnDateBS ? ret.returnDateBS : ret.returnDateAD}</td>
                     <td className="px-4 py-2">{String(ret.reason || '').replace('_', ' ')}</td>
                     <td className="px-4 py-2">{statusChip(ret.status)}</td>
-                    <td className="px-4 py-2 text-right">{fmtMoney(ret.grandTotal)}</td>
+                    <td className="px-4 py-2 text-right">{formatMoney(ret.grandTotal)}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
                       <button className="mr-2 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" title="View"
                         onClick={() => { setViewing(ret); }}>

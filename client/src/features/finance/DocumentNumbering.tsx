@@ -55,6 +55,9 @@ export const DocumentNumbering: React.FC = () => {
   );
 
   useEffect(() => {
+    // DB is the source of truth; the localStorage copy is an intentional
+    // boot-time cache consumed by utils/documentNumbering getDocumentNumberConfigs()
+    // so numbering prefixes resolve before the first API round-trip.
     api.getDocumentNumberConfigs()
       .then((configs) => {
         if (Array.isArray(configs) && configs.length > 0) {

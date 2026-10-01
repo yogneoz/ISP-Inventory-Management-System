@@ -455,6 +455,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-amber-500 text-white',
     });
   }
+  if (isOperationAllowed('shipment-history', currentUser?.role)) {
+    warehouseChildren.push({
+      id: 'shipment-list' as NavTab,
+      label: 'Shipment & Transfer Register',
+      icon: ClipboardList,
+    });
+  }
   if (isOperationAllowed('branch-pullout-dispatch', currentUser?.role)) {
     warehouseChildren.push({ id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight });
   }

@@ -3,6 +3,7 @@ import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatNumber } from '../../utils/nprFormat';
 import {
   Wallet,
   Search,
@@ -114,9 +115,6 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
     );
   };
 
-  const numberFmt = (value: number | string | undefined): string =>
-    Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -224,22 +222,22 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               label="Opening Balance"
-              value={numberFmt(ledgerData.openingBalance)}
+              value={formatNumber(ledgerData.openingBalance)}
               tone={ledgerData.openingBalance > 0 ? 'rose' : 'emerald'}
             />
             <StatCard
               label="Total Purchases (Debit)"
-              value={numberFmt(ledgerData.totalDebit)}
+              value={formatNumber(ledgerData.totalDebit)}
               tone="rose"
             />
             <StatCard
               label="Total Payments (Credit)"
-              value={numberFmt(ledgerData.totalCredit)}
+              value={formatNumber(ledgerData.totalCredit)}
               tone="emerald"
             />
             <StatCard
               label="Closing Balance"
-              value={numberFmt(ledgerData.closingBalance)}
+              value={formatNumber(ledgerData.closingBalance)}
               tone={ledgerData.closingBalance > 0 ? 'rose' : 'emerald'}
             />
           </div>
@@ -270,7 +268,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
                 <tbody>
                   <tr className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/30">
                     <td className="px-4 py-2 font-medium text-slate-600 dark:text-slate-300" colSpan={5}>Opening Balance</td>
-                    <td className="px-4 py-2 text-right font-semibold text-slate-800 dark:text-slate-100">{numberFmt(ledgerData.openingBalance)}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-slate-800 dark:text-slate-100">{formatNumber(ledgerData.openingBalance)}</td>
                   </tr>
                   {ledgerData.ledger.length === 0 && (
                     <tr>
@@ -300,17 +298,17 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-right text-red-600 dark:text-red-400">{line.debit > 0 ? numberFmt(line.debit) : '—'}</td>
-                      <td className="px-4 py-2 text-right text-emerald-600 dark:text-emerald-400">{line.credit > 0 ? numberFmt(line.credit) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-red-600 dark:text-red-400">{line.debit > 0 ? formatNumber(line.debit) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-emerald-600 dark:text-emerald-400">{line.credit > 0 ? formatNumber(line.credit) : '—'}</td>
                       <td className={`px-4 py-2 text-right font-semibold ${line.balance > 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
-                        {numberFmt(line.balance)}
+                        {formatNumber(line.balance)}
                       </td>
                     </tr>
                   ))}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/50 font-semibold">
                     <td className="px-4 py-3 text-slate-800 dark:text-slate-100" colSpan={5}>Closing Balance</td>
                     <td className={`px-4 py-3 text-right ${ledgerData.closingBalance > 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
-                      {numberFmt(ledgerData.closingBalance)}
+                      {formatNumber(ledgerData.closingBalance)}
                     </td>
                   </tr>
                 </tbody>

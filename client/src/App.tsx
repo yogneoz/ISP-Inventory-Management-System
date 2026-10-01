@@ -2345,6 +2345,9 @@ export default function App() {
                 />
               )}
 
+              {/* Device Exchange: StockOperations DEVICE_EXCHANGE tab. The other
+                  exchange entry point is the per-device modal in
+                  CustomersManagement — both submit api.exchangeCustomerDevice. */}
               {activeTab === 'device-exchange' && (
                 <StockOperations
                   operations={stockOperations}

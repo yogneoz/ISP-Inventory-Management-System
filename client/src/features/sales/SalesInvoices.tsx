@@ -20,6 +20,8 @@ import { FilterCard } from '../../components/common/FilterCard';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { formatMoney } from '../../utils/nprFormat';
+import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import type {
   SalesInvoice, SalesInvoiceItem, Product, Branch, InventoryStock, CompanyProfile, User,
@@ -40,15 +42,7 @@ interface SalesInvoicesProps {
   onRecordPayment?: (invoice: SalesInvoice, amount: number, paymentMethod: string) => Promise<void>;
 }
 
-const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-[#0f1218] dark:text-white';
-const labelClass = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400';
-const btnPrimary =
-  'inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50';
-const btnGhost =
-  'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
 
-const fmtMoney = (n: number) => `Rs. ${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface FormLine {
   productId: string;
@@ -271,9 +265,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <div><div className={labelClass}>Branch</div><div className="font-medium">{branchName(viewing.branchId)}</div></div>
             <div><div className={labelClass}>Date</div><div className="font-medium">{dateMode === 'BS' && viewing.invoiceDateBS ? viewing.invoiceDateBS : viewing.invoiceDateAD}</div></div>
             <div><div className={labelClass}>Payment Status</div><div className="font-medium">{viewing.paymentStatus}</div></div>
-            <div><div className={labelClass}>Amount Paid</div><div className="font-medium">{fmtMoney(viewing.amountPaid)}</div></div>
-            <div><div className={labelClass}>VAT</div><div className="font-medium">{fmtMoney(viewing.vatAmount)}</div></div>
-            <div><div className={labelClass}>Grand Total</div><div className="font-semibold">{fmtMoney(viewing.grandTotal)}</div></div>
+            <div><div className={labelClass}>Amount Paid</div><div className="font-medium">{formatMoney(viewing.amountPaid)}</div></div>
+            <div><div className={labelClass}>VAT</div><div className="font-medium">{formatMoney(viewing.vatAmount)}</div></div>
+            <div><div className={labelClass}>Grand Total</div><div className="font-semibold">{formatMoney(viewing.grandTotal)}</div></div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -289,9 +283,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="py-2">{it.productName}</td>
                     <td className="py-2">{it.sku}</td>
                     <td className="py-2">{it.quantity}</td>
-                    <td className="py-2">{fmtMoney(it.unitPrice)}</td>
-                    <td className="py-2">{fmtMoney(it.taxAmount || 0)}</td>
-                    <td className="py-2">{fmtMoney(it.total || 0)}</td>
+                    <td className="py-2">{formatMoney(it.unitPrice)}</td>
+                    <td className="py-2">{formatMoney(it.taxAmount || 0)}</td>
+                    <td className="py-2">{formatMoney(it.total || 0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -373,11 +367,11 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
           </div>
 
           <div className={`rounded-lg border p-3 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/40' : 'border-slate-200 bg-slate-50'}`}>
-            <div className="flex justify-between"><span>Taxable</span><span>{fmtMoney(lineTotals.taxable)}</span></div>
-            <div className="flex justify-between"><span>Non-taxable</span><span>{fmtMoney(lineTotals.nonTaxable)}</span></div>
-            <div className="flex justify-between"><span>VAT (13%)</span><span>{fmtMoney(lineTotals.vat)}</span></div>
+            <div className="flex justify-between"><span>Taxable</span><span>{formatMoney(lineTotals.taxable)}</span></div>
+            <div className="flex justify-between"><span>Non-taxable</span><span>{formatMoney(lineTotals.nonTaxable)}</span></div>
+            <div className="flex justify-between"><span>VAT (13%)</span><span>{formatMoney(lineTotals.vat)}</span></div>
             <div className="mt-1 flex justify-between border-t pt-1 font-semibold dark:border-slate-700" style={{ borderColor: isDarkMode ? '#334155' : '#e2e8f0' }}>
-              <span>Grand Total</span><span>{fmtMoney(lineTotals.grand)}</span>
+              <span>Grand Total</span><span>{formatMoney(lineTotals.grand)}</span>
             </div>
           </div>
 
@@ -435,7 +429,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                     <td className="px-4 py-2">{branchName(inv.branchId)}</td>
                     <td className="px-4 py-2">{dateMode === 'BS' && inv.invoiceDateBS ? inv.invoiceDateBS : inv.invoiceDateAD}</td>
                     <td className="px-4 py-2">{inv.paymentStatus}</td>
-                    <td className="px-4 py-2 text-right">{fmtMoney(inv.grandTotal)}</td>
+                    <td className="px-4 py-2 text-right">{formatMoney(inv.grandTotal)}</td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
                       <button className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400" title="View"
                         onClick={() => { setViewing(inv); }}>
@@ -475,8 +469,8 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><div className={labelClass}>Invoice</div><div className="font-medium">{payInvoice.invoiceNumber}</div></div>
               <div><div className={labelClass}>Customer</div><div className="font-medium">{payInvoice.customerName}</div></div>
-              <div><div className={labelClass}>Grand Total</div><div>{fmtMoney(payInvoice.grandTotal)}</div></div>
-              <div><div className={labelClass}>Already Paid</div><div>{fmtMoney(payInvoice.amountPaid)}</div></div>
+              <div><div className={labelClass}>Grand Total</div><div>{formatMoney(payInvoice.grandTotal)}</div></div>
+              <div><div className={labelClass}>Already Paid</div><div>{formatMoney(payInvoice.amountPaid)}</div></div>
             </div>
             <div>
               <label className={labelClass}>Amount *</label>

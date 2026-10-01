@@ -1376,7 +1376,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         </div>
       )}
 
-      {/* Hardware Warranty Device Exchange Modal */}
+      {/* Hardware Warranty Device Exchange Modal
+
+          NOTE (duplication audit, phase 1): this per-device modal and the
+          full-page Device Exchange tab in StockOperations (sidebar
+          "Device Exchange & Replacement") are two entry points to the SAME
+          server operation — both submit api.exchangeCustomerDevice. The modal
+          is the quick path from a specific customer device row; the
+          StockOperations tab adds search/filter across all rental devices.
+          Keep both in sync if exchange rules change. */}
       {isExchangeModalOpen && selectedDeviceForExchange && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
           <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">

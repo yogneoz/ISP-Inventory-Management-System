@@ -165,6 +165,19 @@ export function formatMoneyInteger(value: number | string | null | undefined): s
 }
 
 /**
+ * Format a value with locale-aware grouping and forced decimals but WITHOUT
+ * the currency symbol/prefix. For sub-ledger column totals and any context
+ * that already declares its currency in a header (e.g. "NPR" column titles).
+ * Replaces the per-screen `numberFmt` helpers.
+ */
+export function formatNumber(value: number | string | null | undefined, decimals: number = 2): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return toLocale(0, decimals, decimals);
+  const sign = num < 0 ? '-' : '';
+  return `${sign}${toLocale(Math.abs(num), decimals, decimals)}`;
+}
+
+/**
  * Format raw number for table cells (no currency prefix, for export/sorting).
  */
 export function formatRawNumber(value: number | string | null | undefined): number {
