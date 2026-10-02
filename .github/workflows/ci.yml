@@ -43,6 +43,14 @@ jobs:
       - name: Apply schema.sql to the CI database (fresh-install proof + drift-guard baseline)
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/schema.sql
+      # Duplication-audit phase 2 runtime proof: boots the real server against
+      # an EMPTY throwaway database (dbBoot executes scripts/schema.sql itself)
+      # and diffs the resulting runtime schema against a reference database
+      # created by applying scripts/schema.sql directly. Catches runtime DDL
+      # that re-inlines a second schema outside scripts/schema.sql on every
+      # push. Requires CREATEDB — the CI service superuser has it.
+      - name: Fresh-install proof — boot server on empty DB and assert schema parity
+        run: node scripts/verify_fresh_install.mjs
       - run: npx tsc --noEmit
       - run: npm test
       - name: Enforce repo-layer convention (no raw SQL in controllers)

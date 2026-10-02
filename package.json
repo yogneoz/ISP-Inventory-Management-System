@@ -17,7 +17,8 @@
     "lint": "tsc --noEmit",
     "test": "tsc --noEmit && node scripts/run_tests.mjs",
     "check:no-inline-sql": "tsx scripts/check_no_inline_sql.ts",
-    "check:bundle-budget": "node scripts/check_bundle_budget.mjs"
+    "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
+    "verify:fresh-install": "node scripts/verify_fresh_install.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
