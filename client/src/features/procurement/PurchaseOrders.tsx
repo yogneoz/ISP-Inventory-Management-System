@@ -1,39 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PurchaseOrder, PurchaseInvoice, Product, Branch, POLineItem, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
-import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
+import { PurchaseOrder, PurchaseInvoice, Product, Branch, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
+import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
-import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
-import { ProductSearchBar } from '../inventory/ProductSearchBar';
+import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
-import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
+import { formatNPR } from '../../utils/nprFormat';
 import {
   ShoppingCart,
   Plus,
-  Search,
   Trash2,
   FileText,
-  X,
   Eye,
-  Calculator,
-  Sparkles,
   Printer,
   XCircle,
-  RotateCcw,
-  ChevronDown,
   Lock,
   Pencil,
   Clock,
   ArrowLeft,
-  Check,
   Download,
 } from 'lucide-react';
-import { formCardClass } from '../../components/common/FormCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { useDarkMode } from '../../contexts/DarkModeContext';
+import { TablePagination } from '../../components/common/TablePagination';
+import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
+
+// Re-exported for App.tsx, which seeds the dashboard's low-stock reorder flow.
+export type { OrderFormLine };
 
 interface PurchaseOrdersProps {
   companyProfile?: CompanyProfile | null;
@@ -61,14 +55,6 @@ interface PurchaseOrdersProps {
   onDeletePO?: (poId: string) => Promise<void>;
 }
 
-export interface OrderFormLine {
-  productId: string;
-  quantity: number;
-  unitPrice: number;
-  discount: number;
-  isTaxExempt: boolean;
-}
-
 export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   companyProfile,
   purchaseInvoices = [],
@@ -88,7 +74,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onUpdatePOStatus,
   onDeletePO,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog } = useDialog();
   // Role-level gate: the inline create form is only reachable when the role may create POs
   const canCreatePoByRole = isOperationAllowed('po-create', currentUser?.role);
@@ -116,7 +101,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [poReceivedValue, setPoReceivedValue] = useState(0);
   const [poPage, setPoPage] = useState(1);
   const [poPageSize, setPoPageSize] = useState(15);
-  const [poLoading, setPoLoading] = useState(true);
+  const [, setPoLoading] = useState(true);
   const [poLoadError, setPoLoadError] = useState('');
   const [poRefreshKey, setPoRefreshKey] = useState(0);
 
@@ -131,207 +116,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   // Suppliers list strictly sourced from parent master directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
-
-  // Form State
-  const [supplierName, setSupplierName] = useState(availableSuppliers[0]?.name || '');
-  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
-  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
-  const supplierDropdownRef = useRef<HTMLDivElement>(null);
-
-  const [branchId, setBranchId] = useState(
-    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || ''
-  );
-  const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
-  const [expectedDeliveryDateAD, setExpectedDeliveryDateAD] = useState(
-    new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
-  );
-  const [billWiseDiscount, setBillWiseDiscount] = useState<number>(0);
-  const [notes, setNotes] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('ALL');
 
-  // Close supplier dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (supplierDropdownRef.current && !supplierDropdownRef.current.contains(e.target as Node)) {
-        setIsSupplierDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
-  // Automatically sync branchId when branches load or selectedBranchId changes
-  useEffect(() => {
-    const allowed = getAllowedBranches(currentUser, branches);
-    if (allowed.length > 0) {
-      if (selectedBranchId !== 'ALL' && allowed.some((b) => b.id === selectedBranchId)) {
-        setBranchId(selectedBranchId);
-      } else if (!allowed.some((b) => b.id === branchId)) {
-        setBranchId(allowed[0].id);
-      }
-    }
-  }, [selectedBranchId, branches, currentUser]);
 
-  // Automatically sync supplierName when availableSuppliers load
-  useEffect(() => {
-    if (availableSuppliers.length > 0 && (!supplierName || !availableSuppliers.some((s) => s.name === supplierName))) {
-      setSupplierName(availableSuppliers[0].name);
-    }
-  }, [availableSuppliers]);
 
-  // Filtered suppliers for searchable directory picker
-  const filteredSuppliers = availableSuppliers.filter((s) => {
-    if (!s) return false;
-    const q = (supplierName || '').trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (s?.name || '').toLowerCase().includes(q) ||
-      (s?.panVatNumber && s.panVatNumber.toLowerCase().includes(q)) ||
-      (s?.contactPerson && s.contactPerson.toLowerCase().includes(q)) ||
-      (s?.phone && s.phone.includes(q))
-    );
-  });
-
-  // Line items for POS entry (start with prepopulated lines if given, otherwise empty)
-  const [lines, setLines] = useState<OrderFormLine[]>(() => {
-    if (prepopulatedLines && prepopulatedLines.length > 0) {
-      return prepopulatedLines;
-    }
-    return [];
-  });
-
-  // Keep lines synced with prepopulatedLines prop when provided
-  useEffect(() => {
-    if (prepopulatedLines && prepopulatedLines.length > 0) {
-      setLines(prepopulatedLines);
-    }
-  }, [prepopulatedLines]);
-
-  const handleResetForm = () => {
-    setEditingPO(null);
-    setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
-    setSupplierName(availableSuppliers[0]?.name || '');
-    setSupplierSearchQuery('');
-    setIsSupplierDropdownOpen(false);
-    setBillWiseDiscount(0);
-    setTaxationType('TAXABLE_13');
-    setNotes('');
-    setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
-  };
-
-  const handleOpenCreateTab = () => {
-    setEditingPO(null);
-    setSupplierName(availableSuppliers[0]?.name || '');
-    setSupplierSearchQuery('');
-    setBranchId(selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'WH001');
-    setTaxationType('TAXABLE_13');
-    setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
-    setBillWiseDiscount(0);
-    setNotes('');
-    setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
-    setInternalTab('CREATE_PO');
-  };
-
-  const handleOpenEditTab = (po: PurchaseOrder) => {
-    if (
-      po.status === 'IN_PROGRESS' ||
-      (po.status as string) === 'INPROGRESS' ||
-      po.status === 'CANCELLED' ||
-      po.status === 'RECEIVED'
-    ) {
-      alert(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
-      return;
-    }
-    setEditingPO(po);
-    setSupplierName(po.supplierName);
-    setBranchId(po.branchId);
-    const hasTax = po.items.some((i) => i.taxAmount > 0) || (po.taxAmount ?? 0) > 0;
-    setTaxationType(hasTax ? 'TAXABLE_13' : 'TAX_EXEMPTED');
-    setExpectedDeliveryDateAD(po.expectedDeliveryDateAD);
-    setNotes(po.notes || '');
-    setBillWiseDiscount(0);
-    setLines(
-      po.items.map((i) => ({
-        productId: i.productId,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        discount: i.discount || 0,
-        isTaxExempt: i.isTaxExempt || i.taxRate === 0,
-      }))
-    );
-    setInternalTab('CREATE_PO');
-  };
-
-  const handleAutoPopulateLowStock = () => {
-    const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
-
-    stock.forEach((s) => {
-      const prod = products.find((p) => p.id === s.productId);
-      if (!prod) return;
-
-      const branchMinReorder = s.minReorderLevel ?? prod.minReorderLevel;
-      const isLow =
-        branchMinReorder > 0
-          ? s.quantityOnHand <= branchMinReorder
-          : s.quantityOnHand <= 0;
-
-      if (isLow) {
-        const deficit =
-          branchMinReorder > 0
-            ? Math.max(1, branchMinReorder - s.quantityOnHand)
-            : Math.abs(s.quantityOnHand);
-
-        if (deficit <= 0) return;
-
-        if (lowStockProductMap.has(prod.id)) {
-          const curr = lowStockProductMap.get(prod.id)!;
-          curr.qty += deficit;
-        } else {
-          lowStockProductMap.set(prod.id, { product: prod, qty: deficit });
-        }
-      }
-    });
-
-    const lowStockLines: OrderFormLine[] = Array.from(lowStockProductMap.values()).map(
-      ({ product, qty }) => ({
-        productId: product.id,
-        quantity: Math.max(1, qty),
-        unitPrice: product.costPrice,
-        discount: 0,
-        isTaxExempt: taxationType === 'TAX_EXEMPTED' || product.taxRate === 0,
-      })
-    );
-
-    if (lowStockLines.length > 0) {
-      setLines(lowStockLines);
-    }
-  };
-
-  // Search / Scan Product Add or Increment
-  const handleAddOrIncrementProduct = (prod: Product) => {
-    setLines((prevLines) => {
-      const existingIdx = prevLines.findIndex((l) => l.productId === prod.id);
-      if (existingIdx !== -1) {
-        const updated = [...prevLines];
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          quantity: updated[existingIdx].quantity + 1,
-        };
-        return updated;
-      } else {
-        return [
-          ...prevLines,
-          {
-            productId: prod.id,
-            quantity: 1,
-            unitPrice: prod.costPrice,
-            discount: 0,
-            isTaxExempt: taxationType === 'TAX_EXEMPTED' || prod.taxRate === 0,
-          },
-        ];
-      }
-    });
-  };
 
   const matchesBranchLocal = (po: PurchaseOrder) => selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
   const matchesSupplierLocal = (po: PurchaseOrder) =>
@@ -469,124 +258,25 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     });
   };
 
-  const allowedBranches = getAllowedBranches(currentUser, branches).sort((a, b) => {
-    const aIsWarehouse = `${a.id} ${a.code} ${a.name}`.toLowerCase().includes('warehouse') || a.id.toLowerCase().startsWith('wh');
-    const bIsWarehouse = `${b.id} ${b.code} ${b.name}`.toLowerCase().includes('warehouse') || b.id.toLowerCase().startsWith('wh');
-    return Number(bIsWarehouse) - Number(aIsWarehouse);
-  });
-
-  const addLine = () => {
-    const existingIds = new Set(lines.map((l) => l.productId));
-    const nextProd = products.find((p) => !existingIds.has(p.id)) || products[0];
-    if (!nextProd) return;
-
-    setLines([
-      ...lines,
-      {
-        productId: nextProd.id,
-        quantity: 1,
-        unitPrice: nextProd.costPrice,
-        discount: 0,
-        isTaxExempt: taxationType === 'TAX_EXEMPTED' || nextProd.taxRate === 0,
-      },
-    ]);
+  const handleOpenCreateTab = () => {
+    setEditingPO(null);
+    setInternalTab('CREATE_PO');
   };
 
-  const removeLine = (index: number) => {
-    setLines(lines.filter((_, i) => i !== index));
-  };
-
-  const updateLine = (index: number, field: keyof OrderFormLine, value: any) => {
-    const updated = [...lines];
-    if (field === 'productId') {
-      const prod = products.find((p) => p.id === value);
-      updated[index] = {
-        ...updated[index],
-        productId: value,
-        unitPrice: prod?.costPrice || 0,
-        isTaxExempt: taxationType === 'TAX_EXEMPTED' || prod?.taxRate === 0,
-      };
-    } else {
-      updated[index] = { ...updated[index], [field]: value };
-    }
-    setLines(updated);
-  };
-
-  // Order level calculations with bill-wise discount
-  const grossSubtotal = lines.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
-  const taxableAfterDiscount = Math.max(0, grossSubtotal - billWiseDiscount);
-  const totalVAT = taxationType === 'TAXABLE_13' ? (taxableAfterDiscount * 13) / 100 : 0;
-  const grandTotal = taxableAfterDiscount + totalVAT;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (lines.length === 0) {
-      alert('Please add at least one product item line before saving.');
+  // Edit mode: seed the shared form with the PO being edited. The form
+  // component derives supplier/branch/tax/lines from editingPO itself.
+  const handleOpenEditTab = (po: PurchaseOrder) => {
+    if (
+      po.status === 'IN_PROGRESS' ||
+      (po.status as string) === 'INPROGRESS' ||
+      po.status === 'CANCELLED' ||
+      po.status === 'RECEIVED'
+    ) {
+      alert(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
       return;
     }
-
-    const targetBranch = branches.find((b) => b.id === branchId);
-    if (targetBranch && targetBranch.allowProcurement === false) {
-      alert(
-        `Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`
-      );
-      return;
-    }
-
-    const todayAD = new Date().toISOString().split('T')[0];
-    const bsObj = convertADToBS(todayAD);
-    const appliedBillDiscount = Math.min(grossSubtotal, Math.max(0, billWiseDiscount));
-
-    const items: POLineItem[] = lines.map((l, idx) => {
-      const prod = products.find((p) => p.id === l.productId);
-      const lineTotal = l.quantity * l.unitPrice;
-      const lineDiscount = grossSubtotal > 0 ? (lineTotal / grossSubtotal) * appliedBillDiscount : 0;
-      const netLineTotal = Math.max(0, lineTotal - lineDiscount);
-      const lineTax = taxationType === 'TAX_EXEMPTED' ? 0 : (netLineTotal * 13) / 100;
-      return {
-        id: `poi-${Date.now()}-${idx}`,
-        productId: l.productId,
-        productGroup: prod?.productGroup,
-        productName: prod?.name || 'Item',
-        sku: prod?.sku || 'SKU',
-        unit: prod?.unit || 'Pcs',
-        quantity: Number(l.quantity),
-        unitPrice: Number(l.unitPrice),
-        discount: lineDiscount,
-        isTaxExempt: taxationType === 'TAX_EXEMPTED',
-        taxRate: taxationType === 'TAX_EXEMPTED' ? 0 : 13,
-        subtotal: netLineTotal,
-        taxAmount: lineTax,
-        total: lineTotal + lineTax,
-      };
-    });
-    if (editingPO) {
-      if (onUpdatePO) {
-        await onUpdatePO(editingPO.id, {
-          supplierName,
-          branchId,
-          expectedDeliveryDateAD,
-          items,
-          notes,
-        });
-      }
-      setEditingPO(null);
-    } else {
-      await onCreatePO({
-        supplierName,
-        branchId,
-        orderDateAD: todayAD,
-        orderDateBS: bsObj.formattedBSShort,
-        expectedDeliveryDateAD,
-        status: 'SENT',
-        items,
-        notes,
-      });
-    }
-
-    handleResetForm();
-    setInternalTab('PO_LIST');
-    setPoRefreshKey((k) => k + 1);
+    setEditingPO(po);
+    setInternalTab('CREATE_PO');
   };
 
   return (
@@ -622,7 +312,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             )}
 
             {internalTab === 'PO_LIST' && (() => {
-              const curBranch = branches.find((b) => b.id === branchId);
+              const curBranch = branches.find((b) => b.id === selectedBranchId);
               const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
               if (!canCreatePo) return null;
 
@@ -664,7 +354,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         </button>
 
         {(() => {
-          const curBranch = branches.find((b) => b.id === branchId);
+          const curBranch = branches.find((b) => b.id === selectedBranchId);
           const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
           return (
             <button
@@ -697,17 +387,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <span>
                 2. {editingPO ? `Edit Purchase Order (${editingPO.poNumber})` : 'Create Purchase Order (Inline Form)'}
               </span>
-              {lines.length > 0 && (
-                <span
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                    internalTab === 'CREATE_PO'
-                      ? 'bg-indigo-800 text-white'
-                      : 'bg-amber-100 text-amber-800 border border-amber-300'
-                  }`}
-                >
-                  {lines.length} items
-                </span>
-              )}
             </button>
           );
         })()}
@@ -1036,407 +715,30 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       )}
 
       {/* TAB 2: INLINE PURCHASE ORDER CREATION / EDIT FORM (FULL BODY VISIBLE) */}
+      {/* TAB 2: INLINE PURCHASE ORDER CREATION / EDIT FORM.
+          Phase 4: the form body lives in PurchaseOrderForm.tsx; this register
+          owns the edit/create entry points (handleOpenEditTab seeds editingPO)
+          and the post-save navigation. */}
       {internalTab === 'CREATE_PO' && (
-        <div
-          id="po-inline-form-container"
-          className={`${formCardClass} space-y-6`}
-        >
-          {/* No secondary form banner by design: the sub-tab indicator
-              ("2. Create Purchase Order" / "Edit Purchase Order — #") already
-              communicates context, so the form goes straight to its fields. */}
-          <form onSubmit={handleSubmit} className="space-y-6" id="po-form-element">
-            {/* Top Form Fields: Vendor, Branch, Expected Delivery, Tax Mode.
-                Rows on lg: Row 1 = Destination Branch + Expected Delivery, Row 2 = Vendor
-                (full-width search), Row 3 = Taxation Term. The date field uses a compact
-                max-width so the control hugs its content instead of stretching. */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 p-3 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
-              {/* Vendor Searchable Field — its own row (10/12 so it doesn't dominate) */}
-              <div className="relative sm:col-span-2 lg:col-span-10" ref={supplierDropdownRef}>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Vendor / Supplier Name *
-                </label>
-                <div className="relative w-full flex items-center">
-                  <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    id="po-supplier-input"
-                    value={supplierName}
-                    onFocus={() => {
-                      setIsSupplierDropdownOpen(true);
-                    }}
-                    onChange={(e) => {
-                      setSupplierName(e.target.value);
-                      setIsSupplierDropdownOpen(true);
-                    }}
-                    placeholder="Search supplier name or PAN..."
-                    className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-indigo-500`}
-                  />
-                  {supplierName ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSupplierName('');
-                        setIsSupplierDropdownOpen(true);
-                      }}
-                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800`}
-                      title="Clear vendor selection"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsSupplierDropdownOpen((prev) => !prev)}
-                      className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200`}
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Floating Search Dropdown Overlay */}
-                {isSupplierDropdownOpen && (
-                  <div className={`absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800`}>
-                    {filteredSuppliers.length === 0 ? (
-                      <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
-                        <div>No matching supplier in directory.</div>
-                        <div className={`mt-1 font-semibold text-indigo-600 dark:text-indigo-400`}>
-                          Press enter or tab to use "{supplierName}".
-                        </div>
-                      </div>
-                    ) : (
-                      filteredSuppliers.map((s) => {
-                        const isSelected = (s?.name || '').toLowerCase() === (supplierName || '').toLowerCase();
-                        return (
-                          <button
-                            key={s.id || s.name}
-                            type="button"
-                            onClick={() => {
-                              setSupplierName(s.name);
-                              setIsSupplierDropdownOpen(false);
-                            }}
-                            className={`w-full text-left p-2.5 transition-colors cursor-pointer flex items-center justify-between ${
-                              isDarkMode
-                                ? `hover:bg-slate-800 ${isSelected ? 'bg-indigo-950/40' : ''}`
-                                : `hover:bg-indigo-50 ${isSelected ? 'bg-indigo-50/70' : ''}`
-                            }`}
-                          >
-                            <div className="min-w-0 pr-2">
-                              <div className={`font-semibold text-xs truncate text-slate-900 dark:text-white`}>
-                                {s.name}
-                              </div>
-                              <div className={`flex items-center gap-2 text-[10px] font-mono mt-0.5 text-slate-500 dark:text-slate-400`}>
-                                {s.panVatNumber && <span>PAN: {s.panVatNumber}</span>}
-                                {s.phone && <span>• {s.phone}</span>}
-                              </div>
-                            </div>
-                            {isSelected && <Check className={`h-4 w-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400`} />}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="lg:col-span-4">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Destination Branch *
-                </label>
-                <select
-                  id="po-branch-select"
-                  value={branchId}
-                  onChange={(e) => setBranchId(e.target.value)}
-                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
-                >
-                  {allowedBranches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="lg:col-span-4 lg:max-w-[15rem]">
-                <DateField
-                  label="Expected Delivery Date"
-                  mode={dateMode}
-                  value={expectedDeliveryDateAD}
-                  onChange={setExpectedDeliveryDateAD}
-                  required
-                  id="po-delivery-date"
-                  compact
-                />
-              </div>
-
-              {/* Taxation Term — own row so the long option labels never squeeze the date fields */}
-              <div className="sm:col-span-2 lg:col-span-6 lg:col-start-1 border-t pt-2 border-slate-200 dark:border-slate-800">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Taxation Term *
-                </label>
-                <select
-                  id="po-taxation-type"
-                  value={taxationType}
-                  onChange={(e) => {
-                    const val = e.target.value as 'TAXABLE_13' | 'TAX_EXEMPTED';
-                    setTaxationType(val);
-                    setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
-                  }}
-                  className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
-                >
-                  <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
-                  <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Product Search & Barcode Scan Bar */}
-            <div className={`p-3 rounded-xl border space-y-2 bg-indigo-50/70 border-indigo-200 dark:bg-indigo-950/40 dark:border-indigo-800/60`}>
-              <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-300">
-                <span className={`flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300`}>
-                  <Search className="h-4 w-4" />
-                  <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
-                </span>
-                <span className={`text-[10px] font-normal hidden sm:inline text-slate-500 dark:text-slate-400`}>
-                  Scan or type item name to instantly add or increment quantity
-                </span>
-              </div>
-              <ProductSearchBar
-                products={products}
-                onAddOrIncrementProduct={handleAddOrIncrementProduct}
-                placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
-                inputId="po-product-search-input"
-              />
-            </div>
-
-            {/* POS Multi-Line Table */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Calculator className="h-4 w-4 text-indigo-500" />
-                  <span>Order Items Table ({lines.length} items)</span>
-                </h4>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    id="btn-po-autofill-low-stock"
-                    onClick={handleAutoPopulateLowStock}
-                    className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800/50"
-                    title="Automatically populate low stock products below reorder levels"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                    <span>Auto-fill Low Stock Items</span>
-                  </button>
-                  <button
-                    type="button"
-                    id="btn-po-add-line"
-                    onClick={addLine}
-                    className={`flex items-center gap-1 text-xs font-bold text-indigo-600 bg-indigo-50 border-indigo-200 dark:text-indigo-400 dark:bg-indigo-950/50 dark:border-indigo-800/50 hover:underline cursor-pointer px-3 py-1.5 rounded-lg border`}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Add Item Line</span>
-                  </button>
-                </div>
-              </div>
-
-              <div
-                className={`border rounded-xl overflow-x-auto border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30`}
-              >
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead
-                    className={`font-bold uppercase text-[10px] tracking-wider border-b bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800`}
-                  >
-                    <tr>
-                      <th className="px-2.5 py-1.5 w-10 text-center">#</th>
-                      <th className="px-2.5 py-1.5 min-w-[220px]">Product / Item Name & SKU</th>
-                      <th className="px-2.5 py-1.5 w-28 text-center">Quantity</th>
-                      <th className="px-2.5 py-1.5 w-32 text-right">Unit Rate (NPR)</th>
-                      <th className="px-2.5 py-1.5 w-36 text-right">Line Total</th>
-                      <th className="px-2.5 py-1.5 w-14 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                    {lines.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-8 text-center text-slate-400 italic">
-                          No items added yet. Use the barcode scanner / search bar above or click "Add Item Line" to begin.
-                        </td>
-                      </tr>
-                    ) : (
-                      lines.map((line, idx) => {
-                        const prod = products.find((p) => p.id === line.productId);
-                        const lineTotal = line.quantity * line.unitPrice;
-
-                        return (
-                          <tr
-                            key={idx}
-                            className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}
-                          >
-                            <td className="p-2.5 text-center align-middle font-mono font-bold text-slate-400">
-                              {idx + 1}
-                            </td>
-                            <td className="p-2.5">
-                              <select
-                                value={line.productId}
-                                onChange={(e) => updateLine(idx, 'productId', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs font-semibold text-slate-900 dark:text-slate-100"
-                              >
-                                {products.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.name} ({p.sku}) — {p.category}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                <span>Unit: <strong className="text-slate-700 dark:text-slate-300">{prod?.unit || 'Pcs'}</strong></span>
-                                <span>•</span>
-                                <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">{formatNPR(prod?.costPrice)}</strong></span>
-                              </div>
-                            </td>
-                            <td className="p-2.5 text-center align-middle">
-                              <input
-                                type="number"
-                                min={1}
-                                required
-                                value={line.quantity}
-                                onChange={(e) =>
-                                  updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
-                                }
-                                className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
-                              />
-                            </td>
-                            <td className="p-2.5 text-right align-middle">
-                              <input
-                                type="number"
-                                min={0}
-                                required
-                                value={line.unitPrice}
-                                onChange={(e) =>
-                                  updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
-                                }
-                                className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
-                              />
-                            </td>
-                            <td className="p-2.5 text-right align-middle font-mono font-extrabold text-slate-900 dark:text-white">
-                              {formatNPR(lineTotal)}
-                            </td>
-                            <td className="p-2.5 text-center align-middle">
-                              <button
-                                type="button"
-                                onClick={() => removeLine(idx)}
-                                className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
-                                title="Remove item line"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* POS Summary Calculations & Remarks */}
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-200 dark:border-slate-700 pt-5`}>
-              <div>
-                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400`}>
-                  Order Remarks / Terms & Conditions
-                </label>
-                <textarea
-                  rows={5}
-                  id="po-remarks-input"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Enter dispatch instructions, payment terms, warranty terms, or vendor agreement reference..."
-                  className={`w-full rounded-xl border p-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 border-slate-300 bg-white text-slate-900 placeholder-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500`}
-                />
-              </div>
-
-              {/* Bill-wise Discount Summary Box */}
-              <div
-                className={`rounded-2xl p-5 border space-y-3 text-xs bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}
-              >
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span className="font-semibold">Gross Subtotal:</span>
-                  <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
-                    {formatNPRPrecise(grossSubtotal)}
-                  </span>
-                </div>
-
-                {/* Bill Wise Discount Input */}
-                <div className={`flex justify-between items-center text-amber-600 bg-amber-50/70 border-amber-200/60 dark:text-amber-400 dark:bg-amber-950/40 dark:border-amber-800/40 p-2.5 rounded-xl border`}>
-                  <span className="font-bold">Bill Wise Discount (NPR):</span>
-                  <input
-                    type="number"
-                    min={0}
-                    id="po-bill-discount-input"
-                    value={billWiseDiscount}
-                    onChange={(e) => setBillWiseDiscount(Math.max(0, Number(e.target.value)))}
-                    className={`w-32 text-right rounded-lg border border-amber-300 bg-white text-amber-600 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-400 px-2 py-1 text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500`}
-                  />
-                </div>
-
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>Taxable Base Subtotal:</span>
-                  <span className="font-mono font-bold">
-                    {formatNPRPrecise(taxableAfterDiscount)}
-                  </span>
-                </div>
-
-                <div className={`flex justify-between items-center text-indigo-600 border-slate-200 dark:text-indigo-400 dark:border-slate-800 font-semibold border-t pt-2.5`}>
-                  <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
-                  <span className="font-mono font-bold">
-                    {formatNPRPrecise(totalVAT)}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2.5 border-t border-slate-300 dark:border-slate-700">
-                  <span>Grand Total Order Amount:</span>
-                  <span className={`font-mono text-indigo-600 dark:text-indigo-400 text-lg`}>
-                    {formatNPRPrecise(grandTotal)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Form Actions */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={handleResetForm}
-                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="h-4 w-4" />
-                <span>Reset Form</span>
-              </button>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleResetForm();
-                    setInternalTab('PO_LIST');
-                  }}
-                  className={`rounded-xl border px-5 py-2.5 text-xs font-semibold cursor-pointer transition-colors border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  id="btn-submit-po"
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer transition-all"
-                >
-                  {editingPO ? 'Update & Save Purchase Order' : 'Confirm & Issue Purchase Order'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
+        <PurchaseOrderForm
+          currentUser={currentUser}
+          products={products}
+          branches={branches}
+          stock={stock}
+          suppliers={availableSuppliers}
+          selectedBranchId={selectedBranchId}
+          dateMode={dateMode}
+          editingPO={editingPO}
+          prepopulatedLines={prepopulatedLines}
+          onCreatePO={onCreatePO}
+          onUpdatePO={onUpdatePO}
+          onSaved={() => {
+            setEditingPO(null);
+            setInternalTab('PO_LIST');
+            setPoRefreshKey((k) => k + 1);
+          }}
+          onCancel={() => setEditingPO(null)}
+        />
       )}
 
       {/* TAB 3: PO DETAILED VIEWER (FULL PAGE INLINE DOCUMENT) */}
