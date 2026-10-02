@@ -1,8 +1,91 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-09-26 · Branch: main · Tests: 449/449 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-02 · Branch: main · Tests: 504/504 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Arc 18 — accounting-accuracy wording audit + closing-wizard corrections (pushed `334b22e`)
+## ⭐ NEWEST: Duplication audit (phases 1–4) + CI fresh-install proof (pushed `60acf84`…`e8f8de4`, CI green)
+
+Long-running duplication-audit plan executed across four phases plus one CI
+hardening step. All pushed to main; client+server `tsc --noEmit` clean,
+504/504 tests, bundle budget OK (275.7/320 kB gz startup).
+
+### Phase 1 — shared formatting/nav/styles (`60acf84`)
+Consolidated repeated money formatting into `fmtMoney` (nprFormat),
+navigation helpers and form styles; exposed the Shipment & Transfer Register.
+
+### Phase 2 — schema.sql becomes the single schema source (`2cbf891`)
+`server/src/boot/dbBoot.ts` no longer carries the ~1,000-line inline DDL
+template literal — it executes `scripts/schema.sql` via `loadSchemaSql()`
+(resolves repo-root file; cwd walk for bundled `dist/server.cjs`). The
+former dbBoot-only runtime statements (legacy index aliases, serial-log
+ALTERs, currency backfill, fiscal-year default drop, vendor-payment FY
+backfill) were ported into schema.sql's "RUNTIME PARITY SECTION".
+Guard: `tests/schemaSource.parity.test.ts` (3 tests: no inline DDL in
+dbBoot, ported statements present, exactly 34 tables). File-parsing only —
+runs everywhere, no DB needed.
+
+### Phase 3 — CACHE_LOADS derived from columnMappings (`2234b5e`)
+One table description (`columnMappings.ts`) now feeds both bootstrap and
+the operational cache; guard `tests/cacheLoads.parity.test.ts` (3 tests).
+
+### Phase 4 — create-forms extracted out of the register screens (`2b1d54c`)
+- `PurchaseOrders.tsx` 1,693 → **995** lines; new `PurchaseOrderForm.tsx`
+  (776). `PurchaseInvoices.tsx` 2,712 → **1,452**; new
+  `PurchaseInvoiceForm.tsx` (1,320 — includes the PO-link selection +
+  checklist modals that used to live in the register's JSX tail).
+- Registers keep: paged list, filters, CSV export, VIEW tab, payment /
+  products modals, tab-bar. Forms own all form state, totals, submit.
+- Contracts: PO form gets `editingPO` (edit entry point keeps its
+  IN_PROGRESS/CANCELLED/RECEIVED alert guard, then just `setEditingPO(po)`),
+  reports back via `onSaved`/`onCancel`. PI form is create-only: remounts
+  fresh per tab switch (no reset needed), `onSaved` (refresh register) +
+  `onClose` (navigate back after the 3s success message).
+- `OrderFormLine` is declared in PurchaseOrderForm.tsx and **re-export**
+  from PurchaseOrders.tsx (App.tsx imports it from there — don't break it).
+- Dead code swept while thinning (all were dead at HEAD, surfaced by
+  `--noUnusedLocals`): write-only `poLoading`/`piLoading`/`reversalId`/
+  `reversalReason`, unused `supplierSearchQuery`, unused `stock` prop on the
+  PI form, fully-unreferenced `handleMarkInvoicePaid`, unused
+  `useClientPagination`/`useDarkMode` imports in the registers.
+- **Pre-existing bug fixed** in the PO-checklist badge: a `` `${isExact ?
+  …}` `` interpolation had been mangled into a literal string (badge
+  rendered garbage classNames, `isExact`/`isExceed` were dead vars). Now a
+  proper emerald/rose/amber conditional with `dark:` variants — worth a
+  visual check of *Create Purchase Bill → Link from PO*.
+- LESSONS: (1) repo files mix line endings — `PurchaseOrders.tsx` is CRLF,
+  `PurchaseInvoices.tsx` is LF; surgery scripts must not assume CRLF
+  everywhere. (2) One-off extraction scripts must capture ALL regions
+  before deleting any (index invalidation) and delete bottom-up. (3) The
+  surgery scripts were one-off and deleted after use — don't re-add them.
+
+### CI fresh-install proof — phase-2 guarantee now enforced on every push (`e8f8de4`)
+`scripts/verify_fresh_install.mjs` (+ npm script `verify:fresh-install`,
+CI step in `.github/workflows/ci.yml` right after the psql schema-apply):
+1. Creates two throwaway DBs (`inventory_fresh_reference` /
+   `inventory_fresh_boot`; requires CREATEDB — CI service user and local
+   inventory_user both have it).
+2. Reference: `scripts/schema.sql` applied directly. Boot: DB left EMPTY,
+   then the REAL server (`tsx server/index.ts`, NODE_ENV=production,
+   PORT_TO_BOOT=3557) is spawned so **dbBoot executes schema.sql itself**;
+   readiness via `GET /api/health`.
+3. Diffs both runtime schemas across 7 categories — tables, columns (exact
+   format_type/nullability/default/identity), constraints, indexes,
+   triggers, sequences, views — and exits 1 with a precise diff on drift.
+   Cleanup in finally: kill child → wait exit → `pg_terminate_backend` →
+   DROP (plain, then WITH (FORCE) fallback).
+- Verified BOTH directions: pass = 34 tables / 595 columns / 362
+  constraints / 223 indexes / 14 triggers identical; fail = injected a
+  runtime ALTER into dbBoot → caught as "only in booted DB" + exit 1, DBs
+  still cleaned up.
+- BUGS found while building (both fixed): (a) the server child was spawned
+  BEFORE the throwaway DBs were created — fast tsx boots raced and connected
+  to a nonexistent DB; spawn only after creation. (b) `DROP ... WITH
+  (FORCE)` can't always terminate the dying server's pool backends
+  ("permission denied to terminate process") — terminate backends first.
+- Editing schema.sql does NOT create drift between the two sides (both get
+  the same file) — the script proves *runtime DDL stays out of dbBoot*, not
+  that schema.sql matches some external truth.
+
+## Arc 18 — accounting-accuracy wording audit + closing-wizard corrections (pushed `334b22e`)
 
 User asked to scan the app for screens that overstate accounting accuracy (after the
 Financial Overview reframe). Findings and fixes:
