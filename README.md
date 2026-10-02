@@ -173,9 +173,6 @@ POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
-# Optional: seed demo data on first launch (the setup scripts also seed it)
-SEED_DUMMY_DATA=false
-
 # Security (all optional — safe defaults apply when unset)
 AUTH_TOKEN_SECRET=<long-random-string>   # persistent HMAC secret for login tokens
 AUTH_RATE_LIMIT_MAX=10                   # login/forgot-password attempts per window

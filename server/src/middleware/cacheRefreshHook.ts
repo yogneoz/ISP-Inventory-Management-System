@@ -13,7 +13,12 @@ import { refreshOperationalCache } from '../state/runtimeState';
 export function cacheRefreshHook(req: Request, res: Response, next: NextFunction) {
   if (req.method === 'GET' || !getPgConnected()) return next();
   const originalJson = res.json.bind(res);
-  res.json = (body: any) => {
+  // Deliberate type escape: the non-error path returns
+  // refreshOperationalCache().then(...), so the response is written only
+  // AFTER the cache refresh settles. Express' `Send` type declares a
+  // synchronous return, but returning the promise is the point — it keeps the
+  // refresh ordered before the body is flushed and lets tests await it.
+  res.json = ((body: any) => {
     if (res.statusCode >= 400) return originalJson(body);
     // Serialized through refreshChain so overlapping writes never run
     // concurrent fan-outs; failures are swallowed inside the refresh.
@@ -24,6 +29,6 @@ export function cacheRefreshHook(req: Request, res: Response, next: NextFunction
       res.setHeader('Server-Timing', `cache-refresh;dur=${Date.now() - refreshStartedAt}`);
       return originalJson(body);
     });
-  };
+  }) as Response['json'];
   next();
 }

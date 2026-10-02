@@ -76,6 +76,8 @@ interface PurchaseInvoicesProps {
   /** Reverses ALL posted payments of a fully paid invoice, restoring it to UNPAID. */
   onReverseInvoicePayments?: (invoiceId: string, reason: string) => Promise<void>;
   onDeleteInvoice?: (id: string) => Promise<void>;
+  /** Bumped by App's SSE handler when procurement events arrive. */
+  sseRefreshKey?: number;
 }
 
 
@@ -96,6 +98,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onReversePayment,
   onReverseInvoicePayments,
   onDeleteInvoice,
+  sseRefreshKey,
 }) => {
   const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
   // Suppliers list strictly sourced from master supplier directory
@@ -183,7 +186,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   useEffect(() => {
     loadPiPage();
-  }, [loadPiPage, piRefreshKey]);
+  }, [loadPiPage, piRefreshKey, sseRefreshKey]);
 
   // Filter changes snap the server page back to 1.
   useEffect(() => {

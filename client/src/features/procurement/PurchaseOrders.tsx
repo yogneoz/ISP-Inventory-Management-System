@@ -53,6 +53,8 @@ interface PurchaseOrdersProps {
   onUpdatePO?: (poId: string, poData: Partial<PurchaseOrder>) => Promise<void>;
   onUpdatePOStatus?: (poId: string, status: string) => Promise<void>;
   onDeletePO?: (poId: string) => Promise<void>;
+  /** Bumped by App's SSE handler when procurement/shipment events arrive. */
+  sseRefreshKey?: number;
 }
 
 export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
@@ -73,6 +75,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onUpdatePO,
   onUpdatePOStatus,
   onDeletePO,
+  sseRefreshKey,
 }) => {
   const { confirm: confirmDialog } = useDialog();
   // Role-level gate: the inline create form is only reachable when the role may create POs
@@ -163,7 +166,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   useEffect(() => {
     loadPoPage();
-  }, [loadPoPage, poRefreshKey]);
+  }, [loadPoPage, poRefreshKey, sseRefreshKey]);
 
   // Filter changes snap the server page back to 1.
   useEffect(() => {

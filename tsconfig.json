@@ -10,6 +10,12 @@
       "DOM.Iterable"
     ],
     "skipLibCheck": true,
+    // strict landed 2026-10-02: the whole tree compiled with 11 residual
+    // errors (nullable CompanyProfile passed to the CSV printer, an optional
+    // isBaseUnit, a string|null macAddress, a never[] test fixture, ...),
+    // all fixed at the source instead of silencing them. Do not turn this
+    // off to land a change — fix the type.
+    "strict": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",

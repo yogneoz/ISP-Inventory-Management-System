@@ -166,13 +166,13 @@ export async function handleUpdateSerials(req: any, res: any) {
     if (customerRecord) {
       if (!oldDeviceSerial) oldDeviceSerial = customerRecord.deviceSerial;
       if (!oldPonSerial) oldPonSerial = customerRecord.ponSerial;
-      if (!oldMacAddress) oldMacAddress = customerRecord.macAddress;
+      if (!oldMacAddress) oldMacAddress = customerRecord.macAddress ?? '';
       if (!matchedBranchId) matchedBranchId = customerRecord.branchId;
       customerName = customerRecord.customerName || 'Customer Device';
 
       customerRecord.deviceSerial = normalizedDeviceSerial;
       customerRecord.ponSerial = normalizedPonSerial;
-      customerRecord.macAddress = normalizedMacAddress;
+      customerRecord.macAddress = normalizedMacAddress ?? undefined;
     }
 
     // 2. If Fixed Asset
@@ -299,7 +299,7 @@ export async function handleUpdateSerials(req: any, res: any) {
       ) {
         c.deviceSerial = normalizedDeviceSerial;
         c.ponSerial = normalizedPonSerial;
-        c.macAddress = normalizedMacAddress;
+        c.macAddress = normalizedMacAddress ?? undefined;
       }
     });
 

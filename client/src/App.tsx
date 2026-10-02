@@ -41,6 +41,7 @@ import {
 import { Header } from './components/layout/Header';
 import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed } from './utils/permissions';
+import { DOMAIN_REGISTER_KEYS, type RegisterRefreshKey } from './utils/registerRefreshDomains';
 import { LoginModal } from './components/common/LoginModal';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -579,7 +580,9 @@ export default function App() {
     STOCK: ['stock', 'damageRecords', 'transactionLogs'],
     STOCK_OPERATIONS: ['stockOperations', 'stock', 'transactionLogs', 'damageRecords'],
     SERIALS: ['customerDevices'],
-    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers'],
+    // PROCUREMENT also covers purchase returns: posting one deducts
+    // stock, writes transaction-log rows and flips serial_log rows.
+    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'transactionLogs'],
     SHIPMENTS: ['shipments', 'stock'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
@@ -593,6 +596,16 @@ export default function App() {
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
   };
+
+  // Paged-register refresh counters, bumped by the SSE handler below.
+  // The domain → register mapping lives in utils/registerRefreshDomains
+  // (imported above, shared with the tests so the wiring stays pinned).
+  const [registerRefresh, setRegisterRefresh] = useState<Record<RegisterRefreshKey, number>>({
+    serialLog: 0,
+    purchaseOrders: 0,
+    purchaseInvoices: 0,
+    consumableRegister: 0,
+  });
 
   // Always-fresh scope for the SSE listener below (it must not re-subscribe
   // — and capture stale values — when only the fiscal year changes).
@@ -620,6 +633,19 @@ export default function App() {
         const domains = lastDomain === 'MULTI' || !lastDomain ? null : [lastDomain];
         lastDomain = null;
         if (domains && domains.every((d) => DOMAIN_STATE_KEYS[d])) {
+          // Bump any paged registers these domains mutate so they re-fetch
+          // their own current page (bootstrap slices alone don't cover them).
+          setRegisterRefresh((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const d of domains) {
+              for (const reg of DOMAIN_REGISTER_KEYS[d] || []) {
+                next[reg] = prev[reg] + 1;
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
+          });
           // Targeted: re-fetch only the affected bootstrap slice(s).
           const { branchId, fiscalYearId } = syncScopeRef.current;
           Promise.all(
@@ -636,7 +662,14 @@ export default function App() {
               )
           ).catch(() => refreshAllDataRef.current());
         } else {
-          // Unknown domain or mixed burst: full bootstrap (previous behavior).
+          // Unknown domain or mixed burst: full bootstrap (previous behavior),
+          // and refresh every paged register so none can stay stale.
+          setRegisterRefresh((prev) => ({
+            serialLog: prev.serialLog + 1,
+            purchaseOrders: prev.purchaseOrders + 1,
+            purchaseInvoices: prev.purchaseInvoices + 1,
+            consumableRegister: prev.consumableRegister + 1,
+          }));
           refreshAllDataRef.current();
         }
       }, 250);
@@ -1721,6 +1754,7 @@ export default function App() {
                   currentUser={currentUser}
                   dateMode={dateMode}
                   onRefreshData={refreshAllData}
+                  refreshKey={registerRefresh.serialLog}
                 />
               )}
 
@@ -1762,6 +1796,7 @@ export default function App() {
                   onUpdatePO={handleUpdatePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
+                  sseRefreshKey={registerRefresh.purchaseOrders}
                 />
               )}
 
@@ -1783,6 +1818,7 @@ export default function App() {
                   onUpdatePO={handleUpdatePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   onDeletePO={handleDeletePO}
+                  sseRefreshKey={registerRefresh.purchaseOrders}
                 />
               )}
 
@@ -1805,6 +1841,7 @@ export default function App() {
                     onReversePayment={handleReversePayment}
                     onReverseInvoicePayments={handleReverseInvoicePayments}
                     onDeleteInvoice={handleDeleteInvoice}
+                    sseRefreshKey={registerRefresh.purchaseInvoices}
                   />
                 </React.Suspense>
               )}
@@ -1828,6 +1865,7 @@ export default function App() {
                     onReversePayment={handleReversePayment}
                     onReverseInvoicePayments={handleReverseInvoicePayments}
                     onDeleteInvoice={handleDeleteInvoice}
+                    sseRefreshKey={registerRefresh.purchaseInvoices}
                   />
                 </React.Suspense>
               )}
@@ -1993,6 +2031,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2042,6 +2081,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2100,6 +2140,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2133,6 +2174,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2166,6 +2208,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onReverseOperation={handleReverseStockOperation}
@@ -2190,6 +2233,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReverseOperation={handleReverseStockOperation}
                 />
@@ -2213,6 +2257,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2246,6 +2291,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2293,6 +2339,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2326,6 +2373,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -2366,6 +2414,7 @@ export default function App() {
                   shipments={shipments}
                   assets={assets}
                   approvalRequests={approvalRequests}
+                  sseRefreshKey={registerRefresh.consumableRegister}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {

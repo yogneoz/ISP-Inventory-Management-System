@@ -1,5 +1,6 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { intFromEnv } from './src/utils/envGuard';
 
 dotenv.config();
 
@@ -24,6 +25,22 @@ export function getIsPgConnected() {
 
 export let realPoolInstance: any = null;
 
+/**
+ * Tunable pool settings, read through the guarded env helpers (backlog #4 /
+ * the "PORT=0 trap" class): an empty, garbage, zero or out-of-range value
+ * logs a warning and falls back to the documented default instead of
+ * producing a pool that can never connect (max=0) or hangs forever (NaN
+ * timeout). Kept as a function so tests can assert the wiring without
+ * building a second pool.
+ */
+export function buildPoolConfig(): { connectionTimeoutMillis: number; max: number; idleTimeoutMillis: number } {
+  return {
+    connectionTimeoutMillis: intFromEnv('PG_CONNECT_TIMEOUT_MS', 2000, { min: 100, max: 120_000 }),
+    max: intFromEnv('PG_POOL_MAX', 20, { min: 1, max: 500 }),
+    idleTimeoutMillis: 30000,
+  };
+}
+
 try {
   if (process.env.DATABASE_URL || process.env.POSTGRES_HOST) {
     realPoolInstance = new RealPgPool({
@@ -33,9 +50,7 @@ try {
       database: process.env.POSTGRES_DB || 'inventory_db',
       user: process.env.POSTGRES_USER || 'inventory_user',
       password: process.env.POSTGRES_PASSWORD || 'securepassword',
-      connectionTimeoutMillis: 2000,
-      max: 20,
-      idleTimeoutMillis: 30000,
+      ...buildPoolConfig(),
     });
   }
 } catch (_e) {}

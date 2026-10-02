@@ -217,7 +217,7 @@ describe('branch scoping (enforceBranchAccess, HTTP layer)', () => {
     name: 'Branch Guard',
     role: 'INVENTORY_MANAGER',
     branchId: 'WH001',
-    allowedBranchIds: [],
+    allowedBranchIds: [] as string[],
     canSwitchUser: false,
   };
 

@@ -15,7 +15,7 @@ export interface CSVExportOptions<T = any> {
   generatedBy?: string;
   includeMetadataHeader?: boolean;
   /** Official company identity (from Company Profile) embedded in the export metadata header. */
-  companyInfo?: { name?: string; legalName?: string; panVatNumber?: string };
+  companyInfo?: { name?: string; legalName?: string; panVatNumber?: string } | null;
 }
 
 /**

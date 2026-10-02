@@ -906,9 +906,18 @@ SSE_MAX_CONNECTIONS_PER_IP=6      # concurrent SSE streams per client address
 SSE_RATE_LIMIT_DISABLED=false     # disable the SSE cap (tests/dev only)
 
 # Optional
-SEED_DUMMY_DATA=false        # Seed demo data on first launch
 DISABLE_HMR=true             # Disable HMR for AI agent editing
 ```
+
+`.env.example` is the authoritative list of supported variables: every
+variable it names is read by the code, and `tests/envDocs.guard.test.ts`
+fails the suite if a knob is documented without a reader (or a removed one
+comes back). Optional guarded knobs not shown above: `PG_POOL_MAX`
+(default 20), `PG_CONNECT_TIMEOUT_MS` (default 2000), `TRUST_PROXY` (set
+`true` only behind a reverse proxy — it makes `req.ip` honour
+`X-Forwarded-For`, which the login rate limiter and the per-IP SSE cap key
+on) and `RETURNS_APPROVAL_THRESHOLD_NPR` (default 200000 — returns at or
+above it wait for approval).
 
 ### 13.2 Vite Configuration & Code-Splitting Strategy
 

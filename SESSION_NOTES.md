@@ -709,15 +709,90 @@ unseeded calendar days use BS_DATE_FALLBACK.
   "Paged Register Endpoints".
 
 ### 6. Smaller follow-ups
-- **Env var audit:** guard other numeric env vars against the PORT=0 trap
-  (PG_POOL_MAX, API_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_MAX, JSON_BODY_LIMIT…).
-- **Doc-number domain:** document counter changes have no SSE domain mapping (they're
-  fire-and-forget PG updates in issueNextDocNumber) — consider a DOCUMENT_NUMBERING domain
-  or accept eventual consistency.
-- **Registers + SSE:** paged registers (Serial Log, Consumables, POs, PIs) fetch their own
-  pages but don't listen to SSE domain events — wire their refreshKey to bump when the
-  matching domain event arrives so background changes show without user action.
-- **CRLF warnings** on new files (LF→CRLF) — cosmetic; consider .gitattributes.
+- **Env var audit — DONE (2026-10-02).** `.env.example` now documents ONLY
+  vars the code reads. Wired `PG_POOL_MAX` + `PG_CONNECT_TIMEOUT_MS` (guarded
+  pool sizing via `buildPoolConfig()` in `server/db.ts`) and `TRUST_PROXY`
+  (`createApp` → `app.set('trust proxy', …)`, so `req.ip` — the login
+  rate-limit and SSE per-IP cap key — honours X-Forwarded-For behind a proxy;
+  off unless the value is exactly 1/true). Deleted 11 documented-but-unread
+  vars whose features do not exist: REQUIRE_POSTGRES, STRICT_PASSWORD_POLICY,
+  MIN_PASSWORD_LENGTH, LOGIN_RATE_LIMIT_MAX, API_RATE_LIMIT_MAX,
+  DISABLE_RATE_LIMIT, LOG_LEVEL, APP_URL, REQUIRE_MIGRATIONS, SEED_DUMMY_DATA,
+  PM2_INSTANCES. Added the missing `RETURNS_APPROVAL_THRESHOLD_NPR`. Guards:
+  `tests/envDocs.guard.test.ts` (documented ⇒ read, known-dead list never
+  returns, wired knobs stay documented) + `tests/envWiring.test.ts` (the knobs
+  reach the pool and the Express app). NOT scheduled: a global API rate
+  limiter and a password-strength policy — deliberately removed, not deferred.
+- **Doc-number domain — CLOSED (2026-10-02, accept eventual consistency):** document
+  counter changes have no SSE domain mapping (fire-and-forget PG updates in
+  issueNextDocNumber) and the client NEVER previews document numbers — the server
+  issues them atomically inside the mutation transaction and forms show static
+  'DN-…'/'CN-…' placeholders (e.g. ReturnsRegister.tsx ~110). A DOCUMENT_NUMBERING
+  domain would therefore have ZERO consumers, so it was not added; the only visible
+  effect of a doc-number mutation is the register's own refresh (registers now
+  refresh via the SSE wiring below).
+- **Registers + SSE — DONE (2026-10-02, extended same day):** all FOUR self-fetching
+  paged registers now refresh on matching SSE domain events. App.tsx holds a
+  `registerRefresh` counter object bumped inside the existing debounced SSE handler
+  (targeted branch maps domains via `DOMAIN_REGISTER_KEYS`; the unknown/mixed
+  full-refresh fallback bumps all four). Wiring: Serial Log keeps the existing
+  `refreshKey` prop (STOCK, STOCK_OPERATIONS, SERIALS, PROCUREMENT, CUSTOMER_DEVICES,
+  ASSETS domains); PurchaseOrders and PurchaseInvoices gained an optional
+  `sseRefreshKey` prop in their paged-fetch effect deps (POs: PROCUREMENT + SHIPMENTS;
+  PIs: PROCUREMENT); the consumable register inside StockOperations (server-paged
+  CONSUMABLE_ISSUE rows via `loadConsumableRegisterPage` — the audit's 4th register,
+  previously stale-prone) gained the same optional `sseRefreshKey` prop on all 11
+  StockOperations render sites (STOCK_OPERATIONS domain: creation +
+  REVERSE_CONSUMABLE_ISSUE / REVERSE_STOCK_DAMAGE). The domain → register mapping
+  lives in `client/src/utils/registerRefreshDomains.ts` (standalone, no imports) and
+  is pinned by `tests/registerRefreshDomains.test.ts` — including a guard that every
+  domain the server can broadcast is either register-mapped or declared no-register.
+  Still single-EventSource in App.tsx — no new SSE subscriptions (per-IP stream cap).
+- **PROCUREMENT bootstrap slice widened (2026-10-02):** `DOMAIN_STATE_KEYS.PROCUREMENT`
+  now also carries `purchaseReturns`, `stock`, `transactionLogs` — previously a
+  purchase return (applyPurchaseReturnEffects, procurement.controller.ts ~1184) could
+  deduct stock, write PR_TXN_LOG rows and flip serials while the targeted SSE refresh
+  re-fetched none of those slices. All purchase-return flows tag module PROCUREMENT
+  (~1298/1357/1416), so they stay targeted. SALES remains deliberately UNMAPPED in
+  DOMAIN_BY_MODULE → unknown-domain events fall back to a full bootstrap; mapping it
+  safely needs customers/damageRecords/stock slices, so it stays heavy-but-correct
+  (documented, not deferred work).
+- **CRLF warnings on new files — DONE (2026-10-02):** `.gitattributes` now
+  pins `* text=auto eol=lf` (+ explicit binary list, `*.sh` forced LF). The
+  repo already stored every tracked file as LF, so this created ZERO content
+  diffs — it only stops the traps: `core.autocrlf=true` had left 135 working
+  files CRLF and 4 (schema.sql, setup_db.js, demo_dataset.js,
+  procurement.repo.ts) MIXED in one file. Editing a file with a CRLF-emitting
+  tool can no longer produce a spurious diff.
+- **Strict TypeScript — DONE (2026-10-02):** `"strict": true` in tsconfig.json
+  (now a CI gate via `npx tsc --noEmit`). It cost exactly 11 fixes: nullable
+  `companyProfile` passed to the CSV printer (`exportUtils` `companyInfo` now
+  accepts `null`), optional `UnitOfMeasure.isBaseUnit` (`updateUomParams`
+  already coerced with `Boolean()` — the signature just hadn't caught up), the
+  `res.json` async override in `cacheRefreshHook` (documented cast: the
+  refresh really does settle before the body is flushed), a `never[]` test
+  fixture, one nullable `notes`, and `normalizedMacAddress ?? undefined` on
+  the two mirror writes. LESSON: widening `oldMacAddress` to `string | undefined`
+  cascaded into 6 more errors and was the WRONG fix — the domain type
+  (`SerialRenameInput.oldMacAddress: string`, `''` when absent) is the
+  invariant, so line 169 now does `customerRecord.macAddress ?? ''` instead of
+  letting `undefined` leak in. Fix the type at the source; don't propagate
+  the hole.
+- **Live SSE verification + full re-verification — PASSED (2026-10-02):**
+  browser walkthrough on the running dev server (superadmin, Consumables
+  Register tab): POST /api/stock-operations (CONSUMABLE_ISSUE, prod-fcn001
+  ×1 on WH001) → 201; within ~1s and with NO manual refresh the consumable
+  register re-ran its paged fetch (GET /api/stock-operations?type=
+  CONSUMABLE_ISSUE&page=1&pageSize=20 → 200) and showed the new
+  CON-WH001-202610020002 row (9→10 records), while the targeted branch
+  re-fetched the four STOCK_OPERATIONS bootstrap slices (stockOperations,
+  stock, transactionLogs, damageRecords via /api/bootstrap/local?key=…).
+  Reversal via POST /api/stock-operations/:id/reverse-consumable → 200
+  flipped the row to "Reversed" through the same SSE path; stock qty
+  net-zero (190→189→190). Probe rows deleted from PG afterwards; UI back
+  to 9 records on remount. Full re-verification green: npm test (tsc
+  --noEmit + 522 node:test tests, 0 fail), npm run build, npm run
+  check:bundle-budget (startup 278.5 kB gz vs 320 kB budget).
 
 ## Key files touched this arc (for context)
 
@@ -729,4 +804,6 @@ unseeded calendar days use BS_DATE_FALLBACK.
 - `docs/mirror-audit.md` — READ THIS FIRST for retirement work (NOTE: its step-2 findings
   and vendorOpeningBalances/classification rows are now stale — update alongside step 3)
 - `client/src/utils/depreciation.ts` + `tests/depreciation.test.ts` (B5)
+- `client/src/utils/registerRefreshDomains.ts` + `tests/registerRefreshDomains.test.ts`
+  (SSE domain → paged-register mapping, extracted for testability)
 - `server/src/services/damage.service.ts` (B1/B2 helpers), `server/src/models/procurement.repo.ts` (B3)

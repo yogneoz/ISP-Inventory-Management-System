@@ -34,7 +34,7 @@ export function upsertUomParams(u: { id: string; name: string; symbol: string; t
 
 export const UOM_UPDATE_SQL = 'UPDATE uom SET name = $1, symbol = $2, type = $3, is_base_unit = $4 WHERE id = $5;';
 
-export function updateUomParams(u: { name: string; symbol: string; type: string; isBaseUnit: boolean }, id: string): unknown[] {
+export function updateUomParams(u: { name: string; symbol: string; type: string; isBaseUnit?: boolean }, id: string): unknown[] {
   return [u.name, u.symbol, u.type, Boolean(u.isBaseUnit), id];
 }
 

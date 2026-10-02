@@ -112,6 +112,8 @@ interface StockOperationsProps {
   onReverseOperation?: (id: string, reason?: string) => Promise<void>;
   onReverseConsumableIssue?: (id: string, reason?: string) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
+  /** Bumped by App's SSE handler when stock-operation events arrive — re-runs the consumable register's paged fetch. */
+  sseRefreshKey?: number;
 }
 
 interface DamageSerialEntry {
@@ -190,6 +192,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onReverseOperation,
   onReverseConsumableIssue,
   onUpdateAssetStatus,
+  sseRefreshKey,
 }) => {
   const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
@@ -2079,7 +2082,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   useEffect(() => {
     loadConsumableRegisterPage();
-  }, [loadConsumableRegisterPage]);
+  }, [loadConsumableRegisterPage, sseRefreshKey]);
 
   // Filter changes snap the server page back to 1.
   useEffect(() => {

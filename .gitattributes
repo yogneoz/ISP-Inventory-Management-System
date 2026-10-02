@@ -1,0 +1,35 @@
+# Line-ending policy — added 2026-10-02 to end the CRLF/LF traps.
+#
+# Why this file exists:
+#   * The repo mixes endings with no rule: PurchaseOrders.tsx was CRLF while
+#     PurchaseInvoices.tsx was LF, which broke surgery scripts that assumed a
+#     single convention (SESSION_NOTES, duplication audit phase 4).
+#   * Four tracked files (scripts/schema.sql, scripts/setup_db.js,
+#     scripts/demo_dataset.js, server/src/models/procurement.repo.ts) contain
+#     MIXED endings in one file.
+#   * A psql CRLF dump once produced ~970 false mismatches in a schema drift
+#     check (Arc 13).
+#
+# Rule: text is stored as LF in the repository and checked out as LF on every
+# platform. Because git normalizes CRLF -> LF before hashing, editing a file
+# with a CRLF-emitting tool no longer produces spurious diffs, and a file can
+# never drift into mixed endings again.
+* text=auto eol=lf
+
+# Files that must never be normalized (explicit, even though auto-detection
+# already covers them).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+
+# Shell scripts must be LF or bash refuses to run them on Linux/macOS.
+*.sh text eol=lf

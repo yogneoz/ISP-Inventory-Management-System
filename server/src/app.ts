@@ -198,6 +198,18 @@ export { sharedStateAccessors };
 export function createApp(): express.Express {
   const app = express();
 
+  // TRUST_PROXY (documented in .env.example). Behind a reverse proxy every
+  // request otherwise appears to arrive from the proxy's own IP, so req.ip
+  // would collapse ALL clients into one bucket — which matters here because
+  // req.ip is the key for the login rate limiter (buildRateLimitKey) and the
+  // per-IP SSE connection cap. Off by default (direct LAN deployment, the
+  // current topology); set TRUST_PROXY=true only when a proxy is in front.
+  // Anything other than "1"/"true" leaves it off (fail-safe: never trust
+  // client-supplied X-Forwarded-For unless explicitly told to).
+  if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', true);
+  }
+
   // Security headers (audit backlog #2). Helmet's defaults set CSP,
   // X-Content-Type-Options, X-Frame-Options, etc. CSP's default-src 'self'
   // is safe for the JSON API surface; the Vite-built client is served

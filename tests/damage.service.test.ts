@@ -423,7 +423,7 @@ describe('mirrorReversal', () => {
     assert.equal(result.stockRows[0].quantityOnHand, 8);
     assert.equal(result.stockRows[0].damagedQty, 0);
     assert.equal(result.damageRecords[0].status, 'CANCELLED');
-    assert.match(result.damageRecords[0].notes, /REVERSED \(wrong product\) by Admin/);
+    assert.match(result.damageRecords[0].notes ?? '', /REVERSED \(wrong product\) by Admin/);
     assert.deepEqual(stockRows, [{ productId: 'p1', branchId: 'WH001', quantityOnHand: 5, damagedQty: 3, lastUpdated: '' }], 'input stock rows must not be mutated');
     assert.equal(result.updatedOp.status, 'CANCELLED');
     assert.equal(result.updatedOp.reversalReason, 'wrong product');
