@@ -13,7 +13,7 @@ describe('SSE domain mapping', () => {
     // (kept in sync by this test — a new module without a mapping makes
     // its events fall back to full bootstrap, which this flags).
     const AUDIT_MODULES = [
-      'MASTER_DATA', 'PROCUREMENT', 'FISCAL_YEAR', 'AUTH', 'SYSTEM',
+      'MASTER_DATA', 'PROCUREMENT', 'SALES', 'FISCAL_YEAR', 'AUTH', 'SYSTEM',
       'STOCK_OPERATIONS', 'PRODUCTS', 'LOGISTICS', 'CPE_MANAGEMENT',
       'CATEGORIES', 'OPERATIONS', 'FIXED_ASSETS', 'INVENTORY',
     ];
@@ -35,6 +35,9 @@ describe('SSE domain mapping', () => {
     assert.equal(resolveDomain('CREATE_PURCHASE_ORDER', 'PROCUREMENT'), 'PROCUREMENT');
     assert.equal(resolveDomain('REVERSE_STOCK_DAMAGE', 'STOCK_OPERATIONS'), 'STOCK_OPERATIONS');
     assert.equal(resolveDomain('RECEIVE_SHIPMENT', 'LOGISTICS'), 'SHIPMENTS');
+    // Sales actions resolve through the SALES module entity
+    assert.equal(resolveDomain('CREATE_SALES_INVOICE', 'SALES'), 'SALES');
+    assert.equal(resolveDomain('RECORD_CUSTOMER_PAYMENT', 'SALES'), 'SALES');
     assert.equal(resolveDomain('STOCK_UPDATED', 'stock'), 'STOCK');
   });
 

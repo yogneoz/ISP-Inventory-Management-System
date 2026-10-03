@@ -41,7 +41,12 @@ import {
 import { Header } from './components/layout/Header';
 import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed } from './utils/permissions';
-import { DOMAIN_REGISTER_KEYS, type RegisterRefreshKey } from './utils/registerRefreshDomains';
+import {
+  DOMAIN_REGISTER_KEYS,
+  bumpAllRegisterRefresh,
+  SseDomainBurst,
+  type RegisterRefreshKey,
+} from './utils/registerRefreshDomains';
 import { LoginModal } from './components/common/LoginModal';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -484,6 +489,13 @@ export default function App() {
     const requestBranchId = selectedBranchId;
     const requestFiscalYearId = selectedFiscalYearId;
     const requestSeq = ++refreshSequenceRef.current;
+    // A full refresh must also cover the self-fetching paged
+    // registers (Serial Log, Purchase Orders, Purchase Invoices,
+    // consumable register): the bootstrap slices don't include
+    // their server-paged data, so bump every counter to re-run
+    // their current paged fetch. Done before the fetch so the
+    // registers refresh even if the bootstrap call fails.
+    setRegisterRefresh(bumpAllRegisterRefresh);
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -583,6 +595,10 @@ export default function App() {
     // PROCUREMENT also covers purchase returns: posting one deducts
     // stock, writes transaction-log rows and flips serial_log rows.
     PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'transactionLogs'],
+    // Sales mutations deduct/restock stock, write transaction-log rows,
+    // route non-restockable returns into the damage register and flip
+    // serial_log rows (paged — covered by the register mapping below).
+    SALES: ['salesInvoices', 'salesReturns', 'stock', 'transactionLogs', 'damageRecords'],
     SHIPMENTS: ['shipments', 'stock'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
@@ -617,22 +633,23 @@ export default function App() {
   // Real-time synchronization stream: listen for background changes from any user/branch
   useEffect(() => {
     let debounceTimer: any = null;
-    let lastDomain: string | null = null;
+    // Coalesces the burst's domains across the debounce window
+    // and resolves it to a targeted or full-bootstrap plan
+    // (see utils/registerRefreshDomains).
+    const burst = new SseDomainBurst();
     const unsubscribe = subscribeToSyncStream((event) => {
       // Track the latest server dataVersion so the instant pre-hydration on
       // the next page load can refuse an outdated cached snapshot.
       if (event && typeof event.dataVersion === 'number') {
         serverDataVersionRef.current = event.dataVersion;
       }
-      const domain: string | undefined = event?.domain;
-      if (domain) lastDomain = lastDomain === null || lastDomain === domain ? domain : 'MULTI';
-      else lastDomain = 'MULTI';
+      burst.observe(event?.domain);
       // Debounce slightly to coalesce rapid bursts
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        const domains = lastDomain === 'MULTI' || !lastDomain ? null : [lastDomain];
-        lastDomain = null;
-        if (domains && domains.every((d) => DOMAIN_STATE_KEYS[d])) {
+        const plan = burst.flush((d) => Boolean(DOMAIN_STATE_KEYS[d]));
+        if (plan.mode === 'targeted') {
+          const domains = plan.domains;
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {
@@ -662,14 +679,10 @@ export default function App() {
               )
           ).catch(() => refreshAllDataRef.current());
         } else {
-          // Unknown domain or mixed burst: full bootstrap (previous behavior),
-          // and refresh every paged register so none can stay stale.
-          setRegisterRefresh((prev) => ({
-            serialLog: prev.serialLog + 1,
-            purchaseOrders: prev.purchaseOrders + 1,
-            purchaseInvoices: prev.purchaseInvoices + 1,
-            consumableRegister: prev.consumableRegister + 1,
-          }));
+          // Unknown domain or mixed burst: full bootstrap (previous
+          // behavior). refreshAllData bumps every paged-register
+          // counter itself, so none of the self-fetching registers
+          // can stay stale.
           refreshAllDataRef.current();
         }
       }, 250);

@@ -753,10 +753,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   purchase return (applyPurchaseReturnEffects, procurement.controller.ts ~1184) could
   deduct stock, write PR_TXN_LOG rows and flip serials while the targeted SSE refresh
   re-fetched none of those slices. All purchase-return flows tag module PROCUREMENT
-  (~1298/1357/1416), so they stay targeted. SALES remains deliberately UNMAPPED in
-  DOMAIN_BY_MODULE → unknown-domain events fall back to a full bootstrap; mapping it
-  safely needs customers/damageRecords/stock slices, so it stays heavy-but-correct
-  (documented, not deferred work).
+  (~1298/1357/1416), so they stay targeted. (SALES is now mapped too — see the
+  SALES SSE domain entry below.)
 - **CRLF warnings on new files — DONE (2026-10-02):** `.gitattributes` now
   pins `* text=auto eol=lf` (+ explicit binary list, `*.sh` forced LF). The
   repo already stored every tracked file as LF, so this created ZERO content
@@ -793,6 +791,146 @@ unseeded calendar days use BS_DATE_FALLBACK.
   to 9 records on remount. Full re-verification green: npm test (tsc
   --noEmit + 522 node:test tests, 0 fail), npm run build, npm run
   check:bundle-budget (startup 278.5 kB gz vs 320 kB budget).
+- **Header refresh covers paged registers — DONE (2026-10-02):** the
+  header "Refresh realtime stock and logs" button (refreshAllData in
+  App.tsx) re-fetched bootstrap slices but never bumped the four
+  `registerRefresh` counters, so the self-fetching paged registers
+  (Serial Log, Purchase Orders, Purchase Invoices, consumable
+  register) stayed stale on manual refresh until the next SSE event
+  or remount. Fix: extracted a pure `bumpAllRegisterRefresh(prev)`
+  helper into `client/src/utils/registerRefreshDomains.ts` (module
+  stays standalone/import-free); `refreshAllData` now calls
+  `setRegisterRefresh(bumpAllRegisterRefresh)` before its fetch (so
+  registers refresh even if the bootstrap call fails), and the SSE
+  unknown/mixed fallback now relies on refreshAllData's bump instead
+  of its own inline all-four increment (removed as redundant — the
+  fallback's only refresh path IS refreshAllData). Pinned by 4 new
+  tests in `tests/registerRefreshDomains.test.ts` (all four keys
+  incremented, arbitrary counter values, purity/immutability, exact
+  key coverage; suite now 526 tests, 0 fail). Live-verified:
+  direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
+  left the consumable register stale at "9 records"; clicking the
+  header Refresh button re-ran the register's paged fetch and
+  showed "1–10 of 10" with the probe row on top;  probe row deleted afterwards, register back to 9 on the next refresh.
+- **SALES SSE domain mapped — DONE (2026-10-02):** `SALES: 'SALES'` added to
+  `DOMAIN_BY_MODULE` (server/src/syncDomains.ts) — previously every sales event
+  (logAuditEvent broadcasts type=action, entity='SALES') resolved to an unknown
+  domain and triggered a full-bootstrap fallback. `DOMAIN_STATE_KEYS.SALES` in
+  App.tsx now targets the five slices sales mutations actually touch:
+  `salesInvoices` (invoice insert + amount_paid on customer payments),
+  `salesReturns` (return create/cancel/approve), `stock` (invoice deduction,
+  return restock/re-deduction), `transactionLogs` (SI/SR ledger rows) and
+  `damageRecords` (non-restockable returns route units into the damage register
+  via SR_DAMAGE_INSERT_SQL). `customers` is deliberately EXCLUDED — sales
+  mutations never UPDATE the customers table (payments land in the
+  customer_payments sub-ledger, which has no bootstrap slice; the customer
+  ledger is a dedicated endpoint). serial_log flips (SR_SERIAL_FLIP_SQL on
+  posted/cancelled returns) are covered by the paged-register mapping instead:
+  `SALES: ['serialLog']` in `client/src/utils/registerRefreshDomains.ts`
+  (serialLogs was trimmed from the bootstrap payload entirely, so it can only
+  refresh via the Serial Log register's own paged fetch). SalesInvoices.tsx and
+  ReturnsRegister.tsx are pure presentation components fed by App-level state,
+  so the slice refresh keeps them live with no extra wiring. Tests: 'SALES'
+  added to the AUDIT_MODULES vocabulary + sales resolveDomain cases in
+  tests/syncDomains.test.ts; SALES serialLog assertion in
+  tests/registerRefreshDomains.test.ts (the guard test would otherwise fail
+  once SALES entered DOMAIN_BY_MODULE). Live-verified on the dev server:
+  POST /api/sales-invoices (prod-adp001 ×1, WH001) → 201, then exactly five
+  targeted GETs /api/bootstrap/local?key=salesInvoices|salesReturns|stock|
+  transactionLogs|damageRecords (NO full /api/bootstrap), stock 210→208 in PG;
+  probe invoices/txn rows deleted and stock restored afterwards. npm test green
+  (526 pass, 0 fail). Note: tsx watch did NOT pick up the server-side
+  syncDomains.ts edit — the dev server needed a manual restart before the new
+  mapping took effect (client hot-reloaded, server didn't).
+- **SSE fallback integration test — DONE (2026-10-02):** the debounced
+  SSE handler's burst → refresh-plan decision (accumulate `lastDomain`
+  across the 250ms window; mixed or unknown → full bootstrap) was
+  extracted from App.tsx into `client/src/utils/registerRefreshDomains.ts`
+  as `SseDomainBurst` (`observe(domain?)` + `flush(isKnownDomain)` →
+  `{mode:'targeted',domains:[d]}` | `{mode:'full'}`, flush resets the
+  window); App.tsx's sync-stream effect now uses it — behavior-identical,
+  but the shipping code is the tested code. A new describe block in
+  `tests/registerRefreshDomains.test.ts` feeds REAL server events through
+  `resolveDomain` → the accumulator → the plan and asserts the fallback
+  contract end-to-end: unknown-domain bursts, mixed multi-domain bursts
+  (known+known and known+unknown), domain-less events and 3-domain bursts
+  all resolve `{mode:'full'}`, and the fallback's action — refreshAllData's
+  `setRegisterRefresh(bumpAllRegisterRefresh)` — bumps all four
+  `registerRefresh` counters from any starting values. Contrast tests pin
+  that single-domain bursts stay targeted and bump ONLY their mapped
+  registers (the all-four increment is exclusive to the fallback), that a
+  repeated same-domain burst coalesces to one targeted plan, and that
+  flush() resets the accumulator so a new debounce window starts clean.
+  A source guard reads the real App.tsx and pins the wiring
+  (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
+  the `refreshAllDataRef.current()` fallback, and
+  `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
+  the extraction can't silently be reverted. Suite now 535 tests, 0 fail
+  (tsc --noEmit clean).
+- **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
+  audited the remaining paged/fetching tabs for the four-register
+  pattern (self-fetched server-paged data outside the bootstrap
+  slices, invisible to the SSE handler). None matched it:
+  - **Stock Movement Ledger** (`stock-ledger` →
+    StockMovementLedger.tsx, 848 lines): ZERO api calls; the only
+    useEffect syncs the branch filter. `useClientPagination` over
+    arrays derived from props (transactionLogs, stockOperations,
+    damageRecords, stock, shipments, purchaseOrders). Every prop
+    slice is refreshed by the domain that mutates it (STOCK →
+    stock/damageRecords/transactionLogs; STOCK_OPERATIONS →
+    +stockOperations; PROCUREMENT → +purchaseOrders; SHIPMENTS →
+    +shipments; SALES → stock/transactionLogs/damageRecords).
+    Key detail: the ledger prefers persisted transaction-log rows
+    over the stock_operations feed, and STOCK-domain-only
+    mutations (manual adjustments, patch_Id) still write a
+    transaction_logs row (TXN_INSERT_NOW_SQL, changeType
+    MANUAL_ADJUSTMENT, inventory.controller.ts ~278), so the
+    ledger's primary feed is refreshed even by STOCK-only
+    broadcasts.
+  - **Asset Deployments** (`asset-deployments` → AssetDeployments.tsx,
+    325 lines): zero api calls, zero effects; client pagination over
+    the `assets` prop. ASSETS domain → assets slice (deploy/unassign
+    broadcasts module FIXED_ASSETS → ASSETS); RECALC also covers
+    assets. Its only mutation (onUnassignAsset → handleUpdateAssetStatus)
+    awaits the API then calls refreshAllData.
+  - **Damaged Stock Report** (`damage-report`): a StockOperations
+    instance (initialType="DAMAGE_REPORT" → DAMAGE_TRACKING tab).
+    The damage-log register paginates CLIENT-side over the
+    `operations` prop — the code comments it "without any
+    server-side window" (StockOperations.tsx ~2197). The ONLY
+    self-fetch in StockOperations is loadConsumableRegisterPage
+    (CONSUMABLE_ISSUE rows), whose effect deps already include
+    sseRefreshKey (~2085), and this render site already passes
+    sseRefreshKey={registerRefresh.consumableRegister} (wired in
+    the registers arc). STOCK_OPERATIONS domain refreshes the
+    stockOperations slice itself.
+  - Bonus, **Damaged Stock Matrix** (`damaged-stock` →
+    DamagedStockTracking.tsx, 1290 lines): renders from the
+    damageRecords/stock props; its only api calls are the BS-calendar
+    availability check on mount (not business data) and a
+    stock-operation lookup inside the reversal flow (followed by
+    window.location.reload). Disposal write-off routes through
+    onCreateOperation → handleCreateOperation → refreshAllData.
+  Conclusion: the only server-paged fetch in this corner of the app
+  (the consumable register shared by the damage-report tab) was
+  already wired; these tabs are pure presentation over bootstrap
+  slices, so no DOMAIN_REGISTER_KEYS entries or props were needed.
+  Mutation-side coverage is via the App-level
+  handlers (handleCreateOperation / handleUpdateStockLevel /
+  handleUpdateAssetStatus all `await api.*` then refreshAllData),
+  with SSE covering every other client.
+  Addendum (2026-10-02, follow-up request): a source-guard test in
+  tests/registerRefreshDomains.test.ts ("Paged-tab audit guard —
+  no self-fetching data loads") now pins this: StockMovementLedger
+  and AssetDeployments must keep ZERO api.* calls, and
+  DamagedStockTracking's api surface must stay exactly
+  {getBsDayRecordByAdDate, getStockOperations, reverseStockOperation,
+  createStockOperation} (BS-calendar gate / reversal lookup +
+  mutation / disposal write-off — none loads rendered data) with its
+  sole useEffect pinned to the mount-only BS check. Any future
+  refactor of these tabs to server-paged self-fetch (the
+  loadConsumableRegisterPage pattern) fails the suite and forces an
+  explicit SSE-wiring decision. Suite now 539 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
