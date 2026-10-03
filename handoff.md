@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 433 tests; CI runs
+                                        #   drift/concurrency guards — 548 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1056,8 +1056,17 @@ Deliberate decisions (do not revert):
 - The stream is **authenticated** (HMAC token via header or `?token=`; the client attaches the
   stored token from localStorage) and **capped** at `SSE_MAX_CONNECTIONS_PER_IP` concurrent
   connections per address (slot revoked on disconnect)
-- On any mutation, `broadcastChange()` sends an event to all connected SSE clients
-- Client debounces (250ms) and triggers `refreshAllData()` on any change
+- On any mutation, `broadcastChange()` sends a `{ domain, dataVersion, … }` event to all
+  connected SSE clients; the domain is resolved server-side in `server/src/syncDomains.ts`
+  (audit module or explicit event type, e.g. `CREATE_PURCHASE_ORDER → PROCUREMENT`)
+- The client coalesces events into 250ms bursts (`SseDomainBurst`, extracted into
+  `client/src/utils/registerRefreshDomains.ts`): a burst resolving to ONE recognized domain
+  re-fetches only that domain's bootstrap slices (`GET /api/bootstrap/local?key=…`);
+  unknown domains, mixed bursts and slice-fetch failures fall back to `refreshAllData()`
+  (full bootstrap), so the UI can never be left stale
+- The four self-fetching paged registers refresh separately: `DOMAIN_REGISTER_KEYS` bumps the
+  matching register counter per domain, and `refreshAllData()` bumps ALL four counters
+  (`bumpAllRegisterRefresh`) — see §15.12 for the source guards that pin this wiring
 - This enables **real-time multi-user collaboration** without WebSocket complexity
 
 ### 15.8 Case-Insensitive Serial Identity
@@ -1085,7 +1094,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 433 tests against a real PostgreSQL 16 service container
+2. `npm test` — 548 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
@@ -1099,6 +1108,45 @@ Dependency policy: `package.json` `overrides` pin `uuid@^11.1.1` (exceljs
 transitive) and `qs@6.16.0` (express/body-parser transitive); `npm audit`
 reports 0 vulnerabilities. If you add a dependency, run `npm audit` locally —
 CI will fail the push otherwise.
+
+### 15.12 Source Guards — every screen's fetch surface is pinned
+
+The staleness class of bug this codebase kept hitting (a register that fetches its own
+paged rows but never re-runs when an SSE event arrives) is guarded by source-reading
+tests in `tests/registerRefreshDomains.test.ts`. The tests read the real component files,
+so any unwired new fetch fails the suite instead of shipping:
+
+- **No-fetch tabs** — StockMovementLedger and AssetDeployments must contain zero `api.*`
+  calls; DamagedStockTracking's surface is pinned to its four non-grid calls (BS-calendar
+  gate + reversal/disposal flows).
+- **Wired registers** — PurchaseOrders (`getPurchaseOrders` only), PurchaseInvoices
+  (`getPurchaseInvoices` + the three payment-modal calls), SerialLogRegister
+  (`getSerialLogs`, `lookupSerial`, both serial-edit mutations; NOTE its wiring prop is
+  `refreshKey`, not `sseRefreshKey`) and StockOperations (full 12-method allowlist, with
+  its `assignSerialLogCache` serial-log fetch pinned as the ONE mount-once `[]`-deps host
+  fetch — deliberately not sse-wired; bootstrap excludes serialLogs, so remount refreshes
+  it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
+  site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations) — a newly added
+  unwired mount fails.
+- **Feature-screen coverage (2026-10-03 audit, all 50 screens)** — a `SCREEN_SURFACE_PINS`
+  table pins the 41 screens not covered above (the other 9 are pinned by the dedicated
+  tests); an unpinned new screen fails coverage, and each pinned screen must match its
+  exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
+  `services/api` imports** — the audit found FinancialStatements.tsx imports
+  `getFinancialSummary` directly, which a bare `api.*` scan would miss, so every pin uses
+  the combined helper.
+- **Tripwires** — raw `fetch(`/axios/EventSource are banned in every screen; a `pageSize:`
+  request key is allowed ONLY in the four wired registers (a fifth server-paged fetch = a
+  register missing its sseRefreshKey); the 11 mount/selection self-fetch screens (ledgers,
+  BS calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are pinned as
+  whole-list and unwired **by design** — tab remount refetches them — and may not grow
+  partial wiring without a full `DOMAIN_REGISTER_KEYS` decision.
+- **Audit footnote** — SalesInvoices.tsx and ReturnsRegister.tsx import `{ api }` without
+  ever calling it (tsconfig has no `noUnusedLocals`, so tsc never flags it); both are
+  pinned with an empty surface. Cleanup optional.
+
+Changing a pinned file therefore always means editing the pin in the same commit — that
+friction is the point: it forces the SSE-wiring decision to be made explicitly.
 
 ---
 

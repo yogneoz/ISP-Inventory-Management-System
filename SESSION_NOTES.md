@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-02 · Branch: main · Tests: 504/504 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-03 · Branch: main · Tests: 548/548 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
 ## ⭐ NEWEST: Duplication audit (phases 1–4) + CI fresh-install proof (pushed `60acf84`…`e8f8de4`, CI green)
 
@@ -807,7 +807,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 526 tests, 0 fail). Live-verified:
+  key coverage; suite now 548 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -930,7 +930,40 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 539 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 548 tests, 0 fail.
+- **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
+  pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
+  (1) The remaining self-fetching registers are pinned in
+  tests/registerRefreshDomains.test.ts: PurchaseOrders (`getPurchaseOrders`
+  only — mutations are App callbacks), PurchaseInvoices (`getPurchaseInvoices`
+  + the three payment-modal calls), SerialLogRegister (`getSerialLogs`,
+  `lookupSerial`, both serial-edit mutations — NOTE its wiring prop is
+  `refreshKey`, not `sseRefreshKey`), and StockOperations' full 12-method
+  allowlist with its assignSerialLogCache fetch pinned as the ONE serial-log
+  host fetch — mount-once (`[]` deps, `assignSerialLogLoaded` guarded),
+  deliberately NOT sse-wired (bootstrap excludes serialLogs; refresh is by
+  remount). Every App.tsx render site must pass its register counter (2 PO,
+  2 PI, 1 SerialLogRegister, 11 StockOperations) — a newly added unwired
+  mount fails.
+  (2) NEW — all 50 screens under client/src/features are pinned: a
+  SCREEN_SURFACE_PINS table (41 screens) + the 9 pinned above; an unpinned
+  new screen fails coverage, and each pinned screen must match its exact
+  surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
+  `services/api` imports, because the audit found FinancialStatements.tsx
+  imports getFinancialSummary directly — a bare `api.*` scan misses that,
+  so every earlier pin switched to the combined helper.
+  (3) Tripwires: raw fetch/axios/EventSource banned in every screen;
+  `pageSize:` request keys allowed ONLY in the four wired registers (a fifth
+  server-paged fetch = a register missing its sseRefreshKey); the 11
+  mount/selection self-fetch screens (ledgers, BS calendars, Category/Uom/
+  Locations, doc numbering, FinancialStatements…) stay whole-list and
+  unwired BY DESIGN (tab remount refetches them) and may not grow partial
+  wiring without a full DOMAIN_REGISTER_KEYS decision. Audit footnote:
+  SalesInvoices.tsx + ReturnsRegister.tsx import `{ api }` and never call it
+  (tsconfig has no noUnusedLocals, so tsc never flagged it) — pinned `[]`,
+  cleanup optional. Proven by probe in both directions (injected named
+  import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
+  failures, then reverted). Suite now 548 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

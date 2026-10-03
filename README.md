@@ -480,6 +480,11 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Purchase Orders Register | `GET /api/purchase-orders` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Purchase Invoices Register | `GET /api/purchase-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 
+> **Guarded:** these four are the only server-paged lists in the app. Adding a
+> `pageSize:` request key to any other feature screen fails
+> `tests/registerRefreshDomains.test.ts` until it is wired to a register
+> refresh key (see **Targeted Real-Time Refresh** below).
+
 ### Request parameters (all optional)
 
 | Parameter | Meaning |
@@ -535,6 +540,37 @@ The mapping is pinned by unit tests (`tests/syncDomains.test.ts`): a new audit
 module without a domain mapping fails the suite instead of silently degrading
 to full-bootstrap refreshes.
 
+### 🛡️ Paged-Register Refresh Keys & Source Guards
+
+Four registers fetch their own server-paged rows, so bootstrap-slice refreshes
+alone cannot cover them: **Serial Log**, **Purchase Orders**, **Purchase
+Invoices** and the **Consumables Issue register** (inside StockOperations).
+`DOMAIN_REGISTER_KEYS` (`client/src/utils/registerRefreshDomains.ts`) maps each
+domain to the register counters whose current paged fetch must re-run (e.g.
+`PROCUREMENT → serialLog, purchaseOrders, purchaseInvoices`); the header
+Refresh button and the unknown/mixed-burst fallback bump all four
+(`bumpAllRegisterRefresh`), and the burst → refresh-plan decision lives in the
+unit-testable `SseDomainBurst` class.
+
+`tests/registerRefreshDomains.test.ts` guards the whole chain by reading the
+real sources, so an unwired new fetch fails the suite instead of shipping:
+
+- **Registers pinned** — each self-fetching register's exact `api.*` surface,
+  the effect deps carrying its refresh key, and *every* App.tsx render site
+  passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
+  SerialLogRegister, 11 StockOperations). A newly added unwired mount fails.
+- **All 50 feature screens pinned** — a coverage table asserts every screen
+  under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
+  server-call surface (`api.*` methods **and** named `services/api` imports —
+  FinancialStatements.tsx imports `getFinancialSummary` directly, which a
+  bare `api.*` scan would miss), so a fetch added by any mechanism must be
+  pinned deliberately.
+- **Tripwires** — raw `fetch`/`axios`/`EventSource` are banned in every
+  screen, a `pageSize:` request key may appear **only** in the four wired
+  registers, and the 11 mount/selection self-fetch screens (ledgers, BS
+  calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
+  pinned as whole-list and unwired **by design** — tab remount refetches them.
+
 ---
 
 ## 🧱 Architecture Notes
@@ -569,7 +605,7 @@ to full-bootstrap refreshes.
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 433-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 548-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
