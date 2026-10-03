@@ -570,6 +570,10 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   registers, and the 11 mount/selection self-fetch screens (ledgers, BS
   calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
   pinned as whole-list and unwired **by design** — tab remount refetches them.
+- **Counts stay honest** — `npm test` ends with a docs-count gate
+  (`scripts/docsTestCounts.ts`): every current-state test-count claim in this
+  README, handoff.md and SESSION_NOTES.md must equal the run's real suite
+  size; historical per-arc records are exempt by design.
 
 ---
 
@@ -605,7 +609,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 548-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 553-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
