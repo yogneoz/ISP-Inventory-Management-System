@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-03 · Branch: main · Tests: 553/553 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-03 · Branch: main · Tests: 557/557 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
 ## ⭐ NEWEST: Duplication audit (phases 1–4) + CI fresh-install proof (pushed `60acf84`…`e8f8de4`, CI green)
 
@@ -241,7 +241,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 553 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 557 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -807,7 +807,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 553 tests, 0 fail). Live-verified:
+  key coverage; suite now 557 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -865,7 +865,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 553 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 557 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -930,7 +930,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 553 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 557 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -963,7 +963,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (tsconfig has no noUnusedLocals, so tsc never flagged it) — pinned `[]`,
   cleanup optional. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 553 tests, 0 fail.
+  failures, then reverted). Suite now 557 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -975,7 +975,10 @@ unseeded calendar days use BS_DATE_FALLBACK.
   contract lives in the script header: add a pattern only if the sentence
   would be wrong after the next commit adds a test. Classification is
   unit-tested plus a live cross-doc consistency check in
-  tests/docsCounts.guard.test.ts. Suite now 553 tests, 0 fail.
+  tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
+  (total / table / pinned-elsewhere counts) are pinned the same way by a
+  live check in tests/registerRefreshDomains.test.ts, so a screen added or
+  reclassified without updating the prose fails too. Suite now 557 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

@@ -29,6 +29,7 @@ import {
   type RegisterRefreshKey,
 } from '../client/src/utils/registerRefreshDomains';
 import { DOMAIN_BY_MODULE, resolveDomain } from '../server/src/syncDomains';
+import { DOCS_FILES, checkScreenClaims } from '../scripts/docsTestCounts';
 
 // The complete register vocabulary kept in App.tsx's registerRefresh state.
 const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consumableRegister'];
@@ -771,5 +772,24 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         `client/src/features/${screen} carries register-refresh wiring but is not an SSE-wired register — finish the full wiring decision (DOMAIN_REGISTER_KEYS + App.tsx) or drop the prop`
       );
     }
+  });
+
+  test('docs screen-count claims match reality — total, table and pinned-elsewhere', () => {
+    // The three docs quote these tallies (README, handoff, SESSION_NOTES:
+    // "all 50 screens", "the 41 screens not covered", "the other 9").
+    // Real values come from THIS code — the features walk and the two
+    // tables above — so a screen added or reclassified without updating
+    // the docs fails here: the screen-count twin of the docs-count gate
+    // in run_tests.mjs.
+    const real = {
+      total: listFeatureScreens().length,
+      table: Object.keys(SCREEN_SURFACE_PINS).length,
+      pinnedElsewhere: PINNED_ELSEWHERE.size,
+    };
+    const docs = DOCS_FILES.map((file) => ({
+      file,
+      text: fs.readFileSync(path.resolve(process.cwd(), file), 'utf8'),
+    }));
+    assert.deepEqual(checkScreenClaims(docs, real), []);
   });
 });

@@ -16,8 +16,10 @@ import * as path from 'node:path';
 import {
   DOCS_FILES,
   checkDocsCounts,
+  checkScreenClaims,
   collectClaims,
   findCountClaims,
+  findScreenClaims,
 } from '../scripts/docsTestCounts';
 
 describe('docs-count gate — current-state claim detection', () => {
@@ -96,5 +98,56 @@ describe('docs-count gate — current-state claim detection', () => {
         .map((c) => `${c.file}:${c.line}=${c.count}`)
         .join(', ')}`
     );
+  });
+});
+
+describe('docs-count gate — screen-count claims', () => {
+  test('every screen-tally phrasing is classified (total / table / pinned-elsewhere)', () => {
+    const text = [
+      '- **All 50 feature screens pinned** — a coverage table', // total
+      '- **Feature-screen coverage (audit, all 50 screens)** — a `SCREEN_SURFACE_PINS`', // total
+      '  table pins the 41 screens not covered above (the other 9 are pinned by the dedicated', // table + pinned
+      '  (2) NEW — all 50 screens under client/src/features are pinned: a', // total
+      '  SCREEN_SURFACE_PINS table (41 screens) + the 9 pinned above; an unpinned', // table + pinned
+    ].join('\n');
+
+    const claims = findScreenClaims(text, 'x.md');
+    assert.deepEqual(
+      claims.map((c) => `${c.line}:${c.kind}=${c.count}`),
+      [
+        '1:total=50',
+        '2:total=50',
+        '3:table=41',
+        '3:pinnedElsewhere=9',
+        '4:total=50',
+        '5:table=41',
+        '5:pinnedElsewhere=9',
+      ]
+    );
+    const real = { total: 50, table: 41, pinnedElsewhere: 9 };
+    assert.deepEqual(checkScreenClaims([{ file: 'x.md', text }], real), []);
+  });
+
+  test('a screen added without updating the docs fails the claim check', () => {
+    const text = '- **All 50 feature screens pinned**';
+    const errors = checkScreenClaims([{ file: 'README.md', text }], {
+      total: 51,
+      table: 42,
+      pinnedElsewhere: 9,
+    });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /README\.md:1 claims 50 total screens but the real count is 51/);
+  });
+
+  test('reclassifying a screen (table <-> pinned-elsewhere) fails the split claims', () => {
+    const text = '  table pins the 41 screens not covered above (the other 9 are pinned';
+    const errors = checkScreenClaims([{ file: 'handoff.md', text }], {
+      total: 50,
+      table: 42,
+      pinnedElsewhere: 8,
+    });
+    assert.equal(errors.length, 2);
+    assert.match(errors[0], /claims 41 table screens but the real count is 42/);
+    assert.match(errors[1], /claims 9 pinnedElsewhere screens but the real count is 8/);
   });
 });

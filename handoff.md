@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 553 tests; CI runs
+                                        #   drift/concurrency guards — 557 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1094,7 +1094,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 553 tests against a real PostgreSQL 16 service container
+2. `npm test` — 557 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
@@ -1153,6 +1153,10 @@ current-state count claim in README, this file and SESSION_NOTES.md must
 equal the real suite size of the same run, or `npm test` fails naming the
 stale `file:line`. Historical per-arc records ("449/449 tests pass",
 "522 node:test tests") are deliberately exempt — they describe a past run.
+Screen tallies quoted in these docs (total / table / pinned-elsewhere) get
+the same treatment: a live check in the coverage suite compares every
+quoted screen count against the real features walk and the two coverage
+tables.
 
 ---
 

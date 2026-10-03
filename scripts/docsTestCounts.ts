@@ -87,6 +87,68 @@ export function checkDocsCounts(
     );
 }
 
+/** Real screen tallies a screen-count claim is checked against. */
+export interface ScreenCounts {
+  /** .tsx files under client/src/features (listFeatureScreens). */
+  total: number;
+  /** Keys of SCREEN_SURFACE_PINS — the screens pinned by the coverage table. */
+  table: number;
+  /** PINNED_ELSEWHERE — screens pinned by the dedicated register-guard tests. */
+  pinnedElsewhere: number;
+}
+
+/** One screen-count claim found in a doc. */
+export interface ScreenClaim {
+  file: string;
+  line: number;
+  count: number;
+  kind: keyof ScreenCounts;
+}
+
+/**
+ * Phrasings that quote the screen tallies. The REAL values come from code
+ * (the features walk + the coverage table), so a screen added or
+ * reclassified without updating the docs fails the same way stale test
+ * counts do. Scope contract as above: only these exact phrasings claim a
+ * current tally — narrative numbers stay out.
+ */
+const SCREEN_CLAIM_PATTERNS: { kind: keyof ScreenCounts; source: string }[] = [
+  { kind: 'total', source: '(\\d+) feature screens' },
+  { kind: 'total', source: 'all (\\d+) screens' },
+  { kind: 'table', source: '(\\d+) screens not covered above' },
+  { kind: 'table', source: 'table \\((\\d+) screens\\)' },
+  { kind: 'pinnedElsewhere', source: 'other (\\d+) are pinned' },
+  { kind: 'pinnedElsewhere', source: '\\+ the (\\d+) pinned above' },
+];
+
+/** Every screen-count claim in `text`, with file:line locations and kind. */
+export function findScreenClaims(text: string, file = '<text>'): ScreenClaim[] {
+  const claims: ScreenClaim[] = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    for (const { kind, source } of SCREEN_CLAIM_PATTERNS) {
+      for (const m of line.matchAll(new RegExp(source, 'g'))) {
+        claims.push({ file, line: index + 1, count: Number(m[1]), kind });
+      }
+    }
+  });
+  return claims;
+}
+
+/** Errors for every screen-count claim that disagrees with the real tally. */
+export function checkScreenClaims(
+  docs: { file: string; text: string }[],
+  real: ScreenCounts
+): string[] {
+  return docs
+    .flatMap(({ file, text }) => findScreenClaims(text, file))
+    .filter((claim) => claim.count !== real[claim.kind])
+    .map(
+      (claim) =>
+        `${claim.file}:${claim.line} claims ${claim.count} ${claim.kind} screens but the ` +
+        `real count is ${real[claim.kind]} — update the number. [${claim.kind} screen claim]`
+    );
+}
+
 /** CLI entry: tsx scripts/docsTestCounts.ts <realCount> */
 if ((process.argv[1] ?? '').endsWith('docsTestCounts.ts')) {
   const realCount = Number(process.argv[2]);
