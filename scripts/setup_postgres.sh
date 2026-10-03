@@ -21,6 +21,34 @@
 # ============================================================================
 set -u
 
+# Load the repository .env (if present) so the configuration README documents
+# in Step 2 is what this installer actually uses. Only simple KEY=VALUE lines
+# are read, already-exported variables are never overridden, CRLF line endings
+# are tolerated, and the file is never sourced wholesale — so no command
+# substitution from a stray .env value can ever execute here.
+load_env_file() {
+    [ -f "$1" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "${line}" ]; do
+        line="${line%$'\r'}"
+        if [[ "${line}" =~ ^[[:space:]]*$ || "${line}" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        if [[ "${line}" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            val="${val#\"}"
+            val="${val%\"}"
+            val="${val#\'}"
+            val="${val%\'}"
+            if [ -z "${!key+x}" ]; then
+                export "${key}=${val}"
+            fi
+        fi
+    done < "$1"
+}
+load_env_file "$(cd "$(dirname "$0")/.." && pwd)/.env"
+
 DB_NAME="${POSTGRES_DB:-inventory_db}"
 DB_USER="${POSTGRES_USER:-inventory_user}"
 DB_PASS="${POSTGRES_PASSWORD:-securepassword}"

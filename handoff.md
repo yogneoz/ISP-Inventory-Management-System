@@ -164,7 +164,7 @@ ISP-Inventory-Management-System/
 │       │                              #   facade re-exporting every historical symbol
 │       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
 │       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
-│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (30 tables),
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (34 tables),
 │       │                              #   seedInitialPostgresData, permission matrix load,
 │       │                              #   serial-log backfill
 │       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
@@ -371,7 +371,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock, assets, calendar, FY links
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (30 tables, idempotent)
+│   ├── schema.sql                     # Full PostgreSQL schema (34 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
@@ -391,7 +391,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (30 tables)
+### 5.1 Tables Overview (34 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -425,6 +425,10 @@ ISP-Inventory-Management-System/
 | 28 | `document_number_configs` | Auto-numbering rules | id (PK), document_type, prefix, next_number, reset_every_fiscal_year |
 | 29 | `document_sequence_daily` | Per-branch daily doc sequences | (branch_id, doc_type, date_ad) PK, next_number |
 | 30 | `permission_matrix` | RBAC authority (operation × role) | (operation_id, role) PK, allowed |
+| 31 | `sales_invoices` | Customer sales invoices | id (PK), invoice_number (UNIQUE), customer_id, branch_id (FK→branches), payment_status, amount_paid, items (JSONB), fiscal_year_id (FK→fiscal_years) |
+| 32 | `customer_payments` | Customer receipts sub-ledger | id (PK), payment_number (UNIQUE), customer_id, invoice_id (FK→sales_invoices), amount, payment_method, status (POSTED/REVERSED/VOIDED), fiscal_year_id |
+| 33 | `purchase_returns` | Purchase return register (debit notes) | id (PK), return_number (UNIQUE), original_invoice_id (FK→purchase_invoices), supplier_id, branch_id, reason, items (JSONB) |
+| 34 | `sales_returns` | Sales return register | id (PK), return_number (UNIQUE), original_invoice_id (FK→sales_invoices), customer_id, branch_id, reason, restockable |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -1204,7 +1208,7 @@ All demo users share password: `Demo@123`
 | Order | File | Why |
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
-| 2 | `scripts/schema.sql` | Full database schema (30 tables) — the data model |
+| 2 | `scripts/schema.sql` | Full database schema (34 tables) — the data model |
 | 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
 | 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
 | 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |

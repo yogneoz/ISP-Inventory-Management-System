@@ -2,6 +2,8 @@
 // Inventory-ERP Automated PostgreSQL Setup Engine (Node.js/pg)
 //
 // Responsibilities:
+//   0. Load the repo .env (POSTGRES_*) so setup uses the SAME credentials
+//      the server will use; explicit environment variables still win.
 //   1. Ensure the PostgreSQL server is reachable (falls back to the shell
 //      installer script on Linux/macOS when it is not).
 //   2. Apply scripts/schema.sql (idempotent - safe to re-run).
@@ -26,7 +28,15 @@ import path from 'path';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
 import pg from 'pg';
+import dotenv from 'dotenv';
 import { buildDemoDataset } from './demo_dataset.js';
+
+// Load .env FIRST so POSTGRES_* matches the configuration README documents
+// in Step 2 ("replace with your own credentials"). Real environment
+// variables still win — dotenv never overrides them — which keeps the shell
+// installer's explicit POSTGRES_* hand-off and ad-hoc
+// `POSTGRES_DB=... node scripts/setup_db.js` overrides intact.
+dotenv.config();
 
 const { Pool } = pg;
 

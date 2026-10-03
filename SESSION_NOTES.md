@@ -2,7 +2,54 @@
 
 _Date: 2026-10-03 · Branch: main · Tests: 557/557 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: Duplication audit (phases 1–4) + CI fresh-install proof (pushed `60acf84`…`e8f8de4`, CI green)
+## ⭐ NEWEST: DB-integrity audit + database docs corrected + first-deploy hardening (UNCOMMITTED)
+
+User asked for a database-integrity audit, doc corrections, and proof that a
+first deployment never fails. Suite: 557/557 green; docs-count gate green.
+
+### Integrity audit
+- `npm run integrity:check` → PASS (stock quantities, device identifiers,
+  fiscal-year ownership, safeguards all healthy).
+- Live `inventory_db` verified: **34 base tables / 595 columns / 223 indexes**
+  — matches schema.sql exactly; `tests/schema.drift.guard.test.ts` ran (NOT
+  skipped) and passed against the live DB.
+
+### Doc corrections — "30 tables" was wrong (real = 34)
+- README + handoff claimed **30 tables in 7 places** (tree comments, step 3,
+  §5.1 heading, quick-ref row). All corrected to **34**; handoff §5.1 gained
+  the 4 missing rows: sales_invoices, customer_payments, purchase_returns,
+  sales_returns (columns verified against schema.sql).
+- SESSION_NOTES' "30 tables" mentions are Arc-13 HISTORY (state at that time)
+  — deliberately left alone; the docs-count gate exempts historical records.
+- Sweep for other stale DB numbers (indexes/columns/constraints) — none found.
+
+### First-deploy hardening — both setup scripts now read `.env`
+- README Step 2 tells users to configure `.env`, but NEITHER setup script read
+  it: a first deploy with custom creds silently fell back to `securepassword`.
+  - `scripts/setup_db.js`: `dotenv.config({quiet:true})` before DB_CONFIG
+    (dotenv never overrides real env vars — `POSTGRES_DB=... npm run setup:pg`
+    still wins). Remember dotenv v17's banner poisons command substitution —
+    ALWAYS `quiet:true`.
+  - `scripts/setup_postgres.sh`: new `load_env_file()` — parses simple
+    KEY=VALUE lines (strips CR/quotes, skips comments/blank), never overrides
+    already-set vars, never `source`s the file (so `$(...)` in .env is NOT
+    executed). Regex `^([A-Za-z_][A-Za-z0-9_]*)=(.*)$` — an earlier case-glob
+    version broke on single-letter keys → `unbound variable`.
+  - README Step 3 gained a "Config source" callout documenting the loader +
+    env-var precedence.
+- Static verification: `bash -n setup_postgres.sh` OK, `node --check
+  setup_db.js` OK; loader probed in bash (CRLF strip, quote strip, pre-set
+  env not overridden, `$(touch /tmp/pwned)` NOT executed, single-char keys OK).
+- **Real first-deploy proof**: created empty throwaway DB
+  `inventory_firstdeploy_test` → `POSTGRES_DB=inventory_firstdeploy_test npm
+  run setup:pg` → **exit 0**: schema applied atomically, all seeds succeeded,
+  "34 tables" verified, demo rows present. Throwaway DB dropped after.
+- `setup_postgres.sh` remains fully idempotent (6-step main: detect/install →
+  ensure running → configure_database → run_schema_migration with
+  ON_ERROR_STOP=1 + post-verify → test_connection → run_node_seeder), so
+  re-running on an existing box is a no-op upgrade path too.
+
+## Duplication audit (phases 1–4) + CI fresh-install proof (pushed `60acf84`…`e8f8de4`, CI green)
 
 Long-running duplication-audit plan executed across four phases plus one CI
 hardening step. All pushed to main; client+server `tsc --noEmit` clean,
