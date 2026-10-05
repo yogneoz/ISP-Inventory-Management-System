@@ -27,8 +27,8 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { StatCard, StatCardGrid } from '../../components/common/StatCard';
-import { convertADToBS, formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
+import { StatCard } from '../../components/common/StatCard';
+import { formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination } from '../../components/common/TablePagination';
@@ -140,11 +140,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const isBranchLockedForUser = !canSeeAll && Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL');
 
-  const [auditorName, setAuditorName] = useState<string>(
+  const [auditorName] = useState<string>(
     currentUser?.name || 'Authorized Auditor'
   );
 
-  const [auditRefNumber, setAuditRefNumber] = useState<string>(
+  const [auditRefNumber] = useState<string>(
     () => `AUD-2083-${Math.floor(100 + Math.random() * 900)}`
   );
 
@@ -906,9 +906,6 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       columns,
     });
   };
-
-  const todayAD = new Date().toISOString().split('T')[0];
-  const todayBS = convertADToBS(todayAD).formattedBS;
 
   return (
     <div className="space-y-3">

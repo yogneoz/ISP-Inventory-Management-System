@@ -7,7 +7,6 @@ import { exportToCSV } from '../../utils/exportUtils';
 import StatCard from '../../components/common/StatCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
-  Users,
   Search,
   Plus,
   Barcode,
@@ -19,22 +18,16 @@ import {
   XCircle,
   Copy,
   Check,
-  Building2,
   X,
-  FileText,
-  Tag,
   Clock,
-  Tv,
   ShieldCheck,
   ShieldAlert,
   RefreshCw,
-  SlidersHorizontal,
   Send,
   Lock,
   ExternalLink,
   UserCheck,
   Download,
-  FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -102,11 +95,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
   // Server-side device reads. The endpoint is paged and applies branch + text
   // filter in PostgreSQL; user-facing page state is the current slice.
-  const [devicesPage, setDevicesPage] = useState(1);
-  const [devicesPageSize, setDevicesPageSize] = useState(15);
+  const [devicesPage] = useState(1);
+  const [devicesPageSize] = useState(15);
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  const [customerDevicesTotalItems, setCustomerDevicesTotalItems] = useState(0);
-  const [devicesLoadError, setDevicesLoadError] = useState(false);
+  const [, setCustomerDevicesTotalItems] = useState(0);
+  const [, setDevicesLoadError] = useState(false);
 
   const customerDevicesPagination = useClientPagination(
     customerDevicesRows,
@@ -340,11 +333,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [deviceSerial, setDeviceSerial] = useState('');
   const [ponSerial, setPonSerial] = useState('');
   const [macAddress, setMacAddress] = useState('');
-  const [issuedDateAD, setIssuedDateAD] = useState(
+  const [issuedDateAD] = useState(
     new Date().toISOString().split('T')[0]
   );
   const [purchaseBillRef, setPurchaseBillRef] = useState('BILL-9021');
-  const [notes, setNotes] = useState('');
+  const [notes] = useState('');
 
   // Metrics from server rows
   const rentalCount = customerDevicesRows.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;

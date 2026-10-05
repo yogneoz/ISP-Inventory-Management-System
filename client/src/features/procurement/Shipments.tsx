@@ -375,7 +375,6 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   const userBranchId = currentUser?.branchId && currentUser.branchId !== 'ALL' ? currentUser.branchId : null;
 
   // Form State - Strict Inter-Branch Stock Transfer
-  const type = 'INTER_BRANCH';
   const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'WH001');
   const [destinationBranchId, setDestinationBranchId] = useState(branches[1]?.id || 'WH002');
   const [notes, setNotes] = useState('');

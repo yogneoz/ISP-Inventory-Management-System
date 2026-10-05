@@ -14,10 +14,7 @@ import {
   Edit2,
   Trash2,
   Filter,
-  BarChart2,
   X,
-  Check,
-  Tag,
   Barcode,
   Layers,
   CheckCircle2,
@@ -155,7 +152,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   // Server-driven catalog and category options (never bootstrap slices)
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [masterCategories, setMasterCategories] = useState<Category[]>([]);
-  const [catalogLoadError, setCatalogLoadError] = useState(false);
+  const [, setCatalogLoadError] = useState(false);
 
   // Categories fetched from the database table: never fall back to a
   // client-computed list of every product's category (which also leaked
@@ -163,7 +160,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [categoryOptions, setCategoryOptions] = useState<string[]>(['ALL']);
   const [categories, setCategories] = useState<string[]>(['ALL']);
   const availableCategories = categories.filter(Boolean);
-  const [categoryLoadError, setCategoryLoadError] = useState(false);
+  const [, setCategoryLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,7 +416,33 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
-      <style>{``}</style>
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #barcode-print-area, #barcode-print-area *,
+          #bulk-barcode-a4-area, #bulk-barcode-a4-area * {
+            visibility: visible !important;
+          }
+          #barcode-print-area, #bulk-barcode-a4-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            color: black !important;
+          }
+          .barcode-card-item {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+        }
+      `}</style>
       {/* Header bar */}
       <PageHeader
         title={mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}
@@ -1252,6 +1275,196 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Bulk A4 Barcode Printing Modal */}
+      {isBulkBarcodeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs overflow-y-auto">
+          <div className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
+            <div id="bulk-barcode-a4-area">
+              {/* Modal Header */}
+              <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
+                <div className="flex items-center gap-2">
+                  <Printer className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
+                  <Barcode className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
+                  <h3 className="font-bold text-sm">
+                    Print Item Barcodes (A4 Sheet PDF Format — Code 39)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkBarcodeModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Configuration controls */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3.5 rounded-xl border bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-xs print:hidden">
+                  <div>
+                    <label className="block font-bold mb-1 opacity-80">1. Product Scope</label>
+                    <select
+                      value={bulkScope}
+                      onChange={(e) => setBulkScope(e.target.value as any)}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
+                    >
+                      <option value="FILTERED">Current Filtered List ({filteredProducts.length} items)</option>
+                      <option value="ALL">Entire Product Catalog ({catalog.length} items)</option>
+                      <option value="IN_STOCK">Available Stock (&gt;0 Qty Only)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold mb-1 opacity-80">2. Copies per Item</label>
+                    <select
+                      value={bulkQtyMode}
+                      onChange={(e) => setBulkQtyMode(e.target.value as any)}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
+                    >
+                      <option value="ONE_PER_SKU">1 Label per SKU (Catalog Sheet)</option>
+                      <option value="STOCK_QTY">Match Inventory Stock Qty</option>
+                      <option value="CUSTOM">Custom Copies per SKU</option>
+                    </select>
+                    {bulkQtyMode === 'CUSTOM' && (
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={bulkCustomCopies}
+                        onChange={(e) => setBulkCustomCopies(Math.max(1, Math.min(50, Number(e.target.value))))}
+                        className={`w-full mt-1 rounded-lg border px-2 py-1 font-mono text-xs bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-bold mb-1 opacity-80">3. A4 Grid Density</label>
+                    <select
+                      value={bulkColumns}
+                      onChange={(e) => setBulkColumns(Number(e.target.value))}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
+                    >
+                      <option value={3}>3 Columns (24 Labels / Page) — Standard</option>
+                      <option value={4}>4 Columns (40 Labels / Page) — Compact</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col justify-center space-y-1.5 pt-1">
+                    <label className="flex items-center gap-2 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkShowPrice}
+                        onChange={(e) => setBulkShowPrice(e.target.checked)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Show Selling Price (NPR)</span>
+                    </label>
+                    <label className="flex items-center gap-2 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkShowCategory}
+                        onChange={(e) => setBulkShowCategory(e.target.checked)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Show Category / Group</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Summary Banner */}
+                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 font-semibold print:hidden">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>
+                      Total Barcode Labels: <strong>{bulkLabels.length} labels</strong>
+                    </span>
+                  </div>
+                  <span className="text-[11px] opacity-80">
+                    A4 Portrait Page Layout (Code 39 Format) • Fits ~{Math.ceil(bulkLabels.length / (bulkColumns * 8))} Page(s)
+                  </span>
+                </div>
+
+                {/* Printable A4 Sheet Preview Area */}
+                <div className="max-h-[60vh] overflow-y-auto p-4 bg-slate-200 dark:bg-slate-950/80 rounded-xl border border-slate-300 dark:border-slate-800">
+                  {bulkLabels.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-500">
+                      No matching products found for the selected scope.
+                    </div>
+                  ) : (
+                    <div
+                      className={`w-full bg-white text-slate-900 p-4 shadow-xl border border-slate-300 rounded-sm grid gap-3 ${
+                        bulkColumns === 4 ? 'grid-cols-4' : 'grid-cols-3'
+                      }`}
+                    >
+                      {bulkLabels.map((lbl, idx) => (
+                        <div
+                          key={`${lbl.product.id}-${lbl.copyIdx}-${idx}`}
+                          className="barcode-card-item p-2.5 bg-white text-slate-900 border border-slate-300 rounded flex flex-col items-center text-center justify-between min-h-[110px] select-none print:shadow-none print:border-black"
+                        >
+                          {bulkShowCategory && (
+                            <div className="w-full text-[9px] font-extrabold uppercase tracking-wider text-slate-500 truncate">
+                              {lbl.product.category} • {lbl.product.productGroup || 'Product Item'}
+                            </div>
+                          )}
+
+                          <div className="w-full text-[11px] font-bold text-slate-900 line-clamp-1 my-0.5">
+                            {lbl.product.name}
+                          </div>
+
+                          {/* Code 39 Barcode Vector SVG */}
+                          <div className="my-1 flex justify-center w-full">
+                            <Code39BarcodeSVG
+                              code={lbl.product.sku || lbl.product.barcode}
+                              height={bulkColumns === 4 ? 36 : 42}
+                              barWidth={bulkColumns === 4 ? 1.5 : 1.7}
+                              showText={true}
+                            />
+                          </div>
+
+                          <div className="w-full flex items-center justify-between text-[10px] font-mono text-slate-700 pt-0.5 border-t border-slate-200 mt-0.5">
+                            <span className="font-bold text-indigo-700">{lbl.product.sku}</span>
+                            {bulkShowPrice && (
+                              <span className="font-extrabold text-slate-900">
+                                {formatNPR(lbl.product.sellingPrice)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkBarcodeModalOpen(false)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
+                >
+                  Cancel
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-slate-400">
+                    Destination: Default PDF Printer / Save as PDF
+                  </span>
+                  <button
+                    type="button"
+                    disabled={bulkLabels.length === 0}
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md transition-all cursor-pointer"
+                  >
+                    <Printer className="h-4 w-4" />
+                    <span>Print A4 Sheet / Save as PDF ({bulkLabels.length} Labels)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -2,7 +2,6 @@ import type {
   InventoryStock,
   Asset,
   StockOperation,
-  TransactionLog,
   CustomerDeviceRecord,
   CustomerRecord,
   Product,

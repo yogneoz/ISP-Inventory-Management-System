@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
@@ -8,7 +8,6 @@ import {
   Users,
   Plus,
   Upload,
-  Download,
   Edit2,
   Trash2,
   X,
@@ -17,8 +16,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  ShieldAlert,
-  CreditCard,
   CheckCircle2,
   XCircle,
   FileSpreadsheet,
@@ -29,7 +26,6 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Tag,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -214,14 +210,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     }
   };
 
-  const handleUpdateAndRefresh = async (id: string, patch: Partial<CustomerRecord>) => {
-    const updated = await api.updateCustomer(id, patch);
-    if (updated) {
-      await refreshCustomersFromDb();
-    }
-    return updated;
-  };
-
   const handleDeleteAndRefresh = async (id: string) => {
     await api.deleteCustomer(id);
     await refreshCustomersFromDb();
@@ -264,19 +252,17 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   // endpoint, where PostgreSQL applies branch + search + status filters.
   // React holds ONLY the current page slice; the previous bootstrap slice is
   // never filtered in memory.
-  const [customersPage, setCustomersPage] = useState(1);
-  const [customersPageSize, setCustomersPageSize] = useState(15);
+  const [customersPage] = useState(1);
+  const [customersPageSize] = useState(15);
   const [customersRows, setCustomersRows] = useState<CustomerRecord[]>([]);
-  const [customersTotalItems, setCustomersTotalItems] = useState(0);
-  const [customersLoadError, setCustomersLoadError] = useState(false);
+  const [, setCustomersTotalItems] = useState(0);
+  const [, setCustomersLoadError] = useState(false);
 
   const customersPagination = useClientPagination(
     customersRows,
     customersPageSize,
     [customersPage, customersPageSize]
   );
-
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
 
   // Server-side read
   useEffect(() => {
@@ -311,17 +297,11 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   // Server-side device reads for the Assigned Hardware column. The endpoint is
   // paged and applies branch + text filter in PostgreSQL; user-facing page
   // state is the current slice.
-  const [devicesPage, setDevicesPage] = useState(1);
-  const [devicesPageSize, setDevicesPageSize] = useState(20);
+  const [devicesPage] = useState(1);
+  const [devicesPageSize] = useState(20);
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  const [customerDevicesTotalItems, setCustomerDevicesTotalItems] = useState(0);
-  const [devicesLoadError, setDevicesLoadError] = useState(false);
-
-  const customerDevicesPagination = useClientPagination(
-    customerDevicesRows,
-    devicesPageSize,
-    [devicesPage, devicesPageSize]
-  );
+  const [, setCustomerDevicesTotalItems] = useState(0);
+  const [, setDevicesLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;

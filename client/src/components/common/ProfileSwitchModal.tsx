@@ -4,19 +4,16 @@ import { canUserSwitchProfiles } from '../../utils/permissions';
 import {
   X,
   User as UserIcon,
-  Shield,
   Building2,
   CheckCircle2,
   RefreshCw,
   LogOut,
-  Key,
   Mail,
   Search,
   UserCheck,
   Edit3,
   Lock,
   Sparkles,
-  ShieldAlert,
   RotateCcw,
 } from 'lucide-react';
 

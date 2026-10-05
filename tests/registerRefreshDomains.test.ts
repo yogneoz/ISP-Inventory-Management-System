@@ -43,6 +43,7 @@ const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consu
 const NO_REGISTER_DOMAINS = [
   'MASTER_DATA', 'CATEGORIES', 'PRODUCTS', 'FISCAL', 'USERS',
   'APPROVALS', 'RECALC', 'COMPANY_PROFILE',
+  'PERMISSIONS', 'SETTINGS', 'AUDIT',
 ];
 
 // ---------------------------------------------------------------------------
@@ -239,7 +240,9 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
   // recognizes. Derived from the two real vocabularies above (the
   // register-mapped domains plus the declared no-register domains),
   // so it tracks the server's broadcast vocabulary without copying
-  // it — AUDIT is the one client-only domain, never broadcast.
+  // it. PERMISSIONS, SETTINGS and AUDIT refresh bootstrap slices only;
+  // AUDIT is additionally re-emitted by logAuditEvent itself (alongside
+  // the business event's own domain) so the Audit Trail stays live.
   const isKnownStateDomain = (d: string) =>
     DOMAIN_REGISTER_KEYS[d] !== undefined || NO_REGISTER_DOMAINS.includes(d);
 
@@ -269,18 +272,20 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     );
   });
 
-  test('mixed multi-domain burst (two known domains) falls back to full refresh and bumps all six counters', () => {
+  test('multi-domain burst resolves to a targeted plan covering every domain', () => {
     const burst = new SseDomainBurst();
     // Real server broadcasts: a stock mutation, then a sales invoice.
     burst.observe(resolveDomain('STOCK_UPDATED', 'INVENTORY')); // STOCK
     burst.observe(resolveDomain('CREATE_SALES_INVOICE', 'SALES')); // SALES
-    const plan = burst.flush(isKnownStateDomain);
+    assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'targeted', domains: ['STOCK', 'SALES'] });
+  });
 
-    assert.deepEqual(plan, { mode: 'full' });
-    assert.deepEqual(
-      runFullRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0 }),
-      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1, returnsRegister: 1, salesInvoices: 1, customerDevices: 1 }
-    );
+  test('a repeated domain inside a multi-domain burst is deduplicated in the plan', () => {
+    const burst = new SseDomainBurst();
+    burst.observe(resolveDomain('STOCK_UPDATED', 'INVENTORY')); // STOCK
+    burst.observe(resolveDomain('STOCK_OPERATIONS_REVERSED', 'STOCK_OPERATIONS')); // STOCK_OPERATIONS
+    burst.observe(resolveDomain('STOCK_UPDATED', 'INVENTORY')); // STOCK again
+    assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'targeted', domains: ['STOCK', 'STOCK_OPERATIONS'] });
   });
 
   test('burst mixing a known and an unknown domain falls back to full refresh', () => {
@@ -296,12 +301,20 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'full' });
   });
 
-  test('three-domain burst still falls back — only single-domain bursts are targeted', () => {
+  test('a multi-domain burst bumps ONLY the registers its domains map to', () => {
     const burst = new SseDomainBurst();
-    burst.observe(resolveDomain('CREATE_PURCHASE_ORDER', 'PROCUREMENT'));
-    burst.observe(resolveDomain('STOCK_UPDATED', 'INVENTORY'));
-    burst.observe(resolveDomain('RECEIVE_SHIPMENT', 'LOGISTICS'));
-    assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'full' });
+    burst.observe(resolveDomain('CREATE_SALES_INVOICE', 'SALES')); // SALES
+    burst.observe(resolveDomain('RECEIVE_SHIPMENT', 'LOGISTICS')); // SHIPMENTS
+    const plan = burst.flush(isKnownStateDomain);
+    assert.deepEqual(plan, { mode: 'targeted', domains: ['SALES', 'SHIPMENTS'] });
+    // The targeted branch bumps DOMAIN_REGISTER_KEYS[domain] only —
+    // the bump-everything increment is exclusive to the fallback path.
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6 };
+    const next = { ...prev };
+    for (const d of plan.mode === 'targeted' ? plan.domains : []) {
+      for (const reg of DOMAIN_REGISTER_KEYS[d]) next[reg] = prev[reg] + 1;
+    }
+    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 3, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, customerDevices: 6 });
   });
 
   test('a repeated same-domain burst coalesces to a targeted plan', () => {
@@ -316,9 +329,9 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     const burst = new SseDomainBurst();
     burst.observe('STOCK');
     burst.observe('SALES');
-    assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'full' });
+    assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'targeted', domains: ['STOCK', 'SALES'] });
     // A fresh window with a single known domain must be targeted,
-    // not poisoned by the previous window's mixed state.
+    // not poisoned by the previous window's state.
     burst.observe(resolveDomain('CREATE_SALES_INVOICE', 'SALES'));
     assert.deepEqual(burst.flush(isKnownStateDomain), { mode: 'targeted', domains: ['SALES'] });
   });
@@ -634,7 +647,6 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'getBsDayRecords',
       'seedBsCalendarYear',
       'seedBsCalendarYearsBulk',
-      'syncBsDayRange',
       'updateBsCalendarYear',
     ],
     'finance/CustomerLedger.tsx': ['getCustomerLedger'],
@@ -661,7 +673,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     ],
     'inventory/CategoryManagement.tsx': ['createCategory', 'deleteCategory', 'getCategories', 'updateCategory'],
     'inventory/UomManagement.tsx': ['createUom', 'deleteUom', 'getUoms', 'updateUom'],
-    'settings/LocationsManagement.tsx': ['createLocation', 'deleteLocation', 'getLocations'],
+    'settings/LocationsManagement.tsx': ['createLocation', 'getLocations'],
 
     // — write-only / auxiliary-read screens: grids render bootstrap props —
     'procurement/Shipments.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],

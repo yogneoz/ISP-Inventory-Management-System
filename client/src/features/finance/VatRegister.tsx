@@ -12,10 +12,6 @@ import {
   FileSpreadsheet,
   Download,
   Printer,
-  Search,
-  Filter,
-  CheckCircle2,
-  Calendar,
   DollarSign,
   Percent,
 } from 'lucide-react';

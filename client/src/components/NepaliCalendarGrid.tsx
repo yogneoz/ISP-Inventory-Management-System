@@ -1,4 +1,3 @@
-import React from 'react';
 import { NEPALI_MONTHS_EN, getBSMonthGrid } from '../utils/nepaliCalendar';
 
 interface NepaliCalendarGridProps {

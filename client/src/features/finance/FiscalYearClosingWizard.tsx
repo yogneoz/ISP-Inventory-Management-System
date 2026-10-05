@@ -12,7 +12,6 @@ import {
   User,
   CompanyProfile,
 } from '../../types';
-import { convertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { filterFiscalYears } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -31,8 +30,6 @@ import {
   Building2,
   Calculator,
   Scale,
-  RefreshCw,
-  FileText,
   KeyRound,
   Download,
   Award,
@@ -122,9 +119,6 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const [showUnlockAuth, setShowUnlockAuth] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [isProcessingStep, setIsProcessingStep] = useState<boolean>(false);
-  const [step1Completed, setStep1Completed] = useState<boolean>(false);
-  const [step2Completed, setStep2Completed] = useState<boolean>(false);
-  const [step3Completed, setStep3Completed] = useState<boolean>(false);
   const [step4Completed, setStep4Completed] = useState<boolean>(false);
   const [step5Completed, setStep5Completed] = useState<boolean>(false);
 
@@ -742,7 +736,6 @@ filing. Consult a professional accountant for IRD submission.
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {wizardSteps.map((step) => {
             const isActive = currentStep === step.number;
-            const StepIcon = step.icon;
 
             return (
               <button

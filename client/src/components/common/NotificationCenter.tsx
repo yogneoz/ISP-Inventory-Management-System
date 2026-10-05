@@ -10,10 +10,6 @@ import {
   CheckCircle2,
   X,
   ExternalLink,
-  Filter,
-  Check,
-  RefreshCw,
-  Package,
 } from 'lucide-react';
 
 interface NotificationCenterProps {

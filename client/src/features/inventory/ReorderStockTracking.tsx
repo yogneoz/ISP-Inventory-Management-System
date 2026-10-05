@@ -12,21 +12,17 @@ import {
   CheckCircle2,
   X,
   ShoppingCart,
-  Plus,
   RefreshCw,
   BellRing,
   Sliders,
   SlidersHorizontal,
   Info,
-  Check,
-  Lock,
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 import { useDialog } from '../../components/common/DialogProvider';
 
 interface ReorderStockTrackingProps {
@@ -54,7 +50,6 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   onGroupLowStockPO,
   onNavigateTab,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const { alert: alertDialog } = useDialog();
   const [editingStock, setEditingStock] = useState<{
     stockItem: InventoryStock;

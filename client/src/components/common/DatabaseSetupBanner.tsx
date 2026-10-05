@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X, ExternalLink } from 'lucide-react';
+import { Database, AlertTriangle, Terminal, RefreshCw, CheckCircle2, ChevronRight, X } from 'lucide-react';
 
 interface DatabaseSetupBannerProps {
   onRefresh?: () => void;

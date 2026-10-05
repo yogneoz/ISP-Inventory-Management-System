@@ -5,8 +5,6 @@ import { useDialog } from '../../components/common/DialogProvider';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
   convertADToBS,
-  convertBSToAD,
-  getNepaliFiscalYear,
   getBsCalendarData,
   resetBsCalendarData,
   parseAndSeedBSInput,
@@ -30,15 +28,11 @@ import {
   CheckCircle2,
   Lock,
   Calendar as CalendarIcon,
-  Sparkles,
   Zap,
   PlusCircle,
   Database,
-  Check,
   AlertCircle,
   RotateCcw,
-  Code,
-  Info,
   Layers,
   ShieldCheck,
   ShieldAlert,
@@ -61,7 +55,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 }) => {
   const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
-  const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
+  const [, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
     '2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'
   );
@@ -428,8 +422,6 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   const bounds = getCalendarBounds();
   const boundsCheck = isDateInBounds(testDateAD);
   const lookedUpDayRecord = lookupBSDayRecord(testDateAD);
-
-  const sortedYears = (Object.values(calendarData) as BSYearData[]).sort((a, b) => a.yearBS - b.yearBS);
 
   return (
     <div className="space-y-3">

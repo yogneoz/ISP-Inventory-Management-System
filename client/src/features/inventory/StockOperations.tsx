@@ -10,7 +10,6 @@ import {
   ShipmentItem,
   SaleItem,
   ConsumableIssueItem,
-  DeviceSerialPair,
   User,
   Shipment,
   Asset,
@@ -20,10 +19,9 @@ import {
   ApprovalRequest,
   SerialLog,
 } from '../../types';
-import { formatDualDate, hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { FilterCard } from '../../components/common/FilterCard';
-import { StatCard } from '../../components/common/StatCard';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
@@ -47,9 +45,6 @@ import {
   Inbox,
   Wrench,
   PackageMinus,
-  MapPin,
-  Wifi,
-  UserCheck,
   ArrowRight,
   ShieldAlert,
   Lock,
@@ -61,13 +56,10 @@ import {
   Clock,
   Undo2,
   Download,
-  TrendingDown,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../../utils/permissions';
-import { BarcodeScannerModal } from '../../components/common/BarcodeScannerModal';
 import { FormCard } from '../../components/common/FormCard';
 import { ProductSearchBar } from './ProductSearchBar';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface StockOperationsProps {
   operations: StockOperation[];
@@ -192,7 +184,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onUpdateAssetStatus,
   sseRefreshKey,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
@@ -267,19 +258,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   // Filter state
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [expandedBinId, setExpandedBinId] = useState<string | null>(null);
   const [expandedShipmentId, setExpandedShipmentId] = useState<string | null>(null);
 
   // Modals state
   const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(autoOpenModal && initialType === 'PULLOUT');
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(autoOpenModal && initialType === 'DAMAGE');
-  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [, setIsBarcodeScannerOpen] = useState(false);
 
   // Selected asset or product for assignment modal
-  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState<boolean>(false);
-
-  // Device Exchange Tab State
   const [exchangeCustomerDevices, setExchangeCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
   const [isLoadingExchangeDevices, setIsLoadingExchangeDevices] = useState<boolean>(false);
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
@@ -365,11 +351,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
   }, [effectivePulloutSourceBranches, sourceBranchId]);
   const [transferStatusFilter, setTransferStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCEL_PENDING' | 'CANCELLED'>('ALL');
-  const [binInspector, setBinInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
+  const [binInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
   const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
   const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
-  const [prodSearchInput, setProdSearchInput] = useState<string>('');
-  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [, setProdSearchInput] = useState<string>('');
+  const [, setIsSearchOpen] = useState<boolean>(false);
 
   // 2. Damage Labeling Form State
   const defaultDamageBranch = userBranchId;
@@ -749,18 +735,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       setIsProcessingCancel(false);
     }
   };
-
-  // Filtered products for pullout search
-  const matchingProducts = products.filter((p) => {
-    if (!prodSearchInput.trim()) return false;
-    const q = (prodSearchInput || '').toLowerCase().trim();
-    return (
-      (p?.sku || '').toLowerCase().includes(q) ||
-      (p?.barcode || '').toLowerCase().includes(q) ||
-      (p?.name || '').toLowerCase().includes(q) ||
-      (p?.category || '').toLowerCase().includes(q)
-    );
-  });
 
   // Helper to focus element by ID safely
   const focusInput = (id: string) => {
@@ -1842,24 +1816,6 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
     if (typeof window !== 'undefined') window.location.reload();
   };
 
-  const handleUnassignAsset = async (asset: Asset) => {
-    if (!ensureBsDateAvailable()) return;
-    if (!onUpdateAssetStatus) return;
-    if (await confirmDialog(`Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`)) {
-      await onUpdateAssetStatus(asset.id, {
-        status: 'ACTIVE',
-        assignedType: undefined,
-        assignedLocationId: undefined,
-        assignedLocationName: undefined,
-        assignedCustomerId: undefined,
-        assignedCustomerName: undefined,
-        assignmentDateAD: undefined,
-        assignmentDateBS: undefined,
-        assignmentNotes: undefined,
-      });
-    }
-  };
-
   // 6. Submit Consumable Issue to Technician / Work Order Field Usage
   const handleSubmitConsumableIssue = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2233,22 +2189,8 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
   const availableStockAssets = assets.filter(
     (a) => a.status === 'ACTIVE' && !a.assignedType
   );
-  const assignedAssets = assets.filter(
-    (a) => a.status === 'ASSIGNED_TO_LOCATION' || a.status === 'ASSIGNED_TO_CUSTOMER' || Boolean(a.assignedType)
-  );
 
   // Catalog Products suitable for Fixed Asset & Customer Rental CPE deployment
-  const catalogFixedAssetProducts = products.filter(
-    (p) =>
-      p.productGroup === 'Fixed Asset' ||
-      (p?.category || '').toLowerCase().includes('router') ||
-      (p?.category || '').toLowerCase().includes('onu') ||
-      (p?.category || '').toLowerCase().includes('stb') ||
-      (p?.category || '').toLowerCase().includes('equipment') ||
-      (p?.name || '').toLowerCase().includes('onu') ||
-      (p?.name || '').toLowerCase().includes('router')
-  );
-
   return (
     <div className="space-y-3">
       {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}

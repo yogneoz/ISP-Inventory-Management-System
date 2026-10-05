@@ -8,7 +8,7 @@
  * layer only does auth/HTTP concerns, following permissions.controller.ts.
  */
 import type { Response } from 'express';
-import { getUserFromReq, pgPool, withTransaction } from '../app';
+import { getUserFromReq, pgPool, withTransaction, broadcastChange } from '../app';
 import {
   APP_SETTING_KEYS,
   APP_SETTING_UPSERT_SQL,
@@ -59,6 +59,10 @@ export async function put_settings(req: any, res: Response): Promise<any> {
 
     const settingsRes = await pgPool.query(APP_SETTINGS_SELECT_SQL);
     const appSettings = rowsToRecord(settingsRes.rows, APP_SETTING_KEYS);
+    // Company-wide settings are only company-wide if every connected client
+    // hears about them: emit the SETTINGS domain so the other sessions'
+    // appSettings slice re-fetches without a manual reload.
+    broadcastChange({ type: 'APP_SETTINGS_UPDATED', entity: 'SETTINGS' });
     console.log(`✅ Application settings updated by ${updatedBy}: ${Object.keys(validated.value).join(', ')}`);
     res.json({ message: 'Settings updated successfully.', appSettings });
     return;

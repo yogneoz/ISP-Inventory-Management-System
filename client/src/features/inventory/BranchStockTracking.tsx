@@ -3,18 +3,14 @@ import { Product, Branch, InventoryStock, User } from '../../types';
 import { exportToCSV } from '../../utils/exportUtils';
 import {
   Layers,
-  Building2,
   AlertTriangle,
   CheckCircle2,
-  Plus,
-  RefreshCw,
   Search,
   Filter,
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 import { PageHeader } from '../../components/common/PageHeader';
 
 interface BranchStockTrackingProps {
@@ -33,7 +29,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   stock,
   selectedBranchId,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');

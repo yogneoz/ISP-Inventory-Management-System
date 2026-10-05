@@ -3,7 +3,7 @@ import { Asset, Branch, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
-import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
+import { formatNPRPrecise } from '../../utils/nprFormat';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -11,7 +11,6 @@ import {
   Calculator,
   Download,
   Printer,
-  Search,
   TrendingDown,
   Landmark,
   ChevronDown,
@@ -19,7 +18,6 @@ import {
   Calendar,
   Layers,
   FileText,
-  Tag,
 } from 'lucide-react';
 import { StatCard } from '../../components/common/StatCard';
 

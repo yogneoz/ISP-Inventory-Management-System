@@ -3,7 +3,6 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { DocumentNumberConfig } from '../../types';
 import { api } from '../../services/api';
 import {
-  getDocumentNumberConfigs,
   formatNumber,
 } from '../../utils/documentNumbering';
 import {

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../../types';
 import { api } from '../../services/api';
 import { getPermissionsMatrix, applyServerMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
   ShieldCheck,
@@ -20,7 +19,6 @@ import {
   ChevronUp,
   CheckSquare,
   Square,
-  Sliders,
   Filter,
 } from 'lucide-react';
 
@@ -392,7 +390,6 @@ interface PermissionManagementProps {
 }
 
 export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, permissionsMatrix }) => {
-  const { isDarkMode } = useDarkMode();
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
     const savedMatrix = permissionsMatrix || getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({

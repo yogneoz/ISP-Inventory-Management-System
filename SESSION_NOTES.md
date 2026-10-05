@@ -1,6 +1,27 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-03 · Branch: main · Tests: 618/618 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 619/619 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ NEWEST: Sync-architecture improvements #1–#6 implemented (UNCOMMITTED, 2026-10-05)
+
+User: "proceed for all and improvement recommendations from A to Z" (after the
+sync audit found gaps G1–G7). Implemented: #1 reconnect gap-fill (CONNECTED
+reconciles `dataVersion` vs `serverDataVersionRef` → refreshAllData; 30s
+`/api/sync/version` polling via new `getSyncVersion()` while the stream is
+down), #2 broadcasts for PERMISSIONS/SETTINGS/DOC_NUMBER_UPDATED (new
+`PERMISSIONS`/`SETTINGS` domains in syncDomains + App DOMAIN_STATE_KEYS; new
+mirrorSlices/PG slice serving in bootstrap.controller), #3 AUDIT_LOGGED
+emitted from logAuditEvent, #4 SseDomainBurst is set-based (multi-domain
+bursts → targeted multi-domain plan, unknown still falls back to full),
+#5 exponential backoff 1s→30s ±20% jitter + immediate reconnect on
+visibilitychange/online + onStatus callback, #6 BroadcastChannel
+multi-tab event relay + cross-tab LOGOUT. #7 (structural mirror drift) is
+documented as a recommendation in FRONTEND-AUDIT.md §F, not implemented.
+Suite moved **618 → 619** (burst tests rewritten for Set semantics, net +1);
+docs counts updated. Full verification green: tsc 0, client --noUnusedLocals
+0, 619/619 + docs gate, build, bundle budget, no-raw-dialogs, no-inline-sql.
+
+---
 
 ## ⭐ NEWEST: Dead-API cleanup + cancel-receive built + returns/sales-invoices wired as paged registers (UNCOMMITTED)
 
@@ -373,7 +394,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 618 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 619 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -939,7 +960,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 618 tests, 0 fail). Live-verified:
+  key coverage; suite now 619 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -997,7 +1018,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 618 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 619 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1062,7 +1083,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 618 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 619 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1096,7 +1117,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 618 tests, 0 fail.
+  failures, then reverted). Suite now 619 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1111,7 +1132,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 618 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 619 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

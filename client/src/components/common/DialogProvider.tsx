@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, HelpCircle, Info, X } from 'lucide-react';
+import { AlertTriangle, HelpCircle, Info, X } from 'lucide-react';
 
 type DialogKind = 'confirm' | 'alert' | 'prompt';
 

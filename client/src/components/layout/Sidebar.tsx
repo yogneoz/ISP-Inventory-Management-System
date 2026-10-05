@@ -28,7 +28,6 @@ import {
   UserCheck,
   ShieldCheck,
   ClipboardList,
-  ChevronLeft,
   ChevronDown,
   ChevronsDownUp,
   X,
@@ -54,7 +53,6 @@ import {
 import { User, CompanyProfile } from '../../types';
 import { getCompanyLocation } from '../../utils/companyProfile';
 import { isOperationAllowed } from '../../utils/permissions';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 
 export type NavTab =
   | 'dashboard'
@@ -248,7 +246,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   permissionsVersion,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 

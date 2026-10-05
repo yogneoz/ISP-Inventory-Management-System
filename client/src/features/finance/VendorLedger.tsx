@@ -1,14 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
-import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNumber } from '../../utils/nprFormat';
 import {
   Wallet,
   Search,
   Download,
-  Loader2,
   ArrowDownRight,
   ArrowUpRight,
   RefreshCw,
@@ -59,11 +57,6 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
     closingBalance: number;
     ledger: LedgerLine[];
   } | null>(null);
-
-  const supplier = useMemo(
-    () => suppliers.find((s) => s.id === selectedSupplierId) || null,
-    [suppliers, selectedSupplierId]
-  );
 
   const fetchLedger = async () => {
     if (!selectedSupplierId) return;

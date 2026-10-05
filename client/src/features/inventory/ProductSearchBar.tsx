@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Product, InventoryStock } from '../../types';
 import { Search, Barcode, Plus, Package, AlertTriangle } from 'lucide-react';
 import { formatNPR } from '../../utils/nprFormat';

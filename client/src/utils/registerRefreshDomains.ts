@@ -79,9 +79,9 @@ export function bumpAllRegisterRefresh(
 
 /**
  * Result of flushing one debounced SSE burst, exactly as App.tsx's
- * debounced handler resolves it: a single recognized domain refreshes
- * just that domain's slices (targeted); anything else re-bootstraps
- * the whole app (full).
+ * debounced handler resolves it: recognized domains refresh just their
+ * own slices (targeted — one or many); anything unrecognized
+ * re-bootstraps the whole app (full).
  */
 export type SseFlushPlan =
   | { mode: 'targeted'; domains: string[] }
@@ -92,13 +92,15 @@ export type SseFlushPlan =
  * App.tsx's debounced SSE handler does, then resolves the window to
  * its refresh plan when the debounce fires.
  *
- * - Events that all carry the same domain keep that domain; two
- *   different domains — or any event without one — collapse the
- *   window into a mixed burst.
- * - flush() resolves a single recognized domain to a targeted plan
- *   and everything else (mixed burst, unrecognized domain, empty
- *   window) to the full-bootstrap plan, so an unknown server event
- *   can never leave the UI stale. The full-bootstrap path runs
+ * - Known domains collect into a SET, so a multi-domain burst (a
+ *   save that touches both STOCK and SALES, say) resolves to a
+ *   targeted plan covering exactly those domains instead of a
+ *   full app re-bootstrap.
+ * - flush() resolves the collected set to a targeted plan when
+ *   every observed domain is recognized; any unrecognized domain —
+ *   or an event without one — collapses the window to the
+ *   full-bootstrap plan, so an unknown server event can never
+ *   leave the UI stale. The full-bootstrap path runs
  *   refreshAllData, which bumps every paged-register counter via
  *   bumpAllRegisterRefresh above.
  * - flush() resets the accumulator, so the next debounce window
@@ -111,25 +113,26 @@ export type SseFlushPlan =
  * of truth for which domains are recognized.
  */
 export class SseDomainBurst {
-  private lastDomain: string | null = null;
+  private domains = new Set<string>();
 
   observe(domain: string | undefined): void {
-    if (domain) {
-      this.lastDomain =
-        this.lastDomain === null || this.lastDomain === domain
-          ? domain
-          : 'MULTI';
-    } else {
-      this.lastDomain = 'MULTI';
-    }
+    if (domain) this.domains.add(domain);
+    else this.domains.add(SseDomainBurst.UNKNOWN);
   }
 
   flush(isKnownDomain: (domain: string) => boolean): SseFlushPlan {
-    const domain =
-      this.lastDomain === 'MULTI' || !this.lastDomain ? null : this.lastDomain;
-    this.lastDomain = null;
-    return domain && isKnownDomain(domain)
-      ? { mode: 'targeted', domains: [domain] }
+    const observed = [...this.domains];
+    this.domains.clear();
+    if (observed.length === 0) return { mode: 'full' };
+    // Deduplicate the per-domain slice lists; order is irrelevant
+    // (the caller refreshes each slice independently) but keep the
+    // server's insertion order for deterministic plans.
+    const known = observed.filter((d) => d !== SseDomainBurst.UNKNOWN && isKnownDomain(d));
+    return known.length === observed.length
+      ? { mode: 'targeted', domains: [...new Set(known)] }
       : { mode: 'full' };
   }
+
+  /** Sentinel for an event that carried no (or an unknown) domain. */
+  private static readonly UNKNOWN = '__UNKNOWN__';
 }

@@ -5,7 +5,7 @@
  * and posted sales returns / credit notes (credits). Closing balance is the
  * customer's outstanding receivable. CSV export matches the vendor ledger's.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CustomerRecord, Branch } from '../../types';
 import { api } from '../../services/api';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -63,11 +63,6 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     closingBalance: number;
     ledger: LedgerLine[];
   } | null>(null);
-
-  const customer = useMemo(
-    () => customers.find((c) => c.id === selectedCustomerId) || null,
-    [customers, selectedCustomerId]
-  );
 
   const fetchLedger = async () => {
     if (!selectedCustomerId) return;

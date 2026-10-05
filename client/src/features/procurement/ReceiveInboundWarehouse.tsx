@@ -5,19 +5,12 @@ import {
   CheckCircle2,
   Clock,
   Search,
-  Filter,
   PackageCheck,
-  AlertTriangle,
-  RotateCcw,
-  Eye,
   X,
   Building,
   ArrowRight,
   ShieldAlert,
-  ClipboardCheck,
   Package,
-  Layers,
-  FileText,
 } from 'lucide-react';
 import {
   User,
@@ -99,15 +92,13 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
 
   // Shipments Filter state
   const [shipmentStatusFilter, setShipmentStatusFilter] = useState<'PENDING' | 'RECEIVED' | 'ALL'>('PENDING');
-  const [shipmentBranchFilter, setShipmentBranchFilter] = useState<string>('ALL');
+  const [shipmentBranchFilter] = useState<string>('ALL');
   const [shipmentSearchQuery, setShipmentSearchQuery] = useState<string>('');
 
   // Modals state
   const [selectedPulloutToReceive, setSelectedPulloutToReceive] = useState<StockOperation | null>(null);
   const [pulloutReceiveNotes, setPulloutReceiveNotes] = useState<string>('');
   const [isReceivingPullout, setIsReceivingPullout] = useState<boolean>(false);
-
-  const [selectedShipmentToReceive, setSelectedShipmentToReceive] = useState<Shipment | null>(null);
 
   // Filter Pullout operations (type === 'PULLOUT')
   const allPullouts = operations.filter((op) => op.type === 'PULLOUT');

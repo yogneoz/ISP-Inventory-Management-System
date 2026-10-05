@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Branch, CustomerRecord } from '../../types';
-import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
+import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
-  convertADToBS,
   getBsCalendarData,
   resetBsCalendarData,
   parseAndSeedBSInput,
@@ -11,14 +10,8 @@ import {
   BSYearData,
   BSDayRecord,
   NEPALI_MONTHS_EN,
-  NEPALI_MONTHS_NP,
-  DAYS_OF_WEEK_EN,
-  DAYS_OF_WEEK_NP,
-  formatNepaliFiscalYearCode,
-  getNepaliQuarter,
   generateCalendarDatabase,
   getCalendarBounds,
-  isDateInBounds,
   lookupBSDayRecord,
 } from '../../utils/nepaliCalendar';
 import {
@@ -28,7 +21,6 @@ import {
   AlertCircle,
   RotateCcw,
   Layers,
-  Search,
   Edit3,
   Sliders,
   PlusCircle,
@@ -53,7 +45,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
 }) => {
   const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
-  const [dayDatabase, setDayDatabase] = useState<BSDayRecord[]>([]);
+  const [, setDayDatabase] = useState<BSDayRecord[]>([]);
   const [seedInput, setSeedInput] = useState<string>(
     '2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]\n2083: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]'
   );
@@ -81,28 +73,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     new Date().toISOString().split('T')[0]
   );
 
-  // Targeted Date Range Conversion Tool State
-  const [rangeStartDateAD, setRangeStartDateAD] = useState<string>('2025-04-14');
-  const [rangeEndDateAD, setRangeEndDateAD] = useState<string>('2026-04-13');
-  const [rangeConversionStatus, setRangeConversionStatus] = useState<{
-    type: 'idle' | 'converting' | 'success' | 'missing_year' | 'error';
-    message: string;
-    records: BSDayRecord[];
-    missingYears: number[];
-  }>({
-    type: 'idle',
-    message: '',
-    records: [],
-    missingYears: [],
-  });
-  const [isSyncingSql, setIsSyncingSql] = useState<boolean>(false);
-  const [sqlSyncSuccess, setSqlSyncSuccess] = useState<{ success: boolean; message: string } | null>(null);
-
   // Existing BS Year Editing & Filtering State
-  const [managerFilterMode, setManagerFilterMode] = useState<'recent' | 'all' | 'specific'>('recent');
-  const [selectedSpecificYear, setSelectedSpecificYear] = useState<number | null>(null);
-  const [yearSearchTerm, setYearSearchTerm] = useState<string>('');
-
   const [editingYearData, setEditingYearData] = useState<BSYearData | null>(null);
   const [editStartAD, setEditStartAD] = useState<string>('');
   const [editDaysInMonths, setEditDaysInMonths] = useState<number[]>([]);
@@ -450,112 +421,6 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       await refreshCalendarData();
     } catch (err: any) {
       setSeedStatus({ type: 'error', message: err.message });
-    }
-  };
-
-  const handleConvertRange = () => {
-    setSqlSyncSuccess(null);
-    if (!rangeStartDateAD || !rangeEndDateAD) {
-      setRangeConversionStatus({
-        type: 'error',
-        message: 'Please specify both Start Date (AD) and End Date (AD) for conversion.',
-        records: [],
-        missingYears: [],
-      });
-      return;
-    }
-
-    const start = new Date(rangeStartDateAD);
-    const end = new Date(rangeEndDateAD);
-
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
-      setRangeConversionStatus({
-        type: 'error',
-        message: 'Invalid AD date range specified.',
-        records: [],
-        missingYears: [],
-      });
-      return;
-    }
-
-    const records: BSDayRecord[] = [];
-    const missingYearsSet = new Set<number>();
-    const current = new Date(start);
-
-    while (current <= end) {
-      const adDateStr = current.toISOString().split('T')[0];
-      try {
-        const converted = convertADToBS(adDateStr);
-        if (!calendarData[converted.yearBS]) {
-          missingYearsSet.add(converted.yearBS);
-        } else {
-          const dayOfWeekIndex = current.getUTCDay();
-          const padMonth = converted.monthBS < 10 ? `0${converted.monthBS}` : `${converted.monthBS}`;
-          const padDay = converted.dayBS < 10 ? `0${converted.dayBS}` : `${converted.dayBS}`;
-          const bsDateStr = `${converted.yearBS}-${padMonth}-${padDay}`;
-
-          const fyCode = formatNepaliFiscalYearCode(converted.yearBS, converted.monthBS);
-          const qtr = getNepaliQuarter(converted.monthBS);
-
-          records.push({
-            adDate: adDateStr,
-            bsDate: bsDateStr,
-            bsYear: converted.yearBS,
-            bsMonth: converted.monthBS,
-            bsMonthName: converted.monthName,
-            bsMonthNameNp: NEPALI_MONTHS_NP[converted.monthBS - 1] || 'वैशाख',
-            bsDay: converted.dayBS,
-            dayOfWeekName: DAYS_OF_WEEK_EN[dayOfWeekIndex],
-            dayOfWeekNameNp: DAYS_OF_WEEK_NP[dayOfWeekIndex],
-            fiscalYear: fyCode,
-            quarter: qtr,
-            isWeekend: dayOfWeekIndex === 6,
-          });
-        }
-      } catch (err: any) {
-        const estBSYear = current.getUTCFullYear() + 57;
-        missingYearsSet.add(estBSYear);
-      }
-      current.setDate(current.getDate() + 1);
-    }
-
-    if (missingYearsSet.size > 0) {
-      const missingArr = Array.from(missingYearsSet).sort((a, b) => a - b);
-      setRangeConversionStatus({
-        type: 'missing_year',
-        message: `Missing BS Calendar month array data for BS Year(s): ${missingArr.join(', ')}.`,
-        records: [],
-        missingYears: missingArr,
-      });
-      return;
-    }
-
-    setRangeConversionStatus({
-      type: 'success',
-      message: `Conversion completed! Generated ${records.length} daily conversion records from ${rangeStartDateAD} to ${rangeEndDateAD}.`,
-      records,
-      missingYears: [],
-    });
-  };
-
-  const handleWriteToSql = async () => {
-    if (rangeConversionStatus.records.length === 0) return;
-    setIsSyncingSql(true);
-    setSqlSyncSuccess(null);
-    try {
-      const res = await api.syncBsDayRange(rangeConversionStatus.records);
-      setSqlSyncSuccess({
-        success: res.success,
-        message: res.message,
-      });
-      await refreshCalendarData();
-    } catch (err: any) {
-      setSqlSyncSuccess({
-        success: false,
-        message: `Error syncing to database: ${err.message}`,
-      });
-    } finally {
-      setIsSyncingSql(false);
     }
   };
 

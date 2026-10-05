@@ -53,6 +53,7 @@ They were four independent mistakes, not ten:
 | Check | Result |
 | --- | --- |
 | `npx tsc --noEmit` | **0 errors** (was 10) |
+| `npx tsc --noEmit --noUnusedLocals` (client/src) | **0** (was 234) |
 | `npm test` (tsc → 618 tests → docs gate) | **618 pass / 0 fail**, docs-count gate green |
 | `npm run build` | OK |
 | `npm run check:bundle-budget` | OK — startup 278.1 kB gz / 320 kB budget |
@@ -127,11 +128,13 @@ They were four independent mistakes, not ten:
 
 ### P3 — hygiene, not enforced today
 
-7. **272 unused symbols in `client/src`** under `tsc --noUnusedLocals --noUnusedParameters`
-   (top files: `StockOperations` 22, `CustomerMasterDirectory` 16, `ProductManagement` 16,
-   `ReceiveInboundWarehouse` 15, `BsCalendarUtility` 15). `tsconfig.json` deliberately does **not** enable
-   these flags (its comment says fix types rather than silence them), so this is a cleanup, not a failure.
-   A bulk dead-import removal is safe but touches ~100 files — worth its own pass.
+7. ~~**272 unused symbols in `client/src`**~~ — **`--noUnusedLocals` half RESOLVED 2026-10-05.**
+   All 234 unused locals/imports removed (dead handlers like `handleWriteToSql`/
+   `handleUnassignAsset`/`handleDeleteLocation`, orphaned state pairs, write-only setters switched
+   to hole bindings, bulk icon imports) — `npx tsc --noEmit --noUnusedLocals` reports **0** client
+   errors. The `--noUnusedParameters` half remains: **36** unused parameters still reported, and
+   `tsconfig.json` still deliberately does not enable either flag (its comment says fix types rather
+   than silence them), so neither sweep can regress silently yet.
 8. **Startup bundle is at 86% of budget** (277.2 kB gz of 320 kB). `vendor-excel` (939 kB raw) is already
    lazy-loaded behind `BsCalendarUtility`, which is the right shape — just don't let anything else import it
    eagerly. The `>500 kB` build warnings are on-demand chunks and are not budgeted.
@@ -188,3 +191,22 @@ bootstrap returns both slices, then the smoke-test rows were deleted (both table
   after a failure.
 * Permission grants are now enforced *only* by the server matrix; `isOperationAllowed` falls back to
   the compiled `DEFAULT_PERMISSIONS_MATRIX` solely for the first paint before bootstrap lands.
+
+## F. Sync-architecture improvements (2026-10-05)
+
+The sync audit found 7 gaps (G1–G7). Improvements #1–#6 are now implemented;
+#7 is documented as a recommendation. Full evidence in the sync audit
+notes of 2026-10-05; the change map:
+
+| # | Improvement | Where |
+| - | ----------- | ----- |
+| 1 | Reconnect gap-fill: `CONNECTED` handshake reconciles the server's `dataVersion` against the last version this tab applied — a newer version means mutations happened during the disconnect, so `refreshAllData` runs. While the stream is down, App polls `/api/sync/version` every 30s (via new `getSyncVersion()`) and catches up the same way. | `client/src/App.tsx` SSE effect; `client/src/services/api/sync.ts` |
+| 2 | Broadcast previously-unheard mutations: permission-matrix saves (`PERMISSIONS_UPDATED` → PERMISSIONS), app-settings saves (`APP_SETTINGS_UPDATED` → SETTINGS) and document-number config edits (`DOC_NUMBER_UPDATED` → MASTER_DATA) now reach every connected client; `logAuditEvent` additionally emits `AUDIT_LOGGED` so an open Audit Trail refreshes live (#3). New `PERMISSIONS`/`SETTINGS` domains are wired into App's `DOMAIN_STATE_KEYS` (targeted slice re-fetch). | `server/src/syncDomains.ts`, `server/src/controllers/permissions.controller.ts`, `server/src/controllers/settings.controller.ts`, `server/src/controllers/admin.controller.ts`, `server/src/services/audit.service.ts`, `server/src/controllers/bootstrap.controller.ts` (slice serving) |
+| 4 | Multi-domain bursts are targeted: `SseDomainBurst` collects domains into a Set and `flush()` resolves a targeted plan covering ALL recognized domains (deduped), instead of collapsing any 2+-domain burst to a full bootstrap. Any unknown/no-domain event still falls back to full — the staleness guarantee is unchanged. | `client/src/utils/registerRefreshDomains.ts` (+ tests in `tests/registerRefreshDomains.test.ts`) |
+| 5 | Reconnect reliability: exponential backoff 1s→2s→…capped 30s with ±20% jitter (no retry-herding after a server restart), immediate reconnect on `visibilitychange`/`online`, backoff reset on healthy open, `onStatus(connected)` callback. | `client/src/services/api/sync.ts` |
+| 6 | Multi-tab relay: a `BroadcastChannel('inventory-sync')` forwards every received SSE event to sibling tabs (which feed their existing handler) and carries a LOGOUT notice so a sign-out in one tab signs the others out (via `inventory_sync_logout`). | `client/src/services/api/sync.ts`, `client/src/App.tsx` |
+| 7 | Mirror-drift structural fix | NOT implemented — deliberately too large for this pass. The in-memory mirrors stay best-effort; the targeted slice re-fetches (#2, #4) plus the version reconciliation (#1) already mask drift. Recommend a dedicated session: derive mirrors from PG reads or move slice serving fully to PG. |
+
+Verification after the changes: `tsc --noEmit` 0 · client `--noUnusedLocals` 0 ·
+619/619 tests (docs gate OK — count moved 618→619: burst tests rewritten for the
+Set semantics, net +1) · build/budget/no-raw-dialogs/no-inline-sql all green.

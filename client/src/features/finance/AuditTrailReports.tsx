@@ -14,12 +14,8 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
-  FileSpreadsheet,
   History,
   ShieldCheck,
-  TrendingUp,
-  Scale,
-  Receipt,
   Download,
   Printer,
 } from 'lucide-react';

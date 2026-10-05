@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UnitOfMeasure, User } from '../../types';
-import { Ruler, Plus, Edit2, Trash2, X, CheckCircle2, Layers } from 'lucide-react';
+import { Ruler, Plus, Edit2, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -13,11 +12,10 @@ interface UomManagementProps {
 }
 
 export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => {
-  const { isDarkMode } = useDarkMode();
   const { confirm: confirmDialog } = useDialog();
   const canManageUom = isOperationAllowed('uom-manage', currentUser?.role);
   const [uoms, setUoms] = useState<UnitOfMeasure[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUom, setEditingUom] = useState<UnitOfMeasure | null>(null);

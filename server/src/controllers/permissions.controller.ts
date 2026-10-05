@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction } from '../app';
+import { permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction, logAuditEvent } from '../app';
 import {
   PERMISSION_MATRIX_DELETE_ALL_SQL,
   PERMISSION_MATRIX_UPSERT_SQL,
@@ -37,6 +37,10 @@ try {
       setPermissionMatrix(JSON.parse(JSON.stringify(matrix)));
     });
     console.log(`✅ Permission matrix updated by ${(getUserFromReq(req)).email || 'unknown'}.`);
+    // Audit + broadcast: every connected client re-reads the matrix slice
+    // (targeted PERMISSIONS domain) instead of acting on stale grants until
+    // an unrelated reload. Also the first audit trail this table ever had.
+    logAuditEvent(req, 'UPDATE_PERMISSION_MATRIX', 'PERMISSIONS', `Updated permission matrix (${Object.keys(matrix).length} role-operation rules).`);
     res.json({ message: 'Permission matrix updated successfully.', operationCount: Object.keys(matrix).length });
     return;
   } catch (err: any) {

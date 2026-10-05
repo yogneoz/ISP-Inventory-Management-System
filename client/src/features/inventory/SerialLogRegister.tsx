@@ -102,7 +102,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   // Dual-panel state: when a typed value collides with another device, the
   // modal expands and the conflicting device gets its own editable panel.
   const [conflictDevice, setConflictDevice] = useState<SerialLookupResult | null>(null);
-  const [conflictField, setConflictField] = useState('');
+  const [, setConflictField] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [bForm, setBForm] = useState({ deviceSerial: '', ponSerial: '', macAddress: '' });
 

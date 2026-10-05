@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Category, Product, User } from '../../types';
-import { Grid, Plus, Edit2, Trash2, Tag, X, Layers, CheckCircle2 } from 'lucide-react';
+import { Grid, Plus, Edit2, Trash2, Tag, X } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -19,7 +19,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canEdit = isOperationAllowed('category-manage', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);

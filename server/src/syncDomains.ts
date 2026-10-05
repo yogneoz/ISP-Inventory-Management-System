@@ -32,6 +32,20 @@ export const DOMAIN_BY_MODULE: Record<string, string> = {
   VENDOR_PAYMENT_REVERSED: 'PROCUREMENT',
   INVOICE_PAYMENTS_REVERSED: 'PROCUREMENT',
   COMPANY_PROFILE_UPDATED: 'COMPANY_PROFILE',
+  DOC_NUMBER_UPDATED: 'MASTER_DATA',
+  // First-class domains for the slices that used to silently lag:
+  //  - PERMISSIONS: a saved permission matrix must reach every connected
+  //    admin the moment it commits (stale grants = confusing 403s).
+  //  - SETTINGS: company-wide app settings (e.g. the blind stock-audit
+  //    toggle) are only "company-wide" if every client hears about them.
+  //  - AUDIT: logAuditEvent emits this in addition to the business event so
+  //    an open Audit Trail screen refreshes its slice live.
+  PERMISSIONS_UPDATED: 'PERMISSIONS',
+  APP_SETTINGS_UPDATED: 'SETTINGS',
+  AUDIT_LOGGED: 'AUDIT',
+  PERMISSIONS: 'PERMISSIONS',
+  SETTINGS: 'SETTINGS',
+  AUDIT: 'AUDIT',
 };
 
 /**

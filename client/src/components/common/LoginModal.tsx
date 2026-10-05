@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   Building2,
-  UserPlus,
   Crown,
   UserCheck,
   KeyRound,

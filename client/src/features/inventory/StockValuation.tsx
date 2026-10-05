@@ -5,7 +5,6 @@ import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
 import {
   Coins,
   TrendingUp,
-  Filter,
   Download,
   AlertTriangle,
   ArrowUpRight

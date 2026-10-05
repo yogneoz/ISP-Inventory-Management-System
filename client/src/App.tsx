@@ -27,7 +27,7 @@ import {
   DamageRecord,
   LocationRecord,
 } from './types';
-import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream } from './services/api';
+import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './services/api';
 import { seedBSYearCalendar } from './utils/nepaliCalendar';
 import {
   saveUserSession,
@@ -183,7 +183,6 @@ import { NotificationCenter } from './components/common/NotificationCenter';
 const ApprovalWorkflowCenter = React.lazy(() =>
   import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
 );
-import { HelpDocumentation } from './components/common/HelpDocumentation';
 const HelpDocumentationLazy = React.lazy(() =>
   import('./components/common/HelpDocumentation').then((m) => ({ default: m.HelpDocumentation }))
 );
@@ -666,6 +665,11 @@ export default function App() {
     refreshAllDataRef.current = refreshAllData;
   });
 
+  // Always-fresh logout closure for stable listeners: the SSE effect's
+  // multi-tab relay (#6) calls this when a sibling tab broadcasts LOGOUT,
+  // and handleLogout below broadcasts this tab's sign-out to the others.
+  const handleLogoutRef = useRef<() => void>(() => {});
+
   const handleCreateApprovalRequest = async (
     requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
   ) => {
@@ -746,6 +750,11 @@ export default function App() {
     RECALC: ['stock', 'assets'],
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
+    // Sync-audit improvements #2/#3: first-class slice domains so the
+    // saved permission matrix, company-wide settings and the live audit
+    // trail re-fetch ONLY their own slice instead of full bootstrapping.
+    PERMISSIONS: ['permissionsMatrix'],
+    SETTINGS: ['appSettings'],
   };
 
   // Paged-register refresh counters, bumped by the SSE handler below.
@@ -768,14 +777,40 @@ export default function App() {
     syncScopeRef.current = { branchId: selectedBranchId, fiscalYearId: selectedFiscalYearId || undefined };
   }, [selectedBranchId, selectedFiscalYearId]);
 
-  // Real-time synchronization stream: listen for background changes from any user/branch
+  // Real-time synchronization stream: listen for background changes from
+  // any user/branch. Reliability net (sync-audit improvements #1/#5):
+  //  - while the stream is down, poll /api/sync/version on an interval and
+  //    refresh everything once reconnected if the server moved on, and
+  //  - on reconnect (CONNECTED), refresh when the server's dataVersion is
+  //    newer than the last one this tab applied — mutations that happened
+  //    during the gap are never silently missed.
   useEffect(() => {
     let debounceTimer: any = null;
+    let versionPollTimer: any = null;
     // Coalesces the burst's domains across the debounce window
     // and resolves it to a targeted or full-bootstrap plan
     // (see utils/registerRefreshDomains).
     const burst = new SseDomainBurst();
-    const unsubscribe = subscribeToSyncStream((event) => {
+    const handleSyncEvent = (event: any) => {
+      // CONNECTED is the stream's handshake, not a mutation: it carries no
+      // domain (observing it would force a full bootstrap) and its
+      // dataVersion is a reconnect signal, handled below.
+      if (event?.type === 'CONNECTED') {
+        // Reconnect gap-fill (#1): a dataVersion newer than the last one
+        // this tab applied means mutations happened while the stream was
+        // down — re-bootstrap to catch up. On the FIRST connect after page
+        // load this ref already holds the bootstrap's version (or is
+        // undefined pre-bootstrap), so no redundant refresh fires.
+        if (
+          typeof event.dataVersion === 'number' &&
+          typeof serverDataVersionRef.current === 'number' &&
+          event.dataVersion > serverDataVersionRef.current
+        ) {
+          serverDataVersionRef.current = event.dataVersion;
+          refreshAllDataRef.current();
+        }
+        return;
+      }
       // Track the latest server dataVersion so the instant pre-hydration on
       // the next page load can refuse an outdated cached snapshot.
       if (event && typeof event.dataVersion === 'number') {
@@ -824,13 +859,52 @@ export default function App() {
           refreshAllDataRef.current();
         }
       }, 250);
+    };
+
+    // Stream-gap polling (#1): while the SSE stream is down, poll the
+    // server's dataVersion every 30s. A version newer than the last one
+    // this tab applied means the UI is stale — full catch-up refresh.
+    const startVersionPolling = () => {
+      if (versionPollTimer || !currentUser) return;
+      versionPollTimer = setInterval(async () => {
+        try {
+          const serverVersion = await getSyncVersion();
+          if (
+            typeof serverVersion === 'number' &&
+            typeof serverDataVersionRef.current === 'number' &&
+            serverVersion > serverDataVersionRef.current
+          ) {
+            serverDataVersionRef.current = serverVersion;
+            refreshAllDataRef.current();
+          }
+        } catch (_err) {
+          // Server unreachable — the SSE backoff loop will keep trying.
+        }
+      }, 30000);
+    };
+    const stopVersionPolling = () => {
+      if (versionPollTimer) {
+        clearInterval(versionPollTimer);
+        versionPollTimer = null;
+      }
+    };
+
+    // Multi-tab relay (#6): another tab may have received the event first.
+    const onRelayedLogout = () => handleLogoutRef.current();
+    window.addEventListener('inventory_sync_logout', onRelayedLogout);
+
+    const unsubscribe = subscribeToSyncStream(handleSyncEvent, (connected) => {
+      if (connected) stopVersionPolling();
+      else if (currentUser) startVersionPolling();
     });
 
     return () => {
+      stopVersionPolling();
       if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener('inventory_sync_logout', onRelayedLogout);
       unsubscribe();
     };
-  }, [selectedBranchId]);
+  }, [selectedBranchId, currentUser]);
 
   // React to currentUser state changes & enforce branch/tab restrictions
   useEffect(() => {
@@ -905,6 +979,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // Multi-tab relay (#6): sign sibling tabs out in step.
+    broadcastLogoutToOtherTabs();
     setCurrentUser(null);
     setRootUser(null);
     setAuthToken(null);
@@ -913,6 +989,7 @@ export default function App() {
     clearRecentBootstrapCache();
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
   };
+  handleLogoutRef.current = handleLogout;
 
   const handleSwitchProfile = async (targetUserId: string) => {
     const nextRoot = rootUser || currentUser;
@@ -1142,11 +1219,6 @@ export default function App() {
     refreshAllData();
   };
 
-  const handleReverseCustomerPayment = async (id: string, reason: string) => {
-    await api.reverseCustomerPayment(id, reason);
-    refreshAllData();
-  };
-
   // Voids a posted sales invoice. The server reverses it atomically (stock +
   // claimed serials + ledger) and refuses invoices that still carry payments
   // or credit notes; its message is surfaced by the screen.
@@ -1364,7 +1436,6 @@ export default function App() {
 
     return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
   });
-  const lowStockCount = lowStockProducts.length;
 
   // Dismissed notification ids shared across the header badge, sidebar badges
   // and the Notification Center panel, so clearing notifications in the panel

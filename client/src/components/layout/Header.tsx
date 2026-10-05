@@ -3,7 +3,6 @@ import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, 
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles, filterFiscalYears } from '../../utils/permissions';
 import { NavTab } from './Sidebar';
-import { NotificationCenter } from '../common/NotificationCenter';
 import { FiscalYearSelect } from '../common/FiscalYearSelect';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import {
@@ -20,12 +19,10 @@ import {
   Menu,
   X,
   ChevronDown,
-  User as UserIcon,
   Users,
   Lock,
   ArrowLeft,
   Settings,
-  CheckCircle2,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -104,7 +101,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProfileModal = () => {},
 }) => {
   const { isDarkMode } = useDarkMode();
-  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [isSwitchingId, setIsSwitchingId] = useState<string | null>(null);

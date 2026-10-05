@@ -9,8 +9,6 @@ import {
   Clock,
   Barcode,
   MapPin,
-  Filter,
-  Tag,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';

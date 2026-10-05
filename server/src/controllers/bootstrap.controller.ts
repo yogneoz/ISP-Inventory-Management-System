@@ -206,6 +206,16 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     // re-fetched through the operational-data query so scoping matches the
     // full bootstrap exactly.
     if (!bId && !fId) {
+      // appSettings is not an in-memory mirror — it is read from PostgreSQL
+      // (the same query the full bootstrap uses) so a just-committed
+      // PUT /api/settings is visible to the targeted slice immediately.
+      if (key === 'appSettings') {
+        const appSettingsRes = await pgPool.query(APP_SETTINGS_SELECT_SQL);
+        return res.json({
+          dataVersion: getDataVersion(),
+          appSettings: rowsToRecord(appSettingsRes.rows, APP_SETTING_KEYS),
+        });
+      }
       const mirrorSlices: Record<string, unknown> = {
         categories,
         companyProfile,
@@ -218,6 +228,7 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
         approvalRequests,
         assets: assetRegister,
         permissionsMatrix: permissionMatrix,
+        auditLogs: auditTrail,
       };
       if (key in mirrorSlices) {
         return res.json({ dataVersion: getDataVersion(), [key]: mirrorSlices[key] });

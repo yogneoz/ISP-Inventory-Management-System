@@ -126,7 +126,7 @@
   `utils/` (doc numbering, fiscal year, rate limiter).
 - **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params.
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
-- **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch.
+- **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch. Every mutation broadcast is tagged with a client `domain` (`server/src/syncDomains.ts`); a recognized domain re-fetches ONLY its bootstrap slice, any unrecognized event falls back to a full bootstrap. Reliability (2026-10-05 sync improvements): reconnects back off exponentially (1s→30s ±20% jitter) with immediate retry on tab-visibility/network recovery; on reconnect and during stream outages (30s `/api/sync/version` polling) the client reconciles the server `dataVersion` against the last applied version and refreshes if mutations were missed; a `BroadcastChannel` relays events + logout across tabs of the same browser; permission-matrix, app-settings, document-number and audit-trail mutations broadcast their own domains so those slices never lag.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
 - **Repository layer**: all SQL lives in `server/src/models/*.repo.ts`; controllers execute repo-owned constants and builders only. Enforced in CI by the no-inline-SQL guard (§15.8).
 - **HTTP hardening**: helmet security headers (LAN-safe config — HSTS off on plain HTTP), enforced `JSON_BODY_LIMIT` with 413 passthrough in the error handler, authenticated SSE (`sseAuth.ts` accepts header or `?token=` for EventSource), per-IP concurrent SSE cap (`sseRateLimit.ts`), and login/forgot-password rate limiting (`authRateLimit.ts`) with per-IP + failure-only global per-account buckets.
@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 618 tests; CI runs
+                                        #   drift/concurrency guards — 619 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1100,7 +1100,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 618 tests against a real PostgreSQL 16 service container
+2. `npm test` — 619 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)

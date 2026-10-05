@@ -589,6 +589,13 @@ const configs: DocumentNumberConfig[] = req.body;
     }
     setDocNumberConfigs(configs);
   }
+  // Sync-audit improvement #2: other tabs' cached doc-number configs must
+  // not go stale after a bulk renumber-config edit. MASTER_DATA has no
+  // dedicated client state beyond these configs, so it is the domain the
+  // full-refresh path already treats as "re-pull master slices".
+  if (Array.isArray(configs)) {
+    broadcastChange({ type: 'DOC_NUMBER_UPDATED', entity: 'MASTER_DATA' });
+  }
   res.json(docNumberConfigs);
 
 }

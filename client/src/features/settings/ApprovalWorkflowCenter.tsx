@@ -8,25 +8,19 @@ import {
   XCircle,
   Clock,
   Search,
-  Filter,
   Check,
   X,
   AlertTriangle,
   UserCheck,
   Layers,
-  FileText,
   Barcode,
   ArrowRight,
   RefreshCw,
-  Send,
-  Building2,
   RotateCcw,
   Truck,
-  Package,
   ClipboardCheck,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface ApprovalWorkflowCenterProps {
   approvalRequests: ApprovalRequest[];
@@ -51,7 +45,6 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   onCancelApproval,
   onNavigateToStockAudit,
 }) => {
-  const { isDarkMode } = useDarkMode();
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_RECEIVE_TRANSFER' | 'STOCK_AUDIT_RECONCILIATION'>('ALL');
   const [filterBranchId, setFilterBranchId] = useState<string>('ALL');

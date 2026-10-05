@@ -4,7 +4,6 @@ import {
   QrCode,
   Barcode,
   Printer,
-  Check,
   Scan,
   Search,
   Copy,
@@ -12,11 +11,7 @@ import {
   Volume2,
   VolumeX,
   Camera,
-  RefreshCw,
-  Tag,
   Package,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
 import { Product, CompanyProfile } from '../../types';
 
@@ -44,16 +39,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Label Printer Settings
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
   const [serialNumber, setSerialNumber] = useState('INV-ONU-2081-8842');
-  const [ponSerial, setPonSerial] = useState('ZTEG8A41B22F');
-  const [macAddress, setMacAddress] = useState('00:1A:2B:3C:4D:5E');
   const [labelSize, setLabelSize] = useState<'SHELF_50x30' | 'COMPACT_38x25' | 'LARGE_100x50'>('SHELF_50x30');
   const [barcodeType, setBarcodeType] = useState<'CODE128' | 'QR' | 'EAN13'>('CODE128');
   const [printQty, setPrintQty] = useState<number>(1);
   const [showPrice, setShowPrice] = useState<boolean>(true);
-  const [showBranch, setShowBranch] = useState<boolean>(true);
   const [showCompany, setShowCompany] = useState<boolean>(true);
 
-  const [copied, setCopied] = useState(false);
+  const [, setCopied] = useState(false);
   const [scanHistory, setScanHistory] = useState<
     { code: string; type: string; timestamp: string; matchedName?: string }[]
   >([

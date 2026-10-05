@@ -12,12 +12,10 @@ import {
   ApprovalRequest,
   Category,
 } from '../../types';
-import { ApprovalWorkflowCenter } from '../settings/ApprovalWorkflowCenter';
 import { formatDualDate } from '../../utils/nepaliCalendar';
-import { isOperationAllowed, getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
+import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
-import { useDarkMode } from '../../contexts/DarkModeContext';
-import { formatNPR, formatNPRInteger } from '../../utils/nprFormat';
+import { formatNPR } from '../../utils/nprFormat';
 import StatCard from '../../components/common/StatCard';
 import {
   TrendingUp,
@@ -39,7 +37,6 @@ import {
   ArrowRight,
   SlidersHorizontal,
   Tag,
-  Lock,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -166,14 +163,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const prod = products.find((p) => p.id === item.productId);
     return sum + (prod ? prod.costPrice * item.quantityOnHand : 0);
   }, 0);
-
-  // Low stock items for filtered stock
-  const lowStockItems = filteredStock.filter((s) => {
-    const prod = products.find((p) => p.id === s.productId);
-    if (!prod) return false;
-    const thresh = s.minReorderLevel ?? prod.minReorderLevel;
-    return thresh > 0 ? s.quantityOnHand <= thresh : s.quantityOnHand <= 0;
-  });
 
   // Consolidated Low Stock Products across active branches (per-branch reorder threshold evaluation)
   const consolidatedLowStockProducts = products.filter((prod) => {

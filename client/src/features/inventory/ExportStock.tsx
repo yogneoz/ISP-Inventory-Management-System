@@ -6,7 +6,6 @@ import { formatNPR } from '../../utils/nprFormat';
 import {
   DownloadCloud,
   FileSpreadsheet,
-  Download,
   Filter,
   Package,
   AlertTriangle,
@@ -18,13 +17,8 @@ import {
   Copy,
   Check,
   AlertCircle,
-  Clock,
-  ShieldCheck,
-  Tag,
-  Layers,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
-import { useDarkMode } from '../../contexts/DarkModeContext';
 import { PageHeader } from '../../components/common/PageHeader';
 
 interface ExportStockProps {
@@ -1148,7 +1142,6 @@ export const ExportStock: React.FC<ExportStockProps> = ({
               <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
                 {productsPagination.pagedItems.map((p) => {
                   const qty = getProductStock(p.id);
-                  const isLow = qty <= p.minReorderLevel;
 
                   return (
                     <tr

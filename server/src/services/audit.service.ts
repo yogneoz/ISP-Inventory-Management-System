@@ -44,6 +44,15 @@ export function logAuditEvent(
     branchId: auditItem.branchId,
   });
 
+  // Every audit row is also a live update for the Audit Trail screen:
+  // emit the dedicated AUDIT domain (cheap — the slice is capped at 200
+  // rows) so an open audit viewer refreshes without a full bootstrap.
+  broadcastChange({
+    type: 'AUDIT_LOGGED',
+    entity: 'AUDIT',
+    branchId: auditItem.branchId,
+  });
+
   // Persist to Postgres. Two paths:
   //  - `client` provided: the INSERT runs (and is awaited by the caller) on
   //    the caller's transaction, so the audit row commits or rolls back
