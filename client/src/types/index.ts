@@ -634,7 +634,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_RETURN' | 'SALES_RETURN' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DAMAGE_REVERSED' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'SALES_INVOICE' | 'SALES_INVOICE_CANCELLED' | 'PURCHASE_RETURN' | 'SALES_RETURN' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;
@@ -772,6 +772,8 @@ export interface SalesInvoiceItem {
   subtotal?: number;
   taxAmount?: number;
   total?: number;
+  /** Serial-tracked lines carry one pair per unit (validated by Sales Returns). */
+  deviceSerials?: DeviceSerialPair[];
 }
 
 /** Sales invoice (INV-…) — lean sales module, prerequisite for Sales Returns. */
@@ -793,6 +795,12 @@ export interface SalesInvoice {
   paymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
   paymentMethod?: 'CASH' | 'CREDIT' | 'BANK_TRANSFER' | 'CHEQUE' | 'ONLINE' | 'CARD' | 'OTHER';
   amountPaid: number;
+  /**
+   * Document lifecycle: POSTED (default) → CANCELLED by the void path, which
+   * restores stock, releases the claimed serials and writes a compensating
+   * SALES_INVOICE_CANCELLED ledger row.
+   */
+  status?: 'POSTED' | 'CANCELLED';
   notes?: string;
   fiscalYearId?: string;
   isDemo?: boolean;
@@ -869,7 +877,12 @@ export interface BootstrapState {
   products: Product[];
   stock: InventoryStock[];
   assets: Asset[];
-  serialLogs: SerialLog[];
+  /**
+   * Dropped from the bootstrap payload (the register is served by the paged
+   * GET /api/serial-log endpoint), so this slice is optional — consumers
+   * self-fetch.
+   */
+  serialLogs?: SerialLog[];
   customerDevices: CustomerDeviceRecord[];
   customers: CustomerRecord[];
   purchaseOrders: PurchaseOrder[];
@@ -904,5 +917,9 @@ export interface BootstrapState {
   serverTime: string;
   dataVersion: number;
   permissionsMatrix?: Record<string, Record<string, boolean>>;
+  /** Server-side app_settings (company-wide configuration). */
+  appSettings?: Record<string, string>;
+  /** The calling user's server-side user_preferences rows. */
+  userPreferences?: Record<string, string>;
 }
 

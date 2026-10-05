@@ -87,7 +87,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │       │                             #   pipeline incl. helmet, registerAllRoutes); re-exports
 │       │                             #   every historical symbol so imports stay stable
 │       ├── state/runtimeState.ts     # Shared runtime state as ESM live bindings + CACHE_LOADS
-│       ├── boot/dbBoot.ts            # Schema DDL sync (34 tables), seeding, permission matrix
+│       ├── boot/dbBoot.ts            # Schema DDL sync (36 tables), seeding, permission matrix
 │       ├── realtime/sse.ts           # sseClients + broadcastChange (SSE fan-out)
 │       ├── db/transactions.ts        # withTransaction / withConnection helpers
 │       ├── syncDomains.ts            # SSE event → client-domain mapping (targeted refresh)
@@ -109,7 +109,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │                                     #   rateLimiter.ts, docNumber.ts, fiscalYear.ts)
 │
 ├── scripts/                          # Database Automation Scripts
-│   ├── schema.sql                    # Full PostgreSQL schema — 34 tables, idempotent, safe to re-run
+│   ├── schema.sql                    # Full PostgreSQL schema — 36 tables, idempotent, safe to re-run
 │   ├── setup_db.js                   # Node.js setup: schema + master data + demo dataset + FY backfill
 │   ├── setup_postgres.sh             # Shell: auto-install & configure PostgreSQL (Linux/macOS/Windows)
 │   ├── demo_dataset.js               # Linked demo dataset (is_demo = TRUE)
@@ -193,7 +193,7 @@ npm run setup:pg
 
 **What this script does:**
 1. Connects to PostgreSQL (falls back to the shell installer `setup_postgres.sh` on Linux/macOS if unreachable).
-2. Applies `scripts/schema.sql` — all **34 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
+2. Applies `scripts/schema.sql` — all **36 tables**, constraints, foreign keys, and indexes (fully idempotent, atomic).
 3. Seeds fiscal years, the Bikram Sambat calendar (2078–2085 BS), UOMs, document-numbering configs, company profile, branches, and example user accounts.
 4. Seeds the linked demo dataset (products, stock, serial log, fixed assets, purchase orders/invoices, vendor payments) with `is_demo = TRUE`.
 5. Backfills `fiscal_year_id` on transactional rows from their AD dates.
@@ -484,8 +484,11 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Purchase Orders Register | `GET /api/purchase-orders` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Purchase Invoices Register | `GET /api/purchase-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Sales Invoices Register | `GET /api/sales-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 
-> **Guarded:** these four are the only server-paged lists in the app. Adding a
+> **Guarded:** these seven are the only server-paged lists in the app. Adding a
 > `pageSize:` request key to any other feature screen fails
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
@@ -547,13 +550,14 @@ to full-bootstrap refreshes.
 
 ### 🛡️ Paged-Register Refresh Keys & Source Guards
 
-Four registers fetch their own server-paged rows, so bootstrap-slice refreshes
+Six registers fetch their own server-paged rows, so bootstrap-slice refreshes
 alone cannot cover them: **Serial Log**, **Purchase Orders**, **Purchase
-Invoices** and the **Consumables Issue register** (inside StockOperations).
+Invoices**, the **Consumables Issue register** (inside StockOperations), the
+shared **Returns Register** (purchase + sales returns) and **Sales Invoices**.
 `DOMAIN_REGISTER_KEYS` (`client/src/utils/registerRefreshDomains.ts`) maps each
 domain to the register counters whose current paged fetch must re-run (e.g.
-`PROCUREMENT → serialLog, purchaseOrders, purchaseInvoices`); the header
-Refresh button and the unknown/mixed-burst fallback bump all four
+`PROCUREMENT → serialLog, purchaseOrders, purchaseInvoices, returnsRegister`);
+the header Refresh button and the unknown/mixed-burst fallback bump all six
 (`bumpAllRegisterRefresh`), and the burst → refresh-plan decision lives in the
 unit-testable `SseDomainBurst` class.
 
@@ -563,7 +567,8 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
 - **Registers pinned** — each self-fetching register's exact `api.*` surface,
   the effect deps carrying its refresh key, and *every* App.tsx render site
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
-  SerialLogRegister, 11 StockOperations). A newly added unwired mount fails.
+  SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
+  A newly added unwired mount fails.
 - **All 50 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
@@ -571,7 +576,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   bare `api.*` scan would miss), so a fetch added by any mechanism must be
   pinned deliberately.
 - **Tripwires** — raw `fetch`/`axios`/`EventSource` are banned in every
-  screen, a `pageSize:` request key may appear **only** in the four wired
+  screen, a `pageSize:` request key may appear **only** in the six wired
   registers, and the 11 mount/selection self-fetch screens (ledgers, BS
   calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
   pinned as whole-list and unwired **by design** — tab remount refetches them.
@@ -616,7 +621,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 557-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 618-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough

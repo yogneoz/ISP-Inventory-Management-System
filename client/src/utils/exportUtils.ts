@@ -1,4 +1,5 @@
 import { getExportMetadata, formatBSDate, formatBSDateTime } from './nepaliCalendar';
+import { utilityAlert } from '../components/common/DialogProvider';
 
 export interface CSVColumn<T = any> {
   key: keyof T | string;
@@ -70,7 +71,7 @@ export function exportToCSV<T extends Record<string, any>>(
   companyInfo = companyInfo || defaultCompanyInfo;
 
   if (!data || data.length === 0) {
-    alert('No data available to export.');
+    utilityAlert('No data available to export.');
     return;
   }
 

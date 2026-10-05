@@ -34,6 +34,7 @@ import {
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface DamagedStockTrackingProps {
@@ -63,6 +64,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   onNavigateTab,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { alert: alertDialog, prompt: promptDialog } = useDialog();
   // Modal State for adjusting local damaged count
   const [editingStock, setEditingStock] = useState<{
     stockItem: InventoryStock;
@@ -115,7 +117,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const ensureBsDateAvailable = (): boolean => {
     if (bsDateStatus === 'missing') {
-      alert(
+      alertDialog(
         'BS date is not available. Stock operations are locked.\n\n' +
           `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
           'Please contact your system administrator for BS month seeding.\n\n' +
@@ -166,7 +168,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   const handleReverseDamageRecord = async (damageReference: string) => {
     if (!ensureBsDateAvailable()) return;
     const opRef = damageReference.replace(/-[^-]+$/, '');
-    const reason = window.prompt(
+    const reason = await promptDialog(
       `Reverse damage record ${damageReference} (operation ${opRef})?\n\n` +
         `Units will be restored to available stock, quarantined serials will be returned to IN_STOCK, ` +
         `and the record will be marked CANCELLED.\n\n` +
@@ -174,7 +176,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     );
     if (reason === null) return;
     if (!reason.trim()) {
-      alert('Reversal aborted — a reason is required as a safeguard.');
+      alertDialog('Reversal aborted — a reason is required as a safeguard.');
       return;
     }
     setIsReversing(true);
@@ -185,15 +187,15 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         o.type === 'DAMAGE' && damageReference.startsWith(`${o.referenceNumber}-`)
       );
       if (!op) {
-        alert(`No matching DAMAGE operation found for ${damageReference}.`);
+        alertDialog(`No matching DAMAGE operation found for ${damageReference}.`);
         return;
       }
       await api.reverseStockOperation(op.id, reason.trim(), currentUser);
-      alert(`✓ Damage record ${damageReference} reversed. Units and serials restored to available stock.`);
+      alertDialog(`✓ Damage record ${damageReference} reversed. Units and serials restored to available stock.`);
       setReversalCell(null);
       window.location.reload();
     } catch (err: any) {
-      alert(`Reversal failed: ${err?.message || 'Unknown error'}`);
+      alertDialog(`Reversal failed: ${err?.message || 'Unknown error'}`);
     } finally {
       setIsReversing(false);
     }
@@ -349,7 +351,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const openDamagedStockEdit = (s: InventoryStock, p: Product, b: Branch) => {
     if (!canAdjustDamageCount) {
-      alert('Permission Denied: Only Stock Manager / Super Admin can adjust damaged stock count in Damage Stock Matrix.');
+      alertDialog('Permission Denied: Only Stock Manager / Super Admin can adjust damaged stock count in Damage Stock Matrix.');
       return;
     }
     setEditingStock({ stockItem: s, product: p, branch: b });
@@ -359,7 +361,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   const openDisposalModal = (s: InventoryStock, p: Product, b: Branch) => {
     if (!canDispose) {
-      alert('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
+      alertDialog('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
       return;
     }
     const maxQty = s.damagedQty || 1;
@@ -396,7 +398,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
     if (!ensureBsDateAvailable()) return;
     if (!disposalStock) return;
     if (!canDispose) {
-      alert('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
+      alertDialog('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
       return;
     }
 
@@ -441,7 +443,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       setDisposalStock(null);
     } catch (err) {
       console.error('Failed to execute disposal write-off', err);
-      alert('Failed to process stock disposal write-off. Please check inputs.');
+      alertDialog('Failed to process stock disposal write-off. Please check inputs.');
     } finally {
       setIsSubmittingDisposal(false);
     }
@@ -450,7 +452,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   // Find first available damaged stock item to dispose if clicking top header button
   const handleTopDisposalClick = () => {
     if (!canDispose) {
-      alert('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
+      alertDialog('Permission Denied: Stock disposal and financial write-off operations are restricted to Inventory Manager and Super Admin users.');
       return;
     }
     for (const prodItem of visibleProducts) {
@@ -464,7 +466,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         }
       }
     }
-    alert('No damaged stock items currently available in visible filter to dispose.');
+    alertDialog('No damaged stock items currently available in visible filter to dispose.');
   };
 
   return (

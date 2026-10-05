@@ -61,6 +61,7 @@ import { registerSyncRoutes } from './routes/sync.routes';
 import { requireSseAuth } from './middleware/sseAuth';
 import { sseConnectionLimit } from './middleware/sseRateLimit';
 import { registerPermissionsRoutes } from './routes/permissions.routes';
+import { registerSettingsRoutes } from './routes/settings.routes';
 import { registerBootstrapRoutes } from './routes/bootstrap.routes';
 import { registerMiscRoutes } from './routes/misc.routes';
 import { registerAdminRoutes } from './routes/admin.routes';
@@ -292,6 +293,7 @@ export function registerAllRoutes(expressApp: express.Express) {
   registerLeftoverFiscalRoutes(expressApp);
   registerSyncRoutes(expressApp);
   registerPermissionsRoutes(expressApp);
+  registerSettingsRoutes(expressApp);
   registerBootstrapRoutes(expressApp);
   registerMiscRoutes(expressApp);
   registerAdminRoutes(expressApp);

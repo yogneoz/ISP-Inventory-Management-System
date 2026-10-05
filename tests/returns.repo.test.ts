@@ -25,6 +25,14 @@ import {
   buildSalesInvoiceListSql,
   siInsertParams,
   siTxnLogParams,
+  SI_FIND_ONE_SQL,
+  SI_LOCK_FOR_CANCEL_SQL,
+  SI_CANCEL_SQL,
+  SI_BLOCKING_PAYMENTS_SQL,
+  SI_BLOCKING_RETURNS_SQL,
+  SI_CLAIMED_SERIALS_SQL,
+  SI_RELEASE_SERIAL_SQL,
+  siCancelTxnLogParams,
   buildSalesReturnListSql,
   srInsertParams,
   srRestockParams,
@@ -32,6 +40,7 @@ import {
   SI_INSERT_SQL,
   SI_DEDUCT_STOCK_SQL,
   SI_TXN_LOG_SQL,
+  SI_SELECT_COLUMNS,
   SR_INSERT_SQL,
   SR_RESTOCK_SQL,
   SR_RETURNED_QTY_SQL,
@@ -169,6 +178,62 @@ describe('sales invoices repo', () => {
     );
     assert.equal(p[6], 'SALES_INVOICE');
     assert.equal(p[7], -2);
+  });
+});
+
+describe('sales invoice cancel repo', () => {
+  test('reads carry status so the guards can see a document is already void', () => {
+    assert.match(SI_SELECT_COLUMNS, /status/);
+    assert.match(SI_FIND_ONE_SQL, /FROM sales_invoices WHERE id = \$1 OR invoice_number = \$1/);
+    assert.match(SI_FIND_ONE_SQL, /status/);
+  });
+
+  test('the lock returns every column the guards and the reversal need, FOR UPDATE', () => {
+    assert.match(SI_LOCK_FOR_CANCEL_SQL, /FOR UPDATE/);
+    for (const col of ['status', 'branch_id', 'items', 'amount_paid']) {
+      assert.ok(SI_LOCK_FOR_CANCEL_SQL.includes(col), `lock must select ${col}`);
+    }
+  });
+
+  test('the status flip is race-safe: it only affects a still-POSTED invoice', () => {
+    assert.match(SI_CANCEL_SQL, /SET status = 'CANCELLED'/);
+    assert.match(SI_CANCEL_SQL, /AND status = 'POSTED'/);
+  });
+
+  test('blockers count posted payments and non-cancelled credit notes separately', () => {
+    assert.match(SI_BLOCKING_PAYMENTS_SQL, /FROM customer_payments/);
+    assert.match(SI_BLOCKING_PAYMENTS_SQL, /status = 'POSTED'/);
+    assert.match(SI_BLOCKING_RETURNS_SQL, /FROM sales_returns/);
+    assert.match(SI_BLOCKING_RETURNS_SQL, /status <> 'CANCELLED'/);
+  });
+
+  test('serials are found by the claim stamp and released only while still held', () => {
+    assert.match(SI_CLAIMED_SERIALS_SQL, /source_type = 'SALES_INVOICE'/);
+    assert.match(SI_CLAIMED_SERIALS_SQL, /status = 'CUSTOMER_ASSIGNED'/);
+    assert.match(SI_CLAIMED_SERIALS_SQL, /FOR UPDATE/);
+    assert.match(SI_RELEASE_SERIAL_SQL, /SET status = 'IN_STOCK'/);
+    assert.match(SI_RELEASE_SERIAL_SQL, /customer_id = NULL/);
+    assert.match(SI_RELEASE_SERIAL_SQL, /status = 'CUSTOMER_ASSIGNED'/);
+    assert.match(SI_RELEASE_SERIAL_SQL, /history_json/);
+  });
+
+  test('the cancel ledger row mirrors the sale but with its own type and sign', () => {
+    const sale = siTxnLogParams(
+      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
+      'WH001', 0
+    );
+    const cancel = siCancelTxnLogParams(
+      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
+      'WH001', 0,
+      { ad: '2026-09-05', bs: '2083-05-20 BS' }
+    );
+    assert.equal(cancel[6], 'SALES_INVOICE_CANCELLED');
+    assert.equal(cancel[7], 2, 'positive: it undoes the sale\u2019s -2');
+    assert.equal(cancel[9], sale[9], 'same reference document');
+    assert.equal(cancel[10], '2026-09-05', 'stamped with the cancellation date');
+    assert.notEqual(cancel[0], sale[0], 'distinct ledger row id');
   });
 });
 

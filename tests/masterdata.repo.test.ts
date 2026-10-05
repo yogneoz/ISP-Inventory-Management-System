@@ -84,9 +84,18 @@ describe('productUpdateParams', () => {
     assert.equal(params[13], 'INACTIVE');
   });
 
-  test('preserves the production quirk: zero taxRate falls back to the default 13 (falsy ||)', () => {
+  test('preserves an explicit zero taxRate (VAT exempt) instead of resetting it', () => {
+    // Was pinned as the "production quirk" `Number(p.taxRate) || 13`: a product
+    // saved with taxRate 0 silently became a 13% product again. The repo now
+    // treats 0 as a real value and falls back only for missing/invalid input.
     const params = productUpdateParams({ sku: 'S', name: 'N', category: 'C', taxRate: 0 }, 'id1');
-    assert.equal(params[8], 13);
+    assert.equal(params[8], 0);
+  });
+
+  test('falls back to the company-configured default for a missing taxRate', () => {
+    const params = productUpdateParams({ sku: 'S', name: 'N', category: 'C' }, 'id1', 15);
+    assert.equal(params[8], 15);
+    assert.equal(productUpdateParams({ taxRate: 'abc' }, 'id1')[8], 13);
   });
 });
 

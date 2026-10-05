@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
+import { api } from '../../services/api';
 import {
   Users,
   Plus,
@@ -30,32 +32,36 @@ import {
   Tag,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import StatCard from '../../components/common/StatCard';
 
 interface CustomerMasterDirectoryProps {
-  customers: CustomerRecord[];
-  customerDevices?: CustomerDeviceRecord[];
   branches: Branch[];
   currentUser?: User | null;
-  onAddCustomer: (customer: Omit<CustomerRecord, 'id'> | CustomerRecord) => Promise<void>;
-  onUpdateCustomer: (id: string, updates: Partial<CustomerRecord>) => Promise<void>;
-  onDeleteCustomer: (id: string) => Promise<void>;
   onNavigateToImport: () => void;
   onSelectTab?: (tab: string, searchQuery?: string) => void;
+  /**
+   * Notified after a customer create/update/delete so App can refresh its own
+   * bootstrap slices (the Sell-to-Customer picker, dashboards). This screen
+   * owns its CRUD and its own paged rows; without this callback the rest of
+   * the app kept serving the pre-mutation customer list.
+   */
+  onCustomersChanged?: () => void;
+  refreshKey?: number;
+  sseRefreshKey?: number;
 }
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
-  customers,
-  customerDevices = [],
   branches,
   currentUser,
-  onAddCustomer,
-  onUpdateCustomer,
-  onDeleteCustomer,
   onNavigateToImport,
   onSelectTab,
+  onCustomersChanged,
+  refreshKey,
+  sseRefreshKey = refreshKey ?? 0,
 }) => {
+  const { alert: alertDialog } = useDialog();
   // Check permission: Only Super Admin and Inventory Manager can Edit / Delete master customer records
   const canManageMaster =
     currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
@@ -94,7 +100,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     : (branches[0]?.id || 'WH001');
 
   const [formData, setFormData] = useState({
-    customerId: `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
     customerName: '',
     username: '',
     contactNumber: '',
@@ -107,7 +112,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
   const resetForm = () => {
     setFormData({
-      customerId: `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
       customerName: '',
       username: '',
       contactNumber: '',
@@ -127,7 +131,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const handleOpenEditModal = (customer: CustomerRecord) => {
     setEditingCustomer(customer);
     setFormData({
-      customerId: customer.customerId || customer.id,
       customerName: customer.customerName,
       username: customer.username,
       contactNumber: customer.contactNumber,
@@ -139,18 +142,55 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     });
   };
 
+  // Server-side create: never fabricate a client-side CUS-<random> key. The
+  // server POST /api/customers issues the id/customerId, so this payload carries
+  // only the user-supplied fields and the register re-reads the authoritative
+  // DB-issued row.
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.customerName.trim() || !formData.contactNumber.trim() || !formData.username.trim()) {
+      alertDialog('Please fill in Customer Name, Username, and Primary Mobile Number.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const created = await api.createCustomer({
+        customerId: formData.customerName,
+        customerName: formData.customerName,
+        username: formData.username,
+        contactNumber: formData.contactNumber,
+        branchId: formData.branchId,
+        address: formData.address,
+        email: formData.email,
+        status: formData.status,
+        creditLimit: Number(formData.creditLimit) || 0,
+      });
+      if (created) {
+        setIsAddModalOpen(false);
+        setEditingCustomer(null);
+        resetForm();
+        await refreshCustomersFromDb();
+      }
+    } catch (err: any) {
+      alertDialog(`Save Failed: ${err.message || 'Error creating customer record'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Server-side update: PUT /api/customers/:id matches by id or customer_id.
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.customerName.trim() || !formData.contactNumber.trim() || !formData.username.trim()) {
-      alert('Please fill in Customer Name, Username, and Primary Mobile Number.');
+      alertDialog('Please fill in Customer Name, Username, and Primary Mobile Number.');
       return;
     }
 
     setIsSubmitting(true);
     try {
       if (editingCustomer) {
-        await onUpdateCustomer(editingCustomer.id, {
-          customerId: formData.customerId,
+        const updated = await api.updateCustomer(editingCustomer.id, {
           customerName: formData.customerName,
           username: formData.username,
           contactNumber: formData.contactNumber,
@@ -161,73 +201,169 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           creditLimit: Number(formData.creditLimit) || 0,
         });
         setEditingCustomer(null);
+        if (updated) {
+          await refreshCustomersFromDb();
+        }
       } else {
-        await onAddCustomer({
-          id: formData.customerId,
-          customerId: formData.customerId,
-          customerName: formData.customerName,
-          username: formData.username,
-          contactNumber: formData.contactNumber,
-          branchId: formData.branchId,
-          address: formData.address,
-          email: formData.email,
-          status: formData.status,
-          creditLimit: Number(formData.creditLimit) || 0,
-          assignedDevicesCount: 0,
-        });
-        setIsAddModalOpen(false);
+        await handleSubmit(e);
       }
-      resetForm();
     } catch (err: any) {
-      alert(`Save Failed: ${err.message || 'Error updating customer database'}`);
+      alertDialog(`Save Failed: ${err.message || 'Error updating customer database'}`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleUpdateAndRefresh = async (id: string, patch: Partial<CustomerRecord>) => {
+    const updated = await api.updateCustomer(id, patch);
+    if (updated) {
+      await refreshCustomersFromDb();
+    }
+    return updated;
+  };
+
+  const handleDeleteAndRefresh = async (id: string) => {
+    await api.deleteCustomer(id);
+    await refreshCustomersFromDb();
+  };
+
+  const refreshCustomersFromDb = async () => {
+    try {
+      const envelope = await api.getCustomers({
+        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+        query: searchQuery.trim() || undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        page: customersPage,
+        pageSize: customersPageSize,
+      });
+      setCustomersRows((envelope as { data?: CustomerRecord[] }).data || []);
+      setCustomersTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+      setCustomersLoadError(false);
+    } catch {
+      setCustomersLoadError(true);
+    }
+    // Mutations are the only callers of this helper, so telling the app shell
+    // here covers create, update and delete without firing on filter changes.
+    onCustomersChanged?.();
   };
 
   const handleDeleteConfirm = async () => {
     if (!deletingCustomer) return;
     setIsSubmitting(true);
     try {
-      await onDeleteCustomer(deletingCustomer.id);
+      await handleDeleteAndRefresh(deletingCustomer.id);
       setDeletingCustomer(null);
     } catch (err: any) {
-      alert(`Delete Failed: ${err.message || 'Could not delete customer record'}`);
+      alertDialog(`Delete Failed: ${err.message || 'Could not delete customer record'}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Filter Customers
-  const filteredCustomers = customers.filter((c) => {
-    const matchesBranch =
-      selectedBranchFilter === 'ALL' || c.branchId === selectedBranchFilter;
-    const matchesStatus =
-      statusFilter === 'ALL' || c.status === statusFilter;
+  // Server-side read: page+pageSize are forwarded to the paged GET /api/customers
+  // endpoint, where PostgreSQL applies branch + search + status filters.
+  // React holds ONLY the current page slice; the previous bootstrap slice is
+  // never filtered in memory.
+  const [customersPage, setCustomersPage] = useState(1);
+  const [customersPageSize, setCustomersPageSize] = useState(15);
+  const [customersRows, setCustomersRows] = useState<CustomerRecord[]>([]);
+  const [customersTotalItems, setCustomersTotalItems] = useState(0);
+  const [customersLoadError, setCustomersLoadError] = useState(false);
 
-    const query = (searchQuery || '').toLowerCase().trim();
-    const matchesSearch =
-      !query ||
-      c.customerId?.toLowerCase().includes(query) ||
-      c.customerName?.toLowerCase().includes(query) ||
-      c.username?.toLowerCase().includes(query) ||
-      c.contactNumber?.toLowerCase().includes(query) ||
-      c.email?.toLowerCase().includes(query) ||
-      c.address?.toLowerCase().includes(query);
+  const customersPagination = useClientPagination(
+    customersRows,
+    customersPageSize,
+    [customersPage, customersPageSize]
+  );
 
-    return matchesBranch && matchesStatus && matchesSearch;
-  });
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
 
-  const customersPagination = useClientPagination(filteredCustomers, 15, [searchQuery, selectedBranchFilter, statusFilter]);
+  // Server-side read
+  useEffect(() => {
+    let cancelled = false;
 
-  // Export Customer Master Table to CSV (.csv)
+    const load = async () => {
+      try {
+        const envelope = await api.getCustomers({
+          branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+          query: searchQuery.trim() || undefined,
+          status: statusFilter !== 'ALL' ? statusFilter : undefined,
+          page: customersPage,
+          pageSize: customersPageSize,
+        });
+
+        if (!cancelled) {
+          setCustomersRows((envelope as { data?: CustomerRecord[] }).data || []);
+          setCustomersTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+          setCustomersLoadError(false);
+        }
+      } catch {
+        if (!cancelled) setCustomersLoadError(true);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchFilter, searchQuery, statusFilter, customersPage, customersPageSize]);
+
+  // Server-side device reads for the Assigned Hardware column. The endpoint is
+  // paged and applies branch + text filter in PostgreSQL; user-facing page
+  // state is the current slice.
+  const [devicesPage, setDevicesPage] = useState(1);
+  const [devicesPageSize, setDevicesPageSize] = useState(20);
+  const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
+  const [customerDevicesTotalItems, setCustomerDevicesTotalItems] = useState(0);
+  const [devicesLoadError, setDevicesLoadError] = useState(false);
+
+  const customerDevicesPagination = useClientPagination(
+    customerDevicesRows,
+    devicesPageSize,
+    [devicesPage, devicesPageSize]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const envelope = await api.getCustomerDevices(
+          selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+          searchQuery.trim() || undefined
+        );
+
+        if (!cancelled) {
+          setCustomerDevicesRows((envelope as { data?: CustomerDeviceRecord[] }).data || []);
+          setCustomerDevicesTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+          setDevicesLoadError(false);
+        }
+      } catch {
+        if (!cancelled) setDevicesLoadError(true);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchFilter, searchQuery, devicesPage, devicesPageSize, sseRefreshKey]);
+
+  const getAssignedDeviceCount = (customer: CustomerRecord): number => {
+    return customerDevicesRows.filter(
+      (d) => d.customerCode === customer.customerId || d.customerId === customer.id || (d?.customerName || '').toLowerCase() === (customer?.customerName || '').toLowerCase()
+    ).length;
+  };
+
+  // Export CSV (server-side rows only; inactive filtered-out rows are never
+  // shipped to the client for a CSV download).
   const handleExportCSV = () => {
-    if (filteredCustomers.length === 0) {
-      alert('No customer records available to export.');
+    if (customersRows.length === 0) {
+      alertDialog('No customer master records available to export.');
       return;
     }
 
-    const exportRows = filteredCustomers.map((c) => {
+    const exportRows = customersRows.map((c) => {
       const branchObj = branches.find((b) => b.id === c.branchId);
       return {
         'Cus. Code': c.customerId || c.id,
@@ -240,17 +376,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         'Email': c.email || '',
         'Status': c.status,
         'Credit Limit (NPR)': c.creditLimit || 0,
-        'Assigned Hardware Count': c.assignedDevicesCount || 0,
+        'Assigned Hardware Count': getAssignedDeviceCount(c),
       };
     });
 
     exportToCSV({
       filename: `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}`,
       reportTitle: 'Customer Master Database Directory',
-      branchName:
-        selectedBranchFilter === 'ALL'
-          ? 'All Branches (Consolidated)'
-          : branches.find((b) => b.id === selectedBranchFilter)?.name,
+      branchName: 'All Branches (Consolidated)',
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : 'System User',
       data: exportRows,
       columns: [
@@ -283,6 +416,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <h1 className="text-lg font-bold tracking-tight">Customer Master Directory</h1>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Central master table for customer records, usernames, primary mobile numbers, branch assignments, and credit profiles.
+                  Every row below is served from the database (GET /api/customers). No register on this screen runs from a browser-memory snapshot.
                 </p>
               </div>
             </div>
@@ -325,31 +459,31 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
           <StatCard
             label="Total Registered Customers"
-            value={`${customers.length} Accounts`}
+            value={`${customersRows.length} Accounts`}
             tone="slate"
           />
 
           <StatCard
             label="Active Status Accounts"
-            value={`${customers.filter((c) => c.status === 'ACTIVE').length} Active`}
+            value={`${customersRows.filter((c) => c.status === 'ACTIVE').length} Active`}
             tone="emerald"
           />
 
           <StatCard
             label="Tracked Device Serials"
-            value={`${customerDevices.length} Hardware Devices`}
+            value={`${customerDevicesRows.length} Hardware Devices`}
             tone="indigo"
           />
 
           <StatCard
             label="Total Credit Capacity"
-            value={formatNPR(customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
+            value={formatNPR(customersRows.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
             tone="amber"
           />
         </div>
       </div>
 
-      {/* Filter and Search Bar — shared FilterCard for register consistency. */}
+      {/* Filter and Search Bar */}
       <FilterCard
         searchPlaceholder="Search by Cus. Code, Name, Username, Primary Mobile, Email, or Address..."
         searchValue={searchQuery}
@@ -411,7 +545,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredCustomers.length === 0 ? (
+              {customersRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
@@ -424,9 +558,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               ) : (
                 customersPagination.pagedItems.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
-                  
-                  // Matching device serial records from Customer Device Serials
-                  const matchingDevices = customerDevices.filter(
+                  const matchingDevices = customerDevicesRows.filter(
                     (d) =>
                       d.customerCode === customer.customerId ||
                       d.customerId === customer.id ||
@@ -439,12 +571,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                       <tr
                         className={`hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors ${isExpanded ? 'bg-indigo-50/30 dark:bg-slate-800/60' : 'text-slate-800 dark:text-slate-200'}`}
                       >
-                        {/* Cus. Code */}
                         <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           {customer.customerId || customer.id}
                         </td>
 
-                        {/* Customer Name & Username */}
                         <td className="p-2.5">
                           <div className="font-bold text-slate-900 dark:text-white">
                             {customer.customerName}
@@ -454,7 +584,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           </div>
                         </td>
 
-                        {/* Primary Mobile */}
                         <td className="p-2.5 font-mono text-slate-900 dark:text-white whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Phone className="h-3.5 w-3.5 text-slate-400" />
@@ -462,7 +591,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           </div>
                         </td>
 
-                        {/* Branch */}
                         <td className="p-2.5 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             <Building2 className="h-3 w-3 text-indigo-500" />
@@ -470,7 +598,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           </span>
                         </td>
 
-                        {/* Contact Details & Address */}
                         <td className="p-2.5 max-w-xs">
                           {customer.email && (
                             <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-0.5 truncate">
@@ -484,7 +611,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           </div>
                         </td>
 
-                        {/* Assigned Hardware & Serials Badge */}
                         <td className="p-2.5 text-center whitespace-nowrap">
                           <button
                             onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}
@@ -500,12 +626,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           </button>
                         </td>
 
-                        {/* Credit Limit */}
                         <td className="p-2.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                           {formatNPR(customer.creditLimit)}
                         </td>
 
-                        {/* Status */}
                         <td className="p-2.5 text-center whitespace-nowrap">
                           {customer.status === 'ACTIVE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -520,7 +644,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                           )}
                         </td>
 
-                        {/* Actions */}
                         <td className="p-2.5 text-right whitespace-nowrap">
                           {canManageMaster ? (
                             <div className="flex items-center justify-end gap-1.5">
@@ -545,7 +668,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                         </td>
                       </tr>
 
-                      {/* Expandable Panel showing assigned hardware serials for this customer */}
                       {isExpanded && (
                         <tr>
                           <td colSpan={9} className={`p-2.5 border-y bg-indigo-50/40 border-indigo-100 dark:bg-slate-950/90 dark:border-indigo-900/40`}>
@@ -633,22 +755,21 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                             {dev.issuedDateAD} ({dev.issuedDateBS || 'BS'})
                                           </td>
                                           <td className="p-2.5 text-center whitespace-nowrap">
-                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                              dev.status === 'RENTAL' || dev.status === 'ACTIVE'
-                                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
-                                                : dev.status === 'SOLD'
+                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${dev.status === 'RENTAL' || dev.status === 'ACTIVE'
+                                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                                              : dev.status === 'SOLD'
                                                 ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
                                                 : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
-                                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                            }`}>
-                                              {dev.status === 'RENTAL' || dev.status === 'ACTIVE' 
-                                                ? 'RENTAL (CPE ASSET)' 
-                                                : dev.status === 'SOLD' 
-                                                ? 'SOLD (CUSTOMER OWNED)' 
-                                                : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
-                                                ? `ROUTER COLLECTED${dev.disconnectedDateAD ? ` (${dev.disconnectedDateAD})` : ''}`
-                                                : dev.status}
+                                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                              }`}>
+                                              {dev.status === 'RENTAL' || dev.status === 'ACTIVE'
+                                                ? 'RENTAL (CPE ASSET)'
+                                                : dev.status === 'SOLD'
+                                                  ? 'SOLD (CUSTOMER OWNED)'
+                                                  : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
+                                                    ? `ROUTER COLLECTED${dev.disconnectedDateAD ? ` (${dev.disconnectedDateAD})` : ''}`
+                                                    : dev.status}
                                             </span>
                                           </td>
                                         </tr>
@@ -716,15 +837,15 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Cus. Code (Customer ID) *
+                    Customer Name *
                   </label>
                   <input
                     type="text"
                     required
-                    value={formData.customerId}
-                    onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
-                    placeholder="e.g. CUS-10291"
-                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-mono bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                    value={formData.customerName}
+                    onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                    placeholder="e.g. Aarav Sharma"
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-semibold bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
                   />
                 </div>
 
@@ -745,16 +866,20 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Customer Name *
+                  Cus. Code (Customer ID)
                 </label>
                 <input
                   type="text"
                   required
-                  value={formData.customerName}
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                  placeholder="e.g. Aarav Sharma"
-                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-semibold bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                  readOnly
+                  value={editingCustomer?.customerId || '— (server-issued)'}
+                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none font-mono bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white ${editingCustomer ? 'cursor-not-allowed opacity-70' : ''}`}
                 />
+                {editingCustomer && (
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    Server-issued ID: <span className="text-indigo-600 dark:text-indigo-400">{editingCustomer.customerId || editingCustomer.id}</span>
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -819,31 +944,33 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Customer Address / Location
-                </label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="e.g. Example Street, Example City, Nepal"
-                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
-                />
-              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Customer Address / Location
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    placeholder="e.g. Example Street, Example City, Nepal"
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Account Status
-                </label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                  className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
-                >
-                  <option value="ACTIVE">Active Account</option>
-                  <option value="INACTIVE">Inactive / Suspended</option>
-                </select>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Account Status
+                  </label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+                    className={`w-full px-3 py-1.5 text-xs rounded-xl border outline-none bg-slate-50 border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                  >
+                    <option value="ACTIVE">Active Account</option>
+                    <option value="INACTIVE">Inactive / Suspended</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">

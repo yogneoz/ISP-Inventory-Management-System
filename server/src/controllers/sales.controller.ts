@@ -9,15 +9,17 @@ import {
   getPgConnected, pgPool, issueNextDocNumber, inventoryStock, logAuditEvent,
   withTransaction, branches, products, suppliers, setInventoryStock, withAppended,
   getUserFromReq, purchaseReturns, customerMasterRecords, findBsDayRecordForAdDate,
-  customerPayments,
+  customerPayments, companyProfile,
 } from '../app';
-import { salesInvoices, salesReturns } from '../state/runtimeState';
-import { computeBillTotals } from '../utils/money';
+import { salesInvoices, salesReturns, setSalesInvoices } from '../state/runtimeState';
+import { computeBillTotals, defaultVatRateFor } from '../utils/money';
 import { resolveBsDateForLedger } from '../utils/bsDate';
 import {
-  buildSalesInvoiceListSql, SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
+  buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
+  SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
   SI_DEDUCT_STOCK_SQL, SI_RESTORE_STOCK_SQL, SI_TXN_LOG_SQL, siTxnLogParams,
-  buildSalesReturnListSql, SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
+  buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
+  SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
   SR_RETURNED_QTY_SQL, SR_RESTOCK_SQL, srRestockParams, SR_REDEDUCT_STOCK_SQL, SR_CANCEL_SQL,
   SR_TXN_LOG_SQL, srTxnLogParams, SR_SELECT_COLUMNS, SR_FIND_ONE_SQL,
   LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
@@ -25,6 +27,10 @@ import {
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
   CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL,
   SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, LEDGER_CUSTOMER_PAYMENTS_SQL,
+  SI_LOCK_SERIAL_SQL, SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
+  SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
+  SI_BLOCKING_PAYMENTS_SQL, SI_BLOCKING_RETURNS_SQL,
+  SI_CLAIMED_SERIALS_SQL, SI_RELEASE_SERIAL_SQL, siCancelTxnLogParams,
 } from '../models/sales.repo';
 import { intFromEnv } from '../utils/envGuard';
 
@@ -114,7 +120,38 @@ function srValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from sales.routes.ts (get_salesInvoices). */
 export async function get_salesInvoices(req: any, res: Response): Promise<any> {
-  const { branchId } = req.query;
+  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
+  // slice and the filtered total (the purchase-orders pattern). Filters
+  // without a page param keep the legacy full-array response; a bare
+  // ?branchId= request is unchanged.
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
+    try {
+      const opts = { branchId, status, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const countQ = buildSalesInvoiceCountQuery(opts);
+        const countR = await pgPool.query(countQ.sql, countQ.params as any[]);
+        const totalItems = Number(countR.rows[0]?.count || 0);
+        const listQ = buildSalesInvoicePagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params as any[]);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? totalItems : size,
+          totalItems,
+        });
+      }
+      const filteredQ = buildSalesInvoicePagedQuery(opts);
+      const filteredR = await pgPool.query(filteredQ.sql, filteredQ.params as any[]);
+      return res.json(filteredR.rows);
+    } catch (err) {
+      console.error('Error fetching sales invoices from DB:', err);
+    }
+  }
   if (getPgConnected()) {
     try {
       const { sql, params } = buildSalesInvoiceListSql(branchId);
@@ -130,6 +167,108 @@ export async function get_salesInvoices(req: any, res: Response): Promise<any> {
   res.json(list);
 }
 
+/**
+ * Serial gate for a sales invoice — the server half of "every serial must
+ * exist in inventory before the sale posts". Runs inside the invoice
+ * transaction:
+ *
+ *  1. serial-tracked lines must supply exactly one device + PON serial per unit;
+ *  2. every serial must already exist in serial_log as IN_STOCK at the branch
+ *     being sold from, for the product being sold, with a matching PON (and a
+ *     matching MAC whenever one was scanned);
+ *  3. the matched rows are claimed IN_STOCK → CUSTOMER_ASSIGNED in the same
+ *     transaction, which is exactly what Sales Returns later flip back
+ *     (SR_SERIAL_FLIP_SQL) — so a serial can never be sold twice.
+ *
+ * Throws with a user-facing message; the caller's transaction rolls back.
+ * Only reachable with Postgres connected, matching the stock-deduction path.
+ */
+async function claimInvoiceSerials(
+  client: any,
+  items: any[],
+  inv: Record<string, any>,
+  targetBranchId: string,
+  invDate: string
+): Promise<void> {
+  const pairs: { item: any; device: string; pon: string; mac: string }[] = [];
+
+  for (const item of items) {
+    const product = products.find((p) => p.id === item.productId);
+    const serialized =
+      !!product && product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
+    const raw = Array.isArray(item.deviceSerials) ? item.deviceSerials : [];
+    const itemPairs = raw
+      .map((s: any) => ({
+        item,
+        device: String(typeof s === 'string' ? s : s?.deviceSerial || '').trim(),
+        pon: String(typeof s === 'string' ? '' : s?.ponSerial || '').trim(),
+        mac: String(typeof s === 'string' ? '' : s?.macAddress || '').trim(),
+      }))
+      .filter((p: { device: string }) => p.device.length > 0);
+
+    if (!serialized && itemPairs.length === 0) continue;
+
+    const qty = Math.abs(Number(item.quantity)) || 0;
+    if (serialized && itemPairs.length !== qty) {
+      throw new Error(
+        `${item.productName || item.productId} is serial-tracked: ${qty} serial(s) required, ${itemPairs.length} provided.`
+      );
+    }
+    pairs.push(...itemPairs);
+  }
+
+  if (pairs.length === 0) return;
+
+  const keys = [...new Set(pairs.map((p) => p.device.toLowerCase()))];
+  const lock = await client.query(SI_LOCK_SERIAL_SQL, [keys]);
+  const byKey = new Map<string, any>(lock.rows.map((r: any) => [String(r.key), r]));
+  const atBranch = branches.find((b) => b.id === targetBranchId)?.name || targetBranchId;
+
+  const seen = new Set<string>();
+  for (const p of pairs) {
+    const key = p.device.toLowerCase();
+    if (seen.has(key)) throw new Error(`Duplicate device serial ${p.device} on this invoice.`);
+    seen.add(key);
+
+    const row = byKey.get(key);
+    if (!row) {
+      throw new Error(
+        `Device serial ${p.device} is not in inventory at ${atBranch} for "${p.item.productName}" — only IN_STOCK units can be sold.`
+      );
+    }
+    if (String(row.status) !== 'IN_STOCK') {
+      throw new Error(`Device serial ${p.device} is ${row.status} (not IN_STOCK) — it cannot be sold.`);
+    }
+    if (String(row.branch_id) !== String(targetBranchId)) {
+      throw new Error(`Device serial ${p.device} is held at branch ${row.branch_id}, not ${targetBranchId}.`);
+    }
+    if (row.product_id && row.product_id !== p.item.productId) {
+      throw new Error(`Device serial ${p.device} belongs to a different product than "${p.item.productName}".`);
+    }
+    if (!p.pon) throw new Error(`PON serial is required for device serial ${p.device}.`);
+    if (String(row.pon_serial || '').trim().toUpperCase() !== p.pon.toUpperCase()) {
+      throw new Error(`PON serial ${p.pon} does not match inventory for device serial ${p.device}.`);
+    }
+    if (p.mac && String(row.mac_address || '').trim().toUpperCase() !== p.mac.toUpperCase()) {
+      throw new Error(`MAC address ${p.mac} does not match inventory for device serial ${p.device}.`);
+    }
+  }
+
+  const history = [
+    {
+      status: 'CUSTOMER_ASSIGNED',
+      sourceType: 'SALES_INVOICE',
+      sourceId: inv.invoiceNumber,
+      dateAD: String(invDate || '').split('T')[0],
+      notes: `Sold on sales invoice ${inv.invoiceNumber}`,
+    },
+  ];
+  const upd = await client.query(SI_CLAIM_SERIAL_SQL, siClaimSerialParams(inv, history, keys));
+  if (Number(upd.rowCount) !== keys.length) {
+    throw new Error('Could not claim one or more serials for this sale — nothing was posted.');
+  }
+}
+
 /** Forwarded from sales.routes.ts (post_salesInvoices). */
 export async function post_salesInvoices(req: any, res: Response): Promise<any> {
   try {
@@ -138,7 +277,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       return res.status(400).json({ message: 'A sales invoice requires at least one item line.' });
     }
     // C1: totals recomputed from line primitives; client aggregates ignored.
-    const totals = computeBillTotals(items);
+    const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
     const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'INV', invDate));
@@ -175,6 +314,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       // All-or-nothing: invoice insert + per-item guarded stock deduction + ledger.
       await withTransaction(async (client) => {
         await client.query(SI_INSERT_SQL, siInsertParams(newInv, JSON.stringify(items)));
+        await claimInvoiceSerials(client, items, newInv, targetBranchId, invDate);
         for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
           const qty = Math.abs(Number(item.quantity)) || 0;
@@ -195,9 +335,176 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
   }
 }
 
+/** Parses the invoice's stored items JSONB (a string only on some read paths). */
+function invoiceItems(raw: unknown): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Void a posted sales invoice — POST /api/sales-invoices/:id/cancel.
+ *
+ * One transaction, all-or-nothing, so stock, serial_log, the ledger and the
+ * invoice can never disagree:
+ *   1. lock the invoice row (serialises against a concurrent payment, return
+ *      or second void) and re-check its status from the database,
+ *   2. refuse while posted customer payments or live credit notes still
+ *      reference it — those documents must be undone first,
+ *   3. flip POSTED → CANCELLED (guarded, race-safe),
+ *   4. restore every line's deducted stock at the invoice branch,
+ *   5. release every serial the invoice claimed (CUSTOMER_ASSIGNED → IN_STOCK)
+ *      with a history entry,
+ *   6. append a compensating SALES_INVOICE_CANCELLED ledger row per line, so
+ *      the movement ledger nets the sale back to zero.
+ */
+export async function post_salesInvoiceCancel(req: any, res: Response): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+
+    if (!getPgConnected()) {
+      return res.status(503).json({
+        message: 'PostgreSQL is unavailable — a sales invoice cannot be cancelled without the database.',
+      });
+    }
+
+    // Precise 404/400 before the transaction opens (the locked re-read inside
+    // it is what actually decides the outcome).
+    const found = await pgPool.query(SI_FIND_ONE_SQL, [id]);
+    const existing: any = found.rows[0];
+    if (!existing) return res.status(404).json({ message: 'Sales invoice not found.' });
+    if (existing.status === 'CANCELLED') {
+      return res.status(400).json({ message: `Sales invoice ${existing.invoiceNumber} is already cancelled.` });
+    }
+
+    const cancelAD = new Date().toISOString().split('T')[0];
+    const cancelBS = await resolveBsDateForLedger(cancelAD);
+
+    await withTransaction(async (client) => {
+      const lockedRes = await client.query(SI_LOCK_FOR_CANCEL_SQL, [id]);
+      const inv: any = lockedRes.rows[0];
+      if (!inv) throw new Error('Sales invoice not found.');
+      if (String(inv.status) !== 'POSTED') {
+        throw new Error(`Sales invoice ${inv.invoiceNumber} is already cancelled.`);
+      }
+
+      const payments = await client.query(SI_BLOCKING_PAYMENTS_SQL, [id]);
+      const paymentCount = Number(payments.rows[0]?.count || 0);
+      if (paymentCount > 0) {
+        throw new Error(
+          `Cannot cancel ${inv.invoiceNumber}: ${paymentCount} posted customer payment(s) reference it — reverse them first.`
+        );
+      }
+      if (Number(inv.amountPaid) > 0) {
+        throw new Error(
+          `Cannot cancel ${inv.invoiceNumber}: NPR ${Number(inv.amountPaid).toFixed(2)} has already been received on it.`
+        );
+      }
+      const returns = await client.query(SI_BLOCKING_RETURNS_SQL, [id]);
+      const returnCount = Number(returns.rows[0]?.count || 0);
+      if (returnCount > 0) {
+        throw new Error(
+          `Cannot cancel ${inv.invoiceNumber}: ${returnCount} sales return(s) still reference it — cancel them first.`
+        );
+      }
+
+      const cancelled = await client.query(SI_CANCEL_SQL, [id]);
+      if (cancelled.rowCount !== 1) {
+        throw new Error('Sales invoice was already cancelled by another user.');
+      }
+
+      const items = invoiceItems(inv.items);
+      for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+        const item = items[itemIdx];
+        const qty = Math.abs(Number(item.quantity)) || 0;
+        if (qty > 0) {
+          const restored = await client.query(SI_RESTORE_STOCK_SQL, [qty, item.productId, inv.branchId]);
+          if (restored.rowCount !== 1) {
+            throw new Error(
+              `Could not restore stock for ${item.productName || item.productId} at branch ${inv.branchId} — nothing was cancelled.`
+            );
+          }
+        }
+        await client.query(SI_TXN_LOG_SQL, siCancelTxnLogParams(inv, item, inv.branchId, itemIdx, { ad: cancelAD, bs: cancelBS }));
+      }
+
+      const claimed = await client.query(SI_CLAIMED_SERIALS_SQL, [inv.invoiceNumber]);
+      const serials: string[] = claimed.rows.map((r: any) => r.device_serial).filter(Boolean);
+      if (serials.length > 0) {
+        const history = [
+          {
+            status: 'IN_STOCK',
+            sourceType: 'SALES_INVOICE_CANCELLED',
+            sourceId: inv.invoiceNumber,
+            dateAD: cancelAD,
+            notes: `Sales invoice ${inv.invoiceNumber} cancelled${reason ? ` — ${reason}` : ''}`,
+          },
+        ];
+        const released = await client.query(SI_RELEASE_SERIAL_SQL, [JSON.stringify(history), serials]);
+        if (released.rowCount !== serials.length) {
+          throw new Error('Could not release one or more serials — nothing was cancelled.');
+        }
+      }
+    });
+
+    // Keep the in-memory bootstrap mirror in step so the register does not
+    // flash a stale POSTED row before the next cache refresh.
+    setSalesInvoices(
+      salesInvoices.map((i) =>
+        i.id === existing.id || i.invoiceNumber === existing.invoiceNumber ? { ...i, status: 'CANCELLED' as const } : i
+      )
+    );
+
+    logAuditEvent(req, 'CANCEL_SALES_INVOICE', 'SALES', `Cancelled Sales Invoice #${existing.invoiceNumber}${reason ? ` — ${reason}` : ''}`);
+    res.json({ ...existing, status: 'CANCELLED' });
+  } catch (err: any) {
+    console.error('Error cancelling sales invoice:', err);
+    res.status(400).json({ message: err.message || 'Failed to cancel sales invoice.' });
+  }
+}
+
 /** Forwarded from sales.routes.ts (get_salesReturns). */
 export async function get_salesReturns(req: any, res: Response): Promise<any> {
-  const { branchId } = req.query;
+  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
+  // slice and the filtered total (the purchase-orders pattern). Filters
+  // without a page param keep the legacy full-array response; a bare
+  // ?branchId= request is unchanged.
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
+    try {
+      const opts = { branchId, status, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const countQ = buildSalesReturnCountQuery(opts);
+        const countR = await pgPool.query(countQ.sql, countQ.params as any[]);
+        const totalItems = Number(countR.rows[0]?.count || 0);
+        const listQ = buildSalesReturnPagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params as any[]);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? totalItems : size,
+          totalItems,
+        });
+      }
+      const filteredQ = buildSalesReturnPagedQuery(opts);
+      const filteredR = await pgPool.query(filteredQ.sql, filteredQ.params as any[]);
+      return res.json(filteredR.rows);
+    } catch (err) {
+      console.error('Error fetching sales returns from DB:', err);
+    }
+  }
   if (getPgConnected()) {
     try {
       const { sql, params } = buildSalesReturnListSql(branchId);

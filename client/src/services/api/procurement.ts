@@ -1,6 +1,6 @@
 import type {
-  Supplier,
   Product,
+  Supplier,
   PurchaseOrder,
   PurchaseInvoice,
   Shipment,
@@ -10,10 +10,6 @@ import type {
 import { fetchJson } from './http';
 
 // Branches
-export async function getBranches(): Promise<import('../../types').Branch[]> {
-  return fetchJson('/api/branches');
-}
-
 export async function createBranch(branch: Omit<import('../../types').Branch, 'id'>): Promise<import('../../types').Branch> {
   return fetchJson('/api/branches', {
     method: 'POST',
@@ -35,10 +31,6 @@ export async function deleteBranch(id: string): Promise<{ success: boolean }> {
 }
 
 // Suppliers
-export async function getSuppliers(): Promise<Supplier[]> {
-  return fetchJson('/api/suppliers');
-}
-
 export async function createSupplier(supplier: Omit<Supplier, 'id' | 'rating'>): Promise<Supplier> {
   return fetchJson('/api/suppliers', {
     method: 'POST',
@@ -60,10 +52,6 @@ export async function deleteSupplier(id: string): Promise<{ success: boolean }> 
 }
 
 // Users
-export async function getUsers(): Promise<User[]> {
-  return fetchJson('/api/users');
-}
-
 export async function createUser(user: Omit<User, 'id'> & { password?: string }): Promise<User> {
   return fetchJson('/api/users', {
     method: 'POST',
@@ -92,10 +80,6 @@ export async function resetUserPassword(id: string, newPassword: string): Promis
 }
 
 // Products
-export async function getProducts(): Promise<Product[]> {
-  return fetchJson('/api/products');
-}
-
 export async function createProduct(product: Omit<Product, 'id'>): Promise<Product> {
   return fetchJson('/api/products', {
     method: 'POST',
@@ -221,27 +205,6 @@ export async function getInvoicePayments(id: string): Promise<VendorPayment[]> {
 }
 
 // Vendor Payments Sub-ledger
-export async function getVendorPayments(params?: {
-  supplierId?: string;
-  invoiceId?: string;
-  branchId?: string;
-  status?: string;
-  fromAd?: string;
-  toAd?: string;
-  fiscalYearId?: string;
-}): Promise<VendorPayment[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.supplierId) queryParams.set('supplierId', params.supplierId);
-  if (params?.invoiceId) queryParams.set('invoiceId', params.invoiceId);
-  if (params?.branchId) queryParams.set('branchId', params.branchId);
-  if (params?.status) queryParams.set('status', params.status);
-  if (params?.fromAd) queryParams.set('fromAd', params.fromAd);
-  if (params?.toAd) queryParams.set('toAd', params.toAd);
-  if (params?.fiscalYearId) queryParams.set('fiscalYearId', params.fiscalYearId);
-  const qs = queryParams.toString();
-  return fetchJson(`/api/vendor-payments${qs ? `?${qs}` : ''}`);
-}
-
 export async function createVendorPayment(payload: {
   supplierId?: string;
   supplierName?: string;
@@ -326,11 +289,6 @@ export async function getVendorLedger(
 }
 
 // Shipments
-export async function getShipments(branchId?: string): Promise<Shipment[]> {
-  const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
-  return fetchJson(`/api/shipments${query}`);
-}
-
 export async function createShipment(shipment: Partial<Shipment>): Promise<Shipment> {
   // The server issues the tracking code via issueNextDocNumber (ST).
   return fetchJson('/api/shipments', {
@@ -373,7 +331,7 @@ export async function cancelReceiveShipment(
   user?: User | null,
   reason?: string
 ): Promise<{ shipment: Shipment; message: string }> {
-  return fetchJson(`/api/shipments/${id}/cancel`, {
+  return fetchJson(`/api/shipments/${id}/cancel-receive`, {
     method: 'POST',
     body: JSON.stringify({ user, reason }),
   });

@@ -28,12 +28,6 @@ import { PageHeader } from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
 
 interface SerialLogRegisterProps {
-  /**
-   * The register fetches its own filtered/paged data from /api/serial-log
-   * (server-side pagination), so this prop is unused — kept for interface
-   * compatibility until every App.tsx call site is updated.
-   */
-  serialLogs?: SerialLog[];
   branches: Branch[];
   selectedBranchId: string;
   currentUser?: User | null;
@@ -76,7 +70,6 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
 const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED'];
 
 export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
-  serialLogs = [],
   branches = [],
   selectedBranchId,
   currentUser,

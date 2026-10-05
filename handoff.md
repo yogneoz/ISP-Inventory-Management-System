@@ -164,7 +164,7 @@ ISP-Inventory-Management-System/
 │       │                              #   facade re-exporting every historical symbol
 │       ├── state/runtimeState.ts      # Shared runtime state as ESM live bindings + accessors,
 │       │                              #   CACHE_LOADS + hydrateOperationalData/refresh
-│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (34 tables),
+│       ├── boot/dbBoot.ts             # syncDatabaseAndIndexes: full schema DDL sync (36 tables),
 │       │                              #   seedInitialPostgresData, permission matrix load,
 │       │                              #   serial-log backfill
 │       ├── realtime/sse.ts            # sseClients Set + broadcastChange (SSE fan-out)
@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 557 tests; CI runs
+                                        #   drift/concurrency guards — 618 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -371,7 +371,7 @@ ISP-Inventory-Management-System/
 │           └── DataRecalculationMaintenance.tsx # Admin: recalculate stock, assets, calendar, FY links
 │
 ├── scripts/
-│   ├── schema.sql                     # Full PostgreSQL schema (34 tables, idempotent)
+│   ├── schema.sql                     # Full PostgreSQL schema (36 tables, idempotent)
 │   ├── setup_db.js                    # Node.js database setup & seed runner
 │   ├── setup_postgres.sh              # Shell: auto-install & configure PostgreSQL
 │   ├── demo_dataset.js                # Demo data seeder (is_demo=TRUE, all-IN_STOCK serials)
@@ -391,7 +391,7 @@ ISP-Inventory-Management-System/
 
 ## 5. Database Schema & Relationships
 
-### 5.1 Tables Overview (34 tables)
+### 5.1 Tables Overview (36 tables)
 
 | # | Table | Purpose | Key Columns |
 |---|---|---|---|
@@ -429,6 +429,8 @@ ISP-Inventory-Management-System/
 | 32 | `customer_payments` | Customer receipts sub-ledger | id (PK), payment_number (UNIQUE), customer_id, invoice_id (FK→sales_invoices), amount, payment_method, status (POSTED/REVERSED/VOIDED), fiscal_year_id |
 | 33 | `purchase_returns` | Purchase return register (debit notes) | id (PK), return_number (UNIQUE), original_invoice_id (FK→purchase_invoices), supplier_id, branch_id, reason, items (JSONB) |
 | 34 | `sales_returns` | Sales return register | id (PK), return_number (UNIQUE), original_invoice_id (FK→sales_invoices), customer_id, branch_id, reason, restockable |
+| 35 | `app_settings` | Company-wide configuration (key/value) — replaces the browser-localStorage copies | setting_key (PK), setting_value, updated_by, updated_at |
+| 36 | `user_preferences` | Per-user UI preferences (key/value) — theme, date mode, last active tab | (user_id, pref_key) PK, pref_value, updated_at |
 
 ### 5.2 Serial Log Uniqueness
 
@@ -1068,8 +1070,8 @@ Deliberate decisions (do not revert):
   re-fetches only that domain's bootstrap slices (`GET /api/bootstrap/local?key=…`);
   unknown domains, mixed bursts and slice-fetch failures fall back to `refreshAllData()`
   (full bootstrap), so the UI can never be left stale
-- The four self-fetching paged registers refresh separately: `DOMAIN_REGISTER_KEYS` bumps the
-  matching register counter per domain, and `refreshAllData()` bumps ALL four counters
+- The six self-fetching paged registers refresh separately: `DOMAIN_REGISTER_KEYS` bumps the
+  matching register counter per domain, and `refreshAllData()` bumps ALL six counters
   (`bumpAllRegisterRefresh`) — see §15.12 for the source guards that pin this wiring
 - This enables **real-time multi-user collaboration** without WebSocket complexity
 
@@ -1098,7 +1100,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 557 tests against a real PostgreSQL 16 service container
+2. `npm test` — 618 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
@@ -1130,24 +1132,27 @@ so any unwired new fetch fails the suite instead of shipping:
   its `assignSerialLogCache` serial-log fetch pinned as the ONE mount-once `[]`-deps host
   fetch — deliberately not sse-wired; bootstrap excludes serialLogs, so remount refreshes
   it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
-  site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations) — a newly added
-  unwired mount fails.
+  site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
+  2 SalesInvoices) — a newly added unwired mount fails.
 - **Feature-screen coverage (2026-10-03 audit, all 50 screens)** — a `SCREEN_SURFACE_PINS`
-  table pins the 41 screens not covered above (the other 9 are pinned by the dedicated
+  table pins the 39 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports
   `getFinancialSummary` directly, which a bare `api.*` scan would miss, so every pin uses
   the combined helper.
 - **Tripwires** — raw `fetch(`/axios/EventSource are banned in every screen; a `pageSize:`
-  request key is allowed ONLY in the four wired registers (a fifth server-paged fetch = a
+  request key is allowed ONLY in the six wired registers (a seventh server-paged fetch = a
   register missing its sseRefreshKey); the 11 mount/selection self-fetch screens (ledgers,
   BS calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are pinned as
   whole-list and unwired **by design** — tab remount refetches them — and may not grow
   partial wiring without a full `DOMAIN_REGISTER_KEYS` decision.
-- **Audit footnote** — SalesInvoices.tsx and ReturnsRegister.tsx import `{ api }` without
-  ever calling it (tsconfig has no `noUnusedLocals`, so tsc never flags it); both are
-  pinned with an empty surface. Cleanup optional.Changing a pinned file therefore always means editing the pin in the same
+- **Audit footnote (closed)** — SalesInvoices.tsx and ReturnsRegister.tsx now fetch their own
+  server-paged rows (`getSalesInvoices` / `getPurchaseReturns` + `getSalesReturns`) and are
+  pinned as SSE-wired registers: exact surface, effect deps carrying the refresh key, and
+  every App.tsx render site passing its counter.
+
+Changing a pinned file therefore always means editing the pin in the same
 commit — that friction is the point: it forces the SSE-wiring decision to be
 made explicitly.
 
@@ -1208,7 +1213,7 @@ All demo users share password: `Demo@123`
 | Order | File | Why |
 |---|---|---|
 | 1 | `src/types/index.ts` | All data structures — the vocabulary of the system |
-| 2 | `scripts/schema.sql` | Full database schema (34 tables) — the data model |
+| 2 | `scripts/schema.sql` | Full database schema (36 tables) — the data model |
 | 3 | `server/src/app.ts` (top section) | Composition root: middleware chain, helmet config, body limit |
 | 3b | `server/src/state/runtimeState.ts` | Shared runtime state (ESM live bindings), CACHE_LOADS, cache refresh |
 | 3c | `server/src/boot/dbBoot.ts` | Schema sync, seeding, permission-matrix load |

@@ -3,12 +3,22 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 interface DarkModeContextValue {
   isDarkMode: boolean;
   toggleTheme: () => void;
+  /**
+   * Applies the theme the SERVER holds for this user (user_preferences). It
+   * only sets state — persisting happens in App.tsx, which owns the
+   * hydration gate so a start-up default can never overwrite the saved value.
+   */
+  applyServerTheme: (dark: boolean) => void;
 }
 
 const DarkModeContext = createContext<DarkModeContextValue | undefined>(undefined);
 
 const STORAGE_KEY = 'inventory_theme';
 
+// PAINT-TIME MIRROR ONLY: the authoritative theme is the server-side
+// user_preferences row, hydrated by App.tsx via applyServerTheme(). This
+// cached copy just stops the page flashing light→dark on reload, and is
+// irrelevant if the user clears browser storage.
 function getInitialDarkMode(): boolean {
  try {
  return localStorage.getItem(STORAGE_KEY) === 'dark';
@@ -45,8 +55,12 @@ export const DarkModeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
  setIsDarkMode((prev) => !prev);
  }, []);
 
+ const applyServerTheme = useCallback((dark: boolean) => {
+ setIsDarkMode(dark);
+ }, []);
+
  return (
- <DarkModeContext.Provider value={{ isDarkMode, toggleTheme }}>
+ <DarkModeContext.Provider value={{ isDarkMode, toggleTheme, applyServerTheme }}>
  {children}
  </DarkModeContext.Provider>
  );

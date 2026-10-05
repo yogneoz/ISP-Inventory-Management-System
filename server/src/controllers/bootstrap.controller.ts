@@ -6,7 +6,14 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords } from '../app';
+import {
+  APP_SETTING_KEYS,
+  APP_SETTINGS_SELECT_SQL,
+  USER_PREFERENCE_KEYS,
+  USER_PREFERENCES_SELECT_SQL,
+  rowsToRecord,
+} from '../models/settings.repo';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -97,6 +104,18 @@ const { branchId, fiscalYearId } = req.query;
         currentFiscalYear: currentFy,
       };
 
+      // Server-side settings + the calling user's preferences. These replace
+      // the browser-localStorage copies (company-wide blind stock-audit toggle,
+      // theme, date mode, last active tab), so clearing browser storage can
+      // never change how the application behaves.
+      const bootstrapUser = getUserFromReq(req);
+      const [appSettingsRes, userPrefsRes] = await Promise.all([
+        pgPool.query(APP_SETTINGS_SELECT_SQL),
+        bootstrapUser.id
+          ? pgPool.query(USER_PREFERENCES_SELECT_SQL, [bootstrapUser.id])
+          : Promise.resolve({ rows: [] as Array<{ key: string; value: string }> }),
+      ]);
+
       res.setHeader('Cache-Control', 'private, no-cache');
       return res.json({
         branches: data.branches,
@@ -147,6 +166,8 @@ const { branchId, fiscalYearId } = req.query;
         serverTime: new Date().toISOString(),
         dataVersion: getDataVersion(),
         permissionsMatrix: permissionMatrix,
+        appSettings: rowsToRecord(appSettingsRes.rows, APP_SETTING_KEYS),
+        userPreferences: rowsToRecord(userPrefsRes.rows, USER_PREFERENCE_KEYS),
       });
     } catch (pgErr: any) {
       setPgConnected(false);

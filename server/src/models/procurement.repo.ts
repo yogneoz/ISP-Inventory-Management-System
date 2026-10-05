@@ -570,6 +570,70 @@ export function buildPurchaseReturnListSql(branchId?: unknown): { sql: string; p
   };
 }
 
+export interface PurchaseReturnQueryOptions {
+  branchId?: unknown;
+  status?: unknown;
+  /** Free-text search across return #, original invoice #, supplier and the items blob. */
+  query?: unknown;
+  /** Inclusive lower bound on return_date_ad, AD YYYY-MM-DD. */
+  dateFromAD?: unknown;
+  /** Inclusive upper bound on return_date_ad, AD YYYY-MM-DD. */
+  dateToAD?: unknown;
+}
+
+/**
+ * Builds the purchase-returns WHERE fragment (starting with ' WHERE 1=1')
+ * shared by the count and the paged list queries — the purchase-orders
+ * pattern trimmed to this register's filter set.
+ */
+export function buildPurchaseReturnWhere(opts: PurchaseReturnQueryOptions): { whereSql: string; params: unknown[] } {
+  let whereSql = ' WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId as string);
+    whereSql += ` AND branch_id = $${params.length}`;
+  }
+  if (opts.status && opts.status !== 'ALL') {
+    params.push(opts.status as string);
+    whereSql += ` AND status = $${params.length}`;
+  }
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    const like = `%${opts.query.trim().toLowerCase()}%`;
+    params.push(like);
+    whereSql += ` AND (LOWER(return_number) LIKE $${params.length}` +
+      ` OR LOWER(original_invoice_number) LIKE $${params.length}` +
+      ` OR LOWER(supplier_name) LIKE $${params.length}` +
+      ` OR LOWER(items::text) LIKE $${params.length})`;
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    whereSql += ` AND return_date_ad >= $${params.length}::date`;
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    whereSql += ` AND return_date_ad <= $${params.length}::date`;
+  }
+  return { whereSql, params };
+}
+
+/** Filtered row count for the paged envelope. */
+export function buildPurchaseReturnCountQuery(opts: PurchaseReturnQueryOptions): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseReturnWhere(opts);
+  return { sql: 'SELECT COUNT(*)::int AS count FROM purchase_returns' + whereSql, params };
+}
+
+/** Paged purchase-returns list query (1-indexed page, clamped LIMIT/OFFSET). */
+export function buildPurchaseReturnPagedQuery(opts: PurchaseReturnQueryOptions, paging?: { page: number; pageSize: number }): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildPurchaseReturnWhere(opts);
+  let sql = `SELECT ${PR_SELECT_COLUMNS} FROM purchase_returns` + whereSql + ' ORDER BY created_at DESC';
+  if (paging) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(paging.pageSize)));
+    const page = Math.max(1, Math.floor(paging.page));
+    sql += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  }
+  return { sql, params };
+}
+
 export const PR_INSERT_SQL = `INSERT INTO purchase_returns (
    id, return_number, original_invoice_id, original_invoice_number, supplier_id, supplier_name, branch_id,
    return_date_ad, return_date_bs, reason, notes, taxable_amount, vat_amount, non_taxable_amount,

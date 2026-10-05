@@ -21,8 +21,6 @@ import {
   COMPANY_PROFILE_SELECT_SQL,
   COMPANY_PROFILE_UPSERT_SQL,
   companyProfileUpsertParams,
-  COMPANY_PROFILE_UPSERT_NO_STAMP_SQL,
-  companyProfileUpsertNoStampParams,
   BRANCH_SELECT_SQL,
   BRANCH_UPSERT_SQL,
   branchUpsertParams,
@@ -155,23 +153,6 @@ try {
 }
 
 /** Forwarded from admin.routes.ts (get_companyProfile). */
-export async function get_companyProfile(req: any, res: Response): Promise<any> {
-if (getPgConnected()) {
-    try {
-      const r = await pgPool.query(COMPANY_PROFILE_SELECT_SQL);
-      if (r.rows.length > 0) {
-        setCompanyProfile(r.rows[0]);
-        res.json(r.rows[0]);
-        return;
-      }
-    } catch (err) {
-      console.error('Error fetching company profile from DB:', err);
-    }
-  }
-  res.json(companyProfile);
-
-}
-
 /** Forwarded from admin.routes.ts (put_companyProfile). */
 export async function put_companyProfile(req: any, res: Response): Promise<any> {
 try {
@@ -276,21 +257,6 @@ try {
 }
 
 /** Forwarded from admin.routes.ts (get_users). */
-export async function get_users(req: any, res: Response): Promise<any> {
-if (getPgConnected()) {
-    try {
-      const r = await pgPool.query(USER_SELECT_SQL);
-      res.json(r.rows);
-      return;
-    } catch (err) {
-      console.error('Error fetching users from DB:', err);
-    }
-  }
-  const safeUsers = users.map(({ password: _, ...u }) => u);
-  res.json(safeUsers);
-
-}
-
 /** Forwarded from admin.routes.ts (post_users). */
 export async function post_users(req: any, res: Response): Promise<any> {
 try {
@@ -610,25 +576,6 @@ try {
 }
 
 /** Forwarded from admin.routes.ts (put_Id3). */
-export async function put_Id3(req: any, res: Response): Promise<any> {
-const { id } = req.params;
-  const cfg = req.body;
-  try {
-    await pgPool.query(DOC_NUMBER_CONFIG_UPDATE_SQL, [cfg.prefix || '', cfg.suffix || '', cfg.minDigits || 4, cfg.startingNumber || 1, cfg.nextNumber || 1, cfg.resetEveryFiscalYear !== false, cfg.notes || '', id]);
-  } catch (e: any) {
-    console.error('PostgreSQL update document_number_configs failed:', id, e?.message || e);
-  }
-
-  const idx = docNumberConfigs.findIndex((c) => c.id === id);
-  if (idx !== -1) {
-    docNumberConfigs[idx] = { ...docNumberConfigs[idx], ...cfg };
-  } else {
-    docNumberConfigs.push(cfg);
-  }
-  res.json(docNumberConfigs.find((c) => c.id === id) || cfg);
-
-}
-
 /** Forwarded from admin.routes.ts (put_documentNumberConfigs). */
 export async function put_documentNumberConfigs(req: any, res: Response): Promise<any> {
 const configs: DocumentNumberConfig[] = req.body;
@@ -826,42 +773,6 @@ const { id } = req.params;
 }
 
 /** Forwarded from admin.routes.ts (put_Id4). */
-export async function put_Id4(req: any, res: Response): Promise<any> {
-const { id } = req.params;
-  const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
-  const values = [code, startDateAD, endDateAD, startDateBS, endDateBS];
-
-  if (!values.every((value) => typeof value === 'string' && value.trim())) {
-    res.status(400).json({ message: 'Fiscal year code and all BS/AD period dates are required.' });
-    return;
-  }
-  if (Number.isNaN(Date.parse(startDateAD)) || Number.isNaN(Date.parse(endDateAD)) || startDateAD > endDateAD) {
-    res.status(400).json({ message: 'Enter a valid AD period with an end date on or after the start date.' });
-    return;
-  }
-
-  try {
-    const result = await pgPool.query(
-      FY_UPDATE_SQL,
-      [code.trim(), startDateAD, endDateAD, startDateBS.trim(), endDateBS.trim(), id]
-    );
-    const fiscalYear = result.rows[0];
-    if (!fiscalYear) return res.status(404).json({ message: 'Fiscal year not found.' });
-
-    const index = fiscalYears.findIndex((item) => item.id === id);
-    if (index >= 0) setFiscalYears(withReplaced(fiscalYears, index, fiscalYear));
-    logAuditEvent(req, 'UPDATE_FISCAL_YEAR', 'FISCAL_YEAR', `Updated fiscal year ${fiscalYear.code}`);
-    res.json(fiscalYear);
-    return;
-  } catch (error: any) {
-    if (error?.code === '23505') return res.status(409).json({ message: 'That fiscal year code already exists.' });
-    console.error('Error updating fiscal year:', error);
-    res.status(500).json({ message: `Unable to update fiscal year: ${error.message}` });
-    return;
-  }
-
-}
-
 /** Forwarded from admin.routes.ts (post_close). */
 export async function post_close(req: any, res: Response): Promise<any> {
 const { id } = req.params;
@@ -1512,50 +1423,4 @@ const { dayRecords } = req.body;
 }
 
 /** Forwarded from admin.routes.ts (get_companyProfile2). */
-export async function get_companyProfile2(req: any, res: Response): Promise<any> {
-try {
-    if (getPgConnected()) {
-      const dbRes = await pgPool.query(COMPANY_PROFILE_SELECT_SQL);
-      if (dbRes.rows.length > 0) {
-        res.json(dbRes.rows[0]);
-        return;
-      }
-    }
-    res.json(companyProfile);
-  } catch (err: any) {
-    console.error('Error fetching company profile:', err);
-    res.json(companyProfile);
-  }
-
-}
-
 /** Forwarded from admin.routes.ts (put_companyProfile2). */
-export async function put_companyProfile2(req: any, res: Response): Promise<any> {
-try {
-    const updated = req.body;
-    setCompanyProfile({
-      ...companyProfile,
-      ...updated,
-    });
-
-    if (getPgConnected()) {
-      await pgPool.query(COMPANY_PROFILE_UPSERT_NO_STAMP_SQL, companyProfileUpsertNoStampParams(companyProfile as CompanyProfile));
-    }
-
-    logAuditEvent(
-      req,
-      'COMPANY_PROFILE_UPDATED',
-      'SYSTEM',
-      `Updated company profile details for ${companyProfile.name} (PAN: ${companyProfile.panVatNumber})`,
-      'WH001'
-    );
-    broadcastChange({ type: 'COMPANY_PROFILE_UPDATED', entity: 'COMPANY_PROFILE' });
-
-    res.json(companyProfile);
-  } catch (err: any) {
-    console.error('Error updating company profile:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
-  }
-
-}
-

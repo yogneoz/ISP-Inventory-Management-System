@@ -238,7 +238,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         totalAfterPeriodQtyChanges += l.quantityChanged;
       } else {
         // Log is WITHIN period
-        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || l.changeType === 'DAMAGE_REVERSED' || l.changeType === 'SALES_RETURN' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
+        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || l.changeType === 'DAMAGE_REVERSED' || l.changeType === 'SALES_RETURN' || l.changeType === 'SALES_INVOICE_CANCELLED' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
           receivedQty += Math.abs(l.quantityChanged);
         } else if (l.changeType === 'DAMAGE') {
           damagedQty += Math.abs(l.quantityChanged);

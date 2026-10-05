@@ -5,9 +5,28 @@
 import { fetchJson } from './http';
 import type { SalesInvoice, SalesReturn, CustomerPayment } from '../../types';
 
-export async function getSalesInvoices(params?: { branchId?: string }): Promise<SalesInvoice[]> {
-  const qs = params?.branchId ? `?branchId=${encodeURIComponent(params.branchId)}` : '';
-  return fetchJson(`/api/sales-invoices${qs}`);
+// Paged mode (params.page set): returns a { data, page, pageSize,
+// totalItems } envelope so the register never loads the whole ledger.
+// params.all: every filtered row (CSV export). Without page/all the
+// legacy full-array shape is returned.
+export async function getSalesInvoices(params?: {
+  branchId?: string; status?: string; query?: string;
+  dateFromAD?: string; dateToAD?: string;
+  page?: number; pageSize?: number; all?: boolean;
+}): Promise<SalesInvoice[] | { data: SalesInvoice[]; page: number; pageSize: number; totalItems: number }> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+  if (params?.query) search.append('query', params.query);
+  if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.all) search.append('all', '1');
+  if (params?.page !== undefined) {
+    search.append('page', String(params.page));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const query = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/sales-invoices${query}`);
 }
 
 export async function createSalesInvoice(inv: Partial<SalesInvoice>): Promise<SalesInvoice> {
@@ -18,9 +37,37 @@ export async function createSalesInvoice(inv: Partial<SalesInvoice>): Promise<Sa
   });
 }
 
-export async function getPurchaseReturns(params?: { branchId?: string }): Promise<SalesReturn[]> {
-  const qs = params?.branchId ? `?branchId=${encodeURIComponent(params.branchId)}` : '';
-  return fetchJson(`/api/purchase-returns${qs}`) as unknown as Promise<SalesReturn[]>;
+// Paged mode (params.page set): { data, page, pageSize, totalItems }
+// envelope; without page/all the legacy full-array shape.
+/**
+ * Voids a posted sales invoice: restores stock, releases the claimed serials
+ * and appends a compensating ledger row — atomically, server-side.
+ */
+export async function cancelSalesInvoice(id: string, reason?: string): Promise<SalesInvoice> {
+  return fetchJson(`/api/sales-invoices/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function getPurchaseReturns(params?: {
+  branchId?: string; status?: string; query?: string;
+  dateFromAD?: string; dateToAD?: string;
+  page?: number; pageSize?: number; all?: boolean;
+}): Promise<SalesReturn[] | { data: SalesReturn[]; page: number; pageSize: number; totalItems: number }> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+  if (params?.query) search.append('query', params.query);
+  if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.all) search.append('all', '1');
+  if (params?.page !== undefined) {
+    search.append('page', String(params.page));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const query = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/purchase-returns${query}`);
 }
 
 export async function createPurchaseReturn(ret: any): Promise<any> {
@@ -45,9 +92,26 @@ export async function postPurchaseReturn(id: string): Promise<any> {
   });
 }
 
-export async function getSalesReturns(params?: { branchId?: string }): Promise<SalesReturn[]> {
-  const qs = params?.branchId ? `?branchId=${encodeURIComponent(params.branchId)}` : '';
-  return fetchJson(`/api/sales-returns${qs}`);
+// Paged mode (params.page set): { data, page, pageSize, totalItems }
+// envelope; without page/all the legacy full-array shape.
+export async function getSalesReturns(params?: {
+  branchId?: string; status?: string; query?: string;
+  dateFromAD?: string; dateToAD?: string;
+  page?: number; pageSize?: number; all?: boolean;
+}): Promise<SalesReturn[] | { data: SalesReturn[]; page: number; pageSize: number; totalItems: number }> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+  if (params?.query) search.append('query', params.query);
+  if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  if (params?.all) search.append('all', '1');
+  if (params?.page !== undefined) {
+    search.append('page', String(params.page));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const query = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/sales-returns${query}`);
 }
 
 export async function createSalesReturn(ret: Partial<SalesReturn>): Promise<SalesReturn> {

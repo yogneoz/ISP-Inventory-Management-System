@@ -44,7 +44,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   onResetPassword,
   onDeleteUser,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -172,7 +172,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
         `Success! Password for ${resetModalUser.name} (${resetModalUser.email}) has been updated. Provide them with their new login credential.`
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to reset password. Please try again.');
+      alertDialog(err.message || 'Failed to reset password. Please try again.');
     } finally {
       setIsResetting(false);
     }

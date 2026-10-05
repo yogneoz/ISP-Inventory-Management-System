@@ -4,7 +4,6 @@ import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliC
 import { getWarrantyInfo } from '../../utils/warranty';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
-import { api } from '../../services/api';
 import StatCard from '../../components/common/StatCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
@@ -38,6 +37,8 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDialog } from '../../components/common/DialogProvider';
+import { api } from '../../services/api';
 
 interface CustomersManagementProps {
   customerDevices: CustomerDeviceRecord[];
@@ -74,6 +75,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   onCancelApproval,
   onNavigateToMaster,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const canManageCustomers = isOperationAllowed('customers-manage', currentUser?.role);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -98,39 +100,47 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     record: CustomerDeviceRecord;
   } | null>(null);
 
-  // Lookup helper for pending disconnect approval requests
-  const getPendingDisconnectRequest = (rec: CustomerDeviceRecord): ApprovalRequest | undefined => {
-    return (approvalRequests || []).find(
-      (req) =>
-        req.status === 'PENDING' &&
-        (req.targetId === rec.id || req.deviceSerial === rec.deviceSerial) &&
-        (req.requestedStatus === 'DISCONNECTED' || req.requestedStatus === 'ROUTER_COLLECTED')
-    );
-  };
+  // Server-side device reads. The endpoint is paged and applies branch + text
+  // filter in PostgreSQL; user-facing page state is the current slice.
+  const [devicesPage, setDevicesPage] = useState(1);
+  const [devicesPageSize, setDevicesPageSize] = useState(15);
+  const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
+  const [customerDevicesTotalItems, setCustomerDevicesTotalItems] = useState(0);
+  const [devicesLoadError, setDevicesLoadError] = useState(false);
 
-  const handleCancelDisconnectRequest = (request: ApprovalRequest, record: CustomerDeviceRecord) => {
-    setConfirmCancelTarget({ request, record });
-  };
+  const customerDevicesPagination = useClientPagination(
+    customerDevicesRows,
+    devicesPageSize,
+    [devicesPage, devicesPageSize]
+  );
 
-  const handleConfirmCancelApproval = async () => {
-    if (!confirmCancelTarget) return;
-    const { request, record } = confirmCancelTarget;
-    setCancellingRequestId(request.id);
-    try {
-      if (onCancelApproval) {
-        await onCancelApproval(request.id);
-      } else {
-        await api.cancelApprovalRequest(request.id, currentUser);
+  // Server-side read (page+pageSize forwarded to GET /api/customer-devices),
+  // so the register never renders a bootstrap slice.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const envelope = await api.getCustomerDevices(
+          selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+          searchQuery.trim() || undefined
+        );
+
+        if (!cancelled) {
+          setCustomerDevicesRows((envelope as { data?: CustomerDeviceRecord[] }).data || []);
+          setCustomerDevicesTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+          setDevicesLoadError(false);
+        }
+      } catch {
+        if (!cancelled) setDevicesLoadError(true);
       }
-      setToastMessage(`✓ Disconnect request #${request.requestNumber} for ${record.customerName} has been cancelled.`);
-      setConfirmCancelTarget(null);
-      setTimeout(() => setToastMessage(null), 5000);
-    } catch (err: any) {
-      alert(err?.message || 'Failed to cancel approval request.');
-    } finally {
-      setCancellingRequestId(null);
-    }
-  };
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchId, searchQuery, devicesPage, devicesPageSize]);
 
   // Device Exchange Modal State
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
@@ -160,7 +170,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     e.preventDefault();
     if (!selectedDeviceForExchange) return;
     if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
-      alert('Please fill new device serial number and PON serial number.');
+      alertDialog('Please fill new device serial number and PON serial number.');
       return;
     }
 
@@ -189,7 +199,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       setToastMessage(`✓ Device successfully exchanged for ${customerName}! New Serial: ${serial}`);
       setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
-      alert(err?.message || 'Failed to perform device exchange.');
+      alertDialog(err?.message || 'Failed to perform device exchange.');
     } finally {
       setIsSubmittingExchange(false);
     }
@@ -222,11 +232,45 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     }
   };
 
+  // Lookup helper for pending disconnect approval requests
+  const getPendingDisconnectRequest = (rec: CustomerDeviceRecord): ApprovalRequest | undefined => {
+    return (approvalRequests || []).find(
+      (req) =>
+        req.status === 'PENDING' &&
+        (req.targetId === rec.id || req.deviceSerial === rec.deviceSerial) &&
+        (req.requestedStatus === 'DISCONNECTED' || req.requestedStatus === 'ROUTER_COLLECTED')
+    );
+  };
+
+  const handleCancelDisconnectRequest = (request: ApprovalRequest, record: CustomerDeviceRecord) => {
+    setConfirmCancelTarget({ request, record });
+  };
+
+  const handleConfirmCancelApproval = async () => {
+    if (!confirmCancelTarget) return;
+    const { request, record } = confirmCancelTarget;
+    setCancellingRequestId(request.id);
+    try {
+      if (onCancelApproval) {
+        await onCancelApproval(request.id);
+      } else {
+        await api.cancelApprovalRequest(request.id, currentUser);
+      }
+      setToastMessage(`✓ Disconnect request #${request.requestNumber} for ${record.customerName} has been cancelled.`);
+      setConfirmCancelTarget(null);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      alertDialog(err?.message || 'Failed to cancel approval request.');
+    } finally {
+      setCancellingRequestId(null);
+    }
+  };
+
   const handleConfirmSubmitApproval = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!approvalTarget) return;
     if (!approvalReason.trim()) {
-      alert('Please provide a justification / reason for this status change request.');
+      alertDialog('Please provide a justification / reason for this status change request.');
       return;
     }
 
@@ -265,7 +309,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       setApprovalTarget(null);
       setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
-      alert(`Failed to submit approval request: ${err.message}`);
+      alertDialog(`Failed to submit approval request: ${err.message}`);
     } finally {
       setIsSubmittingApproval(false);
     }
@@ -302,39 +346,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [purchaseBillRef, setPurchaseBillRef] = useState('BILL-9021');
   const [notes, setNotes] = useState('');
 
-  const filteredRecords = customerDevices.filter((rec) => {
-    const matchesBranch = selectedBranchId === 'ALL' || rec.branchId === selectedBranchId;
-    let matchesStatus = selectedStatus === 'ALL';
-    if (selectedStatus === 'RENTAL') {
-      matchesStatus = rec.status === 'RENTAL' || rec.status === 'ACTIVE';
-    } else if (selectedStatus === 'ROUTER_COLLECTED') {
-      matchesStatus = rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED';
-    } else if (selectedStatus !== 'ALL') {
-      matchesStatus = rec.status === selectedStatus;
-    }
-    
-    if (!searchQuery.trim()) return matchesBranch && matchesStatus;
-
-    const q = (searchQuery || '').toLowerCase().trim();
-    const matchesQuery =
-      (rec?.deviceSerial || '').toLowerCase().includes(q) ||
-      (rec?.ponSerial || '').toLowerCase().includes(q) ||
-      (rec.macAddress && (rec?.macAddress || '').toLowerCase().includes(q)) ||
-      (rec?.customerName || '').toLowerCase().includes(q) ||
-      (rec?.customerCode || '').toLowerCase().includes(q) ||
-      (rec?.contactPhone || '').toLowerCase().includes(q) ||
-      (rec?.productName || '').toLowerCase().includes(q) ||
-      (rec.purchaseBillRef && (rec?.purchaseBillRef || '').toLowerCase().includes(q));
-
-    return matchesBranch && matchesStatus && matchesQuery;
-  });
-
-  const recordsPagination = useClientPagination(filteredRecords, 15, [searchQuery, selectedBranchId, selectedStatus]);
-
-  // Metrics
-  const rentalCount = customerDevices.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
-  const soldCount = customerDevices.filter((c) => c.status === 'SOLD').length;
-  const routerCollectedCount = customerDevices.filter((c) => c.status === 'ROUTER_COLLECTED' || c.status === 'DISCONNECTED').length;
+  // Metrics from server rows
+  const rentalCount = customerDevicesRows.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
+  const soldCount = customerDevicesRows.filter((c) => c.status === 'SOLD').length;
+  const routerCollectedCount = customerDevicesRows.filter((c) => c.status === 'ROUTER_COLLECTED' || c.status === 'DISCONNECTED').length;
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -342,7 +357,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     setTimeout(() => setCopiedText(null), 2000);
   };
 
+  // Refresh the register from the database after any device mutation (create,
+  // status patch, approval-flow status) so a stale browser slice never survive.
+
   const handleExportCSV = () => {
+    if (customerDevicesRows.length === 0) {
+      alertDialog('No customer devices available to export.');
+      return;
+    }
+
     const branchName =
       selectedBranchId === 'ALL'
         ? 'All Branches (Consolidated)'
@@ -383,7 +406,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       reportTitle: `Customer Hardware Devices & Serial Numbers Lookup Report (${selectedStatus})`,
       branchName,
       generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
-      data: filteredRecords,
+      data: customerDevicesRows,
       columns,
     });
   };
@@ -391,7 +414,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim() || !deviceSerial.trim() || !ponSerial.trim()) {
-      alert('Please fill customer name, device serial number, and PON serial number.');
+      alertDialog('Please fill customer name, device serial number, and PON serial number.');
       return;
     }
 
@@ -432,7 +455,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white"
             >
               <Download className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-              <span>Export CSV ({filteredRecords.length})</span>
+              <span>Export CSV ({customerDevicesRows.length})</span>
             </button>
 
             {canManageCustomers && (
@@ -527,14 +550,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-              {filteredRecords.length === 0 ? (
+              {customerDevicesRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs break-words">
                     No matching customer devices found. Use the search bar above to query Device Serial or PON Serial numbers.
                   </td>
                 </tr>
               ) : (
-                recordsPagination.pagedItems.map((rec) => {
+                customerDevicesPagination.pagedItems.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
                   const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
                   const pendingDisconnect = getPendingDisconnectRequest(rec);
@@ -745,14 +768,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           </table>
         </div>
         <TablePagination
-          page={recordsPagination.page}
-          pageCount={recordsPagination.pageCount}
-          totalItems={recordsPagination.totalItems}
-          rangeStart={recordsPagination.rangeStart}
-          rangeEnd={recordsPagination.rangeEnd}
-          pageSize={recordsPagination.pageSize}
-          onPageChange={recordsPagination.setPage}
-          onPageSizeChange={recordsPagination.setPageSize}
+          page={customerDevicesPagination.page}
+          pageCount={customerDevicesPagination.pageCount}
+          totalItems={customerDevicesPagination.totalItems}
+          rangeStart={customerDevicesPagination.rangeStart}
+          rangeEnd={customerDevicesPagination.rangeEnd}
+          pageSize={customerDevicesPagination.pageSize}
+          onPageChange={customerDevicesPagination.setPage}
+          onPageSizeChange={customerDevicesPagination.setPageSize}
           className="mt-1"
         />
       </div>

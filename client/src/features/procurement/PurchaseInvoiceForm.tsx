@@ -30,11 +30,13 @@ import {
   X,
 } from 'lucide-react';
 import { formCardClass } from '../../components/common/FormCard';
+import { useDialog } from '../../components/common/DialogProvider';
 import { DateField } from '../../components/DateField';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import type {
   PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, Supplier, DeviceSerialPair, User,
 } from '../../types';
@@ -79,6 +81,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   onSaved,
   onClose,
 }) => {
+  const { alert: alertDialog } = useDialog();
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
@@ -366,17 +369,18 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
 
   const netBillSubtotal = Math.max(0, grossSubtotal - totalDiscount);
 
-  // Bill-wise Tax Rate: 13% if TAXABLE_13, 0% if TAX_EXEMPTED
+  // Bill-wise Tax Rate: the company-configured rate if TAXABLE_13, 0% if TAX_EXEMPTED
   const isBillTaxable = taxationType === 'TAXABLE_13';
+  const billVatRate = getDefaultTaxRate();
   const billTaxableAmount = isBillTaxable ? netBillSubtotal : 0;
   const billExemptAmount = isBillTaxable ? 0 : netBillSubtotal;
-  const billVatAmount = isBillTaxable ? (netBillSubtotal * 13) / 100 : 0;
+  const billVatAmount = isBillTaxable ? (netBillSubtotal * billVatRate) / 100 : 0;
   const grandTotalCalculated = netBillSubtotal + billVatAmount;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (lines.length === 0) {
-      alert('Please search and add at least one product item to the purchase bill.');
+      alertDialog('Please search and add at least one product item to the purchase bill.');
       return;
     }
     if (!poValidation.valid) {
@@ -386,7 +390,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
 
     const targetBranch = branches.find((b) => b.id === branchId);
     if (targetBranch && targetBranch.allowProcurement === false) {
-      alert(
+      alertDialog(
         `Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`
       );
       return;
@@ -418,10 +422,10 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       unitPrice: Number(l.unitPrice),
       discount: Number(l.discount),
       isTaxExempt: !isBillTaxable,
-      taxRate: isBillTaxable ? 13 : 0,
+      taxRate: isBillTaxable ? getDefaultTaxRate() : 0,
       subtotal: l.netSubtotal,
-      taxAmount: isBillTaxable ? (l.netSubtotal * 13) / 100 : 0,
-      total: l.netSubtotal + (isBillTaxable ? (l.netSubtotal * 13) / 100 : 0),
+      taxAmount: isBillTaxable ? (l.netSubtotal * getDefaultTaxRate()) / 100 : 0,
+      total: l.netSubtotal + (isBillTaxable ? (l.netSubtotal * getDefaultTaxRate()) / 100 : 0),
       deviceSerials: l.deviceSerials,
     }));
 
@@ -657,7 +661,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                     className={`h-4 w-4 text-blue-600 dark:text-blue-400 focus:ring-blue-500`}
                   />
                   <span className={`font-bold text-slate-900 dark:text-white`}>
-                    13% Taxable Bill (Standard VAT Applicable)
+                    {getDefaultTaxRate()}% Taxable Bill (Standard VAT Applicable)
                   </span>
                 </label>
 
@@ -1035,12 +1039,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Taxation Status:</span>
                   <span className={`font-bold text-blue-600 dark:text-blue-400`}>
-                    {isBillTaxable ? '13% Taxable Bill' : 'Tax Exempted Bill'}
+                    {isBillTaxable ? `${getDefaultTaxRate()}% Taxable Bill` : 'Tax Exempted Bill'}
                   </span>
                 </div>
 
                 <div className={`flex justify-between text-blue-600 border-slate-200 dark:text-blue-400 dark:border-slate-800 font-semibold border-t pt-2`}>
-                  <span>13% Input VAT:</span>
+                  <span>{getDefaultTaxRate()}% Input VAT:</span>
                   <span className="font-mono font-bold">
                     {formatNPRPrecise(billVatAmount)}
                   </span>

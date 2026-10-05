@@ -154,9 +154,9 @@ export function companyProfileUpsertParams(p: CompanyProfile): unknown[] {
 }
 
 /**
- * Variant used by put_companyProfile2: identical columns but without the
- * updated_at bind (the literal CURRENT_TIMESTAMP appears only in the INSERT
- * column list there) and with 'Nepal' as the country default.
+ * No-stamp variant of the company-profile upsert: identical columns but
+ * without the updated_at bind (the literal CURRENT_TIMESTAMP appears only
+ * in the INSERT column list there) and with 'Nepal' as the country default.
  */
 export const COMPANY_PROFILE_UPSERT_NO_STAMP_SQL = `INSERT INTO company_profile (id, name, legal_name, tagline, address, city, country, postal_code, phone, email, website, pan_vat_number, registration_number, logo_url, logo_preset, currency_symbol, currency_code, currency_locale, currency_position, currency_decimals, default_tax_rate, notes)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)

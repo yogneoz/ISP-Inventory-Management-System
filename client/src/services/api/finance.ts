@@ -6,20 +6,9 @@ import type {
 import { fetchJson } from './http';
 
 // Fiscal Years
-export async function getFiscalYears(): Promise<FiscalYear[]> {
-  return fetchJson('/api/fiscal-years');
-}
-
 export async function setCurrentFiscalYear(id: string): Promise<FiscalYear[]> {
   return fetchJson(`/api/fiscal-years/${id}/set-current`, {
     method: 'POST',
-  });
-}
-
-export async function updateFiscalYear(fiscalYear: FiscalYear): Promise<FiscalYear> {
-  return fetchJson(`/api/fiscal-years/${fiscalYear.id}`, {
-    method: 'PUT',
-    body: JSON.stringify(fiscalYear),
   });
 }
 

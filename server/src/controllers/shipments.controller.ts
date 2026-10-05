@@ -12,6 +12,7 @@ import {
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
+  shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
 } from '../models/shipments.repo';
 /** Forwarded from shipments.routes.ts (get_shipments). */
 export async function get_shipments(req: any, res: Response): Promise<any> {
@@ -253,9 +254,58 @@ try {
 
 /** Forwarded from shipments.routes.ts (post_cancelReceive). */
 export async function post_cancelReceive(req: any, res: Response): Promise<any> {
-return res.status(400).json({
-    message: 'Received transfers cannot be cancelled. Only In-Transit transfers can be cancelled.',
-  });
+try {
+    const { id } = req.params;
+    const { user, reason } = req.body || {};
+
+    let sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+    if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
+    if (sh.status !== 'RECEIVED' && sh.status !== 'DISCREPANCY') {
+      return res.status(400).json({
+        message: `Only received transfers can have their receipt cancelled. Transfer ${sh.trackingCode} is ${sh.status}.`,
+      });
+    }
+
+    const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
+
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        const current = await client.query(SHIPMENT_FIND_FOR_CANCEL_SQL, [id]);
+        const row = current.rows[0];
+        if (!row) throw new Error('Shipment / transfer not found.');
+        if (row.status !== 'RECEIVED' && row.status !== 'DISCREPANCY') {
+          throw new Error(`Only received transfers can have their receipt cancelled. Transfer is ${row.status}.`);
+        }
+        const destBranchId = row.destinationBranchId;
+        const items = typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || sh.items);
+        for (const item of items) {
+          const qty = shipmentReceivedQty(item);
+          if (qty > 0 && destBranchId) {
+            const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, item.productId, destBranchId]);
+            if (undone.rowCount !== 1) {
+              throw new Error(`Insufficient stock at the destination branch to undo the receipt of ${item.productName || item.productId}.`);
+            }
+          }
+        }
+        await client.query(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, [id, undoNote]);
+      });
+    }
+
+    // In-memory cache mirror (same contract as post_cancel): the shipment is
+    // back In-Transit with its receive bookkeeping cleared. Stock caches are
+    // re-read by the cache-refresh hook after this mutating response.
+    sh.status = 'IN_TRANSIT';
+    sh.receivedByNotes = undefined;
+    sh.receivedDateAD = undefined;
+    sh.receivedDateBS = undefined;
+    sh.hasDiscrepancy = false;
+    sh.notes = undoNote;
+
+    logAuditEvent(req, 'CANCEL_RECEIVE_TRANSFER', 'LOGISTICS', `Cancelled receipt of Shipment #${sh.trackingCode}; reverted to In-Transit`);
+    res.json({ shipment: sh, message: `Receipt of transfer ${sh.trackingCode} cancelled. Inventory restored to In-Transit status.` });
+  } catch (err: any) {
+    console.error('Error cancelling shipment receipt:', err);
+    res.status(500).json({ message: `Database error: ${err.message}` });
+  }
 
 }
-

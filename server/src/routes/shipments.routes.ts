@@ -32,6 +32,6 @@ app.post('/api/shipments/:id/receive', requirePermission('wh-receive-pullouts'),
 
 app.post('/api/shipments/:id/cancel', async (req, res, next) => { post_cancel(req as any, res as any).catch(next); });
 
-app.post('/api/shipments/:id/cancel-receive', async (req, res, next) => { post_cancelReceive(req as any, res as any).catch(next); });
+app.post('/api/shipments/:id/cancel-receive', requirePermission('branch-transfer-cancel-receive'), async (req, res, next) => { post_cancelReceive(req as any, res as any).catch(next); });
 
 }

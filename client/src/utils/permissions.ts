@@ -2,15 +2,10 @@ export { DEFAULT_PERMISSIONS_MATRIX };
 import { UserRole, User, Branch, FiscalYear } from '../types';
 import { APP_ROLES, INVENTORY_OPERATIONS, DEFAULT_PERMISSIONS_MATRIX } from './permissionMatrixData';
 
+// In-memory copy of the server's permission matrix. Filled ONLY by
+// applyServerMatrix() (bootstrap payload or a confirmed PUT /api/permissions) —
+// there is deliberately no setter and no browser-storage fallback.
 let serverMatrixCache: Record<string, Record<string, boolean>> | null = null;
-
-export function setServerMatrix(matrix: Record<string, Record<string, boolean>> | null): void {
-  serverMatrixCache = matrix;
-}
-
-export function getServerMatrix(): Record<string, Record<string, boolean>> | null {
-  return serverMatrixCache;
-}
 
 export const CAN_SEE_ALL_BRANCHES_ROLES = new Set([
   'SUPER_ADMIN',
@@ -58,37 +53,33 @@ export const isBranchAllowedForUser = (
   return allowedIds.includes(branchId);
 };
 
+/**
+ * The permission matrix is SERVER DATA (permission_matrix table, served by
+ * GET /api/bootstrap and GET/PUT /api/permissions) and is never read from or
+ * written to browser storage: a localStorage copy could be edited by anyone
+ * with devtools and would silently disappear — or worse, resurface stale —
+ * when browser history/cookies are cleared.
+ *
+ * Before bootstrap lands, `serverMatrixCache` is null and the compiled
+ * defaults are used for that first paint; every authoritative read after
+ * bootstrap comes from the server.
+ */
 export const getPermissionsMatrix = (): Record<string, Record<string, boolean>> => {
-  if (serverMatrixCache) {
+  if (serverMatrixCache && Object.keys(serverMatrixCache).length > 0) {
     return serverMatrixCache;
-  }
-  try {
-    const stored = localStorage.getItem('inventory_permissions_matrix');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const merged: Record<string, Record<string, boolean>> = { ...DEFAULT_PERMISSIONS_MATRIX };
-      for (const [opId, roles] of Object.entries(parsed)) {
-        if (roles && typeof roles === 'object') {
-          merged[opId] = {
-            ...(DEFAULT_PERMISSIONS_MATRIX[opId] || {}),
-            ...(roles as Record<string, boolean>),
-          };
-        }
-      }
-      return merged;
-    }
-  } catch (e) {
-    console.error('Error reading permissions matrix from localStorage', e);
   }
   return DEFAULT_PERMISSIONS_MATRIX;
 };
 
-export const savePermissionsMatrix = (matrix: Record<string, Record<string, boolean>>): void => {
-  try {
-    localStorage.setItem('inventory_permissions_matrix', JSON.stringify(matrix));
+/**
+ * Applies a matrix the server has confirmed (bootstrap payload or a
+ * successful PUT /api/permissions) and notifies the app so every
+ * `isOperationAllowed` consumer re-evaluates.
+ */
+export const applyServerMatrix = (matrix: Record<string, Record<string, boolean>>): void => {
+  serverMatrixCache = matrix;
+  if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('inventory_permissions_updated'));
-  } catch (e) {
-    console.error('Error saving permissions matrix', e);
   }
 };
 

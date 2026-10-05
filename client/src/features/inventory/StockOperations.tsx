@@ -84,7 +84,6 @@ interface StockOperationsProps {
   locations?: LocationRecord[];
   customers?: CustomerRecord[];
   customerDevices?: CustomerDeviceRecord[];
-  serialLogs?: SerialLog[];
   approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
@@ -180,7 +179,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   locations = [],
   customers = [],
   customerDevices = [],
-  serialLogs = [],
   approvalRequests = [],
   onCreateOperation,
   onReceiveOperation,
@@ -195,7 +193,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   sseRefreshKey,
 }) => {
   const { isDarkMode } = useDarkMode();
-  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
+  const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -254,7 +252,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   const ensureBsDateAvailable = (): boolean => {
     if (bsDateStatus === 'missing') {
-      alert(
+      alertDialog(
         'BS date is not available. Stock operations are locked.\n\n' +
           `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
           'Please contact your system administrator for BS month seeding.\n\n' +
@@ -427,8 +425,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [assignProductSearch, setAssignProductSearch] = useState<string>('');
   const [isAssignProductDropdownOpen, setIsAssignProductDropdownOpen] = useState<boolean>(false);
   const assignProductDropdownRef = useRef<HTMLDivElement | null>(null);
-  // Serial-log cache for IN_STOCK serial-pair validation (bootstrap payload
-  // excludes serialLogs, so fetch on demand when the deployment form is used).
+  // Serial-log cache for IN_STOCK serial-pair validation. The bootstrap
+  // payload excludes serialLogs, so this mount-once fetch IS the register
+  // this form validates against.
   const [assignSerialLogCache, setAssignSerialLogCache] = useState<SerialLog[]>([]);
   const assignSerialLogLoaded = useRef(false);
   useEffect(() => {
@@ -483,56 +482,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [isAssignProductDropdownOpen]);
-
-  // 5. Product Sale Form State (Multi-Item Sales Invoice)
-  const [saleCustomerId, setSaleCustomerId] = useState<string>(customers[0]?.id || '');
-  const [saleBranchId, setSaleBranchId] = useState<string>(userBranchId);
-  const [salePaymentMethod, setSalePaymentMethod] = useState<string>('Cash / Direct Payment');
-  const [saleNotes, setSaleNotes] = useState<string>('Direct retail product item sale to customer');
-  const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
-
-  // Customer SEARCH field state (searchable input + dropdown, not a native select).
-  // `saleCustomerQuery` is the visible text; `saleCustomerId` stays the canonical FK.
-  const saleCustomerDropdownRef = useRef<HTMLDivElement | null>(null);
-  const [saleCustomerQuery, setSaleCustomerQuery] = useState<string>(() => {
-    const c = customers[0];
-    return c ? `${c.customerName} (${c.customerId})` : '';
-  });
-  const [isSaleCustomerDropdownOpen, setIsSaleCustomerDropdownOpen] = useState<boolean>(false);
-
-  const saleCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
-
-  // Keep the visible query in sync when the canonical id changes externally
-  // (form reset, customers list loads, default selection).
-  useEffect(() => {
-    const c = customers.find((x) => x.id === saleCustomerId);
-    if (c) setSaleCustomerQuery(saleCustomerDisplay(c));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saleCustomerId, customers]);
-
-  // Close the customer dropdown on outside click.
-  useEffect(() => {
-    if (!isSaleCustomerDropdownOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (saleCustomerDropdownRef.current && !saleCustomerDropdownRef.current.contains(e.target as Node)) {
-        setIsSaleCustomerDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [isSaleCustomerDropdownOpen]);
-
-  const filteredSaleCustomers = useMemo(() => {
-    const q = saleCustomerQuery.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.customerName.toLowerCase().includes(q) ||
-        c.customerId.toLowerCase().includes(q) ||
-        (c.contactNumber || '').toLowerCase().includes(q) ||
-        (c.address || '').toLowerCase().includes(q)
-    );
-  }, [customers, saleCustomerQuery]);
 
   // 6. Consumable Issue Form State (Multi-Item Requisition)
   const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
@@ -1045,18 +994,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   // Sale Items Handlers
-  const handleResetSaleForm = () => {
-    setSaleItems([]);
+  const handleResetSellForm = () => {
+    setSellItems([]);
     const first = customers[0];
-    setSaleCustomerId(first?.id || '');
-    setSaleCustomerQuery(first ? saleCustomerDisplay(first) : '');
-    setSaleBranchId(userBranchId);
-    setSalePaymentMethod('Cash / Direct Payment');
-    setSaleNotes('Direct retail product item sale to customer');
+    setSellCustomerId(first?.id || '');
+    setSellCustomerQuery(first ? sellCustomerDisplay(first) : '');
+    setSellBranchId(userBranchId);
+    setSellPaymentMethod('Cash / Direct Payment');
+    setSellNotes('Direct retail product item sale to customer');
   };
 
-  const updateSaleDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
-    setSaleItems((prev) =>
+  const updateSellDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSellItems((prev) =>
       prev.map((item, idx) => {
         if (idx !== lineIdx) return item;
         const serials = [...(item.deviceSerials || [])];
@@ -1066,8 +1015,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   };
 
-  const updateSalePonSerial = (lineIdx: number, sIdx: number, val: string) => {
-    setSaleItems((prev) =>
+  const updateSellPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSellItems((prev) =>
       prev.map((item, idx) => {
         if (idx !== lineIdx) return item;
         const serials = [...(item.deviceSerials || [])];
@@ -1077,7 +1026,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   };
 
-  const handleAddSaleItem = (prodId?: string) => {
+  const handleAddSellItem = (prodId?: string) => {
     // Only 'Product Item' group products are sellable on this invoice.
     const selProd = saleEligibleProducts.find((p) => p.id === prodId) || saleEligibleProducts[0];
     if (!selProd) return;
@@ -1086,10 +1035,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     let targetLineIdx = 0;
     let targetSerialIdx = 0;
 
-    const existingIdx = saleItems.findIndex((i) => i.productId === selProd.id);
+    const existingIdx = sellItems.findIndex((i) => i.productId === selProd.id);
     if (existingIdx !== -1) {
       targetLineIdx = existingIdx;
-      setSaleItems((prev) =>
+      setSellItems((prev) =>
         prev.map((item, idx) => {
           if (idx !== existingIdx) return item;
           const newQty = item.quantity + 1;
@@ -1107,10 +1056,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         })
       );
     } else {
-      targetLineIdx = saleItems.length;
+      targetLineIdx = sellItems.length;
       targetSerialIdx = 0;
       const price = selProd.sellingPrice || 1000;
-      setSaleItems((prev) => [
+      setSellItems((prev) => [
         ...prev,
         {
           id: `sli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1132,9 +1081,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
   };
 
-  const handleUpdateSaleItem = (id: string, updates: Partial<SaleItem>) => {
-    setSaleItems(
-      saleItems.map((item) => {
+  const handleUpdateSellItem = (id: string, updates: Partial<SaleItem>) => {
+    setSellItems(
+      sellItems.map((item) => {
         if (item.id !== id) return item;
         const updated = { ...item, ...updates };
         if (updates.productId) {
@@ -1164,8 +1113,63 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   };
 
-  const handleRemoveSaleItem = (id: string) => {
-    setSaleItems(saleItems.filter((i) => i.id !== id));
+  const handleRemoveSellItem = (id: string) => {
+    setSellItems(sellItems.filter((i) => i.id !== id));
+  };
+
+  const handleSubmitSellProductSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    const cust = customers.find((c) => c.id === sellCustomerId);
+    const branchObj = branches.find((b) => b.id === sellBranchId);
+    const branchName = branchObj?.name || sellBranchId;
+
+    if (!cust) {
+      alertDialog('Please select a customer from the search results before saving.');
+      return;
+    }
+    if (sellItems.length === 0) {
+      alertDialog('Please add at least one product item to the sales invoice.');
+      return;
+    }
+
+    // Strict validation for Branch Stock Quantity and Serial Register
+    if (
+      !validateSourceBranchStockAndSerials(
+        sellBranchId,
+        branchName,
+        sellItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
+      return;
+    }
+
+    const grossTotal = sellItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0);
+    const totalDiscount = sellItems.reduce((s, i) => s + i.discount, 0);
+    const netSaleAmount = Math.max(0, grossTotal - totalDiscount);
+
+    await onCreateOperation({
+      type: 'STOCK_OUT',
+      branchId: sellBranchId,
+      branchName,
+      items: sellItems,
+      totalValue: netSaleAmount,
+      customerId: cust.id,
+      customerName: `${cust.customerName} (${cust.customerId})`,
+      paymentMethod: sellPaymentMethod,
+      reason: `Customer Product Sale Invoice (${sellItems.length} items): ${cust.customerName} - ${sellNotes}`,
+      inspectorName: currentUser?.name || 'Sales Representative',
+      status: 'LOGGED',
+    });
+
+    alertDialog(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: ${formatNPR(netSaleAmount)}.
+Sold device(s) tagged as SOLD in Customer Device Directory.`);
+    setSellItems([]);
   };
 
   // Consumable Items Handlers
@@ -1254,7 +1258,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
       // 1. Every stock-out operation must have a real branch stock record.
       if (!srcStock || availStock < item.quantity) {
-        alert(
+        alertDialog(
           `Insufficient inventory: "${branchName}" has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", but ${item.quantity} unit(s) were requested.`
         );
         return false;
@@ -1263,26 +1267,26 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       // 2. Validate Serial Tracking & Register for Serialized Items
       if (isSerialized) {
         if (!item.deviceSerials || item.deviceSerials.length < item.quantity) {
-          alert(`Validation Error: Please enter serial numbers for all ${item.quantity} unit(s) of "${item.productName}".`);
+          alertDialog(`Validation Error: Please enter serial numbers for all ${item.quantity} unit(s) of "${item.productName}".`);
           return false;
         }
 
         for (let sIdx = 0; sIdx < item.quantity; sIdx++) {
           const s = item.deviceSerials[sIdx];
           if (!s || !s.deviceSerial?.trim()) {
-            alert(`Validation Error: Device Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
+            alertDialog(`Validation Error: Device Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
             return false;
           }
 
           const cleanSerial = s.deviceSerial.trim().toUpperCase();
           const cleanPon = s.ponSerial?.trim().toUpperCase();
           if (prod?.trackingType === 'SERIAL_MAC_PON' && !cleanPon) {
-            alert(`Validation Error: PON Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
+            alertDialog(`Validation Error: PON Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
             return false;
           }
 
           if (seenSerials.has(cleanSerial)) {
-            alert(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in requested items.`);
+            alertDialog(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in requested items.`);
             return false;
           }
           seenSerials.add(cleanSerial);
@@ -1296,7 +1300,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               (!cd.productName || cd.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
           );
           if (!match) {
-            alert(`Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} must match an IN_STOCK ${item.productName} record at ${branchName}.`);
+            alertDialog(`Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} must match an IN_STOCK ${item.productName} record at ${branchName}.`);
             return false;
           }
         }
@@ -1311,7 +1315,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
     if (pulloutItems.length === 0) {
-      alert('Please add at least one stock item to the pullout bin.');
+      alertDialog('Please add at least one stock item to the pullout bin.');
       return;
     }
 
@@ -1350,7 +1354,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'DISPATCHED',
     });
 
-    alert(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
+    alertDialog(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
 
     setIsPulloutModalOpen(false);
     setActiveTab('PULLOUT_BINS');
@@ -1363,7 +1367,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     if (!ensureBsDateAvailable()) return;
     const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
     if (damageItems.length === 0) {
-      alert('Add at least one product to the damaged stock list.');
+      alertDialog('Add at least one product to the damaged stock list.');
       return;
     }
 
@@ -1532,12 +1536,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     const destBranch = branches.find((b) => b.id === xferDestBranchId || b.code === xferDestBranchId);
 
     if (!srcBranch || !destBranch) {
-      alert('Please select both a valid Source Branch and Destination Branch.');
+      alertDialog('Please select both a valid Source Branch and Destination Branch.');
       return;
     }
 
     if (xferSourceBranchId === xferDestBranchId) {
-      alert('Source and Destination branches must be different.');
+      alertDialog('Source and Destination branches must be different.');
       return;
     }
 
@@ -1546,11 +1550,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     // branches configured to accept warehouse transfers (allowWarehouseTransfer).
     if (isWarehouseOrHeadOffice(srcBranch)) {
       if (!isOperationAllowed('wh-restrict-transfer', currentUser?.role)) {
-        alert('Warehouse stock transfers are restricted to the Super Admin and Inventory Manager roles only.');
+        alertDialog('Warehouse stock transfers are restricted to the Super Admin and Inventory Manager roles only.');
         return;
       }
       if (destBranch.allowWarehouseTransfer === false) {
-        alert(
+        alertDialog(
           `${destBranch.name} (${destBranch.code}) is not authorized to receive warehouse transfers. ` +
             'Enable "Allow Warehouse Transfers" for this branch in Branch Settings first.'
         );
@@ -1559,7 +1563,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
 
     if (transferItems.length === 0) {
-      alert('Please add at least one product item to transfer.');
+      alertDialog('Please add at least one product item to transfer.');
       return;
     }
 
@@ -1596,7 +1600,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         items: transferItems,
         notes: xferNotes,
       });
-      alert(`Inter-Branch Stock Transfer with ${transferItems.length} line item(s) successfully dispatched!`);
+      alertDialog(`Inter-Branch Stock Transfer with ${transferItems.length} line item(s) successfully dispatched!`);
       setTransferItems([]);
       setActiveTab('RECEIVE_TRANSFER');
     }
@@ -1670,7 +1674,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
     if (assignItems.length === 0) {
-      alert('Add at least one asset/product line to the deployment bin.');
+      alertDialog('Add at least one asset/product line to the deployment bin.');
       return;
     }
     const todayAD = new Date().toISOString().split('T')[0];
@@ -1679,17 +1683,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     // Per-line validation: destination + stock + serial pairs.
     for (const item of assignItems) {
       if (item.usedAtType === 'POP' && !item.usedAtLocationId) {
-        alert(`Line "${item.productName}": select a POP / Network Location.`);
+        alertDialog(`Line "${item.productName}": select a POP / Network Location.`);
         return;
       }
       if (item.usedAtType === 'CUSTOMER' && !item.usedAtCustomerId) {
-        alert(`Line "${item.productName}": select a Customer.`);
+        alertDialog(`Line "${item.productName}": select a Customer.`);
         return;
       }
       if (item.kind === 'PRODUCT') {
         const availableAssetStock = stock.find((entry) => entry.productId === item.productId && entry.branchId === assignBranchId);
         if (!availableAssetStock || availableAssetStock.quantityOnHand < item.quantity) {
-          alert(`Cannot assign "${item.productName}": requested ${item.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
+          alertDialog(`Cannot assign "${item.productName}": requested ${item.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
           return;
         }
         if (item.isSerialized) {
@@ -1702,7 +1706,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             pon: (pon || '').trim().toUpperCase(),
           });
           const want = pair(item.deviceSerial, item.ponSerial);
-          const inStockInSerialLog = (serialLogs.length > 0 ? serialLogs : assignSerialLogCache).some((log) => {
+          const inStockInSerialLog = assignSerialLogCache.some((log) => {
             const got = pair(log.deviceSerial, log.ponSerial);
             return (
               got.sn === want.sn &&
@@ -1723,7 +1727,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   device.productName?.trim().toLowerCase() === item.productName.trim().toLowerCase()
               );
           if (!matchingAssetDevice) {
-            alert(`Line "${item.productName}": the Device Serial/PON pair must match an IN_STOCK unit at the selected branch.`);
+            alertDialog(`Line "${item.productName}": the Device Serial/PON pair must match an IN_STOCK unit at the selected branch.`);
             return;
           }
         }
@@ -1833,7 +1837,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       }
     }
 
-    alert(`Deployment complete — ${assignItems.length} bin line(s) processed. Tags: ${createdTags.join(', ')}`);
+    alertDialog(`Deployment complete — ${assignItems.length} bin line(s) processed. Tags: ${createdTags.join(', ')}`);
     handleResetAssignForm();
     if (typeof window !== 'undefined') window.location.reload();
   };
@@ -1861,7 +1865,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
     if (consumableItems.length === 0) {
-      alert('Please add at least one consumable item to issue.');
+      alertDialog('Please add at least one consumable item to issue.');
       return;
     }
 
@@ -1907,65 +1911,31 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
+    alertDialog(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
     setConsumableItems([]);
     setConsumableReason('Field fiber splicing & customer drop installation material usage');
   };
 
   // 5. Submit Product Sale to Customer
-  const handleSubmitProductSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ensureBsDateAvailable()) return;
-    const cust = customers.find((c) => c.id === saleCustomerId);
-    const branchObj = branches.find((b) => b.id === saleBranchId);
+  // 5. (PHASE 1) Product Sale form state — provisionally re-exported for
+  //    the merge into SalesInvoices.tsx (Phase 2). Retained in this file
+  //    until the refactor target is approved.
+  const [sellCustomerId, setSellCustomerId] = useState<string>(customers[0]?.id || '');
+  const [sellBranchId, setSellBranchId] = useState<string>(userBranchId);
+  const [sellPaymentMethod, setSellPaymentMethod] = useState<string>('Cash / Direct Payment');
+  const [sellNotes, setSellNotes] = useState<string>('Direct retail product item sale to customer');
+  const [sellItems, setSellItems] = useState<SaleItem[]>([]);
 
-    if (!cust) {
-      alert('Please select a customer from the search results before saving.');
-      return;
-    }
+  // Customer SEARCH field state (searchable input + dropdown, not a native select).
+  // `sellCustomerQuery` is the visible text; `sellCustomerId` stays the canonical FK.
+  const sellCustomerDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [sellCustomerQuery, setSellCustomerQuery] = useState<string>(() => {
+    const c = customers[0];
+    return c ? `${c.customerName} (${c.customerId})` : '';
+  });
+  const [isSellCustomerDropdownOpen, setIsSellCustomerDropdownOpen] = useState<boolean>(false);
 
-    if (saleItems.length === 0) {
-      alert('Please add at least one product item to the sales invoice.');
-      return;
-    }
-
-    // Strict validation for Branch Stock Quantity and Serial Register
-    if (
-      !validateSourceBranchStockAndSerials(
-        saleBranchId,
-        branchObj?.name || saleBranchId,
-        saleItems.map((i) => ({
-          productId: i.productId,
-          productName: i.productName,
-          quantity: i.quantity,
-          deviceSerials: i.deviceSerials,
-        }))
-      )
-    ) {
-      return;
-    }
-
-    const grossTotal = saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0);
-    const totalDiscount = saleItems.reduce((s, i) => s + i.discount, 0);
-    const netSaleAmount = Math.max(0, grossTotal - totalDiscount);
-
-    await onCreateOperation({
-      type: 'STOCK_OUT',
-      branchId: saleBranchId,
-      branchName: branchObj?.name,
-      items: saleItems,
-      totalValue: netSaleAmount,
-      customerId: cust.id,
-      customerName: `${cust.customerName} (${cust.customerId})`,
-      paymentMethod: salePaymentMethod,
-      reason: `Customer Product Sale Invoice (${saleItems.length} items): ${cust.customerName} - ${saleNotes}`,
-      inspectorName: currentUser?.name || 'Sales Representative',
-      status: 'LOGGED',
-    });
-
-    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: ${formatNPR(netSaleAmount)}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
-    setSaleItems([]);
-  };
+  const sellCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
 
   // Helper to check if an operation belongs to user's allowed branches
   const isOpInAllowedBranch = (op: StockOperation) => {
@@ -1975,6 +1945,37 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       (op.destinationWarehouseId && allowedBranchIds.includes(op.destinationWarehouseId))
     );
   };
+
+  // Filter the customer search dropdown by query text.
+  const filteredSellCustomers = useMemo(() => {
+    const q = sellCustomerQuery.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.customerName.toLowerCase().includes(q) ||
+        c.customerId.toLowerCase().includes(q) ||
+        (c.contactNumber || '').toLowerCase().includes(q) ||
+        (c.address || '').toLowerCase().includes(q)
+    );
+  }, [customers, sellCustomerQuery]);
+
+  // Close the customer dropdown on outside click.
+  useEffect(() => {
+    if (!isSellCustomerDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (sellCustomerDropdownRef.current && !sellCustomerDropdownRef.current.contains(e.target as Node)) {
+        setIsSellCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [isSellCustomerDropdownOpen]);
+  // (form reset, customers list loads, default selection).
+  useEffect(() => {
+    const c = customers.find((x) => x.id === sellCustomerId);
+    if (c) setSellCustomerQuery(sellCustomerDisplay(c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellCustomerId, customers]);
 
   // Synthesize missing stock operation entries for inventory stock items that have damagedQty > 0
   const existingDamageOps = operations.filter((op) => op.type === 'DAMAGE' && isOpInAllowedBranch(op));
@@ -2114,11 +2115,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     e.preventDefault();
     if (!ensureBsDateAvailable()) return;
     if (!selectedDeviceForExchange) {
-      alert('Please select a customer device to exchange.');
+      alertDialog('Please select a customer device to exchange.');
       return;
     }
     if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
-      alert('Please enter new device serial number (SN) and PON serial number.');
+      alertDialog('Please enter new device serial number (SN) and PON serial number.');
       return;
     }
     const exchangeBranchId = selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId;
@@ -2131,7 +2132,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         device.productName?.trim().toLowerCase() === (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase()
     );
     if (!replacementDevice) {
-      alert('The replacement Device Serial/PON pair must match an IN_STOCK device at the selected branch.');
+      alertDialog('The replacement Device Serial/PON pair must match an IN_STOCK device at the selected branch.');
       return;
     }
 
@@ -2156,7 +2157,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           ? 'Old device serial moved to defective stock bin'
           : 'Old device serial marked as scrapped/disposed';
 
-      alert(`Device Exchange Successful!\nCustomer: ${selectedDeviceForExchange.customerName}\nNew Serial: ${exchangeNewSerial.trim()}\n${actionText}`);
+      alertDialog(`Device Exchange Successful!\nCustomer: ${selectedDeviceForExchange.customerName}\nNew Serial: ${exchangeNewSerial.trim()}\n${actionText}`);
 
       setSelectedDeviceForExchange(null);
       setExchangeNewSerial('');
@@ -2171,7 +2172,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         window.location.reload();
       }
     } catch (err: any) {
-      alert(err?.message || 'Failed to exchange device.');
+      alertDialog(err?.message || 'Failed to exchange device.');
     } finally {
       setIsSubmittingExchange(false);
     }
@@ -2294,7 +2295,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canPullout ? 'Pullout dispatch is disabled for your role permissions' : 'Warehouse pullout dispatch'}
               onClick={() => {
                 if (!canPullout) {
-                  alert('Pullout dispatch operation is disabled for your role permissions.');
+                  alertDialog('Pullout dispatch operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('PULLOUT_BINS');
@@ -2321,7 +2322,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canDamage ? 'Damaged stock registration is disabled for your role permissions' : 'Damaged stock log'}
               onClick={() => {
                 if (!canDamage) {
-                  alert('Damaged stock registration operation is disabled for your role permissions.');
+                  alertDialog('Damaged stock registration operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('DAMAGE_TRACKING');
@@ -2348,7 +2349,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canReceive ? 'Transfer receiving is disabled for your role permissions' : 'Receive incoming transfer shipments'}
               onClick={() => {
                 if (!canReceive) {
-                  alert('Transfer receiving operation is disabled for your role permissions.');
+                  alertDialog('Transfer receiving operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('RECEIVE_TRANSFER');
@@ -2375,7 +2376,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canCreateXfer ? 'Inter-branch transfer creation is disabled for your role permissions' : 'Create inter-branch stock transfer'}
               onClick={() => {
                 if (!canCreateXfer) {
-                  alert('Stock transfer creation operation is disabled for your role permissions.');
+                  alertDialog('Stock transfer creation operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('CREATE_TRANSFER');
@@ -2402,7 +2403,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canAssignAsset ? 'Fixed asset commissioning is disabled for your role permissions' : 'Assign fixed asset to location/customer'}
               onClick={() => {
                 if (!canAssignAsset) {
-                  alert('Fixed asset assignment operation is disabled for your role permissions.');
+                  alertDialog('Fixed asset assignment operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('ASSIGN_ASSET');
@@ -2455,7 +2456,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               title={!canSale ? 'Product sales operation is disabled for your role permissions' : 'Direct retail product item sale'}
               onClick={() => {
                 if (!canSale) {
-                  alert('Product sale operation is disabled for your role permissions.');
+                  alertDialog('Product sale operation is disabled for your role permissions.');
                   return;
                 }
                 setActiveTab('PRODUCT_SALE');
@@ -4413,12 +4414,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <span>🛍️ Devices sold via this form will be automatically registered and tagged as <strong>SOLD (Customer Owned)</strong> in the Customer Device Serials Directory.</span>
           </div>
 
-          <form onSubmit={handleSubmitProductSale} className="space-y-4 text-xs">
+          <form onSubmit={handleSubmitSellProductSale} className="space-y-4 text-xs">
             {/* 12-col alignment pattern (matches procurement forms):
                 Row 1 = Customer search (full width), Row 2 = Branch + Payment Method. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
               {/* Row 1: Customer SEARCH field (searches the customer directory; not a native dropdown) */}
-              <div className="relative sm:col-span-2 lg:col-span-12" ref={saleCustomerDropdownRef}>
+              <div className="relative sm:col-span-2 lg:col-span-12" ref={sellCustomerDropdownRef}>
                 <label className="block font-bold mb-1">Select Customer *</label>
                 <div className="relative w-full flex items-center">
                   <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -4426,25 +4427,25 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     type="text"
                     required
                     id="sale-customer-search-input"
-                    value={saleCustomerQuery}
-                    onFocus={() => setIsSaleCustomerDropdownOpen(true)}
+                    value={sellCustomerQuery}
+                    onFocus={() => setIsSellCustomerDropdownOpen(true)}
                     onChange={(e) => {
-                      setSaleCustomerQuery(e.target.value);
+                      setSellCustomerQuery(e.target.value);
                       // Only clear the FK when the text no longer matches the selected customer.
-                      const exact = customers.find((c) => saleCustomerDisplay(c).toLowerCase() === e.target.value.trim().toLowerCase());
-                      setSaleCustomerId(exact?.id || '');
-                      setIsSaleCustomerDropdownOpen(true);
+                      const exact = customers.find((c) => sellCustomerDisplay(c).toLowerCase() === e.target.value.trim().toLowerCase());
+                      setSellCustomerId(exact?.id || '');
+                      setIsSellCustomerDropdownOpen(true);
                     }}
                     placeholder="Search customer name, code, phone, or address..."
                     className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
                   />
-                  {saleCustomerQuery ? (
+                  {sellCustomerQuery ? (
                     <button
                       type="button"
                       onClick={() => {
-                        setSaleCustomerQuery('');
-                        setSaleCustomerId('');
-                        setIsSaleCustomerDropdownOpen(true);
+                        setSellCustomerQuery('');
+                        setSellCustomerId('');
+                        setIsSellCustomerDropdownOpen(true);
                       }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
                       title="Clear customer selection"
@@ -4454,7 +4455,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setIsSaleCustomerDropdownOpen((prev) => !prev)}
+                      onClick={() => setIsSellCustomerDropdownOpen((prev) => !prev)}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
@@ -4463,23 +4464,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </div>
 
                 {/* Floating Search Dropdown Overlay */}
-                {isSaleCustomerDropdownOpen && (
+                {isSellCustomerDropdownOpen && (
                   <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl divide-y border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
-                    {filteredSaleCustomers.length === 0 ? (
+                    {filteredSellCustomers.length === 0 ? (
                       <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
                         <div>No matching customer in the directory.</div>
                       </div>
                     ) : (
-                      filteredSaleCustomers.slice(0, 50).map((c) => {
-                        const isSelected = c.id === saleCustomerId;
+                      filteredSellCustomers.slice(0, 50).map((c) => {
+                        const isSelected = c.id === sellCustomerId;
                         return (
                           <button
                             key={c.id}
                             type="button"
                             onClick={() => {
-                              setSaleCustomerId(c.id);
-                              setSaleCustomerQuery(saleCustomerDisplay(c));
-                              setIsSaleCustomerDropdownOpen(false);
+                              setSellCustomerId(c.id);
+                              setSellCustomerQuery(sellCustomerDisplay(c));
+                              setIsSellCustomerDropdownOpen(false);
                             }}
                             className={`w-full text-left p-2.5 hover:bg-purple-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
                               isSelected ? 'bg-purple-50/70 dark:bg-purple-950/40' : ''
@@ -4507,8 +4508,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div className="lg:col-span-6">
                 <label className="block font-bold mb-1">Fulfilling Branch *</label>
                 <select
-                  value={saleBranchId}
-                  onChange={(e) => setSaleBranchId(e.target.value)}
+                  value={sellBranchId}
+                  onChange={(e) => setSellBranchId(e.target.value)}
                   className="w-full rounded-xl border px-3 py-1.5 h-9 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   {allowedBranches.map((b) => (
@@ -4520,8 +4521,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div className="lg:col-span-6">
                 <label className="block font-bold mb-1">Payment Method</label>
                 <select
-                  value={salePaymentMethod}
-                  onChange={(e) => setSalePaymentMethod(e.target.value)}
+                  value={sellPaymentMethod}
+                  onChange={(e) => setSellPaymentMethod(e.target.value)}
                   className="w-full rounded-xl border px-3 py-1.5 h-9 bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="Cash / Direct Payment">Cash / Direct Payment</option>
@@ -4538,17 +4539,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <label className="block font-bold">Scan Barcode or Search & Enter Product Name / SKU to Add *</label>
                 <ProductSearchBar
                   products={saleEligibleProducts}
-                  onAddOrIncrementProduct={(prod) => handleAddSaleItem(prod.id)}
+                  onAddOrIncrementProduct={(prod) => handleAddSellItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Sales Invoice..."
                   inputId="sale-product-search-input"
                 />
               </div>
 
               <div className="flex items-center justify-between pt-1">
-                <label className="block font-bold">Sales Invoice Line Items ({saleItems.length}) *</label>
+                <label className="block font-bold">Sales Invoice Line Items ({sellItems.length}) *</label>
                 <button
                   type="button"
-                  onClick={() => handleAddSaleItem()}
+                  onClick={() => handleAddSellItem()}
                   className="px-3 py-1 rounded-lg bg-purple-600 text-white font-bold text-[11px] hover:bg-purple-500 shadow-xs flex items-center gap-1 cursor-pointer"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -4556,13 +4557,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </button>
               </div>
 
-              {saleItems.length === 0 ? (
+              {sellItems.length === 0 ? (
                 <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
                   <PackageMinus className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
                   <p>No product items added to this sales invoice yet.</p>
                   <button
                     type="button"
-                    onClick={() => handleAddSaleItem()}
+                    onClick={() => handleAddSellItem()}
                     className={`mt-2 text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 font-bold text-xs cursor-pointer`}
                   >
                     + Click here to add products to sale invoice
@@ -4583,9 +4584,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       </tr>
                     </thead>
                     <tbody className={`divide-y divide-slate-200 dark:divide-slate-800`}>
-                      {saleItems.map((item, idx) => {
+                      {sellItems.map((item, idx) => {
                         const prod = products.find((p) => p.id === item.productId);
-                        const stk = stock.find((s) => s.productId === item.productId && s.branchId === saleBranchId);
+                        const stk = stock.find((s) => s.productId === item.productId && s.branchId === sellBranchId);
                         const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
@@ -4593,7 +4594,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <td className="p-2.5 min-w-[240px]">
                               <select
                                 value={item.productId}
-                                onChange={(e) => handleUpdateSaleItem(item.id, { productId: e.target.value })}
+                                onChange={(e) => handleUpdateSellItem(item.id, { productId: e.target.value })}
                                 className={`w-full rounded-lg border p-1.5 font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               >
                                 {products.map((p) => (
@@ -4616,7 +4617,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                         type="text"
                                         placeholder="Device Serial #"
                                         value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                        onChange={(e) => updateSaleDeviceSerial(idx, sIdx, e.target.value)}
+                                        onChange={(e) => updateSellDeviceSerial(idx, sIdx, e.target.value)}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') {
                                             e.preventDefault();
@@ -4634,7 +4635,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                         type="text"
                                         placeholder="PON Serial #"
                                         value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                        onChange={(e) => updateSalePonSerial(idx, sIdx, e.target.value)}
+                                        onChange={(e) => updateSellPonSerial(idx, sIdx, e.target.value)}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') {
                                             e.preventDefault();
@@ -4671,7 +4672,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={1}
                                 required
                                 value={item.quantity}
-                                onChange={(e) => handleUpdateSaleItem(item.id, { quantity: Number(e.target.value) })}
+                                onChange={(e) => handleUpdateSellItem(item.id, { quantity: Number(e.target.value) })}
                                 className={`w-16 rounded-lg border p-1 text-center font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
@@ -4682,7 +4683,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={0}
                                 required
                                 value={item.sellingPrice}
-                                onChange={(e) => handleUpdateSaleItem(item.id, { sellingPrice: Number(e.target.value) })}
+                                onChange={(e) => handleUpdateSellItem(item.id, { sellingPrice: Number(e.target.value) })}
                                 className={`w-24 rounded-lg border p-1 text-right font-mono font-bold bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
@@ -4692,7 +4693,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 type="number"
                                 min={0}
                                 value={item.discount}
-                                onChange={(e) => handleUpdateSaleItem(item.id, { discount: Number(e.target.value) })}
+                                onChange={(e) => handleUpdateSellItem(item.id, { discount: Number(e.target.value) })}
                                 className={`w-20 rounded-lg border p-1 text-right font-mono text-amber-600 dark:text-amber-400 bg-white border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                               />
                             </td>
@@ -4704,7 +4705,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <td className="p-2.5 text-center">
                               <button
                                 type="button"
-                                onClick={() => handleRemoveSaleItem(item.id)}
+                                onClick={() => handleRemoveSellItem(item.id)}
                                 className={`text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer p-1`}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -4720,24 +4721,24 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
 
             {/* Billing Summary Banner */}
-            {saleItems.length > 0 && (
+            {sellItems.length > 0 && (
               <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl border bg-purple-50/50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800/60 text-xs">
                 <div>
                   <span className="text-slate-400 block text-[10px]">Gross Product Bill</span>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                    {formatNPR(saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0))}
+                    {formatNPR(sellItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0))}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Total Discounts Applied</span>
                   <span className={`font-mono font-bold text-amber-600 dark:text-amber-400`}>
-                    {formatNPR(saleItems.reduce((s, i) => s + (i.discount || 0), 0))}
+                    {formatNPR(sellItems.reduce((s, i) => s + (i.discount || 0), 0))}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Net Receivable Bill Amount</span>
                   <span className="font-mono font-extrabold text-purple-700 dark:text-purple-300 text-sm">
-                    {formatNPR(Math.max(0, saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) - saleItems.reduce((s, i) => s + (i.discount || 0), 0)))}
+                    {formatNPR(Math.max(0, sellItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) - sellItems.reduce((s, i) => s + (i.discount || 0), 0)))}
                   </span>
                 </div>
               </div>
@@ -4747,8 +4748,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <label className="block font-bold mb-1">Sale Notes / Remarks</label>
               <textarea
                 rows={2}
-                value={saleNotes}
-                onChange={(e) => setSaleNotes(e.target.value)}
+                value={sellNotes}
+                onChange={(e) => setSellNotes(e.target.value)}
                 className={`w-full rounded-xl border p-2.5 bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
               />
             </div>
@@ -4756,7 +4757,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <button
                 type="button"
-                onClick={handleResetSaleForm}
+                onClick={handleResetSellForm}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
               >
                 <RotateCcw className="h-4 w-4" />

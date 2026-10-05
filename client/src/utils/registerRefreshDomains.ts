@@ -2,10 +2,10 @@
  * SSE domain → paged-register refresh mapping + the SSE handler's
  * burst → refresh-plan decision.
  *
- * The paged registers (Serial Log, Purchase Orders, Purchase Invoices and
- * the consumable register inside StockOperations) fetch their own
- * server-paged data, so the bootstrap slices the SSE handler re-fetches
- * don't cover them. App.tsx's SSE handler bumps the matching counter in
+ * The paged registers (Serial Log, Purchase Orders, Purchase Invoices,
+ * the consumable register inside StockOperations, the shared Returns
+ * Register and Sales Invoices) fetch their own server-paged data, so the
+ * bootstrap slices the SSE handler re-fetches don't cover them. App.tsx's SSE handler bumps the matching counter in
  * its `registerRefresh` state for every domain in this map, which re-runs
  * the register's current paged fetch.
  *
@@ -18,7 +18,10 @@ export type RegisterRefreshKey =
   | 'serialLog'
   | 'purchaseOrders'
   | 'purchaseInvoices'
-  | 'consumableRegister';
+  | 'consumableRegister'
+  | 'returnsRegister'
+  | 'salesInvoices'
+  | 'customerDevices';
 
 /**
  * Domain → registers to re-fetch. Deliberately a superset: an extra
@@ -35,15 +38,18 @@ export type RegisterRefreshKey =
  * - consumableRegister: the CONSUMABLE_ISSUE-filtered stock-operations
  *   register; only stock-operation events create or reverse those rows
  *   (STOCK_OPERATIONS).
+ * - returnsRegister: the shared Returns Register — purchase-return
+ *   documents (PROCUREMENT) and sales-return documents (SALES).
+ * - salesInvoices: sales invoice/payment events (SALES).
  */
 export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   STOCK: ['serialLog'],
   STOCK_OPERATIONS: ['serialLog', 'consumableRegister'],
   SERIALS: ['serialLog'],
-  PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices'],
-  SALES: ['serialLog'],
+  PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister'],
+  SALES: ['serialLog', 'salesInvoices', 'returnsRegister'],
   SHIPMENTS: ['purchaseOrders'],
-  CUSTOMER_DEVICES: ['serialLog'],
+  CUSTOMER_DEVICES: ['serialLog', 'customerDevices'],
   ASSETS: ['serialLog'],
 };
 
@@ -65,6 +71,9 @@ export function bumpAllRegisterRefresh(
     purchaseOrders: prev.purchaseOrders + 1,
     purchaseInvoices: prev.purchaseInvoices + 1,
     consumableRegister: prev.consumableRegister + 1,
+    returnsRegister: prev.returnsRegister + 1,
+    salesInvoices: prev.salesInvoices + 1,
+    customerDevices: prev.customerDevices + 1,
   };
 }
 

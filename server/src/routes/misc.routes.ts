@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_status, get_auditTrail, get_transactionLogs, get_approvalRequests, post_approvalRequests, post_process, post_cancel } from '../controllers/misc.controller';
+import { get_status, get_transactionLogs, get_approvalRequests, post_approvalRequests, post_process, post_cancel } from '../controllers/misc.controller';
 import {
   approvalRequests,
   auditTrail,
@@ -32,8 +32,6 @@ import type { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } 
 
 export function registerMiscRoutes(app: Express) {
 app.get('/api/db/status', async (req, res, next) => { get_status(req as any, res as any).catch(next); });
-
-app.get('/api/audit-trail', async (req, res, next) => { get_auditTrail(req as any, res as any).catch(next); });
 
 app.get('/api/transaction-logs', async (req, res, next) => { get_transactionLogs(req as any, res as any).catch(next); });
 

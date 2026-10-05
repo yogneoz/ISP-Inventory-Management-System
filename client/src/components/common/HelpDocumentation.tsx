@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import {
   BookOpen,
   HelpCircle,
@@ -869,7 +870,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                   <div className={`p-4 rounded-xl border bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800`}>
                     <h3 className="font-bold text-xs uppercase tracking-wider text-indigo-500 mb-2">Tax & Governance Standards</h3>
                     <ul className="space-y-1.5 text-xs">
-                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> 13% Nepali VAT Register Engine</li>
+                      <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> {getDefaultTaxRate()}% Nepali VAT Register Engine</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> SLM & WDV Tax Depreciation Register</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> Role-Based Approval Gateways</li>
                       <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" /> Immutable System Audit Trail</li>

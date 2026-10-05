@@ -96,10 +96,10 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     }
   });
 
-  test('schema.sql still declares all 34 tables (fresh-install completeness)', () => {
+  test('schema.sql still declares all 36 tables (fresh-install completeness)', () => {
     const tables = new Set(
       (schemaSql.match(/CREATE TABLE IF NOT EXISTS (\w+)/g) || []).map((s) => s.replace('CREATE TABLE IF NOT EXISTS ', ''))
     );
-    assert.equal(tables.size, 34, `schema.sql should declare exactly 34 tables, found ${tables.size}`);
+    assert.equal(tables.size, 36, `schema.sql should declare exactly 36 tables, found ${tables.size}`);
   });
 });

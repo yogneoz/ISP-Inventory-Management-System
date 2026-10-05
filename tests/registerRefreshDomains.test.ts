@@ -2,21 +2,23 @@
  * Unit tests for the SSE domain → paged-register refresh mapping
  * (node:test). Pins which self-fetching paged registers (Serial Log,
  * Purchase Orders, Purchase Invoices, the consumable register inside
- * StockOperations) re-run their fetch for each SSE domain, so a
+ * StockOperations, the shared Returns Register and Sales Invoices)
+ * re-run their fetch for each SSE domain, so a
  * register can never silently miss a mutation the bootstrap slices
  * don't cover.
  *
  * Also source-guards the components themselves: the tabs that render
  * bootstrap props only are pinned to ZERO api calls, and every
  * self-fetching register (Purchase Orders, Purchase Invoices, Serial Log,
- * plus the two StockOperations hosts) has its allowed api surface AND its
+ * the Returns Register, Sales Invoices, plus the two StockOperations
+ * hosts) has its allowed api surface AND its
  * refresh-key wiring pinned, so a new fetch that is not wired to a
  * register key fails the suite instead of shipping a stale tab.
  *
  * The feature-screen coverage guard then pins EVERY screen under
  * client/src/features to its exact server-call surface (api.* methods AND
  * named services/api imports), proves raw fetch cannot bypass the pins,
- * and proves server-paged fetches exist only in the four wired registers.
+ * and proves server-paged fetches exist only in the six wired registers.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,9 +34,9 @@ import { DOMAIN_BY_MODULE, resolveDomain } from '../server/src/syncDomains';
 import { DOCS_FILES, checkScreenClaims } from '../scripts/docsTestCounts';
 
 // The complete register vocabulary kept in App.tsx's registerRefresh state.
-const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consumableRegister'];
+const REGISTER_KEYS = ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'consumableRegister', 'returnsRegister', 'salesInvoices', 'customerDevices'];
 
-// Server domains whose mutations never touch any of the four paged
+// Server domains whose mutations never touch any of the paged
 // registers: they refresh bootstrap slices only. Kept in sync by the
 // "declared no-register" test below — a new server domain must either
 // gain a DOMAIN_REGISTER_KEYS entry or be listed here.
@@ -151,10 +153,10 @@ describe('SSE domain → register refresh mapping', () => {
     assert.deepEqual(DOMAIN_REGISTER_KEYS.STOCK, ['serialLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.STOCK_OPERATIONS, ['serialLog', 'consumableRegister']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SERIALS, ['serialLog']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.PROCUREMENT, ['serialLog', 'purchaseOrders', 'purchaseInvoices']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog']);
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.PROCUREMENT, ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister']);
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog', 'salesInvoices', 'returnsRegister']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['purchaseOrders']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.CUSTOMER_DEVICES, ['serialLog']);
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.CUSTOMER_DEVICES, ['serialLog', 'customerDevices']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.ASSETS, ['serialLog']);
   });
 
@@ -205,29 +207,29 @@ describe('SSE domain → register refresh mapping', () => {
 });
 
 describe('bumpAllRegisterRefresh (manual full refresh)', () => {
-  test('increments all four register counters', () => {
+  test('increments all six register counters', () => {
     assert.deepEqual(
-      bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0 }),
-      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1 }
+      bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0 }),
+      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1, returnsRegister: 1, salesInvoices: 1, customerDevices: 1 }
     );
   });
 
   test('increments from any counter values', () => {
     assert.deepEqual(
-      bumpAllRegisterRefresh({ serialLog: 7, purchaseOrders: 3, purchaseInvoices: 11, consumableRegister: 42 }),
-      { serialLog: 8, purchaseOrders: 4, purchaseInvoices: 12, consumableRegister: 43 }
+      bumpAllRegisterRefresh({ serialLog: 7, purchaseOrders: 3, purchaseInvoices: 11, consumableRegister: 42, returnsRegister: 5, salesInvoices: 9, customerDevices: 42 }),
+      { serialLog: 8, purchaseOrders: 4, purchaseInvoices: 12, consumableRegister: 43, returnsRegister: 6, salesInvoices: 10, customerDevices: 43 }
     );
   });
 
   test('is pure: returns a new record and never mutates its input', () => {
-    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4 };
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6 };
     const next = bumpAllRegisterRefresh(prev);
     assert.notEqual(next, prev);
-    assert.deepEqual(prev, { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4 });
+    assert.deepEqual(prev, { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6 });
   });
 
-  test('covers exactly the four register keys', () => {
-    const next = bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0 });
+  test('covers exactly the six register keys', () => {
+    const next = bumpAllRegisterRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0 });
     assert.deepEqual(Object.keys(next).sort(), [...REGISTER_KEYS].sort());
   });
 });
@@ -247,7 +249,7 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
   const runFullRefresh = (prev: Record<RegisterRefreshKey, number>) =>
     bumpAllRegisterRefresh(prev);
 
-  test('unknown-domain event burst falls back to full refresh and bumps all four register counters', () => {
+  test('unknown-domain event burst falls back to full refresh and bumps all six register counters', () => {
     // A broadcast whose type AND entity are both unmapped
     // (resolveDomain → undefined), e.g. a new audit module the
     // client has not learned yet.
@@ -262,12 +264,12 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // The fallback runs refreshAllData(), whose first line bumps
     // every paged-register counter — from any starting values.
     assert.deepEqual(
-      runFullRefresh({ serialLog: 2, purchaseOrders: 5, purchaseInvoices: 1, consumableRegister: 0 }),
-      { serialLog: 3, purchaseOrders: 6, purchaseInvoices: 2, consumableRegister: 1 }
+      runFullRefresh({ serialLog: 2, purchaseOrders: 5, purchaseInvoices: 1, consumableRegister: 0, returnsRegister: 7, salesInvoices: 4, customerDevices: 9 }),
+      { serialLog: 3, purchaseOrders: 6, purchaseInvoices: 2, consumableRegister: 1, returnsRegister: 8, salesInvoices: 5, customerDevices: 10 }
     );
   });
 
-  test('mixed multi-domain burst (two known domains) falls back to full refresh and bumps all four counters', () => {
+  test('mixed multi-domain burst (two known domains) falls back to full refresh and bumps all six counters', () => {
     const burst = new SseDomainBurst();
     // Real server broadcasts: a stock mutation, then a sales invoice.
     burst.observe(resolveDomain('STOCK_UPDATED', 'INVENTORY')); // STOCK
@@ -276,8 +278,8 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
 
     assert.deepEqual(plan, { mode: 'full' });
     assert.deepEqual(
-      runFullRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0 }),
-      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1 }
+      runFullRefresh({ serialLog: 0, purchaseOrders: 0, purchaseInvoices: 0, consumableRegister: 0, returnsRegister: 0, salesInvoices: 0, customerDevices: 0 }),
+      { serialLog: 1, purchaseOrders: 1, purchaseInvoices: 1, consumableRegister: 1, returnsRegister: 1, salesInvoices: 1, customerDevices: 1 }
     );
   });
 
@@ -327,16 +329,16 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     const plan = burst.flush(isKnownStateDomain);
     assert.deepEqual(plan, { mode: 'targeted', domains: ['SALES'] });
     // The targeted branch bumps DOMAIN_REGISTER_KEYS[domain] only —
-    // the all-four increment is exclusive to the fallback path.
-    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4 };
+    // the bump-everything increment is exclusive to the fallback path.
+    const prev = { serialLog: 1, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 5, salesInvoices: 6, customerDevices: 6 };
     const next = { ...prev };
     for (const reg of DOMAIN_REGISTER_KEYS.SALES) next[reg] = prev[reg] + 1;
-    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4 });
+    assert.deepEqual(next, { serialLog: 2, purchaseOrders: 2, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, customerDevices: 6 });
   });
 
   test('App.tsx wiring: the SSE effect uses the burst accumulator and its fallback runs refreshAllData', () => {
     // Source guard: the extracted logic must be the code App.tsx
-    // actually runs, and refreshAllData must still bump the four
+    // actually runs, and refreshAllData must still bump the six
     // register counters (the fallback's only refresh path).
     const appSource = fs.readFileSync(
       path.resolve(process.cwd(), 'client', 'src', 'App.tsx'),
@@ -347,7 +349,7 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     assert.match(appSource, /burst\.flush\(/);
     // Fallback branch of the debounced handler.
     assert.match(appSource, /refreshAllDataRef\.current\(\);/);
-    // refreshAllData's register bump — the four-counter effect under test.
+    // refreshAllData's register bump — the six-counter effect under test.
     assert.match(appSource, /setRegisterRefresh\(bumpAllRegisterRefresh\)/);
   });
 });
@@ -505,6 +507,43 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assertEveryRenderSiteWired('PurchaseInvoices', /sseRefreshKey=\{registerRefresh\.purchaseInvoices\}/);
   });
 
+  test('ReturnsRegister: api surface pinned to the two return paged fetches; wired at every render site', () => {
+    const source = readFeatureSource('sales/ReturnsRegister.tsx');
+    // The LIST tab loads exactly one page of returns — purchase returns on
+    // the DN host, sales returns on the CN host — switched by kind in
+    // loadRetPage. Create/cancel/approve mutations are all App callbacks,
+    // so no other api.* method may appear here.
+    assert.deepEqual(serverCallsIn(source), ['getPurchaseReturns', 'getSalesReturns']);
+    assert.match(source, /sseRefreshKey\?: number;/);
+    assert.match(
+      source,
+      /useEffect\(\(\) => \{\s*loadRetPage\(\);\s*\}, \[loadRetPage, retRefreshKey, sseRefreshKey\]\);/,
+      'the returns paged fetch effect must depend on sseRefreshKey'
+    );
+    assertNoRawFetch(source, 'ReturnsRegister.tsx');
+
+    // All four render sites (purchase-returns, create-purchase-return,
+    // sales-returns, create-sales-return) pass the counter.
+    assertEveryRenderSiteWired('ReturnsRegister', /sseRefreshKey=\{registerRefresh\.returnsRegister\}/);
+  });
+
+  test('SalesInvoices: api surface pinned to the SI paged fetch; wired at every render site', () => {
+    const source = readFeatureSource('sales/SalesInvoices.tsx');
+    // The LIST tab's only data load is /api/sales-invoices (loadSiPage).
+    // Create and record-payment mutations flow through App callbacks.
+    assert.deepEqual(serverCallsIn(source), ['getSalesInvoices']);
+    assert.match(source, /sseRefreshKey\?: number;/);
+    assert.match(
+      source,
+      /useEffect\(\(\) => \{\s*loadSiPage\(\);\s*\}, \[loadSiPage, siRefreshKey, sseRefreshKey\]\);/,
+      'the sales-invoices paged fetch effect must depend on sseRefreshKey'
+    );
+    assertNoRawFetch(source, 'SalesInvoices.tsx');
+
+    // Both render sites (create-sale + sales-list) pass the counter.
+    assertEveryRenderSiteWired('SalesInvoices', /sseRefreshKey=\{registerRefresh\.salesInvoices\}/);
+  });
+
   test('SerialLogRegister: api surface pinned; refreshKey wiring on the paged fetch and its render site', () => {
     const source = readFeatureSource('inventory/SerialLogRegister.tsx');
     // getSerialLogs supplies the grid (paged load + all:true CSV export);
@@ -570,23 +609,23 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
   // Audit (2026-10-03) of all 50 screens under client/src/features:
   //
-  //  · 9 are pinned by the guard tests above (the three prop-rendered
-  //    inventory tabs, the two create forms, the four SSE-wired paged
+  //  · 11 are pinned by the guard tests above (the three prop-rendered
+  //    inventory tabs, the two create forms, the six SSE-wired paged
   //    registers) — see PINNED_ELSEWHERE.
   //  · 11 GET their own whole-list data on mount / selection change and are
   //    deliberately NOT sse-wired: tabs remount on switch (fresh fetch) and
   //    none pages on the server — see MOUNT_REFETCH_NO_SSE_KEY.
   //  · 5 are write-only screens (mutations + validation reads); the grids
   //    they render come from bootstrap-slice props.
-  //  · 25 render props/callbacks only — zero server calls of their own.
+  //  · 23 render props/callbacks only — zero server calls of their own.
   //
-  // SCREEN_SURFACE_PINS pins each of those 41 screens to the EXACT server
+  // SCREEN_SURFACE_PINS pins each of those 39 screens to the EXACT server
   // calls it makes today — api.* methods AND named services/api imports,
   // because FinancialStatements.tsx imports getFinancialSummary instead of
   // calling api.* — so ANY new fetch (paged or not, wired or not) fails
   // until it is pinned here with an explicit wiring decision. A new
   // SERVER-PAGED fetch additionally trips the paged-tripwire test below,
-  // which allows it only in the four registers that carry a register key.
+  // which allows it only in the six registers that carry a register key.
 
   const SCREEN_SURFACE_PINS: Record<string, string[]> = {
     // — mount/selection self-fetch: whole-list GETs, no SSE key by design —
@@ -599,7 +638,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'updateBsCalendarYear',
     ],
     'finance/CustomerLedger.tsx': ['getCustomerLedger'],
-    'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs'],
+    'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
     'finance/FinancialStatements.tsx': ['getFinancialSummary'],
     'finance/NepaliFiscalManagement.tsx': [
       'getBsCalendarYears',
@@ -626,7 +665,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
 
     // — write-only / auxiliary-read screens: grids render bootstrap props —
     'procurement/Shipments.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
-    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice'],
+    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
@@ -635,7 +674,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'repairFiscalYearLinks',
       'rollForwardVendorOpenings',
     ],
-    'settings/PermissionManagement.tsx': ['savePermissionsMatrix'],
+    'settings/PermissionManagement.tsx': ['getPermissionsMatrix', 'savePermissionsMatrix'],
     'settings/UsersManagement.tsx': ['resetUserPassword'],
 
     // — prop-rendered screens: zero server calls of their own —
@@ -652,17 +691,15 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/ExportStock.tsx': [],
     'inventory/ImportStock.tsx': [],
     'inventory/PhysicalStockAudit.tsx': [],
-    'inventory/ProductManagement.tsx': [],
+    'inventory/ProductManagement.tsx': ['getCategories', 'getProducts'],
     'inventory/ProductSearchBar.tsx': [],
     'inventory/ReorderStockTracking.tsx': [],
     'inventory/StockValuation.tsx': [],
     'inventory/WarrantyProducts.tsx': [],
     'procurement/ReceiveInboundWarehouse.tsx': [],
     'procurement/SuppliersManagement.tsx': [],
-    'sales/CustomerMasterDirectory.tsx': [],
+    'sales/CustomerMasterDirectory.tsx': ['createCustomer', 'deleteCustomer', 'getCustomerDevices', 'getCustomers', 'updateCustomer'],
     'sales/ImportCustomers.tsx': [],
-    'sales/ReturnsRegister.tsx': [],
-    'sales/SalesInvoices.tsx': [],
     'settings/ApprovalWorkflowCenter.tsx': [],
     'settings/BranchesManagement.tsx': [],
     'settings/CompanySetupManagement.tsx': [],
@@ -679,6 +716,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'procurement/PurchaseInvoices.tsx',
     'procurement/PurchaseOrderForm.tsx',
     'procurement/PurchaseOrders.tsx',
+    'sales/ReturnsRegister.tsx',
+    'sales/SalesInvoices.tsx',
   ]);
 
   // The 11 screens that fetch their own rendered list/report data. They are
@@ -737,10 +776,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     }
   });
 
-  test('server-paged fetches exist only in the four SSE-wired registers', () => {
+  test('server-paged fetches exist only in the six SSE-wired registers', () => {
     // The paged-tripwire: a `pageSize:` request key is the one mechanical
-    // signature of server-side pagination. Exactly the four registers that
-    // carry a register refresh key may have it — a fifth means a register
+    // signature of server-side pagination. Exactly the six registers that
+    // carry a register refresh key may have it — a seventh means a register
     // is paging without its sseRefreshKey.
     const paged = listFeatureScreens().filter((screen) => /pageSize:/.test(readFeatureSource(screen)));
     assert.deepEqual(
@@ -750,6 +789,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         'inventory/StockOperations.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',
+        'sales/CustomerMasterDirectory.tsx',
+        'sales/ReturnsRegister.tsx',
+        'sales/SalesInvoices.tsx',
       ],
       'a server-paged fetch outside the wired registers is a register missing its sseRefreshKey — wire it end to end (register key + DOMAIN_REGISTER_KEYS + App.tsx) before paging on the server'
     );

@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { Branch, Product } from '../../types';
 import { UploadCloud, FileSpreadsheet, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw } from 'lucide-react';
 import { formatNPR } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { PageHeader } from '../../components/common/PageHeader';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface ImportStockProps {
   branches: Branch[];
@@ -35,6 +37,7 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   onCreateProduct,
   onRefreshData,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -96,7 +99,10 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       const unit = cols[5] || 'Pcs';
       const costPrice = parseFloat(cols[6]) || 0;
       const sellingPrice = parseFloat(cols[7]) || 0;
-      const taxRate = parseFloat(cols[8]) || 13;
+      // A supplied 0 means "VAT exempt" and must survive; only a blank or
+      // non-numeric cell falls back to the company-configured default.
+      const parsedTaxRate = parseFloat(cols[8]);
+      const taxRate = Number.isFinite(parsedTaxRate) && parsedTaxRate >= 0 ? parsedTaxRate : getDefaultTaxRate();
       const minReorderLevel = parseInt(cols[9]) || 10;
       const targetBranchCode = cols[10] || 'ALL';
       const initialQty = parseInt(cols[11]) || 0;
@@ -198,7 +204,7 @@ EXM-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixe
       setParsedRows([]);
       setSelectedFileName(null);
     } catch (err: any) {
-      alert(`Import error: ${err.message || 'Failed to import records'}`);
+      alertDialog(`Import error: ${err.message || 'Failed to import records'}`);
     } finally {
       setIsProcessing(false);
     }

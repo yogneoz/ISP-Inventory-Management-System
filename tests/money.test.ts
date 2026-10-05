@@ -7,6 +7,8 @@ import {
   computeOperationTotalValue,
   computeLegacyOperationTotalValue,
   computeBillTotals,
+  defaultVatRateFor,
+  DEFAULT_VAT_RATE_PERCENT,
 } from '../server/src/utils/money';
 
 describe('money helpers (C1 server-side recompute)', () => {
@@ -171,6 +173,33 @@ describe('money helpers (C1 server-side recompute)', () => {
     test('a taxable line without explicit taxRate defaults to 13%', () => {
       const t = computeBillTotals([{ quantity: 1, unitPrice: 100 }]);
       assert.equal(t.vatAmount, 13);
+    });
+
+    test('a taxable line without explicit taxRate uses the company-configured default', () => {
+      const t = computeBillTotals([{ quantity: 1, unitPrice: 100 }], undefined, 15);
+      assert.equal(t.vatAmount, 15);
+      assert.equal(t.grandTotal, 115);
+    });
+
+    test('an explicit per-line rate still beats the configured default', () => {
+      const t = computeBillTotals([{ quantity: 1, unitPrice: 100, taxRate: 5 }], undefined, 15);
+      assert.equal(t.vatAmount, 5);
+    });
+  });
+
+  describe('defaultVatRateFor (company_profile.default_tax_rate)', () => {
+    test('uses the configured rate when it is a positive number', () => {
+      assert.equal(defaultVatRateFor({ defaultTaxRate: 15 }), 15);
+      assert.equal(defaultVatRateFor({ defaultTaxRate: '18.5' as any }), 18.5);
+    });
+
+    test('falls back to statutory 13% for missing, zero or invalid values', () => {
+      assert.equal(defaultVatRateFor(undefined), DEFAULT_VAT_RATE_PERCENT);
+      assert.equal(defaultVatRateFor(null), DEFAULT_VAT_RATE_PERCENT);
+      assert.equal(defaultVatRateFor({}), DEFAULT_VAT_RATE_PERCENT);
+      assert.equal(defaultVatRateFor({ defaultTaxRate: 0 }), DEFAULT_VAT_RATE_PERCENT);
+      assert.equal(defaultVatRateFor({ defaultTaxRate: -1 }), DEFAULT_VAT_RATE_PERCENT);
+      assert.equal(defaultVatRateFor({ defaultTaxRate: NaN }), DEFAULT_VAT_RATE_PERCENT);
     });
   });
 });

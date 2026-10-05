@@ -252,6 +252,7 @@ export const BOOTSTRAP_TABLES = {
       ['grand_total', 'grandTotal'],
       ['payment_status', 'paymentStatus'],
       ['amount_paid', 'amountPaid'],
+      ['status', 'status'],
       ['items', 'items'],
     ],
   },

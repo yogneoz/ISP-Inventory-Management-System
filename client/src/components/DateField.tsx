@@ -75,7 +75,8 @@ export function DateField({
 }: DateFieldProps) {
   const adValue = normalizeAD(value);
 
-  // BS calendar data (localStorage mirror of the seeded bs_calendar_years DB table).
+  // BS calendar data: in-memory snapshot seeded by App from the authoritative
+  // bs_calendar_years / bs_day_records tables (never browser storage).
   const bsData = useMemo(() => getBsCalendarData(), []);
   const bsYears = useMemo(
     () =>

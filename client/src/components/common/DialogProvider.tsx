@@ -26,15 +26,27 @@ interface DialogContextValue {
 
 const DialogContext = createContext<DialogContextValue | undefined>(undefined);
 
+type AlertSink = (message: string) => void;
+
+let utilityAlertSink: AlertSink | null = null;
+
+/**
+ * Fire an in-app alert from non-React modules that cannot call `useDialog()`
+ * (e.g. `utils/exportUtils`). No-ops while no `<DialogProvider>` is mounted.
+ */
+export function utilityAlert(message: string): void {
+  utilityAlertSink?.(message);
+}
+
 /**
  * In-app replacement for the browser-native `window.confirm` / `window.alert` /
  * `window.prompt` boxes. Mount once at the root (see main.tsx).
  *
- * The native dialogs are synchronous, so only `window.alert` can be safely
- * patched (its return value is never used). For confirmations and prompts, use
- * the async `useDialog()` hook in components — every call site that currently
- * calls `confirm(...)` / `prompt(...)` and gates logic on the result has been
- * migrated to `await useDialog().confirm(...)` / `await useDialog().prompt(...)`.
+ * The native dialogs are synchronous, so they cannot be patched safely. Every
+ * call site in the client uses the async `useDialog()` hook instead —
+ * `await confirm(...)`, `await alert(...)`, `await prompt(...)`. Non-component
+ * modules that cannot call hooks (e.g. `utils/exportUtils`) use the
+ * `utilityAlert()` bridge below, which the provider registers with while mounted.
  */
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [dialog, setDialog] = useState<PendingDialog | null>(null);
@@ -91,29 +103,14 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, []);
 
-  // Patch window.alert so every existing `alert(...)` call site shows the
-  // in-app modal instead of the native browser box. window.confirm and
-  // window.prompt are synchronous and therefore cannot be patched safely —
-  // those call sites use the async useDialog() hook instead.
+  // Register this dialog as the alert sink for non-component modules while
+  // mounted (see `utilityAlert` above). `alert` is a stable useCallback.
   useEffect(() => {
-    const originalAlert = window.alert.bind(window);
-    window.alert = ((message?: unknown) => {
-      const messageText = typeof message === 'string' ? message : String(message ?? '');
-      setDialog({
-        key: Date.now(),
-        kind: 'alert',
-        title: 'Notice',
-        message: messageText,
-        resolve: () => {
-          /* fire-and-forget */
-        },
-      });
-    }) as unknown as typeof window.alert;
-
+    utilityAlertSink = alert;
     return () => {
-      window.alert = originalAlert;
+      utilityAlertSink = null;
     };
-  }, []);
+  }, [alert]);
 
   if (!dialog) {
     return <DialogContext.Provider value={{ confirm, alert, prompt }}>{children}</DialogContext.Provider>;

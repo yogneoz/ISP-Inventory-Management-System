@@ -32,6 +32,7 @@ import {
   AUDIT_RECONCILE_STOCK_SQL,
   auditReconcileStockParams,
 } from '../models/misc.repo';
+import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL } from '../models/shipments.repo';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -66,26 +67,6 @@ let isConnected = await ensurePostgresConnection();
 }
 
 /** Forwarded from misc.routes.ts (get_auditTrail). */
-export async function get_auditTrail(req: any, res: Response): Promise<any> {
-const { branchId, limit } = req.query;
-  if (getPgConnected()) {
-    try {
-      const { sql, params } = buildAuditTrailQuery(branchId, limit);
-      const r = await pgPool.query(sql, params);
-      res.json(r.rows);
-      return;
-    } catch (err) {
-      console.error('Error fetching audit trail from DB:', err);
-    }
-  }
-  let list = auditTrail;
-  if (branchId && branchId !== 'ALL') {
-    list = list.filter((a) => a.branchId === branchId);
-  }
-  res.json(list);
-
-}
-
 /** Forwarded from misc.routes.ts (get_transactionLogs). */
 export async function get_transactionLogs(req: any, res: Response): Promise<any> {
 const { branchId, productId, limit } = req.query;
@@ -292,7 +273,35 @@ try {
               (targetId && s.trackingCode && s.trackingCode.trim().toUpperCase() === targetId.toUpperCase())
           );
 
-          if (sh && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED') {
+          // A CANCEL_RECEIVE_TRANSFER approval on a RECEIVED/DISCREPANCY shipment
+          // undoes the receipt (destination stock reversed, shipment back
+          // In-Transit). Every other cancel type keeps the original in-transit
+          // semantics: RECEIVED/DELIVERED shipments are never touched.
+          const undoReceive =
+            !!sh &&
+            request.type === 'CANCEL_RECEIVE_TRANSFER' &&
+            (sh.status === 'RECEIVED' || sh.status === 'DISCREPANCY');
+          if (undoReceive && sh) {
+            const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
+            const destBranchId = destBranchObj?.id || sh.destinationBranchId;
+            for (const item of sh.items) {
+              const qty = shipmentReceivedQty(item);
+              if (qty > 0 && destBranchId) {
+                const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, item.productId, destBranchId]);
+                if (undone.rowCount !== 1) {
+                  throw new Error(`Insufficient stock at the destination branch to undo the receipt of ${item.productName || item.productId}.`);
+                }
+              }
+            }
+            const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Reverted to In-Transit.`;
+            await client.query(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, [sh.id, undoNote]);
+            sh.status = 'IN_TRANSIT';
+            sh.receivedByNotes = undefined;
+            sh.receivedDateAD = undefined;
+            sh.receivedDateBS = undefined;
+            sh.hasDiscrepancy = false;
+            sh.notes = undoNote;
+          } else if (sh && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED') {
             const srcBranchObj = branches.find((b) => b.id === sh.sourceBranchId || b.code === sh.sourceBranchId);
             const srcBranchId = srcBranchObj?.id || sh.sourceBranchId;
             const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);

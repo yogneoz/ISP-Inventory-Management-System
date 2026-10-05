@@ -53,10 +53,25 @@ function isTaxableLine(item: any): boolean {
   return !item.isTaxExempt;
 }
 
-/** Effective VAT rate percent for a taxable line (defaults to 13% Nepal VAT). */
-function taxRateFor(item: any): number {
+/** Nepal's statutory VAT — the fallback when no configured rate applies. */
+export const DEFAULT_VAT_RATE_PERCENT = 13;
+
+/**
+ * Default VAT rate percent for lines that carry no taxRate of their own.
+ * Sourced from the company profile (company_profile.default_tax_rate, editable
+ * in Company Setup) so the configured rate — not a hard-coded 13 — drives
+ * totals for legacy/implicit-taxable lines. A missing, zero or non-numeric
+ * profile value falls back to the statutory 13%.
+ */
+export function defaultVatRateFor(profile?: { defaultTaxRate?: number | null } | null): number {
+  const rate = Number(profile?.defaultTaxRate);
+  return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_VAT_RATE_PERCENT;
+}
+
+/** Effective VAT rate percent for a taxable line (line rate, else the bill default). */
+function taxRateFor(item: any, defaultRate: number): number {
   const rate = num(item.taxRate);
-  return rate > 0 ? rate : 13;
+  return rate > 0 ? rate : defaultRate;
 }
 
 export interface BillTotals {
@@ -85,12 +100,21 @@ export interface BillTotals {
  *     gross share (matching the client's allocation), or
  *   - per-line (item.discount), clamped to [0, line gross];
  * then net = gross − line discount. VAT applies only to lines with a positive
- * taxRate (non-exempt), at the line's own rate (13% fallback).
+ * taxRate (non-exempt), at the line's own rate — `defaultVatRate` (the
+ * company-configured rate, see defaultVatRateFor) for lines that carry none.
  */
-export function computeBillTotals(items: any[], discountInput?: number): BillTotals {
+export function computeBillTotals(
+  items: any[],
+  discountInput?: number,
+  defaultVatRate?: number
+): BillTotals {
+  const fallbackRate =
+    defaultVatRate !== undefined && Number.isFinite(Number(defaultVatRate)) && Number(defaultVatRate) > 0
+      ? Number(defaultVatRate)
+      : DEFAULT_VAT_RATE_PERCENT;
   const lines = (items || []).map((item) => {
     const gross = num(item.quantity) * num(item.unitPrice);
-    return { gross, taxable: isTaxableLine(item), rate: taxRateFor(item), discount: num(item.discount) };
+    return { gross, taxable: isTaxableLine(item), rate: taxRateFor(item, fallbackRate), discount: num(item.discount) };
   });
 
   const grossSubtotal = lines.reduce((s, l) => s + l.gross, 0);

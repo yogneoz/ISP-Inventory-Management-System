@@ -158,7 +158,18 @@ export const PRODUCT_UPDATE_SQL = `UPDATE products SET
    status = $14
  WHERE id = $15;`;
 
-export function productUpdateParams(p: Record<string, any>, id: string): unknown[] {
+export function productUpdateParams(
+  p: Record<string, any>,
+  id: string,
+  /** Company-configured default (company_profile.default_tax_rate), supplied by the controller. */
+  defaultTaxRate = 13
+): unknown[] {
+  // A supplied taxRate — including 0, which means "VAT exempt" — is kept
+  // verbatim; only a missing/NaN/negative value falls back to the configured
+  // default. The old `Number(p.taxRate) || 13` silently turned every exempt
+  // product back into a 13% one on save.
+  const taxRate = Number(p.taxRate);
+  const effectiveTaxRate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : defaultTaxRate;
   return [
     p.sku,
     p.barcode || '',
@@ -168,7 +179,7 @@ export function productUpdateParams(p: Record<string, any>, id: string): unknown
     p.unit || 'Pcs',
     Number(p.costPrice) || 0,
     Number(p.sellingPrice) || 0,
-    Number(p.taxRate) || 13,
+    effectiveTaxRate,
     Number(p.minReorderLevel) || 5,
     Boolean(p.requiresSerialTracking),
     p.trackingType || 'QUANTITY_ONLY',

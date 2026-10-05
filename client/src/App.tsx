@@ -164,6 +164,14 @@ const BsCalendarUtility = React.lazy(() =>
     default: m.BsCalendarUtility,
   }))
 );
+// BS fiscal-year settings (unlock / carry-forward). Reachable from the Help
+// Center's "Unlock / Carry Forward Balances" step. The 'nepali-fiscal' tab
+// rendered BsCalendarUtility instead, so this screen was never reachable.
+const NepaliFiscalManagement = React.lazy(() =>
+  import('./features/finance/NepaliFiscalManagement').then((m) => ({
+    default: m.NepaliFiscalManagement,
+  }))
+);
 import { BranchesManagement } from './features/settings/BranchesManagement';
 import { CompanySetupManagement } from './features/settings/CompanySetupManagement';
 
@@ -183,7 +191,9 @@ import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
+import { setDefaultTaxRate } from './utils/taxConfig';
 import { useDarkMode } from './contexts/DarkModeContext';
+import { useDialog } from './components/common/DialogProvider';
 import { Loader2 } from 'lucide-react';
 
 /** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
@@ -195,7 +205,7 @@ function TabLoadingFallback() {
     </div>
   );
 }
-import { setServerMatrix } from './utils/permissions';
+import { applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
 
 // Chooses the fiscal year to show by default: the year flagged current whose
@@ -218,6 +228,7 @@ function resolveDefaultFiscalYear(fiscalYears: FiscalYear[]): FiscalYear | undef
 }
 
 export default function App() {
+  const { alert: alertDialog } = useDialog();
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     return loadUserSession().currentUser;
   });
@@ -235,16 +246,46 @@ export default function App() {
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>('');
   const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, boolean>> | null>(null);
   const [dateMode, setDateMode] = useState<'BS' | 'AD'>(() => {
+    // PAINT-TIME MIRROR ONLY. The saved value lives in the server-side
+    // user_preferences table (see hydrateUserPreferences); this read just
+    // avoids a wrong first frame while bootstrap loads, and is overwritten by
+    // the server value as soon as it arrives.
     const saved = localStorage.getItem('inventory_date_mode');
     return saved === 'AD' ? 'AD' : 'BS';
   });
 
+  // Company-wide application settings (server-side app_settings table), e.g.
+  // the company-wide blind stock-audit toggle. Replaced wholesale on every
+  // bootstrap, never read from browser storage.
+  const [appSettings, setAppSettings] = useState<Record<string, string>>({});
+
+  // Server-backed user preferences. `prefsHydratedRef` gates every write so a
+  // default rendered during start-up can never overwrite the real saved
+  // preference, and `persistedPrefsRef` de-duplicates writes against the last
+  // value the server returned.
+  const prefsHydratedRef = useRef(false);
+  const persistedPrefsRef = useRef<Record<string, string>>({});
+
+  // Patches one preference on the server (PATCH semantics: only this key).
+  const persistPreference = (key: 'theme' | 'dateMode' | 'activeTab', value: string) => {
+    if (!prefsHydratedRef.current) return;
+    if (persistedPrefsRef.current[key] === value) return;
+    persistedPrefsRef.current[key] = value;
+    void api.savePreferences({ [key]: value }).catch((err) => {
+      // Let a later change retry this key.
+      delete persistedPrefsRef.current[key];
+      console.error('Failed to save user preference:', err);
+    });
+  };
+
   // Toggles the global date display between Bikram Sambat (BS) and AD.
-  // The choice is persisted so every client remembers the user's preference.
+  // Persisted server-side (user_preferences.dateMode) so the choice follows
+  // the user to any machine; localStorage keeps only a first-paint mirror.
   const handleToggleDateMode = () => {
     setDateMode((prev) => {
       const next = prev === 'BS' ? 'AD' : 'BS';
       localStorage.setItem('inventory_date_mode', next);
+      persistPreference('dateMode', next);
       return next;
     });
   };
@@ -335,12 +376,36 @@ export default function App() {
     setFiscalYearContext(selectedFiscalYearId || null);
   }, [selectedFiscalYearId]);
 
+  // One-time purge of the browser-storage copies this build replaced with
+  // server-backed storage. Older builds kept a permission matrix, the
+  // company-wide blind-count flag and a BS-calendar snapshot in localStorage;
+  // all three are now PostgreSQL tables, so anything still sitting in the
+  // browser is stale dead weight — for the matrix, a tamperable copy of
+  // server data — and is removed on start-up.
   useEffect(() => {
+    try {
+      [
+        'inventory_permissions_matrix',
+        'inventory_company_wide_blind_count',
+        'inventory_bs_calendar_data',
+      ].forEach((key) => localStorage.removeItem(key));
+    } catch {
+      // Storage unavailable (private mode / disabled): nothing to purge.
+    }
+  }, []);
+
+  useEffect(() => {
+    // Mirror for the next first-paint only — the authority is the server-side
+    // activeTab preference hydrated by hydrateUserPreferences().
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+    persistPreference('activeTab', activeTab);
   }, [activeTab]);
 
   useEffect(() => {
     const handlePermissionsUpdated = () => {
+      // The matrix is server data: re-read it from the module cache that only
+      // applyServerMatrix() (bootstrap / successful PUT) is allowed to fill.
+      setPermissionsMatrix(getPermissionsMatrix());
       setPermissionsVersion((v) => v + 1);
     };
     window.addEventListener('inventory_permissions_updated', handlePermissionsUpdated);
@@ -348,7 +413,44 @@ export default function App() {
   }, []);
 
   // Theme: managed by DarkModeContext (adds/removes `dark` class on <html>)
-  const { isDarkMode, toggleTheme: handleToggleTheme } = useDarkMode();
+  const { isDarkMode, toggleTheme: handleToggleTheme, applyServerTheme } = useDarkMode();
+
+  // Persist theme changes server-side (DarkModeContext's localStorage copy is
+  // only a first-paint mirror).
+  useEffect(() => {
+    persistPreference('theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
+
+  // One-shot hydration of the server-held user preferences. The FIRST
+  // bootstrap wins: later refreshes must never yank the tab, theme or date
+  // mode out from under a user who changed them during this session.
+  const hydrateUserPreferences = (prefs?: Record<string, string>) => {
+    if (prefsHydratedRef.current) return;
+    prefsHydratedRef.current = true;
+    persistedPrefsRef.current = { ...(prefs || {}) };
+    if (prefs?.dateMode === 'BS' || prefs?.dateMode === 'AD') setDateMode(prefs.dateMode);
+    if (prefs?.activeTab && (NAV_TABS as string[]).includes(prefs.activeTab)) {
+      setActiveTab(prefs.activeTab as NavTab);
+    }
+    if (prefs?.theme === 'dark' || prefs?.theme === 'light') applyServerTheme(prefs.theme === 'dark');
+  };
+
+  // Writes a company-wide setting to the server (app_settings table) and
+  // reverts the local mirror if the server rejects it (e.g. the toggle is
+  // SUPER_ADMIN-only server-side).
+  const handleAppSettingChange = (key: string, value: string) => {
+    const previous = appSettings[key];
+    setAppSettings((prev) => ({ ...prev, [key]: value }));
+    void api.saveAppSettings({ [key]: value }).catch((err) => {
+      setAppSettings((prev) => {
+        const next = { ...prev };
+        if (previous === undefined) delete next[key];
+        else next[key] = previous;
+        return next;
+      });
+      console.error('Failed to save application setting:', err);
+    });
+  };
 
   // App Data State
   const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
@@ -360,7 +462,11 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [stock, setStock] = useState<InventoryStock[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [serialLogs, setSerialLogs] = useState<SerialLog[]>([]);
+  // Sellable (IN_STOCK) serials for the Sell to Customer form's serial gate.
+  // serial_log is a paged ledger and was deliberately dropped from bootstrap,
+  // so this is one narrow status-filtered fetch per refresh instead of the
+  // whole register (StockOperations hosts its own mount-once copy).
+  const [inventorySerials, setInventorySerials] = useState<SerialLog[]>([]);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
@@ -408,7 +514,6 @@ export default function App() {
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
     if (data.assets) setAssets(data.assets);
-    if (data.serialLogs) setSerialLogs(data.serialLogs);
     if (data.customerDevices) setCustomerDevices(data.customerDevices);
     if (data.customers) setCustomers(data.customers);
     if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
@@ -434,8 +539,22 @@ export default function App() {
     }
     if (data.postgresDatabaseStatus) setPostgresStatus(data.postgresDatabaseStatus);
     if (data.permissionsMatrix) {
-      setServerMatrix(data.permissionsMatrix);
+      applyServerMatrix(data.permissionsMatrix);
       setPermissionsMatrix(data.permissionsMatrix);
+    }
+    if (data.appSettings) setAppSettings(data.appSettings);
+    hydrateUserPreferences(data.userPreferences);
+    // Backfill for payloads cached before the settings slices shipped (or a
+    // partially-applied cache entry): fall back to the dedicated endpoint so
+    // the app still reads its configuration from the server, never storage.
+    if (!data.appSettings || !data.userPreferences) {
+      void api
+        .getSettings()
+        .then((bundle) => {
+          setAppSettings(bundle.appSettings || {});
+          hydrateUserPreferences(bundle.preferences);
+        })
+        .catch(() => undefined);
     }
   };
 
@@ -449,6 +568,9 @@ export default function App() {
       position: profile.currencyPosition || 'before',
       decimals: profile.currencyDecimals ?? 2,
     });
+    // The VAT default is company configuration too: forms and "% VAT" labels
+    // read it from here instead of hard-coding 13.
+    setDefaultTaxRate(profile.defaultTaxRate);
   };
 
   // Keep the CSV/Excel exporter's app-wide company identity in sync so every
@@ -515,6 +637,19 @@ export default function App() {
           fiscalYearId: requestFiscalYearId || undefined,
         };
         saveRecentBootstrapCache(data, cacheScopeRef.current);
+        // Sell to Customer can only post serials that exist in inventory, so
+        // the form needs the sellable rows before the user starts typing.
+        // Nested so a serial-log hiccup never looks like a bootstrap failure.
+        try {
+          const sellable = await api.getSerialLogs({
+            branchId: requestBranchId && requestBranchId !== 'ALL' ? requestBranchId : undefined,
+            status: 'IN_STOCK',
+          });
+          if (requestSeq !== refreshSequenceRef.current) return;
+          setInventorySerials(Array.isArray(sellable) ? sellable : (sellable as any)?.data || []);
+        } catch (err) {
+          console.error('Error fetching sellable serials:', err);
+        }
       }
     } catch (err) {
       console.error('Error fetching data from backend:', err);
@@ -621,6 +756,9 @@ export default function App() {
     purchaseOrders: 0,
     purchaseInvoices: 0,
     consumableRegister: 0,
+    returnsRegister: 0,
+    salesInvoices: 0,
+    customerDevices: 0,
   });
 
   // Always-fresh scope for the SSE listener below (it must not re-subscribe
@@ -827,7 +965,7 @@ export default function App() {
       if (isAuthError) {
         handleLogout();
       }
-      alert(`Could not switch back to ${rootName}: ${message}`);
+      alertDialog(`Could not switch back to ${rootName}: ${message}`);
     }
   };
 
@@ -1006,6 +1144,14 @@ export default function App() {
 
   const handleReverseCustomerPayment = async (id: string, reason: string) => {
     await api.reverseCustomerPayment(id, reason);
+    refreshAllData();
+  };
+
+  // Voids a posted sales invoice. The server reverses it atomically (stock +
+  // claimed serials + ledger) and refuses invoices that still carry payments
+  // or credit notes; its message is surfaced by the screen.
+  const handleCancelSalesInvoice = async (id: string, reason?: string) => {
+    await api.cancelSalesInvoice(id, reason);
     refreshAllData();
   };
 
@@ -1510,7 +1656,6 @@ export default function App() {
               {activeTab === 'all-stock' && (
                 <ProductManagement
                   currentUser={currentUser}
-                  products={products}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onCreateProduct={handleCreateProduct}
@@ -1518,14 +1663,12 @@ export default function App() {
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
                   mode="all-stock"
-                  dbCategories={categories}
                 />
               )}
 
               {activeTab === 'product-master' && (
                 <ProductManagement
                   currentUser={currentUser}
-                  products={products}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onCreateProduct={handleCreateProduct}
@@ -1533,7 +1676,6 @@ export default function App() {
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
                   mode="product-master"
-                  dbCategories={categories}
                 />
               )}
 
@@ -1686,6 +1828,10 @@ export default function App() {
                     onCancelApproval={handleCancelApprovalRequest}
                     onProcessApproval={handleProcessApprovalRequest}
                     onNavigateTab={setActiveTab}
+                    companyWideBlindCount={appSettings.companyWideBlindCount === 'true'}
+                    onCompanyWideBlindCountChange={(next) =>
+                      handleAppSettingChange('companyWideBlindCount', next ? 'true' : 'false')
+                    }
                   />
                 </React.Suspense>
               )}
@@ -1711,22 +1857,9 @@ export default function App() {
 
               {activeTab === 'customers' && (
                 <CustomerMasterDirectory
-                  customers={customers}
-                  customerDevices={customerDevices}
                   branches={branches}
                   currentUser={currentUser}
-                  onAddCustomer={async (customer) => {
-                    await api.createCustomer(customer);
-                    await refreshAllData();
-                  }}
-                  onUpdateCustomer={async (id, updates) => {
-                    await api.updateCustomer(id, updates);
-                    await refreshAllData();
-                  }}
-                  onDeleteCustomer={async (id) => {
-                    await api.deleteCustomer(id);
-                    await refreshAllData();
-                  }}
+                  onCustomersChanged={refreshAllData}
                   onNavigateToImport={() => setActiveTab('import-customers')}
                   onSelectTab={(tab, filter) => {
                     setActiveTab(tab as any);
@@ -1892,11 +2025,15 @@ export default function App() {
                     products={products}
                     branches={branches}
                     stock={stock}
+                    customers={customers}
+                    inventorySerials={inventorySerials}
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
+                    sseRefreshKey={registerRefresh.salesInvoices}
                     activeTab="create-sale"
                     onCreateInvoice={handleCreateSalesInvoice}
                     onRecordPayment={handleRecordCustomerPayment}
+                    onCancelInvoice={handleCancelSalesInvoice}
                   />
                 </React.Suspense>
               )}
@@ -1910,11 +2047,15 @@ export default function App() {
                     products={products}
                     branches={branches}
                     stock={stock}
+                    customers={customers}
+                    inventorySerials={inventorySerials}
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
+                    sseRefreshKey={registerRefresh.salesInvoices}
                     activeTab="sales-list"
                     onCreateInvoice={handleCreateSalesInvoice}
                     onRecordPayment={handleRecordCustomerPayment}
+                    onCancelInvoice={handleCancelSalesInvoice}
                   />
                 </React.Suspense>
               )}
@@ -1932,6 +2073,7 @@ export default function App() {
                     branches={branches}
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
+                    sseRefreshKey={registerRefresh.returnsRegister}
                     onCreateReturn={handleCreatePurchaseReturn}
                     onCancelReturn={handleCancelPurchaseReturn}
                     onApproveReturn={handleApprovePurchaseReturn}
@@ -1953,6 +2095,7 @@ export default function App() {
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
                     autoOpenCreate
+                    sseRefreshKey={registerRefresh.returnsRegister}
                     onCreateReturn={handleCreatePurchaseReturn}
                     onCancelReturn={handleCancelPurchaseReturn}
                     onApproveReturn={handleApprovePurchaseReturn}
@@ -1973,6 +2116,7 @@ export default function App() {
                     branches={branches}
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
+                    sseRefreshKey={registerRefresh.returnsRegister}
                     onCreateReturn={handleCreateSalesReturn}
                     onCancelReturn={handleCancelSalesReturn}
                     onApproveReturn={handleApproveSalesReturn}
@@ -1994,6 +2138,7 @@ export default function App() {
                     selectedBranchId={selectedBranchId}
                     dateMode={dateMode}
                     autoOpenCreate
+                    sseRefreshKey={registerRefresh.returnsRegister}
                     onCreateReturn={handleCreateSalesReturn}
                     onCancelReturn={handleCancelSalesReturn}
                     onApproveReturn={handleApproveSalesReturn}
@@ -2034,7 +2179,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2084,7 +2228,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2143,7 +2286,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2177,7 +2319,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2211,7 +2352,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2236,7 +2376,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2260,7 +2399,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2294,7 +2432,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2342,7 +2479,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2376,7 +2512,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2417,7 +2552,6 @@ export default function App() {
                   stock={stock}
                   locations={locations}
                   customerDevices={customerDevices}
-                  serialLogs={serialLogs}
                   customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
@@ -2706,7 +2840,10 @@ export default function App() {
 
               {activeTab === 'nepali-fiscal' && (
                 <React.Suspense fallback={<TabLoadingFallback />}>
-                  <BsCalendarUtility
+                  <NepaliFiscalManagement
+                    fiscalYears={fiscalYears}
+                    onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                    dateMode={dateMode}
                   />
                 </React.Suspense>
               )}

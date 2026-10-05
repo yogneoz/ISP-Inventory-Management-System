@@ -4,13 +4,17 @@
  * procurement routes.
  */
 import type { Express } from 'express';
-import { get_salesInvoices, post_salesInvoices, get_salesReturns, post_salesReturns, post_salesReturnCancel, post_salesReturnApprove, get_customerLedger, post_customerPayments, post_customerPaymentReverse } from '../controllers/sales.controller';
+import { get_salesInvoices, post_salesInvoices, post_salesInvoiceCancel, get_salesReturns, post_salesReturns, post_salesReturnCancel, post_salesReturnApprove, get_customerLedger, post_customerPayments, post_customerPaymentReverse } from '../controllers/sales.controller';
 import { requirePermission } from '../middleware';
 
 export function registerSalesRoutes(app: Express) {
   app.get('/api/sales-invoices', async (req, res, next) => { get_salesInvoices(req as any, res as any).catch(next); });
 
   app.post('/api/sales-invoices', requirePermission('sales-invoice-create'), async (req, res, next) => { post_salesInvoices(req as any, res as any).catch(next); });
+
+  // Void: gated by the same matrix operation as posting one (mirrors the
+  // sales-return cancel, which reuses sales-return-create).
+  app.post('/api/sales-invoices/:id/cancel', requirePermission('sales-invoice-create'), async (req, res, next) => { post_salesInvoiceCancel(req as any, res as any).catch(next); });
 
   app.get('/api/sales-returns', async (req, res, next) => { get_salesReturns(req as any, res as any).catch(next); });
 

@@ -15,6 +15,8 @@
 //   finance.ts     — fiscal years, opening stock, BS calendar, summaries
 //   admin.ts       — company profile, permissions, categories, UoM,
 //                    locations, recalculation utilities
+//   settings.ts    — server-side app settings & per-user preferences
+//                    (replaces the browser-localStorage copies)
 //   sync.ts        — SSE live-sync subscription
 //
 // This module preserves the original public surface: the single `api` object
@@ -29,6 +31,7 @@ import * as procurement from './procurement';
 import * as sales from './sales';
 import * as finance from './finance';
 import * as admin from './admin';
+import * as settings from './settings';
 
 export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext } from './http';
 export { subscribeToSyncStream } from './sync';
@@ -44,36 +47,29 @@ export const api = {
   setupSuperAdmin: auth.setupSuperAdmin,
   forgotPassword: auth.forgotPassword,
   login: auth.login,
-  getCurrentUser: auth.getCurrentUser,
   switchProfile: auth.switchProfile,
   updateProfile: auth.updateProfile,
 
   // Branches / Suppliers / Users / Products (procurement masterdata)
-  getBranches: procurement.getBranches,
   createBranch: procurement.createBranch,
   updateBranch: procurement.updateBranch,
   deleteBranch: procurement.deleteBranch,
-  getSuppliers: procurement.getSuppliers,
   createSupplier: procurement.createSupplier,
   updateSupplier: procurement.updateSupplier,
   deleteSupplier: procurement.deleteSupplier,
-  getUsers: procurement.getUsers,
   createUser: procurement.createUser,
   updateUser: procurement.updateUser,
   deleteUser: procurement.deleteUser,
   resetUserPassword: procurement.resetUserPassword,
-  getProducts: procurement.getProducts,
   createProduct: procurement.createProduct,
   updateProduct: procurement.updateProduct,
   deleteProduct: procurement.deleteProduct,
 
   // Stock & assets
-  getStock: inventory.getStock,
   updateStockLevel: inventory.updateStockLevel,
   updateStockReorderLevel: inventory.updateStockReorderLevel,
   bulkUpdateStockReorderLevels: inventory.bulkUpdateStockReorderLevels,
   reconcileStockAudit: inventory.reconcileStockAudit,
-  getAssets: inventory.getAssets,
   createAsset: inventory.createAsset,
   updateAssetStatus: inventory.updateAssetStatus,
 
@@ -98,7 +94,6 @@ export const api = {
   getInvoicePayments: procurement.getInvoicePayments,
 
   // Vendor Payments Sub-ledger
-  getVendorPayments: procurement.getVendorPayments,
   createVendorPayment: procurement.createVendorPayment,
   reverseVendorPayment: procurement.reverseVendorPayment,
   reverseInvoicePayments: procurement.reverseInvoicePayments,
@@ -114,13 +109,13 @@ export const api = {
   getSalesReturns: sales.getSalesReturns,
   createSalesReturn: sales.createSalesReturn,
   cancelSalesReturn: sales.cancelSalesReturn,
+  cancelSalesInvoice: sales.cancelSalesInvoice,
   postSalesReturn: sales.postSalesReturn,
   createCustomerPayment: sales.createCustomerPayment,
   reverseCustomerPayment: sales.reverseCustomerPayment,
   getCustomerLedger: sales.getCustomerLedger,
 
   // Shipments
-  getShipments: procurement.getShipments,
   createShipment: procurement.createShipment,
   receiveShipment: procurement.receiveShipment,
   cancelShipment: procurement.cancelShipment,
@@ -134,9 +129,7 @@ export const api = {
   reverseConsumableIssue: inventory.reverseConsumableIssue,
 
   // Fiscal Years & finance
-  getFiscalYears: finance.getFiscalYears,
   setCurrentFiscalYear: finance.setCurrentFiscalYear,
-  updateFiscalYear: finance.updateFiscalYear,
   createFiscalYear: finance.createFiscalYear,
   closeFiscalYear: finance.closeFiscalYear,
   reopenFiscalYear: finance.reopenFiscalYear,
@@ -150,14 +143,7 @@ export const api = {
 
   // Document Numbering Configurations
   getDocumentNumberConfigs: inventory.getDocumentNumberConfigs,
-  updateDocumentNumberConfig: inventory.updateDocumentNumberConfig,
   updateDocumentNumberConfigs: inventory.updateDocumentNumberConfigs,
-  generateNextDocumentNumber: inventory.generateNextDocumentNumber,
-  resetDocumentSequence: inventory.resetDocumentSequence,
-
-  // Audit Logs & Transaction Logs
-  getAuditLogs: inventory.getAuditLogs,
-  getTransactionLogs: inventory.getTransactionLogs,
 
   // Financial Summary
   getFinancialSummary: finance.getFinancialSummary,
@@ -171,19 +157,18 @@ export const api = {
   lookupSerial: inventory.lookupSerial,
   updateDeviceSerialsDual: inventory.updateDeviceSerialsDual,
 
-  // Serial Log Register
-  getSerialLogs: inventory.getSerialLogs,
-  createSerialLogEntry: inventory.createSerialLogEntry,
-
-  // Customer Master Database
+  // Customer Master Database (paged server-side reads)
   getCustomers: inventory.getCustomers,
+  getProducts: inventory.getProducts,
   createCustomer: inventory.createCustomer,
   bulkImportCustomers: inventory.bulkImportCustomers,
   updateCustomer: inventory.updateCustomer,
   deleteCustomer: inventory.deleteCustomer,
 
+  // Serial Log Register (one row per unique serial)
+  getSerialLogs: inventory.getSerialLogs,
+
   // Workflow Approval Requests
-  getApprovalRequests: inventory.getApprovalRequests,
   createApprovalRequest: inventory.createApprovalRequest,
   processApprovalRequest: inventory.processApprovalRequest,
   cancelApprovalRequest: inventory.cancelApprovalRequest,
@@ -215,14 +200,17 @@ export const api = {
   // Locations API
   getLocations: admin.getLocations,
   createLocation: admin.createLocation,
-  updateLocation: admin.updateLocation,
   deleteLocation: admin.deleteLocation,
 
   // Company Profile API
-  getCompanyProfile: admin.getCompanyProfile,
   updateCompanyProfile: admin.updateCompanyProfile,
 
   // Permissions
   getPermissionsMatrix: admin.getPermissionsMatrix,
   savePermissionsMatrix: admin.savePermissionsMatrix,
+
+  // Server-side settings & user preferences (replaces browser localStorage)
+  getSettings: settings.getSettings,
+  saveAppSettings: settings.saveAppSettings,
+  savePreferences: settings.savePreferences,
 };

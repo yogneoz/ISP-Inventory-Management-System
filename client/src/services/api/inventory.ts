@@ -5,6 +5,7 @@ import type {
   TransactionLog,
   CustomerDeviceRecord,
   CustomerRecord,
+  Product,
   ApprovalRequest,
   DocumentNumberConfig,
   SerialLog,
@@ -29,11 +30,6 @@ export function safeParseHistory(v: unknown): SerialLog['history'] {
 }
 
 // Stock
-export async function getStock(branchId?: string): Promise<InventoryStock[]> {
-  const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
-  return fetchJson(`/api/stock${query}`);
-}
-
 export async function updateStockLevel(stockId: string, quantityOnHand: number, reason: string, damagedQty?: number, changeType?: string): Promise<InventoryStock> {
   return fetchJson(`/api/stock/${stockId}`, {
     method: 'PATCH',
@@ -70,11 +66,6 @@ export async function reconcileStockAudit(payload: {
 }
 
 // Assets
-export async function getAssets(branchId?: string): Promise<Asset[]> {
-  const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
-  return fetchJson(`/api/assets${query}`);
-}
-
 export async function createAsset(
   asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'> & {
     /** Server-side stock deduction for assets created straight into deployment. */
@@ -111,7 +102,7 @@ export async function getStockOperations(params?: {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.type) search.append('type', params.type);
-  if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+  // status filter is applied server-side via POST body, not as a query param
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
@@ -169,13 +160,6 @@ export async function getDocumentNumberConfigs(): Promise<DocumentNumberConfig[]
   return fetchJson('/api/document-number-configs');
 }
 
-export async function updateDocumentNumberConfig(config: DocumentNumberConfig): Promise<DocumentNumberConfig> {
-  return fetchJson(`/api/document-number-configs/${config.id}`, {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  });
-}
-
 export async function updateDocumentNumberConfigs(configs: DocumentNumberConfig[]): Promise<DocumentNumberConfig[]> {
   return fetchJson('/api/document-number-configs', {
     method: 'PUT',
@@ -183,29 +167,7 @@ export async function updateDocumentNumberConfigs(configs: DocumentNumberConfig[
   });
 }
 
-export async function generateNextDocumentNumber(docTypeId: string, autoIncrement = true): Promise<{ documentNumber: string; seqNum: number }> {
-  return fetchJson('/api/document-number-configs/generate-next', {
-    method: 'POST',
-    body: JSON.stringify({ docTypeId, autoIncrement }),
-  });
-}
-
-export async function resetDocumentSequence(docTypeId: string, newStartNumber?: number): Promise<{ status: string; docTypeId: string; nextNumber: number }> {
-  return fetchJson('/api/document-number-configs/reset-counter', {
-    method: 'POST',
-    body: JSON.stringify({ docTypeId, newStartNumber }),
-  });
-}
-
 // Audit Logs & Transaction Logs
-export async function getAuditLogs(): Promise<import('../../types').AuditLog[]> {
-  return fetchJson('/api/audit-trail');
-}
-
-export async function getTransactionLogs(): Promise<TransactionLog[]> {
-  return fetchJson('/api/transaction-logs');
-}
-
 // Customer Devices & Serial Numbers
 export async function getCustomerDevices(branchId?: string, query?: string): Promise<CustomerDeviceRecord[]> {
   const params = new URLSearchParams();
@@ -298,7 +260,7 @@ export async function getSerialLogs(params?: {
 }): Promise<SerialLog[] | { data: SerialLog[]; page: number; pageSize: number; totalItems: number; statusCounts: Record<string, number> }> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
-  if (params?.status && params.status !== 'ALL') search.append('status', params.status);
+  if (params?.status) search.append('status', params.status);
   if (params?.query) search.append('query', params.query);
   if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
   if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
@@ -320,27 +282,28 @@ export async function getSerialLogs(params?: {
   return (rows || []).map(parseRow);
 }
 
-export async function createSerialLogEntry(data: {
-  deviceSerial: string; ponSerial?: string; macAddress?: string;
-  productId?: string; productName?: string; branchId?: string;
-  customerId?: string; customerName?: string;
-  status?: string; sourceType?: string; sourceId?: string; notes?: string;
-}): Promise<{ success: boolean; id: string }> {
-  return fetchJson('/api/serial-log', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-// Customer Master Database
-export async function getCustomers(branchId?: string, query?: string): Promise<CustomerRecord[]> {
-  const params = new URLSearchParams();
-  if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
-  if (query) params.append('query', query);
-  const queryString = params.toString() ? `?${params.toString()}` : '';
+// Customer Master Database (paged server-side queries)
+export async function getCustomers(params?: {
+  branchId?: string;
+  query?: string;
+  status?: 'ACTIVE' | 'INACTIVE';
+  page?: number;
+  pageSize?: number;
+}):
+  Promise<CustomerRecord[] | { data: CustomerRecord[]; page: number; pageSize: number; totalItems: number }> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.query) search.append('query', params.query);
+  // status filter is applied server-side via POST body, not as a query param
+  if (params?.page !== undefined) {
+    search.append('page', String(params.page));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const queryString = search.toString() ? `?${search.toString()}` : '';
   return fetchJson(`/api/customers${queryString}`);
 }
 
+// Customer Master Database
 export async function createCustomer(record: Omit<CustomerRecord, 'id'> | CustomerRecord): Promise<CustomerRecord> {
   return fetchJson('/api/customers', {
     method: 'POST',
@@ -362,6 +325,24 @@ export async function updateCustomer(id: string, updates: Partial<CustomerRecord
   });
 }
 
+export async function getProducts(params?: {
+  branchId?: string;
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}):
+  Promise<Product[] | { data: Product[]; page: number; pageSize: number; totalItems: number }> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.query) search.append('query', params.query);
+  if (params?.page !== undefined) {
+    search.append('page', String(params.page));
+    if (params.pageSize) search.append('pageSize', String(params.pageSize));
+  }
+  const queryString = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/products${queryString}`);
+}
+
 export async function deleteCustomer(id: string): Promise<void> {
   return fetchJson(`/api/customers/${id}`, {
     method: 'DELETE',
@@ -369,14 +350,6 @@ export async function deleteCustomer(id: string): Promise<void> {
 }
 
 // Workflow Approval Requests
-export async function getApprovalRequests(branchId?: string, status?: string): Promise<ApprovalRequest[]> {
-  const params = new URLSearchParams();
-  if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
-  if (status && status !== 'ALL') params.append('status', status);
-  const queryString = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson(`/api/approval-requests${queryString}`);
-}
-
 export async function createApprovalRequest(request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>): Promise<ApprovalRequest> {
   return fetchJson('/api/approval-requests', {
     method: 'POST',

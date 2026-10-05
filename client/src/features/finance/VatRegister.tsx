@@ -3,6 +3,7 @@ import { PurchaseInvoice, CompanyProfile } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { DocumentLetterhead } from '../../components/common/DocumentLetterhead';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -33,7 +34,9 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   companyProfile,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [vatTypeFilter, setVatTypeFilter] = useState<'ALL' | '13%' | '0%'>('ALL');
+  // 'TAXABLE' is the rate-agnostic token for "has input VAT"; its label always
+  // renders the company-configured rate instead of a hard-coded 13%.
+  const [vatTypeFilter, setVatTypeFilter] = useState<'ALL' | 'TAXABLE' | '0%'>('ALL');
 
   const filteredInvoices = (invoices || []).filter((inv) => {
     const matchesSearch =
@@ -43,7 +46,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       inv.vendorBillNumber?.toLowerCase().includes((searchQuery || '').toLowerCase());
 
     const vatAmt = inv.vatAmount ?? 0;
-    if (vatTypeFilter === '13%') return matchesSearch && vatAmt > 0;
+    if (vatTypeFilter === 'TAXABLE') return matchesSearch && vatAmt > 0;
     if (vatTypeFilter === '0%') return matchesSearch && vatAmt === 0;
 
     return matchesSearch;
@@ -78,7 +81,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       { key: 'SupplierName', label: 'Supplier Name' },
       { key: 'SupplierPAN', label: 'PAN / VAT #' },
       { key: 'TaxableSubtotal', label: 'Taxable Subtotal' },
-      { key: 'VAT13Percent', label: 'VAT 13%' },
+      { key: 'VAT13Percent', label: `VAT ${getDefaultTaxRate()}%` },
       { key: 'GrandTotal', label: 'Grand Total' },
       { key: 'PaymentStatus', label: 'Status' },
     ], companyProfile);
@@ -94,7 +97,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       <DocumentLetterhead
         companyProfile={companyProfile}
         title="Value Added Tax (VAT) Register"
-        subtitle="IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records."
+        subtitle={`IRD Nepal Tax compliant Purchase VAT Ledger, ${getDefaultTaxRate()}% input tax deduction register, and supplier PAN records.`}
       />
 
       {/* Header — shared PageHeader (single h2 per screen rule). The screen
@@ -102,7 +105,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
           print-only subtitle. */}
       <PageHeader
         title="Value Added Tax (VAT) Register"
-        description="IRD Nepal Tax compliant Purchase VAT Ledger, 13% input tax deduction register, and supplier PAN records."
+        description={`IRD Nepal Tax compliant Purchase VAT Ledger, ${getDefaultTaxRate()}% input tax deduction register, and supplier PAN records.`}
         icon={<Receipt className="h-5 w-5 text-indigo-500" />}
         actionsClassName="items-center"
         actions={
@@ -133,10 +136,10 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
           icon={<DollarSign className="h-4 w-4" />}
           tone="emerald"
           value={formatNPR(totalTaxableAmount)}
-          hint="Subtotal before 13% VAT calculation"
+          hint={`Subtotal before ${getDefaultTaxRate()}% VAT calculation`}
         />
         <StatCard
-          label="13% INPUT VAT CREDIT"
+          label={`${getDefaultTaxRate()}% INPUT VAT CREDIT`}
           icon={<Percent className="h-4 w-4" />}
           tone="indigo"
           value={formatNPR(totalVatAmount)}
@@ -170,10 +173,10 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
               All Rates
             </button>
             <button
-              onClick={() => setVatTypeFilter('13%')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === '13%' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+              onClick={() => setVatTypeFilter('TAXABLE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${vatTypeFilter === 'TAXABLE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
             >
-              13% Taxable
+              {getDefaultTaxRate()}% Taxable
             </button>
             <button
               onClick={() => setVatTypeFilter('0%')}
@@ -200,7 +203,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
                 <th className="px-2.5 py-1.5">Supplier Name</th>
                 <th className="px-2.5 py-1.5">PAN / VAT No</th>
                 <th className="px-2.5 py-1.5 text-right">Taxable Subtotal</th>
-                <th className="px-2.5 py-1.5 text-right">13% Input VAT</th>
+                <th className="px-2.5 py-1.5 text-right">{getDefaultTaxRate()}% Input VAT</th>
                 <th className="px-2.5 py-1.5 text-right">Grand Total (NPR)</th>
                 <th className="px-2.5 py-1.5 text-center">Status</th>
               </tr>

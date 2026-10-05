@@ -16,7 +16,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   products,
   currentUser,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canEdit = isOperationAllowed('category-manage', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -96,7 +96,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       }
       setIsModalOpen(false);
     } catch (err: any) {
-      alert(`Failed to save category: ${err?.message || 'Database error'}`);
+      alertDialog(`Failed to save category: ${err?.message || 'Database error'}`);
     }
   };
 
@@ -106,7 +106,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
         await api.deleteCategory(id);
         setCategories(categories.filter((c) => c.id !== id));
       } catch (err: any) {
-        alert(`Failed to delete category: ${err?.message || 'Database error'}`);
+        alertDialog(`Failed to delete category: ${err?.message || 'Database error'}`);
       }
     }
   };
@@ -130,7 +130,7 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
         )
       );
     } catch (err: any) {
-      alert(`Failed to update: ${err?.message || 'Database error'}`);
+      alertDialog(`Failed to update: ${err?.message || 'Database error'}`);
     }
   };
 

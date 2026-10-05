@@ -30,6 +30,7 @@ import {
 } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
 import { isOperationAllowed } from '../../utils/permissions';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface ReceiveInboundWarehouseProps {
   currentUser: User | null;
@@ -69,6 +70,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
   onReceiveShipment,
   onCancelReceiveShipment,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const isWarehouseStaffOrAdmin =
     isOperationAllowed('wh-receive-pullouts', currentUser?.role) ||
     isOperationAllowed('po-receive', currentUser?.role) ||
@@ -184,7 +186,7 @@ export const ReceiveInboundWarehouse: React.FC<ReceiveInboundWarehouseProps> = (
       setSelectedPulloutToReceive(null);
       setPulloutReceiveNotes('');
     } catch (err: any) {
-      alert(`Failed to receive pullout bin: ${err?.message || err}`);
+      alertDialog(`Failed to receive pullout bin: ${err?.message || err}`);
     } finally {
       setIsReceivingPullout(false);
     }

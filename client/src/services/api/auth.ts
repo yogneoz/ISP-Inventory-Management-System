@@ -31,10 +31,6 @@ export async function login(email: string, password: string): Promise<{ user: Us
   });
 }
 
-export async function getCurrentUser(): Promise<User> {
-  return fetchJson('/api/auth/me');
-}
-
 export async function switchProfile(
   targetUserId: string,
   options?: { targetEmail?: string }

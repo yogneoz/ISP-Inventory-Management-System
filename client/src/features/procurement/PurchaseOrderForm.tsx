@@ -30,7 +30,9 @@ import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { convertADToBS } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { useDialog } from '../../components/common/DialogProvider';
 import type {
   PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier, User,
 } from '../../types';
@@ -81,6 +83,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   onCancel,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { alert: alertDialog } = useDialog();
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
   const [supplierName, setSupplierName] = useState(editingPO?.supplierName || availableSuppliers[0]?.name || '');
@@ -299,19 +302,19 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   // Order level calculations with bill-wise discount
   const grossSubtotal = lines.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
   const taxableAfterDiscount = Math.max(0, grossSubtotal - billWiseDiscount);
-  const totalVAT = taxationType === 'TAXABLE_13' ? (taxableAfterDiscount * 13) / 100 : 0;
+  const totalVAT = taxationType === 'TAXABLE_13' ? (taxableAfterDiscount * getDefaultTaxRate()) / 100 : 0;
   const grandTotal = taxableAfterDiscount + totalVAT;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (lines.length === 0) {
-      alert('Please add at least one product item line before saving.');
+      alertDialog('Please add at least one product item line before saving.');
       return;
     }
 
     const targetBranch = branches.find((b) => b.id === branchId);
     if (targetBranch && targetBranch.allowProcurement === false) {
-      alert(
+      alertDialog(
         `Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`
       );
       return;
@@ -326,7 +329,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       const lineTotal = l.quantity * l.unitPrice;
       const lineDiscount = grossSubtotal > 0 ? (lineTotal / grossSubtotal) * appliedBillDiscount : 0;
       const netLineTotal = Math.max(0, lineTotal - lineDiscount);
-      const lineTax = taxationType === 'TAX_EXEMPTED' ? 0 : (netLineTotal * 13) / 100;
+      const lineTax = taxationType === 'TAX_EXEMPTED' ? 0 : (netLineTotal * getDefaultTaxRate()) / 100;
       return {
         id: `poi-${Date.now()}-${idx}`,
         productId: l.productId,
@@ -338,7 +341,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         unitPrice: Number(l.unitPrice),
         discount: lineDiscount,
         isTaxExempt: taxationType === 'TAX_EXEMPTED',
-        taxRate: taxationType === 'TAX_EXEMPTED' ? 0 : 13,
+        taxRate: taxationType === 'TAX_EXEMPTED' ? 0 : getDefaultTaxRate(),
         subtotal: netLineTotal,
         taxAmount: lineTax,
         total: lineTotal + lineTax,
@@ -520,7 +523,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               }}
               className={`w-full rounded-xl border px-2.5 py-1.5 h-9 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
             >
-              <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
+              <option value="TAXABLE_13">Billwise {getDefaultTaxRate()}% VAT (Taxable)</option>
               <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
             </select>
           </div>
@@ -723,7 +726,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
             </div>
 
             <div className={`flex justify-between items-center text-indigo-600 border-slate-200 dark:text-indigo-400 dark:border-slate-800 font-semibold border-t pt-2.5`}>
-              <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
+              <span>{getDefaultTaxRate()}% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
               <span className="font-mono font-bold">
                 {formatNPRPrecise(totalVAT)}
               </span>

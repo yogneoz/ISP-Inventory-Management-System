@@ -3,6 +3,7 @@ import { Branch, CustomerRecord } from '../../types';
 import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface ImportCustomersProps {
   branches: Branch[];
@@ -72,6 +73,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   branches,
   onImportCustomersSuccess,
 }) => {
+  const { alert: alertDialog } = useDialog();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedCustomerRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -131,7 +133,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
       );
 
       if (headers.length === 0 || jsonRows.length === 0) {
-        alert('Uploaded CSV file is empty');
+        alertDialog('Uploaded CSV file is empty');
         setParsedRows([]);
         return;
       }
@@ -175,7 +177,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
       setParsedRows(rows);
     } catch (err: any) {
-      alert(`CSV Parse Error: ${err.message || 'Could not parse CSV file'}`);
+      alertDialog(`CSV Parse Error: ${err.message || 'Could not parse CSV file'}`);
       setParsedRows([]);
     }
   };
@@ -219,7 +221,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     try {
       const validRows = parsedRows.filter((r) => r.isValid);
       if (validRows.length === 0) {
-        alert('No valid customer rows found to import.');
+        alertDialog('No valid customer rows found to import.');
         return;
       }
 
@@ -252,7 +254,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
       setParsedRows([]);
       setSelectedFileName(null);
     } catch (err: any) {
-      alert(`Import error: ${err.message || 'Failed to import customer records'}`);
+      alertDialog(`Import error: ${err.message || 'Failed to import customer records'}`);
     } finally {
       setIsProcessing(false);
     }

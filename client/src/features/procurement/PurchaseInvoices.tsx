@@ -16,6 +16,7 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import {
   Receipt,
   Plus,
@@ -100,7 +101,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onDeleteInvoice,
   sseRefreshKey,
 }) => {
-  const { confirm: confirmDialog, prompt: promptDialog } = useDialog();
+  const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
@@ -323,9 +324,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         setPayInvoice({ ...payInvoice, amountPaid, paymentStatus: amountPaid >= (Number(payInvoice.grandTotal) || 0) ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'UNPAID' });
         setPaymentAmount(String(Math.max(0, (Number(payInvoice.grandTotal) || 0) - amountPaid)));
       }
-      alert(`Payment #${p.paymentNumber} reversed.`);
+      alertDialog(`Payment #${p.paymentNumber} reversed.`);
     } catch (err: any) {
-      alert(err?.message || 'Unable to reverse payment.');
+      alertDialog(err?.message || 'Unable to reverse payment.');
     }
   };
 
@@ -342,7 +343,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     );
     if (reason === null) return;
     if (!reason.trim()) {
-      alert('A reversal reason is required.');
+      alertDialog('A reversal reason is required.');
       return;
     }
     const ok = await confirmDialog(`Confirm reversing Invoice #${inv.invoiceNumber}: all posted payment(s) totaling ${formatNPR(paid)} will be reversed and the bill will be restored to UNPAID. This action is audited and cannot be undone automatically.`);
@@ -359,9 +360,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         setPayInvoice({ ...payInvoice, amountPaid: 0, paymentStatus: 'UNPAID' });
         setPaymentAmount(String(Math.max(0, Number(payInvoice.grandTotal) || 0)));
       }
-      alert(`Invoice #${inv.invoiceNumber} has been set back to UNPAID and all its payments reversed.`);
+      alertDialog(`Invoice #${inv.invoiceNumber} has been set back to UNPAID and all its payments reversed.`);
     } catch (err: any) {
-      alert(err?.message || 'Unable to reverse invoice payments.');
+      alertDialog(err?.message || 'Unable to reverse invoice payments.');
     }
   };
 
@@ -439,7 +440,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         formatter: (val) => Number(val || 0).toFixed(2),
       },
       {
-        label: '13% Input VAT',
+        label: `${getDefaultTaxRate()}% Input VAT`,
         key: 'vatAmount',
         formatter: (val) => Number(val || 0).toFixed(2),
       },
@@ -462,7 +463,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       {/* Header Section — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
         title="Purchase Invoices & Vendor Bills"
-        description="Full-width inline Vendor Bill entry with live barcode scanning, device & PON serial tracking, 13% Input VAT, and PO linking."
+        description={`Full-width inline Vendor Bill entry with live barcode scanning, device & PON serial tracking, ${getDefaultTaxRate()}% Input VAT, and PO linking.`}
         icon={<Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
         actions={
           <>
@@ -546,7 +547,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               }
               onClick={() => {
                 if (!canCreateInvoice) {
-                  alert('Purchase Invoice creation is disabled for your role permissions.');
+                  alertDialog('Purchase Invoice creation is disabled for your role permissions.');
                   return;
                 }
                 if (internalTab !== 'CREATE_INVOICE') {
@@ -598,7 +599,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
 
             <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
-              <span className={`text-xs font-semibold text-blue-600 dark:text-blue-400`}>13% Input VAT</span>
+              <span className={`text-xs font-semibold text-blue-600 dark:text-blue-400`}>{getDefaultTaxRate()}% Input VAT</span>
               <div className={`text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1`}>
                 {formatNPRPrecise(totalVAT)}
               </div>
@@ -707,7 +708,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                     <th className="px-2.5 py-1.5">Expected Delivery</th>
                     <th className="px-2.5 py-1.5">Bill Date</th>
                     <th className="px-2.5 py-1.5 text-right">Taxable</th>
-                    <th className="px-2.5 py-1.5 text-right">13% VAT</th>
+                    <th className="px-2.5 py-1.5 text-right">{getDefaultTaxRate()}% VAT</th>
                     <th className="px-2.5 py-1.5 text-right">Total Amount (NPR)</th>
                     <th className="px-2.5 py-1.5 text-center">Payment Mode</th>
                     <th className="px-2.5 py-1.5 text-center">Actions</th>
@@ -818,7 +819,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                     await onDeleteInvoice(inv.id);
                                     setPiRefreshKey((k) => k + 1);
                                   } catch (error: any) {
-                                    alert(error?.message || 'Unable to delete this purchase invoice.');
+                                    alertDialog(error?.message || 'Unable to delete this purchase invoice.');
                                   }
                                 }}
                                 title="Delete Purchase Invoice"
@@ -968,7 +969,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <span>{formatNPRPrecise(viewingInvoice.taxableAmount)}</span>
                 </div>
                 <div className={`flex justify-between text-blue-600 dark:text-blue-400 font-semibold`}>
-                  <span>13% VAT:</span>
+                  <span>{getDefaultTaxRate()}% VAT:</span>
                   <span>{formatNPRPrecise(viewingInvoice.vatAmount)}</span>
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">

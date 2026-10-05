@@ -41,6 +41,7 @@ import {
 import { FormCard } from '../../components/common/FormCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 
 interface ShipmentsProps {
@@ -101,6 +102,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   onCancelApproval,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { alert: alertDialog } = useDialog();
   const [internalTab, setInternalTab] = useState<'REGISTER' | 'CREATE_SHIPMENT' | 'VIEW'>(
     activeTab === 'create-shipment' ? 'CREATE_SHIPMENT' : 'REGISTER'
   );
@@ -575,26 +577,26 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       const availStock = srcStock ? srcStock.quantityOnHand : 0;
 
       if (availStock < l.quantitySent) {
-        alert(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${prodName}" on hand, but ${l.quantitySent} unit(s) are requested for transfer shipment.`);
+        alertDialog(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${prodName}" on hand, but ${l.quantitySent} unit(s) are requested for transfer shipment.`);
         return;
       }
 
       if (isSerialized) {
         if (!l.deviceSerials || l.deviceSerials.length < l.quantitySent) {
-          alert(`Validation Error: Please enter serial numbers for all ${l.quantitySent} unit(s) of "${prodName}".`);
+          alertDialog(`Validation Error: Please enter serial numbers for all ${l.quantitySent} unit(s) of "${prodName}".`);
           return;
         }
         for (let sIdx = 0; sIdx < l.quantitySent; sIdx++) {
           const s = l.deviceSerials[sIdx];
           if (!s || !s.deviceSerial?.trim()) {
-            alert(`Validation Error: Device Serial # is required for "${prodName}" (Unit #${sIdx + 1}).`);
+            alertDialog(`Validation Error: Device Serial # is required for "${prodName}" (Unit #${sIdx + 1}).`);
             return;
           }
           const cleanSerial = s.deviceSerial.trim().toUpperCase();
           const cleanPon = s.ponSerial?.trim().toUpperCase();
 
           if (seenSerials.has(cleanSerial)) {
-            alert(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in shipment lines.`);
+            alertDialog(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in shipment lines.`);
             return;
           }
           seenSerials.add(cleanSerial);
@@ -609,11 +611,11 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             if (match) {
               if (match.branchId !== sourceBranchId) {
                 const regBranch = branches.find((b) => b.id === match.branchId);
-                alert(`Serial Register Error: Serial #${cleanSerial} is registered to branch "${regBranch?.name || match.branchId}", not "${srcBranch?.name || sourceBranchId}".`);
+                alertDialog(`Serial Register Error: Serial #${cleanSerial} is registered to branch "${regBranch?.name || match.branchId}", not "${srcBranch?.name || sourceBranchId}".`);
                 return;
               }
               if (match.status && match.status !== 'IN_STOCK') {
-                alert(`Serial Register Error: Serial #${cleanSerial} in branch "${srcBranch?.name || sourceBranchId}" has status "${match.status}" (must be "IN_STOCK").`);
+                alertDialog(`Serial Register Error: Serial #${cleanSerial} in branch "${srcBranch?.name || sourceBranchId}" has status "${match.status}" (must be "IN_STOCK").`);
                 return;
               }
             } else {
@@ -621,7 +623,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 (cd) => cd.branchId === sourceBranchId && cd.status === 'IN_STOCK'
               );
               if (branchInStockSerials.length > 0) {
-                alert(`Serial Register Error: Serial #${cleanSerial} for "${prodName}" is not found in the branch serial register for "${srcBranch?.name || sourceBranchId}".`);
+                alertDialog(`Serial Register Error: Serial #${cleanSerial} for "${prodName}" is not found in the branch serial register for "${srcBranch?.name || sourceBranchId}".`);
                 return;
               }
             }

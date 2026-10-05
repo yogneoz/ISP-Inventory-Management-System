@@ -6,6 +6,7 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
 import { useDialog } from '../../components/common/DialogProvider';
 import { formatNPR } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import {
   ShoppingCart,
   Plus,
@@ -77,7 +78,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onDeletePO,
   sseRefreshKey,
 }) => {
-  const { confirm: confirmDialog } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   // Role-level gate: the inline create form is only reachable when the role may create POs
   const canCreatePoByRole = isOperationAllowed('po-create', currentUser?.role);
 
@@ -253,7 +254,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         },
         { key: 'items', label: 'Items', formatter: (val: any) => (Array.isArray(val) ? val.length : 0) },
         { key: 'subtotalAmount', label: 'Subtotal (NPR)', formatter: (val: any) => Number(val || 0).toFixed(2) },
-        { key: 'taxAmount', label: '13% VAT (NPR)', formatter: (val: any) => Number(val || 0).toFixed(2) },
+        { key: 'taxAmount', label: `${getDefaultTaxRate()}% VAT (NPR)`, formatter: (val: any) => Number(val || 0).toFixed(2) },
         { key: 'totalAmount', label: 'Grand Total (NPR)', formatter: (val: any) => Number(val || 0).toFixed(2) },
         { key: 'status', label: 'PO Status' },
         { key: 'notes', label: 'Notes' },
@@ -275,7 +276,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       po.status === 'CANCELLED' ||
       po.status === 'RECEIVED'
     ) {
-      alert(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
+      alertDialog(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
       return;
     }
     setEditingPO(po);
@@ -287,7 +288,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       {/* Header & Title Section — shared PageHeader (single h2 per screen rule) */}
       <PageHeader
         title="Purchase Orders & Supplier Procurement"
-        description="Full-width inline PO creation with 13% VAT, Bill-wise Discount, and multi-branch supplier management."
+        description={`Full-width inline PO creation with ${getDefaultTaxRate()}% VAT, Bill-wise Discount, and multi-branch supplier management.`}
         icon={<ShoppingCart className="h-5 w-5 text-indigo-500" />}
         actions={
           <>
@@ -371,7 +372,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               }
               onClick={() => {
                 if (!canCreatePo) {
-                  alert('Purchase Order creation is disabled for your role permissions.');
+                  alertDialog('Purchase Order creation is disabled for your role permissions.');
                   return;
                 }
                 if (internalTab !== 'CREATE_PO') {
@@ -531,7 +532,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <th className="px-2.5 py-1.5">Vendor Bill Date</th>
                     <th className="px-2.5 py-1.5 text-center">Items</th>
                     <th className="px-2.5 py-1.5 text-right">Subtotal (NPR)</th>
-                    <th className="px-2.5 py-1.5 text-right">13% VAT (NPR)</th>
+                    <th className="px-2.5 py-1.5 text-right">{getDefaultTaxRate()}% VAT (NPR)</th>
                     <th className="px-2.5 py-1.5 text-right">Total Amount (NPR)</th>
                     <th className="px-2.5 py-1.5 text-center">Status</th>
                     <th className="px-2.5 py-1.5 text-center">Actions</th>
@@ -630,7 +631,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                     await onDeletePO(po.id);
                                     setPoRefreshKey((k) => k + 1);
                                   } catch (error: any) {
-                                    alert(error?.message || 'Unable to delete this purchase order.');
+                                    alertDialog(error?.message || 'Unable to delete this purchase order.');
                                   }
                                 }}
                                 title="Delete Purchase Order"
@@ -827,7 +828,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   <th className="px-2.5 py-1.5 text-center">Qty</th>
                   <th className="px-2.5 py-1.5 text-right">Unit Rate</th>
                   <th className="px-2.5 py-1.5 text-right">Subtotal</th>
-                  <th className="px-2.5 py-1.5 text-right">13% VAT</th>
+                  <th className="px-2.5 py-1.5 text-right">{getDefaultTaxRate()}% VAT</th>
                   <th className="px-2.5 py-1.5 text-right">Total Amount</th>
                 </tr>
               </thead>
@@ -873,7 +874,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <span>{formatNPR(viewingPO.subtotalAmount)}</span>
               </div>
               <div className={`flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold`}>
-                <span>13% VAT:</span>
+                <span>{getDefaultTaxRate()}% VAT:</span>
                 <span>{formatNPR(viewingPO.taxAmount)}</span>
               </div>
               <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">

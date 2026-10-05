@@ -8,6 +8,7 @@ import {
   convertBSToAD,
   getNepaliFiscalYear,
   getBsCalendarData,
+  resetBsCalendarData,
   parseAndSeedBSInput,
   parseBSSeedYears,
   seedBSYearCalendar,
@@ -413,9 +414,9 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
 
   const handleResetDefaults = async () => {
     if (await confirmDialog('Reset bsCalendarData to default initial reference tables?')) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('inventory_bs_calendar_data');
-      }
+      // Drop the browser-side snapshot only; the authoritative rows are
+      // re-read from PostgreSQL by refreshCalendarData() right after.
+      resetBsCalendarData();
       refreshCalendarData();
       setSeedStatus({
         type: 'success',

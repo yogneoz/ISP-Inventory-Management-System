@@ -128,37 +128,41 @@ const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = {
   },
 };
 
-const STORAGE_KEY = 'inventory_bs_calendar_data';
+/**
+ * In-memory BS calendar lookup.
+ *
+ * The AUTHORITATIVE data lives in the `bs_calendar_years` / `bs_day_records`
+ * PostgreSQL tables: App.tsx seeds this store from GET /api/bs-calendar/years
+ * on every load, the BS Calendar Utility writes go to the server first, and
+ * the bundled INITIAL_BS_CALENDAR_DATA covers the very first paint.
+ *
+ * Browser storage is deliberately NOT used here — a per-browser mirror could
+ * silently disagree with the database (seeds made on another machine) and
+ * would vanish when the user clears cookies/history. Clearing either now
+ * costs nothing: the server re-seeds this store on the next load.
+ */
+let calendarStore: Record<number, BSYearData> | null = null;
 
 /**
- * Loads BS Calendar Dataset from Local Storage or returns initial defaults
+ * Returns a snapshot of the calendar (bundled defaults until the server seed
+ * lands, then the server-seeded data).
  */
 export function getBsCalendarData(): Record<number, BSYearData> {
-  if (typeof window === 'undefined') return { ...INITIAL_BS_CALENDAR_DATA };
+  return { ...(calendarStore ?? INITIAL_BS_CALENDAR_DATA) };
+}
 
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...INITIAL_BS_CALENDAR_DATA, ...parsed };
-    }
-  } catch (e) {
-    console.error('Failed to load bsCalendarData from storage:', e);
-  }
-  return { ...INITIAL_BS_CALENDAR_DATA };
+/** Replaces the in-memory calendar snapshot. */
+function saveBsCalendarData(data: Record<number, BSYearData>): void {
+  calendarStore = { ...data };
 }
 
 /**
- * Save updated bsCalendarData to Local Storage
+ * Drops the local snapshot so the next read falls back to the bundled
+ * defaults. Used by the "reset to defaults" actions, which then re-read the
+ * authoritative rows from the server via refreshCalendarData().
  */
-export function saveBsCalendarData(data: Record<number, BSYearData>): void {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error('Failed to save bsCalendarData:', e);
-    }
-  }
+export function resetBsCalendarData(): void {
+  calendarStore = null;
 }
 
 /**
@@ -204,7 +208,7 @@ export function seedBSYearCalendar(
 
 /**
  * Parses raw seed input text and seeds one or more BS calendar years into the
- * in-memory/localStorage calendar lookup table.
+ * in-memory calendar lookup table.
  *
  * Supported input formats (multiple years can be combined on separate lines):
  *   1. Single year line:   "2082: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]"

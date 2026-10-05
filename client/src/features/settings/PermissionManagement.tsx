@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../../types';
 import { api } from '../../services/api';
-import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
+import { getPermissionsMatrix, applyServerMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
@@ -73,7 +73,7 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       {
         id: 'inv-create',
         operationName: 'Record Purchase Tax Invoices',
-        description: 'Entry of vendor bills with 13% VAT bill-wise taxation and credit tracking',
+        description: 'Entry of vendor bills with bill-wise VAT taxation and credit tracking',
         permissions: DEFAULT_PERMISSIONS_MATRIX['inv-create'],
       },
       {
@@ -284,7 +284,7 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
       },
       {
         id: 'vat-register',
-        operationName: 'View 13% VAT Tax Register',
+        operationName: 'View VAT Tax Register',
         description: 'Audit purchase VAT tax credits, vendor tax invoices, and IRD reporting',
         permissions: DEFAULT_PERMISSIONS_MATRIX['vat-register'],
       },
@@ -490,16 +490,24 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
         matrix[op.id] = op.permissions;
       });
     });
-    savePermissionsMatrix(matrix);
     setIsSaving(true);
     setSaveError('');
     api.savePermissionsMatrix(matrix)
       .then(() => {
+        // The server has committed the matrix — only now does the client
+        // cache it (never before: a failed save must not leave the UI
+        // believing permissions changed that the server rejected).
+        applyServerMatrix(matrix);
         setSavedNotification(true);
         setTimeout(() => setSavedNotification(false), 3000);
       })
       .catch((err: any) => {
         setSaveError(err?.message || 'Failed to save permissions to the server.');
+        // Re-sync the editor with what the server actually holds so the
+        // rejected edits can never be mistaken for saved ones.
+        api.getPermissionsMatrix()
+          .then((serverMatrix) => applyServerMatrix(serverMatrix))
+          .catch(() => undefined);
       })
       .finally(() => setIsSaving(false));
   };
@@ -507,11 +515,11 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   const handleReset = () => {
     if (!isSuperAdmin || isSaving) return;
     const matrix = DEFAULT_PERMISSIONS_MATRIX;
-    savePermissionsMatrix(matrix);
     setIsSaving(true);
     setSaveError('');
     api.savePermissionsMatrix(matrix)
       .then(() => {
+        applyServerMatrix(matrix);
         setGroups(DEFAULT_GROUPS.map((g) => ({
           ...g,
           operations: g.operations.map((op) => ({
@@ -524,6 +532,9 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       })
       .catch((err: any) => {
         setSaveError(err?.message || 'Failed to reset permissions on the server.');
+        api.getPermissionsMatrix()
+          .then((serverMatrix) => applyServerMatrix(serverMatrix))
+          .catch(() => undefined);
       })
       .finally(() => setIsSaving(false));
   };

@@ -9,6 +9,9 @@ import {
   shipmentQtySent,
   shipmentIncomingDestParams,
   shipmentReceiveStockParams,
+  shipmentReceivedQty,
+  SHIPMENT_UNDO_RECEIVE_STOCK_SQL,
+  SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
   SHIPMENT_LIST_SQL,
   SHIPMENT_UPSERT_SQL,
   SHIPMENT_FIND_FOR_CANCEL_SQL,
@@ -80,5 +83,34 @@ describe('query constants', () => {
     assert.match(SHIPMENT_FIND_FOR_CANCEL_SQL, / WHERE id = \$1 OR tracking_code = \$1 FOR UPDATE$/);
     assert.ok(SHIPMENT_FIND_FOR_CANCEL_SQL.includes('"sourceBranchId"'));
     assert.ok(SHIPMENT_FIND_FOR_CANCEL_SQL.includes('"destinationBranchId"'));
+  });
+});
+
+describe('shipmentReceivedQty', () => {
+  test('prefers quantityReceived, allows 0 (full-loss receipt), falls back to sent', () => {
+    assert.equal(shipmentReceivedQty({ quantityReceived: 3, quantitySent: 5 }), 3);
+    assert.equal(shipmentReceivedQty({ quantityReceived: 0, quantitySent: 5 }), 0);
+    assert.equal(shipmentReceivedQty({ quantityReceived: '', quantitySent: 5 }), 5);
+    assert.equal(shipmentReceivedQty({ quantityReceived: 'x', quantitySent: 2 }), 2);
+    assert.equal(shipmentReceivedQty({ quantitySent: 5 }), 5);
+    assert.equal(shipmentReceivedQty({}), 1);
+  });
+});
+
+describe('undo-receive SQL', () => {
+  test('reverses the receive settlement with a destination stock guard', () => {
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('quantity_on_hand = quantity_on_hand - $1'));
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('incoming_qty = incoming_qty + $1'));
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('AND quantity_on_hand >= $1'));
+    assert.ok(SHIPMENT_UNDO_RECEIVE_STOCK_SQL.includes('WHERE product_id = $2 AND branch_id = $3'));
+  });
+
+  test('reverts the shipment row to IN_TRANSIT and clears receive bookkeeping', () => {
+    assert.match(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, /status = 'IN_TRANSIT'/);
+    assert.match(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, /received_by_notes = NULL/);
+    assert.match(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, /received_date_ad = NULL/);
+    assert.match(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, /has_discrepancy = FALSE/);
+    assert.ok(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL.includes('notes = $2'));
+    assert.ok(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL.includes('WHERE id = $1 OR tracking_code = $1'));
   });
 });

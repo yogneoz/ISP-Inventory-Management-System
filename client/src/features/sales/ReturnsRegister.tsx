@@ -7,7 +7,7 @@
  * (invoiced − already returned), then post. Posting is transaction-wrapped on
  * the server: stock moves + ledger rows + the return document commit together.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PlusCircle,
   Undo2,
@@ -22,10 +22,11 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
 import type {
@@ -52,6 +53,8 @@ interface ReturnsRegisterProps {
   onCancelReturn?: (id: string, reason: string) => Promise<void>;
   /** Approves a DRAFT (above-threshold) return: DRAFT → POSTED with stock effects. */
   onApproveReturn?: (id: string) => Promise<void>;
+  /** Bumped by App's SSE handler when procurement/sales return events arrive. */
+  sseRefreshKey?: number;
 }
 
 
@@ -85,9 +88,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   onCreateReturn,
   onCancelReturn,
   onApproveReturn,
+  sseRefreshKey,
 }) => {
   const { isDarkMode } = useDarkMode();
-  const { confirm, alert } = useDialog();
+  const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const [internalTab, setInternalTab] = useState<'LIST' | 'CREATE' | 'VIEW'>(autoOpenCreate ? 'CREATE' : 'LIST');
   const [viewing, setViewing] = useState<PurchaseReturn | SalesReturn | null>(null);
 
@@ -108,6 +112,54 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   const isPurchase = kind === 'PURCHASE';
   const invoices = isPurchase ? purchaseInvoices : salesInvoices;
   const docNumberLabel = isPurchase ? 'Debit Note (DN-…)' : 'Credit Note (CN-…)';
+
+  // Server-side paged fetch state: the register asks /api/purchase-returns
+  // or /api/sales-returns (by kind) for one page of filtered rows instead
+  // of filtering the whole prop array.
+  const [retRows, setRetRows] = useState<(PurchaseReturn | SalesReturn)[]>([]);
+  const [retTotalItems, setRetTotalItems] = useState(0);
+  const [retPage, setRetPage] = useState(1);
+  const [retPageSize, setRetPageSize] = useState(25);
+  const [, setRetLoading] = useState(true);
+  const [retLoadError, setRetLoadError] = useState('');
+  const [retRefreshKey, setRetRefreshKey] = useState(0);
+
+  // Server-side paged fetch: one page of filtered return rows.
+  const retFetchSeq = useRef(0);
+  const loadRetPage = useCallback(async () => {
+    const seq = ++retFetchSeq.current;
+    setRetLoading(true);
+    setRetLoadError('');
+    try {
+      const params = {
+        branchId: branchFilter !== 'ALL' ? branchFilter : undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        query: query.trim() || undefined,
+        page: retPage,
+        pageSize: retPageSize,
+      };
+      const envelope = (isPurchase
+        ? await api.getPurchaseReturns(params)
+        : await api.getSalesReturns(params)) as { data: (PurchaseReturn | SalesReturn)[]; totalItems: number };
+      if (seq !== retFetchSeq.current) return; // superseded
+      setRetRows(envelope.data || []);
+      setRetTotalItems(envelope.totalItems || 0);
+    } catch (err: any) {
+      if (seq !== retFetchSeq.current) return;
+      setRetLoadError(err?.message || 'Failed to load the register');
+    } finally {
+      if (seq === retFetchSeq.current) setRetLoading(false);
+    }
+  }, [branchFilter, statusFilter, query, retPage, retPageSize, isPurchase]);
+
+  useEffect(() => {
+    loadRetPage();
+  }, [loadRetPage, retRefreshKey, sseRefreshKey]);
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setRetPage(1);
+  }, [branchFilter, statusFilter, query]);
 
   const selectedInvoice = useMemo(() => {
     if (!invoiceRef) return null;
@@ -153,13 +205,16 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   };
 
   const lineTotals = useMemo(() => {
+    // Company-configured VAT rate (company_profile.default_tax_rate via
+    // bootstrap) — never a hard-coded 13.
+    const vatRate = getDefaultTaxRate();
     let taxable = 0, nonTaxable = 0, vat = 0;
     for (const l of lines) {
       if (!l.productId) continue;
       const gross = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
       if (l.isTaxExempt) { nonTaxable += gross; continue; }
       taxable += gross;
-      vat += (gross * 13) / 100;
+      vat += (gross * vatRate) / 100;
     }
     return { taxable, nonTaxable, vat, grand: taxable + nonTaxable + vat };
   }, [lines]);
@@ -205,10 +260,10 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
           quantity: Number(l.quantity) || 0,
           unitPrice: Number(l.unitPrice) || 0,
           isTaxExempt: l.isTaxExempt,
-          taxRate: l.isTaxExempt ? 0 : 13,
+          taxRate: l.isTaxExempt ? 0 : getDefaultTaxRate(),
           subtotal: gross,
-          taxAmount: l.isTaxExempt ? 0 : (gross * 13) / 100,
-          total: l.isTaxExempt ? gross : gross * 1.13,
+          taxAmount: l.isTaxExempt ? 0 : (gross * getDefaultTaxRate()) / 100,
+          total: l.isTaxExempt ? gross : gross * (1 + getDefaultTaxRate() / 100),
           ...(l.requiresSerials ? { deviceSerials: serials.map((s) => ({ deviceSerial: s })) } : {}),
         };
       });
@@ -232,13 +287,14 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
         ...partyFields,
       });
       if (created?.pendingApproval) {
-        await alert(
+        await alertDialog(
           `${created.returnNumber} is held for approval (Rs. ${created.grandTotal} exceeds the Rs. ${created.approvalThreshold} threshold). It will not affect stock or the ledger until it is approved from the register.`,
           { title: 'Held for Approval' }
         );
       }
       resetForm();
       setInternalTab('LIST');
+      setRetRefreshKey((k) => k + 1);
     } catch (e: any) {
       setFormError(e?.message || 'Failed to create the return.');
     } finally {
@@ -247,7 +303,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   };
 
   const cancel = async (ret: PurchaseReturn | SalesReturn) => {
-    const ok = await confirm(
+    const ok = await confirmDialog(
       `Cancel ${ret.returnNumber}? ` +
         (isPurchase
           ? 'Cancelling restores the returned stock to the branch; the debit note stays in the register as CANCELLED.'
@@ -257,6 +313,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     if (!ok) return;
     try {
       await onCancelReturn?.(ret.id, 'Cancelled from register');
+      setRetRefreshKey((k) => k + 1);
     } catch (e: any) {
       setFormError(e?.message || 'Failed to cancel the return.');
     }
@@ -277,7 +334,16 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     return list;
   }, [returns, branchFilter, statusFilter, query, isPurchase]);
 
-  const { pagedItems: pageRows, page, pageSize, setPage, pageCount, rangeStart, rangeEnd } = useClientPagination(filtered, 25, [branchFilter, statusFilter, query]);
+  // Rows on screen: the server page, or (on fetch failure) the client-side
+  // filtered prop array so the register degrades instead of breaking.
+  const pageRows = retLoadError ? filtered : retRows;
+  const totalItems = retLoadError ? filtered.length : retTotalItems;
+  const page = retPage;
+  const pageSize = retPageSize;
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const rangeStart = totalItems === 0 ? 0 : (retPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(retPage * pageSize, totalItems);
+  const setPage = (p: number) => setRetPage(Math.max(1, p));
 
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
   const partyName = (r: any) => (isPurchase ? r.supplierName : r.customerName) || '—';
@@ -460,7 +526,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
 
           <div className={`rounded-lg border p-3 text-sm ${isDarkMode ? 'border-slate-700 bg-slate-800/40' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between"><span>Taxable</span><span>{formatMoney(lineTotals.taxable)}</span></div>
-            <div className="flex justify-between"><span>VAT (13%)</span><span>{formatMoney(lineTotals.vat)}</span></div>
+            <div className="flex justify-between"><span>VAT ({getDefaultTaxRate()}%)</span><span>{formatMoney(lineTotals.vat)}</span></div>
             <div className="mt-1 flex justify-between border-t pt-1 font-semibold" style={{ borderColor: isDarkMode ? '#334155' : '#e2e8f0' }}>
               <span>{isPurchase ? 'Debit Note Total' : 'Credit Note Total'}</span><span>{formatMoney(lineTotals.grand)}</span>
             </div>
@@ -544,12 +610,12 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
                       {ret.status === 'DRAFT' && onApproveReturn && (
                         <button className="mr-2 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400" title="Approve & post (applies stock + ledger)"
                           onClick={async () => {
-                            const ok = await confirm(
+                            const ok = await confirmDialog(
                               `Approve ${ret.returnNumber}? This posts the return: stock, ledger entries and serial statuses are applied now.`,
                               { title: 'Approve Return', confirmLabel: 'Approve & Post', cancelLabel: 'Not yet' }
                             );
                             if (ok) {
-                              try { await onApproveReturn(ret.id); } catch (e: any) { setFormError(e?.message || 'Failed to approve the return.'); }
+                              try { await onApproveReturn(ret.id); setRetRefreshKey((k) => k + 1); } catch (e: any) { setFormError(e?.message || 'Failed to approve the return.'); }
                             }
                           }}>
                           <CheckCircle2 className="h-4 w-4" />
@@ -573,7 +639,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
           <TablePagination
             page={page}
             pageSize={pageSize}
-            totalItems={filtered.length}
+            totalItems={totalItems}
             pageCount={pageCount}
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}

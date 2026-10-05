@@ -65,6 +65,13 @@ interface PhysicalStockAuditProps {
   onCancelApproval?: (id: string, reason?: string) => Promise<any>;
   onProcessApproval?: (id: string, status: 'APPROVED' | 'REJECTED', reason?: string) => Promise<any>;
   onNavigateTab?: (tab: any) => void;
+  /**
+   * Company-Wide Blind Stock Audit Mode. Held server-side in the app_settings
+   * table (App owns the state and persists every change), so the toggle is
+   * shared by all users and survives cleared browser storage.
+   */
+  companyWideBlindCount?: boolean;
+  onCompanyWideBlindCountChange?: (next: boolean) => void;
 }
 
 export interface AuditRow {
@@ -97,6 +104,8 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   onCancelApproval,
   onProcessApproval,
   onNavigateTab,
+  companyWideBlindCount = false,
+  onCompanyWideBlindCountChange,
 }) => {
   const { isDarkMode } = useDarkMode();
   // 1. Branch Permission & Access Verification
@@ -174,22 +183,15 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   const canToggleBlindCount = isExecutiveUser;
 
-  // Company-Wide Blind Stock Audit Mode (Persisted in localStorage)
-  const [isCompanyWideBlindCount, setIsCompanyWideBlindCount] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('inventory_company_wide_blind_count') === 'true';
-    } catch (_e) {
-      return false;
-    }
-  });
+  // Company-Wide Blind Stock Audit Mode. Server-held (app_settings row):
+  // App passes the persisted value down and receives every change back, so
+  // the mode is identical for every browser and is never lost when browser
+  // storage is cleared. The local copy only keeps the toggle instant.
+  const [isCompanyWideBlindCount, setIsCompanyWideBlindCount] = useState<boolean>(Boolean(companyWideBlindCount));
 
   useEffect(() => {
-    try {
-      localStorage.setItem('inventory_company_wide_blind_count', String(isCompanyWideBlindCount));
-    } catch (_e) {
-      // ignore
-    }
-  }, [isCompanyWideBlindCount]);
+    setIsCompanyWideBlindCount(Boolean(companyWideBlindCount));
+  }, [companyWideBlindCount]);
 
   // Effective Blind Audit Mode for active counting session
   const isEffectiveBlindAudit = isCompanyWideBlindCount || isBlindAuditMode;
@@ -1188,6 +1190,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   onClick={() => {
                     const next = !isCompanyWideBlindCount;
                     setIsCompanyWideBlindCount(next);
+                    onCompanyWideBlindCountChange?.(next);
                     if (next) setIsBlindRevealed(false);
                     setToastMessage(
                       next

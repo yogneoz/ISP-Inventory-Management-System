@@ -6,9 +6,9 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns } from '../app';
+import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
-import { computeBillTotals } from '../utils/money';
+import { computeBillTotals, defaultVatRateFor } from '../utils/money';
 import { resolveBsDateForLedger, BS_DATE_FALLBACK } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
 import {
@@ -24,7 +24,8 @@ import {
   FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
-  buildPurchaseReturnListSql, PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
+  buildPurchaseReturnListSql, buildPurchaseReturnCountQuery, buildPurchaseReturnPagedQuery,
+  PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
   PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
   PR_TXN_LOG_SQL, prTxnLogParams, PR_SELECT_COLUMNS, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
   PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
@@ -87,7 +88,7 @@ try {
     // taxRate/isTaxExempt) — client-supplied subtotal/taxAmount per line and
     // header totals are ignored. There is no PO-level discount input, so no
     // discount is passed and per-line discounts are clamped to line gross.
-    const poTotals = computeBillTotals(items);
+    const poTotals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const subtotalAmount = poTotals.netSubtotal;
     const taxAmount = poTotals.vatAmount;
     const totalAmount = poTotals.grandTotal;
@@ -314,7 +315,7 @@ try {
     // bill-level totalDiscount is a legitimate business input (like qty and
     // price) and is kept, but clamped to [0, gross subtotal]. Client-supplied
     // taxableAmount / vatAmount / nonTaxableAmount / grandTotal are ignored.
-    const piTotals = computeBillTotals(items, newInv.totalDiscount);
+    const piTotals = computeBillTotals(items, newInv.totalDiscount, defaultVatRateFor(companyProfile));
     newInv.subtotalAmount = piTotals.netSubtotal;
     newInv.taxableAmount = piTotals.taxableAmount;
     newInv.nonTaxableAmount = piTotals.nonTaxableAmount;
@@ -1127,7 +1128,38 @@ function prValidateAgainstInvoice(invoiceItems: any[], returnItems: any[], alrea
 
 /** Forwarded from procurement.routes.ts (get_purchaseReturns). */
 export async function get_purchaseReturns(req: any, res: Response): Promise<any> {
-  const { branchId } = req.query;
+  const { branchId, status, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
+  // Paged mode: ?page=N (optional pageSize) returns an envelope with the page
+  // slice and the filtered total (the purchase-orders pattern). Filters
+  // without a page param keep the legacy full-array response; a bare
+  // ?branchId= request is unchanged.
+  const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
+  const wantsFiltering = wantsPaged || status || query || dateFromAD || dateToAD;
+  if (getPgConnected() && wantsFiltering) {
+    try {
+      const opts = { branchId, status, query, dateFromAD, dateToAD };
+      if (wantsPaged) {
+        const n = Math.max(1, Number(page) || 1);
+        const size = Math.max(1, Math.min(500, Number(pageSize) || 50));
+        const countQ = buildPurchaseReturnCountQuery(opts);
+        const countR = await pgPool.query(countQ.sql, countQ.params as any[]);
+        const totalItems = Number(countR.rows[0]?.count || 0);
+        const listQ = buildPurchaseReturnPagedQuery(opts, all === '1' ? undefined : { page: n, pageSize: size });
+        const r = await pgPool.query(listQ.sql, listQ.params as any[]);
+        return res.json({
+          data: r.rows,
+          page: all === '1' ? 1 : n,
+          pageSize: all === '1' ? totalItems : size,
+          totalItems,
+        });
+      }
+      const filteredQ = buildPurchaseReturnPagedQuery(opts);
+      const filteredR = await pgPool.query(filteredQ.sql, filteredQ.params as any[]);
+      return res.json(filteredR.rows);
+    } catch (err) {
+      console.error('Error fetching purchase returns from DB:', err);
+    }
+  }
   if (getPgConnected()) {
     try {
       const { sql, params } = buildPurchaseReturnListSql(branchId);
@@ -1220,7 +1252,7 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     }
 
     // C1: totals are recomputed from line primitives; client aggregates ignored.
-    const totals = computeBillTotals(items);
+    const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
     const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'DN', retDate));

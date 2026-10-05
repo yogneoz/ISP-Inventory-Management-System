@@ -4,9 +4,7 @@ import { DocumentNumberConfig } from '../../types';
 import { api } from '../../services/api';
 import {
   getDocumentNumberConfigs,
-  saveDocumentNumberConfigs,
-  formatDocumentNumber,
-  getDocTypePrefix,
+  formatNumber,
 } from '../../utils/documentNumbering';
 import {
   Hash,
@@ -49,27 +47,26 @@ const getDocCategory = (id: string): DocCategory => {
  * Fiscal Year Closing Wizard, so this page stays focused on voucher numbering.
  */
 export const DocumentNumbering: React.FC = () => {
+  // Load document-numbering configs from the database on mount.
+  // The client NEVER stores a bootstrap copy locally — every number pattern
+  // and prefix is fetched fresh from PostgreSQL via GET /api/document-number-configs.
+  async function loadDocumentNumberConfigs() {
+    try {
+      const configs = await api.getDocumentNumberConfigs();
+      if (Array.isArray(configs)) setDocConfigs(configs);
+    } catch (err) {
+      console.warn('Failed to load document-numbering configs:', err instanceof Error ? err.message : err);
+    }
+  }
+
   // Document Numbering State
-  const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>(() =>
-    getDocumentNumberConfigs()
-  );
+  const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>([]);
 
   useEffect(() => {
-    // DB is the source of truth; the localStorage copy is an intentional
-    // boot-time cache consumed by utils/documentNumbering getDocumentNumberConfigs()
-    // so numbering prefixes resolve before the first API round-trip.
-    api.getDocumentNumberConfigs()
-      .then((configs) => {
-        if (Array.isArray(configs) && configs.length > 0) {
-          setDocConfigs(configs);
-          try {
-            localStorage.setItem('inventory_document_number_configs', JSON.stringify(configs));
-          } catch (_e) {}
-        }
-      })
-      .catch((err) => {
-        console.warn('Failed to fetch document configs from DB backend:', err?.message || err);
-      });
+    // DB is the single source of truth for document-numbering prefixes.
+    // The client never stores a bootstrap copy locally, so stale prefixes
+    // can never persist in the UI. All reads go through GET /api/document-number-configs.
+    loadDocumentNumberConfigs();
   }, []);
   const [selectedCategory, setSelectedCategory] = useState<DocCategory>('ALL');
   const [docSearchQuery, setDocSearchQuery] = useState<string>('');
@@ -90,12 +87,14 @@ export const DocumentNumbering: React.FC = () => {
 
   const docConfigsPagination = useClientPagination(filteredDocConfigs, 15, [selectedCategory, docSearchQuery]);
 
-  const handleSaveDocConfigEdit = (e: React.FormEvent) => {
+  async function handleSaveDocConfigEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingDocConfig) return;
 
-    const prefixCode = getDocTypePrefix(editingDocConfig);
-    if (!prefixCode) {
+    const prefixCode = editingDocConfig.prefix
+      .replace(/\\-0*$/, '')
+      .replace(/-$/, '') || 'DOC';
+    if (!prefixCode.trim()) {
       setSaveSuccessMsg('A document-type prefix is required (e.g. PO, PI, CP).');
       setTimeout(() => setSaveSuccessMsg(''), 5000);
       return;
@@ -107,11 +106,11 @@ export const DocumentNumbering: React.FC = () => {
     );
 
     setDocConfigs(updated);
-    saveDocumentNumberConfigs(updated);
+    await api.updateDocumentNumberConfigs(updated);
+    setSaveSuccessMsg(`Prefix for "${editingDocConfig.documentType}" updated to "${editingDocConfig.prefix}".`);
     setEditingDocConfig(null);
-    setSaveSuccessMsg(`Prefix for "${editingDocConfig.documentType}" updated to "${getDocTypePrefix(editingDocConfig)}".`);
     setTimeout(() => setSaveSuccessMsg(''), 4000);
-  };
+  }
 
   return (
     <div className="space-y-3">
@@ -245,8 +244,10 @@ export const DocumentNumbering: React.FC = () => {
                 </tr>
               ) : (
                 docConfigsPagination.pagedItems.map((config) => {
-                  const prefixCode = getDocTypePrefix(config);
-                  const sampleOutput = formatDocumentNumber(config);
+                  const prefixCode = config.prefix
+                    .replace(/\-0*$/, '')
+                    .replace(/-$/, '') || 'DOC';
+                  const sampleOutput = formatNumber(config.prefix, 1, config.minDigits || 4);
 
                   return (
                     <tr key={config.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50`}>
@@ -372,7 +373,7 @@ export const DocumentNumbering: React.FC = () => {
               <div className="p-3.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800">
                 <span className="text-[10px] text-slate-400 uppercase font-bold block">Live Sample Output</span>
                 <span className={`text-base font-mono font-bold text-indigo-600 dark:text-indigo-300`}>
-                  {formatDocumentNumber(editingDocConfig)}
+                  {formatNumber(editingDocConfig.prefix, 1, editingDocConfig.minDigits || 4)}
                 </span>
               </div>
 

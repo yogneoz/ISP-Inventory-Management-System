@@ -6,7 +6,19 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction } from '../app';
+import { getPgConnected, pgPool, uomList, setUomList, withReplaced, withAppended, logAuditEvent, locationRecords, setLocationRecords, withPrepended, suppliers, setSuppliers, products, setProducts, branches, setInventoryStock, inventoryStock, categories, setCategories, broadcastChange, customerMasterRecords, customerDeviceRecords, setCustomerMasterRecords, withTransaction, companyProfile } from '../app';
+import { defaultVatRateFor } from '../utils/money';
+
+/**
+ * VAT rate for a product being created: the submitted value wins — including
+ * 0, which means "VAT exempt" — and only a missing/non-numeric value falls
+ * back to the company-configured default (company_profile.default_tax_rate,
+ * 13% statutory VAT when unset).
+ */
+function taxRateOrDefault(submitted: unknown): number {
+  const rate = Number(submitted);
+  return Number.isFinite(rate) && rate >= 0 ? rate : defaultVatRateFor(companyProfile);
+}
 import { UnitOfMeasure, LocationRecord, Supplier, Category, CustomerRecord } from '../../../client/src/types';
 import {
   UOM_SELECT, UOM_UPSERT_SQL, upsertUomParams, UOM_UPDATE_SQL, updateUomParams, UOM_DELETE_SQL,
@@ -146,36 +158,6 @@ try {
 }
 
 /** Forwarded from masterdata.routes.ts (put_Id2). */
-export async function put_Id2(req: any, res: Response): Promise<any> {
-try {
-    const { id } = req.params;
-    const idx = locationRecords.findIndex((l) => l.id === id);
-    if (idx >= 0) setLocationRecords(withReplaced(locationRecords, idx, { ...locationRecords[idx], ...req.body }));
-    const loc = locationRecords[idx] || req.body;
-
-    if (getPgConnected() && loc) {
-      await pgPool.query(LOCATION_UPDATE_SQL, [
-          loc.name,
-          loc.type,
-          loc.branchId,
-          loc.address,
-          JSON.stringify(loc.coordinates),
-          loc.contactPerson,
-          loc.contactPhone,
-          loc.notes,
-          Number(loc.activeAssetsCount) || 0,
-          id,
-        ]);
-    }
-    logAuditEvent(req, 'UPDATE_LOCATION', 'MASTER_DATA', `Updated location details for ${loc.name} (${id})`, loc.branchId);
-    res.json(loc);
-  } catch (err: any) {
-    console.error('Error updating location:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
-  }
-
-}
-
 /** Forwarded from masterdata.routes.ts (delete_Id2). */
 export async function delete_Id2(req: any, res: Response): Promise<any> {
 try {
@@ -308,7 +290,7 @@ try {
       unit: req.body.unit || 'Pcs',
       costPrice: Number(req.body.costPrice) || 0,
       sellingPrice: Number(req.body.sellingPrice) || 0,
-      taxRate: Number(req.body.taxRate) || 13,
+      taxRate: taxRateOrDefault(req.body.taxRate),
       minReorderLevel: Number(req.body.minReorderLevel) || 5,
       requiresSerialTracking: Boolean(req.body.requiresSerialTracking),
       trackingType: req.body.trackingType || 'QUANTITY_ONLY',
@@ -368,7 +350,7 @@ try {
     const updated = products[idx];
 
     if (getPgConnected()) {
-      await pgPool.query(PRODUCT_UPDATE_SQL, productUpdateParams(updated, id));
+      await pgPool.query(PRODUCT_UPDATE_SQL, productUpdateParams(updated, id, defaultVatRateFor(companyProfile)));
     }
     const changeMsg = oldProd.sku !== updated.sku
       ? `SKU updated from ${oldProd.sku} to ${updated.sku}`

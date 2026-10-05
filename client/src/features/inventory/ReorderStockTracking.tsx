@@ -27,6 +27,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { useDialog } from '../../components/common/DialogProvider';
 
 interface ReorderStockTrackingProps {
   currentUser?: User | null;
@@ -54,6 +55,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   onNavigateTab,
 }) => {
   const { isDarkMode } = useDarkMode();
+  const { alert: alertDialog } = useDialog();
   const [editingStock, setEditingStock] = useState<{
     stockItem: InventoryStock;
     product: Product;
@@ -239,7 +241,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   const openEditModal = (s: InventoryStock | undefined, p: Product, b: Branch, mode: 'stock' | 'reorder') => {
     if (!isStockManager) {
-      alert('Permission Denied: Only Stock Manager / Super Admin can edit branch reorder thresholds and adjust stock balances.');
+      alertDialog('Permission Denied: Only Stock Manager / Super Admin can edit branch reorder thresholds and adjust stock balances.');
       return;
     }
     const safeStockItem: InventoryStock = s || {

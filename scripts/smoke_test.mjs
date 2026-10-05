@@ -160,13 +160,19 @@ check('read: /api/bootstrap returns every expected payload section', async () =>
     'purchaseOrders', 'purchaseInvoices', 'shipments', 'stockOperations',
     'fiscalYears', 'auditLogs', 'transactionLogs', 'financialSummary',
     'suppliers', 'users', 'approvalRequests', 'categories', 'uom', 'locations',
-    'companyProfile', 'damageRecords', 'vendorPayments', 'serialLogs',
+    'companyProfile', 'damageRecords', 'vendorPayments',
+    // serialLogs was dropped from bootstrap (paged /api/serial-log instead);
+    // server-side settings & the caller's preferences replaced the old
+    // browser-localStorage copies and ship with every bootstrap now.
+    'permissionsMatrix', 'appSettings', 'userPreferences',
     'postgresDatabaseStatus', 'dataVersion',
   ];
   const missing = expected.filter((k) => !(k in r.data));
   ok(missing.length === 0, `missing bootstrap keys: ${missing.join(', ')}`);
   ok(Array.isArray(r.data.products) && r.data.products.length > 0, 'bootstrap products empty');
-  ok(Array.isArray(r.data.stock) && Array.isArray(r.data.serialLogs), 'stock/serialLogs not arrays');
+  ok(Array.isArray(r.data.stock), 'stock not an array');
+  ok(r.data.appSettings && typeof r.data.appSettings === 'object', 'appSettings slice missing');
+  ok(r.data.userPreferences && typeof r.data.userPreferences === 'object', 'userPreferences slice missing');
   ok(r.data.financialSummary && Number.isFinite(Number(r.data.financialSummary.totalInventoryAssetValue)), 'financialSummary.totalInventoryAssetValue missing');
 });
 

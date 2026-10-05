@@ -4,6 +4,7 @@ import { useDialog } from '../../components/common/DialogProvider';
 import {
   convertADToBS,
   getBsCalendarData,
+  resetBsCalendarData,
   parseAndSeedBSInput,
   parseBSSeedYears,
   seedBSYearCalendar,
@@ -365,7 +366,7 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
         }
       }
 
-      // 1) Seed in-memory / localStorage for every year
+      // 1) Seed the in-memory calendar for every year
       for (const y of excelPreviewYears) {
         if (seedOnlyIfNew && freshCalendar[y.yearBS]) continue;
         seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
@@ -564,9 +565,9 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
       confirmLabel: 'Reset',
     });
     if (ok) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('inventory_bs_calendar_data');
-      }
+      // Drop the browser-side snapshot only; the authoritative rows are
+      // re-read from PostgreSQL by refreshCalendarData() right after.
+      resetBsCalendarData();
       refreshCalendarData();
       setSeedStatus({
         type: 'success',

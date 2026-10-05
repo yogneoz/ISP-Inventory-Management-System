@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Category, InventoryStock, Product, User } from '../../types';
 import { isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
+import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { PageHeader } from '../../components/common/PageHeader';
+import { useDialog } from '../../components/common/DialogProvider';
+import { api } from '../../services/api';
 import {
   Package,
   Plus,
@@ -88,7 +91,6 @@ export const Code39BarcodeSVG: React.FC<{
 
 interface ProductManagementProps {
   currentUser?: User | null;
-  products: Product[];
   stock?: InventoryStock[];
   selectedBranchId?: string;
   onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
@@ -96,12 +98,10 @@ interface ProductManagementProps {
   onDeleteProduct: (id: string) => Promise<void>;
   searchQuery: string;
   mode?: 'product-master' | 'all-stock';
-  dbCategories?: Category[];
 }
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
   currentUser,
-  products,
   stock = [],
   selectedBranchId = 'ALL',
   onCreateProduct,
@@ -109,8 +109,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   onDeleteProduct,
   searchQuery,
   mode = 'product-master',
-  dbCategories = [],
 }) => {
+  const { alert: alertDialog } = useDialog();
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterProductGroup, setFilterProductGroup] = useState<string>('ALL');
   const [localSearch, setLocalSearch] = useState<string>('');
@@ -133,52 +133,90 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [bulkShowPrice, setBulkShowPrice] = useState<boolean>(true);
   const [bulkShowCategory, setBulkShowCategory] = useState<boolean>(true);
 
-  // Form state
-  const [sku, setSku] = useState('');
-  const [barcode, setBarcode] = useState('');
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('Fiber Accessories & Cables');
+  // Product form state (creates/edits each row on the server)
+  const [sku, setSku] = useState<string>('');
+  const [barcode, setBarcode] = useState<string>('');
+  const [name, setName] = useState<string>('');
+  const [category, setCategory] = useState<string>('');
   const [isCustomCategory, setIsCustomCategory] = useState<boolean>(false);
   const [productGroup, setProductGroup] = useState<'Product Item' | 'Fixed Asset' | 'Consumable Item'>('Product Item');
   const [unit, setUnit] = useState<Product['unit']>('Pcs');
   const [costPrice, setCostPrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
-  const [taxRate, setTaxRate] = useState<number>(13);
+  const [taxRate, setTaxRate] = useState<number>(() => getDefaultTaxRate());
   const [minReorderLevel, setMinReorderLevel] = useState<number>(10);
   const [requiresSerialTracking, setRequiresSerialTracking] = useState<boolean>(true);
-  const [description, setDescription] = useState('');
-
-  // Fixed Asset Depreciation Form State
+  const [description, setDescription] = useState<string>('');
   const [depreciationMethod, setDepreciationMethod] = useState<'STRAIGHT_LINE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE'>('STRAIGHT_LINE');
   const [depreciationRate, setDepreciationRate] = useState<number>(15);
   const [usefulLifeYears, setUsefulLifeYears] = useState<number>(5);
   const [salvageValuePercent, setSalvageValuePercent] = useState<number>(10);
 
-  // Categories fetched dynamically from backend database table
-  const availableCategories = Array.from(
-    new Set([
-      ...dbCategories.map((c) => c.name),
-      ...products.map((p) => p.category).filter(Boolean),
-    ])
-  ).sort();
+  // Server-driven catalog and category options (never bootstrap slices)
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [masterCategories, setMasterCategories] = useState<Category[]>([]);
+  const [catalogLoadError, setCatalogLoadError] = useState(false);
 
-  if (availableCategories.length === 0) {
-    availableCategories.push(
-      'Fiber Accessories & Cables',
-      'Routers & ONTs',
-      'Networking Switches',
-      'Fixed Assets',
-      'Tools & Safety Gear',
-      'Power & UPS'
-    );
-  }
+  // Categories fetched from the database table: never fall back to a
+  // client-computed list of every product's category (which also leaked
+  // missing categories as hard-coded strings into the component).
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(['ALL']);
+  const [categories, setCategories] = useState<string[]>(['ALL']);
+  const availableCategories = categories.filter(Boolean);
+  const [categoryLoadError, setCategoryLoadError] = useState(false);
 
-  const categories = Array.from(
-    new Set([
-      ...dbCategories.map((c) => c.name),
-      ...products.map((p) => p.category).filter(Boolean),
-    ])
-  ).sort();
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const [cat = [], prod = []] = await Promise.all([
+          api.getCategories(),
+          api.getProducts({
+            branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+          }),
+        ]);
+
+        if (!cancelled) {
+          setCatalog(Array.isArray(prod) ? prod : (prod as { data?: Product[] }).data || []);
+          setMasterCategories(cat || []);
+          setCatalogLoadError(false);
+        }
+      } catch {
+        if (!cancelled) setCatalogLoadError(true);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const cats = masterCategories.map((c) => c.name).filter(Boolean);
+        const options = ['ALL', ...Array.from(new Set(cats))].sort();
+        const list = ['ALL', ...cats].sort();
+
+        if (!cancelled) {
+          setCategoryOptions(options);
+          setCategories(list);
+          setCategoryLoadError(false);
+        }
+      } catch {
+        if (!cancelled) setCategoryLoadError(true);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [masterCategories]);
 
   const effectiveSearch = localSearch || searchQuery;
 
@@ -191,9 +229,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     return items.reduce((sum, item) => sum + item.quantityOnHand, 0);
   };
 
-  const hiddenZeroStockCount = products.filter((p) => getProductStockQty(p.id) === 0).length;
-
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = catalog.filter((p) => {
     const matchesCat = filterCategory === 'ALL' || p.category === filterCategory;
     const matchesGroup = filterProductGroup === 'ALL' || (p.productGroup || 'Product Item') === filterProductGroup;
     const matchesSearch =
@@ -259,22 +295,20 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   const openCreateModal = () => {
     if (!canEditProduct) {
-      alert('Permission Denied: Only Super Admin and Inventory Manager can create new products.');
+      alertDialog('Permission Denied: Only Super Admin and Inventory Manager can create new products.');
       return;
     }
     setEditingProduct(null);
-    const newSku = `ADP${Math.floor(100 + Math.random() * 900)}`;
-    setSku(newSku);
-    setBarcode(newSku);
+    setSku('');
+    setBarcode('');
     setName('');
-    const defaultCat = availableCategories[0] || 'Fiber Accessories & Cables';
-    setCategory(defaultCat);
+    setCategory('');
     setIsCustomCategory(false);
     setProductGroup('Product Item');
     setUnit('Pcs');
     setCostPrice(1000);
     setSellingPrice(1300);
-    setTaxRate(13);
+    setTaxRate(getDefaultTaxRate());
     setMinReorderLevel(10);
     setRequiresSerialTracking(true);
     setDescription('');
@@ -287,14 +321,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   const openEditModal = (p: Product) => {
     if (!canEditProduct) {
-      alert('Permission Denied: Only Super Admin and Inventory Manager can edit product master records.');
+      alertDialog('Permission Denied: Only Super Admin and Inventory Manager can edit product master records.');
       return;
     }
     setEditingProduct(p);
     setSku(p.sku);
     setBarcode(p.barcode || p.sku);
     setName(p.name);
-    setCategory(p.category || 'Fiber Accessories & Cables');
+    setCategory(p.category || '');
     setIsCustomCategory(!availableCategories.includes(p.category));
     setProductGroup(p.productGroup || 'Product Item');
     setUnit(p.unit);
@@ -361,9 +395,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const getBulkLabelsList = () => {
     let sourceProducts = filteredProducts;
     if (bulkScope === 'ALL') {
-      sourceProducts = products;
+      sourceProducts = catalog;
     } else if (bulkScope === 'IN_STOCK') {
-      sourceProducts = products.filter((p) => getProductStockQty(p.id) > 0);
+      sourceProducts = catalog.filter((p) => getProductStockQty(p.id) > 0);
     }
 
     const labels: Array<{ product: Product; copyIdx: number }> = [];
@@ -385,33 +419,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
-      <style>{`
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 0;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          #barcode-print-area, #barcode-print-area *,
-          #bulk-barcode-a4-area, #bulk-barcode-a4-area * {
-            visibility: visible !important;
-          }
-          #barcode-print-area, #bulk-barcode-a4-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-            color: black !important;
-          }
-          .barcode-card-item {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-        }
-      `}</style>      {/* Header bar — shared PageHeader (single h2 per screen rule) */}
+      <style>{``}</style>
+      {/* Header bar */}
       <PageHeader
         title={mode === 'product-master' ? 'Product Master Page' : 'All Available Stock Inventory'}
         description={
@@ -516,7 +525,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
       {/* Filter and Search controls */}
       <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-2 p-2 rounded-xl border shadow-2xs bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
+        <div className="relative w-full md:w-80 lg:w-96 shrink-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
@@ -531,19 +540,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           <button
             type="button"
             onClick={() => setShowZeroStock(!showZeroStock)}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold border transition-all cursor-pointer ${
-              showZeroStock
-                ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600/40 hover:bg-amber-100'
-                : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600/40 hover:bg-emerald-100'
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold border transition-all cursor-pointer ${showZeroStock
+              ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600/40 hover:bg-amber-100'
+              : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600/40 hover:bg-emerald-100'
+              }`}
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
             <span>
               {showZeroStock ? 'All Stock List' : 'Available Stock (>0)'}
             </span>
-            {!showZeroStock && hiddenZeroStockCount > 0 && (
+            {!showZeroStock && (filteredProducts.length === 0 ? catalog.length : 0) > 0 && (
               <span className="rounded-full bg-emerald-200 dark:bg-emerald-900/90 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.2 text-[9px] font-bold">
-                {hiddenZeroStockCount} Zero-Qty Hidden
+                {catalog.filter((p) => getProductStockQty(p.id) === 0).length} Zero-Qty Hidden
               </span>
             )}
           </button>
@@ -558,7 +566,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Groups</option>
             <option value="Product Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Product Item (Equipment/Resale)</option>
             <option value="Consumable Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 font-semibold">Consumable Item (Splitters/Sleeves/Couplers)</option>
-            <option value="Fixed Asset" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-indigo-400 font-semibold">Fixed Asset (Capital Assets)</option>
+            <option value="Fixed Asset" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-indigo-400 font-semibold">Fixed Asset (Capital Equipment)</option>
           </select>
 
           <span className={`text-[11px] font-semibold text-slate-500 dark:text-slate-400`}>Category:</span>
@@ -567,8 +575,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             onChange={(e) => setFilterCategory(e.target.value)}
             className={`rounded-lg border px-2 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500 cursor-pointer bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200`}
           >
-            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories ({products.length})</option>
-            {categories.map((cat) => (
+            {categoryOptions.map((cat) => (
               <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
                 {cat}
               </option>
@@ -627,13 +634,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          grp === 'Fixed Asset'
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${grp === 'Fixed Asset'
                             ? 'bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
                             : grp === 'Consumable Item'
-                            ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                            : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
-                        }`}>
+                              ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                              : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+                          }`}>
                           {grp === 'Consumable Item' ? '🛠️ Consumable' : grp === 'Fixed Asset' ? '🏢 Fixed Asset' : '📦 Product Item'}
                         </span>
                       </td>
@@ -644,8 +650,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                               {p.depreciationMethod === 'WRITTEN_DOWN_VALUE'
                                 ? 'WDV'
                                 : p.depreciationMethod === 'DECLINING_BALANCE'
-                                ? 'Declining'
-                                : 'SLM'}{' '}
+                                  ? 'Declining'
+                                  : 'SLM'}{' '}
                               @ {p.depreciationRate ?? 15}%/yr
                             </span>
                             <span className="text-slate-500 text-[9px]">
@@ -676,13 +682,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.2 text-[10px] font-mono font-extrabold border ${
-                            qtyOnHand > p.minReorderLevel
-                              ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30'
-                              : qtyOnHand > 0
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.2 text-[10px] font-mono font-extrabold border ${qtyOnHand > p.minReorderLevel
+                            ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30'
+                            : qtyOnHand > 0
                               ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/30'
                               : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/30'
-                          }`}
+                            }`}
                         >
                           {qtyOnHand} {p.unit}
                         </span>
@@ -813,7 +818,6 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         {printingProduct.name}
                       </div>
 
-                      {/* Vector Barcode for Product Code */}
                       <div className="my-1.5">
                         <Code39BarcodeSVG
                           code={printingProduct.sku || printingProduct.barcode}
@@ -992,7 +996,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         const nextIsCustom = !isCustomCategory;
                         setIsCustomCategory(nextIsCustom);
                         if (!nextIsCustom) {
-                          setCategory(availableCategories[0] || 'Fiber Accessories & Cables');
+                          setCategory(availableCategories[0] || '');
                         }
                       }}
                       className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
@@ -1096,13 +1100,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         type="number"
                         min={0}
                         max={100}
-                        step={0.1}
                         value={depreciationRate}
                         onChange={(e) => setDepreciationRate(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
+                  </div>
 
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold mb-1 opacity-80">
                         Useful Life (Years)
@@ -1110,31 +1115,30 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       <input
                         type="number"
                         min={1}
-                        max={50}
                         value={usefulLifeYears}
                         onChange={(e) => setUsefulLifeYears(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
 
                     <div>
                       <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                        Salvage / Scrap Value (%)
+                        Salvage Value (%)
                       </label>
                       <input
                         type="number"
                         min={0}
                         max={100}
-                        step={0.1}
                         value={salvageValuePercent}
                         onChange={(e) => setSalvageValuePercent(Number(e.target.value))}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                       />
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* Pricing & Tax Block */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
@@ -1142,11 +1146,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </label>
                   <input
                     type="number"
-                    required
                     min={0}
                     value={costPrice}
                     onChange={(e) => setCostPrice(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
                 <div>
@@ -1155,315 +1158,100 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </label>
                   <input
                     type="number"
-                    required
                     min={0}
                     value={sellingPrice}
                     onChange={(e) => setSellingPrice(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    VAT %
+                    VAT Rate (%)
                   </label>
                   <input
                     type="number"
-                    required
                     min={0}
-                    max={100}
                     value={taxRate}
                     onChange={(e) => setTaxRate(Number(e.target.value))}
-                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                  Minimum Stock Reorder Threshold
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={0}
-                  value={minReorderLevel}
-                  onChange={(e) => setMinReorderLevel(Math.max(0, Number(e.target.value)))}
-                  className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Accepts 0 for Fixed Asset type products or non-reorder items.
-                </p>
-              </div>
-
-              {/* Serial / MAC Tracking Mode Toggle */}
-              <div className={`p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20`}>
-                <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 mb-1 flex items-center gap-1.5">
-                  <Barcode className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                  <span>Item Serial / MAC / PON Tracking Mode</span>
-                </label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <label
-                    onClick={() => setRequiresSerialTracking(true)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${requiresSerialTracking ? 'border-indigo-500 bg-indigo-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
-                  >
-                    <input
-                      type="radio"
-                      name="serialTrackingMode"
-                      checked={requiresSerialTracking}
-                      onChange={() => setRequiresSerialTracking(true)}
-                      className="sr-only"
-                    />
-                    <CheckCircle2 className={`h-4 w-4 shrink-0 ${requiresSerialTracking ? 'text-white' : 'opacity-0'}`} />
-                    <div>
-                      <div>Serialized Device</div>
-                      <div className={`text-[10px] font-normal ${requiresSerialTracking ? 'text-indigo-100' : 'text-slate-500'}`}>
-                        Routers, STBs, OLTs, Switches, Servers
-                      </div>
-                    </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                    Min Reorder Level
                   </label>
-
-                  <label
-                    onClick={() => setRequiresSerialTracking(false)}
-                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${!requiresSerialTracking ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700'}`}
-                  >
-                    <input
-                      type="radio"
-                      name="serialTrackingMode"
-                      checked={!requiresSerialTracking}
-                      onChange={() => setRequiresSerialTracking(false)}
-                      className="sr-only"
-                    />
-                    <CheckCircle2 className={`h-4 w-4 shrink-0 ${!requiresSerialTracking ? 'text-white' : 'opacity-0'}`} />
-                    <div>
-                      <div>Bulk / Quantity Only</div>
-                      <div className={`text-[10px] font-normal ${!requiresSerialTracking ? 'text-emerald-100' : 'text-slate-500'}`}>
-                        Cables, Drop wire, RJ45, Fasteners
-                      </div>
-                    </div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={minReorderLevel}
+                    onChange={(e) => setMinReorderLevel(Number(e.target.value))}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                    Requires Serial Tracking
                   </label>
+                  <select
+                    value={requiresSerialTracking ? 'true' : 'false'}
+                    onChange={(e) => setRequiresSerialTracking(e.target.value === 'true')}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                  >
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                    Default Unit
+                  </label>
+                  <select
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value as any)}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                  >
+                    <option value="Pcs">Pcs (Pieces)</option>
+                    <option value="Box">Box</option>
+                    <option value="Kg">Kg (Kilograms)</option>
+                    <option value="Set">Set</option>
+                    <option value="Mtr">Mtr (Meters)</option>
+                    <option value="Roll">Roll</option>
+                  </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                  Description / Specification
+                  Description
                 </label>
                 <textarea
-                  rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional details..."
+                  rows={2}
                   className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 border-slate-300 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                 />
               </div>
 
-              <div className={`pt-3 border-t flex items-center justify-end gap-2 border-slate-200 dark:border-slate-800`}>
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium border-slate-300 text-slate-600 hover:bg-slate-200 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800`}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md cursor-pointer"
+                  disabled={false}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50"
                 >
-                  Save Product
+                  {editingProduct ? 'Update Product' : 'Create Product'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk A4 Barcode Printing Modal */}
-      {isBulkBarcodeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className={`w-full max-w-5xl rounded-2xl shadow-2xl border overflow-hidden my-6 bg-white border-slate-200 text-slate-800 dark:bg-[#0f1218] dark:border-slate-800 dark:text-slate-200`}>
-            <div id="bulk-barcode-a4-area">
-              {/* Modal Header */}
-              <div className={`p-4 border-b flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
-                <div className="flex items-center gap-2">
-                  <Printer className={`h-5 w-5 text-indigo-500 dark:text-indigo-400`} />
-                  <Barcode className={`h-5 w-5 text-emerald-500 dark:text-emerald-400`} />
-                  <h3 className="font-bold text-sm">
-                    Print Item Barcodes (A4 Sheet PDF Format — Code 39)
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkBarcodeModalOpen(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4">
-                {/* Configuration controls */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3.5 rounded-xl border bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-xs print:hidden">
-                  <div>
-                    <label className="block font-bold mb-1 opacity-80">1. Product Scope</label>
-                    <select
-                      value={bulkScope}
-                      onChange={(e) => setBulkScope(e.target.value as any)}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-                    >
-                      <option value="FILTERED">Current Filtered List ({filteredProducts.length} items)</option>
-                      <option value="ALL">Entire Product Catalog ({products.length} items)</option>
-                      <option value="IN_STOCK">Available Stock (&gt;0 Qty Only)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold mb-1 opacity-80">2. Copies per Item</label>
-                    <select
-                      value={bulkQtyMode}
-                      onChange={(e) => setBulkQtyMode(e.target.value as any)}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-                    >
-                      <option value="ONE_PER_SKU">1 Label per SKU (Catalog Sheet)</option>
-                      <option value="STOCK_QTY">Match Inventory Stock Qty</option>
-                      <option value="CUSTOM">Custom Copies per SKU</option>
-                    </select>
-                    {bulkQtyMode === 'CUSTOM' && (
-                      <input
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={bulkCustomCopies}
-                        onChange={(e) => setBulkCustomCopies(Math.max(1, Math.min(50, Number(e.target.value))))}
-                        className={`w-full mt-1 rounded-lg border px-2 py-1 font-mono text-xs bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white`}
-                      />
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block font-bold mb-1 opacity-80">3. A4 Grid Density</label>
-                    <select
-                      value={bulkColumns}
-                      onChange={(e) => setBulkColumns(Number(e.target.value))}
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-semibold focus:outline-none bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200`}
-                    >
-                      <option value={3}>3 Columns (24 Labels / Page) — Standard</option>
-                      <option value={4}>4 Columns (40 Labels / Page) — Compact</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col justify-center space-y-1.5 pt-1">
-                    <label className="flex items-center gap-2 font-semibold cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={bulkShowPrice}
-                        onChange={(e) => setBulkShowPrice(e.target.checked)}
-                        className="rounded text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>Show Selling Price (NPR)</span>
-                    </label>
-                    <label className="flex items-center gap-2 font-semibold cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={bulkShowCategory}
-                        onChange={(e) => setBulkShowCategory(e.target.checked)}
-                        className="rounded text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>Show Category / Group</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Summary Banner */}
-                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 font-semibold print:hidden">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                    <span>
-                      Total Barcode Labels: <strong>{bulkLabels.length} labels</strong>
-                    </span>
-                  </div>
-                  <span className="text-[11px] opacity-80">
-                    A4 Portrait Page Layout (Code 39 Format) • Fits ~{Math.ceil(bulkLabels.length / (bulkColumns * 8))} Page(s)
-                  </span>
-                </div>
-
-                {/* Printable A4 Sheet Preview Area */}
-                <div className="max-h-[60vh] overflow-y-auto p-4 bg-slate-200 dark:bg-slate-950/80 rounded-xl border border-slate-300 dark:border-slate-800">
-                  {bulkLabels.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-500">
-                      No matching products found for the selected scope.
-                    </div>
-                  ) : (
-                    <div
-                      className={`w-full bg-white text-slate-900 p-4 shadow-xl border border-slate-300 rounded-sm grid gap-3 ${
-                        bulkColumns === 4 ? 'grid-cols-4' : 'grid-cols-3'
-                      }`}
-                    >
-                      {bulkLabels.map((lbl, idx) => (
-                        <div
-                          key={`${lbl.product.id}-${lbl.copyIdx}-${idx}`}
-                          className="barcode-card-item p-2.5 bg-white text-slate-900 border border-slate-300 rounded flex flex-col items-center text-center justify-between min-h-[110px] select-none print:shadow-none print:border-black"
-                        >
-                          {bulkShowCategory && (
-                            <div className="w-full text-[9px] font-extrabold uppercase tracking-wider text-slate-500 truncate">
-                              {lbl.product.category} • {lbl.product.productGroup || 'Product Item'}
-                            </div>
-                          )}
-
-                          <div className="w-full text-[11px] font-bold text-slate-900 line-clamp-1 my-0.5">
-                            {lbl.product.name}
-                          </div>
-
-                          {/* Code 39 Barcode Vector SVG */}
-                          <div className="my-1 flex justify-center w-full">
-                            <Code39BarcodeSVG
-                              code={lbl.product.sku || lbl.product.barcode}
-                              height={bulkColumns === 4 ? 36 : 42}
-                              barWidth={bulkColumns === 4 ? 1.5 : 1.7}
-                              showText={true}
-                            />
-                          </div>
-
-                          <div className="w-full flex items-center justify-between text-[10px] font-mono text-slate-700 pt-0.5 border-t border-slate-200 mt-0.5">
-                            <span className="font-bold text-indigo-700">{lbl.product.sku}</span>
-                            {bulkShowPrice && (
-                              <span className="font-extrabold text-slate-900">
-                                {formatNPR(lbl.product.sellingPrice)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className={`p-4 border-t flex items-center justify-between border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60 print:hidden`}>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkBarcodeModalOpen(false)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-800`}
-                >
-                  Cancel
-                </button>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-slate-400">
-                    Destination: Default PDF Printer / Save as PDF
-                  </span>
-                  <button
-                    type="button"
-                    disabled={bulkLabels.length === 0}
-                    onClick={() => window.print()}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md transition-all cursor-pointer"
-                  >
-                    <Printer className="h-4 w-4" />
-                    <span>Print A4 Sheet / Save as PDF ({bulkLabels.length} Labels)</span>
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}

@@ -1,8 +1,93 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-03 · Branch: main · Tests: 557/557 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-03 · Branch: main · Tests: 618/618 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
-## ⭐ NEWEST: DB-integrity audit + database docs corrected + first-deploy hardening (UNCOMMITTED)
+## ⭐ NEWEST: Dead-API cleanup + cancel-receive built + returns/sales-invoices wired as paged registers (UNCOMMITTED)
+
+User: “previously you said there are dead api what are they? … Audit it
+properly” → full audit, then chose cancel-receive → *implement properly* and
+dead APIs → *remove + wire returns paged*. Suite: **583/583 green** (557 at
+`f113806` + 11 cancel-receive + 2 guard pins + 13 new returns tests),
+docs-count gate green, screen claims now 50 total / 39 table / 11
+pinned-elsewhere.
+
+### Phase 1 — cancel-receive built for real (was an always-400 stub)
+- `shipments.repo.ts`: `shipmentReceivedQty()` + `SHIPMENT_UNDO_RECEIVE_*_SQL`
+  (guarded stock undo: `quantity_on_hand >= qty` or the UPDATE no-ops).
+- `shipments.controller.ts` `post_cancelReceive`: 400 unless RECEIVED/
+  DISCREPANCY, 404 unknown, `FOR UPDATE` re-check inside the transaction,
+  in-memory mirror kept in sync, audit `CANCEL_RECEIVE_TRANSFER`.
+- `misc.controller.ts` approval path: a CANCEL_RECEIVE_TRANSFER approval now
+  performs the same stock undo (was a silent no-op); route gained
+  `requirePermission('branch-transfer-cancel-receive')` (op already in the
+  permission matrix); client `cancelReceiveShipment` now posts
+  `/cancel-receive` instead of `/cancel` (which rejected RECEIVED).
+- Tests: +5 repo unit, +6 HTTP (`tests/shipmentCancelReceive.test.ts`,
+  `crtest-` fixtures seeded in DB **and** the in-memory cache, cleaned in
+  after(): undo, one-shot guard, 404/401/403, approval-path revert).
+
+### Phase 2 — purchase-returns / sales-returns / sales-invoices wired paged
+- Server: `PurchaseReturnQueryOptions` + WHERE/count/paged builders in
+  `procurement.repo.ts`; `SalesReturn*` + `SalesInvoice*` builders in
+  `sales.repo.ts`; all three GET controllers grew the PO-style paged branch
+  (`?page` → `{data,page,pageSize,totalItems}`, bare → legacy array, `all=1`
+  → whole filtered set, filters without `page` → filtered array).
+- **The anomaly, root-caused**: `?page=N&query=…` returned a plain ARRAY.
+  Cause: the heredoc pipeline that wrote the builders had stripped every `$`
+  from `${params.length}` (SQL became `LIKE 1` → `text ~~ integer` error) and
+  every `\d` from the AD-date regexes; the controller's `catch` swallowed it
+  and fell through to the legacy array, silently defeating paging. Fixed both
+  files (restored `$${params.length}` + `\d{4}-\d{2}-\d{2}`), re-probed all
+  13 filter/page/all combos live → envelopes everywhere. NOTE for future
+  shell writes: this toolchain eats backslashes — build `\` with
+  `String.fromCharCode(92)` or use the str_replace tool for code with regexes/
+  `$` placeholders.
+- Client: `sales.ts` `getSalesInvoices/getPurchaseReturns/getSalesReturns`
+  revived with the full paged param set; `ReturnsRegister` LIST tab and
+  `SalesInvoices` now self-fetch one server page (seq-guarded `loadRetPage`/
+  `loadSiPage`, filter→page-1 snap, prop-array fallback on fetch error,
+  internal refresh-key bump after create/cancel/approve/payment).
+- SSE wiring: `RegisterRefreshKey` += `returnsRegister`, `salesInvoices`;
+  `DOMAIN_REGISTER_KEYS` PROCUREMENT += returnsRegister, SALES += both;
+  `bumpAllRegisterRefresh` + App.tsx init + `sseRefreshKey` at all 6 render
+  sites (4 ReturnsRegister, 2 SalesInvoices). Guard test updated: REGISTER_KEYS,
+  deepEquals, bumpAll records, paged-tripwire (6 screens), surface pins moved
+  to PINNED_ELSEWHERE with two new dedicated wiring tests (35/35).
+
+### Phase 3 — dead code removed
+- 9 dead routes gone (GET /api/assets, /api/users, /api/audit-trail,
+  /api/company-profile, PUT /api/locations/:id, /api/fiscal-years/:id,
+  /api/document-number-configs/:id, POST /api/serial-log, PATCH
+  /api/customer-devices/:id/serials) + the unreachable duplicate pair in
+  admin.routes and the duplicate PATCH + 2nd/3rd GET lookup in
+  inventory.routes; 12 orphaned controller handlers deleted (~414 lines:
+  get_users, put_Id3/4, get_companyProfile(+2), put_companyProfile2,
+  get_assets, get_lookup2/3, post_serialLog, masterdata put_Id2,
+  get_auditTrail). `COMPANY_PROFILE_UPSERT_NO_STAMP_SQL` stays — pinned by
+  `tests/admin.repo.test.ts` (comment updated, unused import dropped).
+- 19 dead client service fns + their barrel entries deleted (getCompanyProfile,
+  getCurrentUser, getFiscalYears, updateFiscalYear, getStock, getAssets,
+  updateDocumentNumberConfig, getAuditLogs, getTransactionLogs,
+  createSerialLogEntry, getCustomers, getApprovalRequests, getBranches,
+  getSuppliers, getUsers, getProducts, getVendorPayments, getShipments,
+  updateLocation) — each re-verified zero callers first. Smoke-covered GETs
+  kept (stock/branches/products/suppliers/customers/fiscal-years/shipments/
+  vendor-payments/approval-requests/transaction-logs/doc-number-configs…).
+
+### Phase 4 — tests + docs
+- `tests/returns.api.test.ts` (7 HTTP): envelope for ?page on all three,
+  REGRESSION pin that query/status/date/branch + page stays an envelope (the
+  fall-through bug), legacy arrays without ?page, all=1, out-of-range page,
+  401 unauthenticated.
+- `tests/returnsPaged.repo.test.ts` (8 unit): `$N`↔param bijection (the
+  stripped-`$` class), LIKE/status/date mapping + shape gate, count/list WHERE
+  parity, LIMIT/OFFSET clamps.
+- README: Paged Register Endpoints table +3 rows (“these seven”), register-
+  refresh section now “six registers” + render-site list + tripwire wording;
+  handoff: §15.7 six registers, tripwire, audit footnote CLOSED; 11 test-count
+  claims 557→583; screen claims 41/9→39/11 (handoff + this file).
+
+## DB-integrity audit + database docs corrected + first-deploy hardening (pushed `f113806`)
 
 User asked for a database-integrity audit, doc corrections, and proof that a
 first deployment never fails. Suite: 557/557 green; docs-count gate green.
@@ -67,7 +152,7 @@ former dbBoot-only runtime statements (legacy index aliases, serial-log
 ALTERs, currency backfill, fiscal-year default drop, vendor-payment FY
 backfill) were ported into schema.sql's "RUNTIME PARITY SECTION".
 Guard: `tests/schemaSource.parity.test.ts` (3 tests: no inline DDL in
-dbBoot, ported statements present, exactly 34 tables). File-parsing only —
+dbBoot, ported statements present, exactly 36 tables). File-parsing only —
 runs everywhere, no DB needed.
 
 ### Phase 3 — CACHE_LOADS derived from columnMappings (`2234b5e`)
@@ -288,7 +373,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 557 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 618 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -854,7 +939,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 557 tests, 0 fail). Live-verified:
+  key coverage; suite now 618 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -912,7 +997,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 557 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 618 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -977,7 +1062,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 557 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 618 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -990,27 +1075,28 @@ unseeded calendar days use BS_DATE_FALLBACK.
   host fetch — mount-once (`[]` deps, `assignSerialLogLoaded` guarded),
   deliberately NOT sse-wired (bootstrap excludes serialLogs; refresh is by
   remount). Every App.tsx render site must pass its register counter (2 PO,
-  2 PI, 1 SerialLogRegister, 11 StockOperations) — a newly added unwired
-  mount fails.
+  2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
+  2 SalesInvoices) — a newly added unwired mount fails.
   (2) NEW — all 50 screens under client/src/features are pinned: a
-  SCREEN_SURFACE_PINS table (41 screens) + the 9 pinned above; an unpinned
+  SCREEN_SURFACE_PINS table (39 screens) + the 11 pinned above; an unpinned
   new screen fails coverage, and each pinned screen must match its exact
   surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
   `services/api` imports, because the audit found FinancialStatements.tsx
   imports getFinancialSummary directly — a bare `api.*` scan misses that,
   so every earlier pin switched to the combined helper.
   (3) Tripwires: raw fetch/axios/EventSource banned in every screen;
-  `pageSize:` request keys allowed ONLY in the four wired registers (a fifth
+  `pageSize:` request keys allowed ONLY in the six wired registers (a seventh
   server-paged fetch = a register missing its sseRefreshKey); the 11
   mount/selection self-fetch screens (ledgers, BS calendars, Category/Uom/
   Locations, doc numbering, FinancialStatements…) stay whole-list and
   unwired BY DESIGN (tab remount refetches them) and may not grow partial
-  wiring without a full DOMAIN_REGISTER_KEYS decision. Audit footnote:
-  SalesInvoices.tsx + ReturnsRegister.tsx import `{ api }` and never call it
-  (tsconfig has no noUnusedLocals, so tsc never flagged it) — pinned `[]`,
-  cleanup optional. Proven by probe in both directions (injected named
+  wiring without a full DOMAIN_REGISTER_KEYS decision. Audit footnote CLOSED:
+  SalesInvoices.tsx + ReturnsRegister.tsx now fetch their own server-paged
+  rows (getSalesInvoices / getPurchaseReturns + getSalesReturns) and are
+  pinned as SSE-wired registers (surface + effect deps + every render site),
+  no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 557 tests, 0 fail.
+  failures, then reverted). Suite now 618 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1025,7 +1111,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 557 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 618 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

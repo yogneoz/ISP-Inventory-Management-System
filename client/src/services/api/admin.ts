@@ -30,10 +30,6 @@ export async function clearDemoData(): Promise<{ message: string }> {
 }
 
 // Company Profile API
-export async function getCompanyProfile(): Promise<CompanyProfile> {
-  return fetchJson('/api/company-profile');
-}
-
 export async function updateCompanyProfile(profile: Partial<CompanyProfile>): Promise<CompanyProfile> {
   return fetchJson('/api/company-profile', {
     method: 'PUT',
@@ -42,7 +38,10 @@ export async function updateCompanyProfile(profile: Partial<CompanyProfile>): Pr
 }
 
 export async function getPermissionsMatrix(): Promise<Record<string, Record<string, boolean>>> {
-  return fetchJson('/api/permissions');
+  // The endpoint answers { matrix }; unwrap it so callers get the matrix
+  // itself and the return type matches reality.
+  const res = await fetchJson<{ matrix: Record<string, Record<string, boolean>> }>('/api/permissions');
+  return res.matrix;
 }
 
 export async function savePermissionsMatrix(
@@ -113,13 +112,6 @@ export async function getLocations(branchId?: string): Promise<LocationRecord[]>
 export async function createLocation(location: Partial<LocationRecord>): Promise<LocationRecord> {
   return fetchJson('/api/locations', {
     method: 'POST',
-    body: JSON.stringify(location),
-  });
-}
-
-export async function updateLocation(id: string, location: Partial<LocationRecord>): Promise<LocationRecord> {
-  return fetchJson(`/api/locations/${id}`, {
-    method: 'PUT',
     body: JSON.stringify(location),
   });
 }

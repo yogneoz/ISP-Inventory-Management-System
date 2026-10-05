@@ -477,7 +477,7 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     product_sku VARCHAR(100),
     product_name VARCHAR(255),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN', 'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED')),
+    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN', 'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')),
     quantity_before INT NOT NULL,
     quantity_changed INT NOT NULL,
     quantity_after INT NOT NULL,
@@ -533,6 +533,11 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
     non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
     grand_total NUMERIC(14, 2) DEFAULT 0.00,
     payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
+    -- Document lifecycle (payment_status tracks the money, this tracks the
+    -- document): POSTED -> CANCELLED by the void path, which restores stock,
+    -- releases the claimed serials and appends a compensating
+    -- SALES_INVOICE_CANCELLED ledger row.
+    status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'CANCELLED')),
     payment_method VARCHAR(30) DEFAULT 'CREDIT' CHECK (payment_method IN ('CASH', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE', 'CARD', 'OTHER')),
     amount_paid NUMERIC(14, 2) DEFAULT 0.00,
     notes TEXT,
@@ -913,6 +918,39 @@ CREATE TABLE IF NOT EXISTS permission_matrix (
 CREATE INDEX IF NOT EXISTS idx_permission_matrix_role ON permission_matrix(role);
 
 -- ============================================================================
+-- 31. Application Settings (company-wide configuration, key/value)
+-- Server-side authority for settings that used to live ONLY in browser
+-- localStorage (e.g. the company-wide blind stock-audit toggle), so clearing
+-- browser storage can never change how the application behaves. Clients read
+-- these from GET /api/bootstrap (appSettings slice) and write them with
+-- PUT /api/settings (SUPER_ADMIN only). Unknown keys are rejected by the
+-- settings controller, so the table only ever holds whitelisted settings.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key VARCHAR(80) PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_by VARCHAR(150),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================================
+-- 32. User Preferences (per-user UI preferences, key/value)
+-- Replaces the per-browser localStorage copies of theme / date mode /
+-- last active tab, so a preference follows the user to any machine and
+-- survives clearing browser history. Scoped to the user row: deleting a user
+-- removes their preferences automatically.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    pref_key VARCHAR(80) NOT NULL,
+    pref_value TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, pref_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id);
+
+-- ============================================================================
 -- v3.0 MIGRATION for databases created with schema v2.x
 -- (No-ops on fresh installs where the columns already exist above.)
 -- ============================================================================
@@ -984,7 +1022,7 @@ ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check C
     'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
     'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
     'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
-    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED')
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')
 );
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
@@ -1043,9 +1081,16 @@ ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check C
     'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
     'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
     'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
-    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED')
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')
 );
 
+
+-- ============================================================================
+-- v3.4 MIGRATION: sales-invoice cancel/void path
+-- (No-op on fresh installs — the sales_invoices CREATE TABLE above already
+-- declares `status` with its CHECK.)
+-- ============================================================================
+ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'CANCELLED'));
 
 -- ============================================================================
 -- HIGH-PERFORMANCE INDEXES

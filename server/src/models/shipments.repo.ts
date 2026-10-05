@@ -118,3 +118,27 @@ export const SHIPMENT_CANCEL_RESTORE_SOURCE_SQL =
 export const SHIPMENT_CANCEL_RELEASE_DEST_SQL =
   'UPDATE inventory_stock SET incoming_qty = GREATEST(0, incoming_qty - $1), last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;';
 
+
+// ---------------------------------------------------------------------------
+// Undo receive (cancel a received transfer → back to In-Transit)
+// ---------------------------------------------------------------------------
+
+/** Quantity settled by the receive for one item line (falls back to sent). */
+export function shipmentReceivedQty(item: Record<string, any>): number {
+  const received = item.quantityReceived;
+  return received !== undefined && received !== null && received !== '' && !Number.isNaN(Number(received))
+    ? Number(received)
+    : shipmentQtySent(item);
+}
+
+/**
+ * Reverses the receive settlement at the destination branch: on-hand down by
+ * the received quantity and the in-transit reservation restored. Guards on
+ * available stock so an undo can never overdraw the destination branch.
+ */
+export const SHIPMENT_UNDO_RECEIVE_STOCK_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, incoming_qty = incoming_qty + $1, last_updated = CURRENT_TIMESTAMP
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`;
+
+/** Reverts the shipment row to In-Transit and clears the receive bookkeeping. */
+export const SHIPMENT_UNDO_RECEIVE_UPDATE_SQL =
+  "UPDATE shipments SET status = 'IN_TRANSIT', received_by_notes = NULL, received_date_ad = NULL, received_date_bs = NULL, has_discrepancy = FALSE, notes = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 OR tracking_code = $1";

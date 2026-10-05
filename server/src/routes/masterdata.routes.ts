@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_uom, post_uom, put_Id, delete_Id, get_locations, post_locations, put_Id2, delete_Id2, get_suppliers, post_suppliers, put_Id3, delete_Id3, get_products, post_products, put_Id4, delete_Id4, get_categories, post_categories, put_Id5, delete_Id5, get_customers, post_customers, post_bulk, put_Id6, delete_Id6 } from '../controllers/masterdata.controller';
+import { get_uom, post_uom, put_Id, delete_Id, get_locations, post_locations, delete_Id2, get_suppliers, post_suppliers, put_Id3, delete_Id3, get_products, post_products, put_Id4, delete_Id4, get_categories, post_categories, put_Id5, delete_Id5, get_customers, post_customers, post_bulk, put_Id6, delete_Id6 } from '../controllers/masterdata.controller';
 import {
   branches,
   broadcastChange,
@@ -48,8 +48,6 @@ app.delete('/api/uom/:id', requirePermission('uom-manage'), async (req, res, nex
 app.get('/api/locations', async (req, res, next) => { get_locations(req as any, res as any).catch(next); });
 
 app.post('/api/locations', async (req, res, next) => { post_locations(req as any, res as any).catch(next); });
-
-app.put('/api/locations/:id', async (req, res, next) => { put_Id2(req as any, res as any).catch(next); });
 
 app.delete('/api/locations/:id', async (req, res, next) => { delete_Id2(req as any, res as any).catch(next); });
 
