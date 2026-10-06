@@ -65,14 +65,39 @@ export function buildSelectSql(cfg: TableQueryConfig, where: string): string {
 export async function fetchTable(
   pool: QueryExecutor,
   cfg: TableQueryConfig,
-  scopeParams: BootstrapScopeParams
+  scopeParams: BootstrapScopeParams,
+  /** Overrides the static `cfg.limit` (auditLogs uses 200 for its payload). */
+  limitOverride?: number
 ): Promise<any[]> {
   const { where, params } = buildScopedWhere(cfg.scope, scopeParams);
   let sql = buildSelectSql(cfg, where);
   if (cfg.orderBy) sql += ` ORDER BY ${cfg.orderBy}`;
-  if (cfg.limit) sql += ` LIMIT ${cfg.limit}`;
+  const limit = limitOverride ?? cfg.limit;
+  if (limit) sql += ` LIMIT ${limit}`;
   const result = await pool.query(sql, params);
   return result.rows;
+}
+
+/**
+ * Reads ONE bootstrap slice live from PostgreSQL (mirror-drift fix #7):
+ * the payload key → BOOTSTRAP_TABLES config the full bootstrap uses, so the
+ * targeted refresh returns exactly what a full bootstrap would — straight
+ * from the database, never from an in-memory mirror. auditLogs applies the
+ * same 200-row payload cap. Throws when the key has no table mapping (the
+ * caller falls back to the operational cache / mirror).
+ */
+export async function fetchBootstrapSlice(
+  pool: QueryExecutor,
+  key: string,
+  scopeParams: BootstrapScopeParams
+): Promise<any> {
+  const cfg = (BOOTSTRAP_TABLES as Record<string, TableQueryConfig>)[key];
+  if (!cfg) throw new Error(`no bootstrap table mapping for key ${key}`);
+  const limit = key === 'auditLogs'
+    ? BOOTSTRAP_TABLES.auditLogs.cache?.bootstrapLimitOnly
+    : undefined;
+  const rows = await fetchTable(pool, cfg, scopeParams, limit);
+  return key === 'companyProfile' ? rows[0] : rows;
 }
 
 /**

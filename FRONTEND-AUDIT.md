@@ -205,8 +205,13 @@ notes of 2026-10-05; the change map:
 | 4 | Multi-domain bursts are targeted: `SseDomainBurst` collects domains into a Set and `flush()` resolves a targeted plan covering ALL recognized domains (deduped), instead of collapsing any 2+-domain burst to a full bootstrap. Any unknown/no-domain event still falls back to full — the staleness guarantee is unchanged. | `client/src/utils/registerRefreshDomains.ts` (+ tests in `tests/registerRefreshDomains.test.ts`) |
 | 5 | Reconnect reliability: exponential backoff 1s→2s→…capped 30s with ±20% jitter (no retry-herding after a server restart), immediate reconnect on `visibilitychange`/`online`, backoff reset on healthy open, `onStatus(connected)` callback. | `client/src/services/api/sync.ts` |
 | 6 | Multi-tab relay: a `BroadcastChannel('inventory-sync')` forwards every received SSE event to sibling tabs (which feed their existing handler) and carries a LOGOUT notice so a sign-out in one tab signs the others out (via `inventory_sync_logout`). | `client/src/services/api/sync.ts`, `client/src/App.tsx` |
-| 7 | Mirror-drift structural fix | NOT implemented — deliberately too large for this pass. The in-memory mirrors stay best-effort; the targeted slice re-fetches (#2, #4) plus the version reconciliation (#1) already mask drift. Recommend a dedicated session: derive mirrors from PG reads or move slice serving fully to PG. |
+| 7 | Mirror-drift structural fix | **IMPLEMENTED 2026-10-05 (same day).** `GET /api/bootstrap` reads the permission matrix live from PG (`PERMISSION_MATRIX_SELECT_SQL` + `rowsToPermissionMatrix` in permissions.repo.ts); `GET /api/bootstrap/local` serves every slice **live from PostgreSQL** — mapped keys through the shared `BOOTSTRAP_TABLES` configs (`fetchBootstrapSlice` in bootstrap.repo.ts, with auditLogs keeping its 200-row payload cap and companyProfile its single row), the permission matrix through its own SELECT, appSettings through the settings repo SELECT. The in-memory mirrors are demoted to operational cache for other controllers plus a last-resort fallback if the live read fails — a manual DB edit, a second server instance or a missed cache refresh can no longer be served stale. |
 
 Verification after the changes: `tsc --noEmit` 0 · client `--noUnusedLocals` 0 ·
 619/619 tests (docs gate OK — count moved 618→619: burst tests rewritten for the
 Set semantics, net +1) · build/budget/no-raw-dialogs/no-inline-sql all green.
+
+Improvement #7 landed later the same day (see its row above); re-verified:
+tsc 0 · client `--noUnusedLocals` 0 · 619/619 + docs gate · build/budget/
+no-raw-dialogs/no-inline-sql green · bootstrap.controller's server-side
+`--noUnusedLocals` diff vs HEAD shows no NEW unused symbols (12 pre-existing).

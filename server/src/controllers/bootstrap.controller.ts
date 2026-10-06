@@ -13,7 +13,9 @@ import {
   USER_PREFERENCES_SELECT_SQL,
   rowsToRecord,
 } from '../models/settings.repo';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, permissionMatrix, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords, getUserFromReq } from '../app';
+import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
+import { fetchBootstrapSlice } from '../models/bootstrap.repo';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -165,7 +167,13 @@ const { branchId, fiscalYearId } = req.query;
         },
         serverTime: new Date().toISOString(),
         dataVersion: getDataVersion(),
-        permissionsMatrix: permissionMatrix,
+        // Mirror-drift fix (#7): the matrix is read live from PostgreSQL
+        // (same source the permission middleware enforces), never from the
+        // in-memory startup mirror — a manual DB edit or a second server
+        // instance can never be served stale.
+        permissionsMatrix: rowsToPermissionMatrix(
+          (await pgPool.query(PERMISSION_MATRIX_SELECT_SQL)).rows
+        ),
         appSettings: rowsToRecord(appSettingsRes.rows, APP_SETTING_KEYS),
         userPreferences: rowsToRecord(userPrefsRes.rows, USER_PREFERENCE_KEYS),
       });
@@ -201,40 +209,14 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
     const bId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
     const fId = typeof fiscalYearId === 'string' && fiscalYearId.trim() !== '' ? fiscalYearId : undefined;
 
-    // Company-wide slices served straight from the in-memory mirrors (the
-    // same values the full bootstrap embeds). Branch/FY-scoped slices are
-    // re-fetched through the operational-data query so scoping matches the
-    // full bootstrap exactly.
-    if (!bId && !fId) {
-      // appSettings is not an in-memory mirror — it is read from PostgreSQL
-      // (the same query the full bootstrap uses) so a just-committed
-      // PUT /api/settings is visible to the targeted slice immediately.
-      if (key === 'appSettings') {
-        const appSettingsRes = await pgPool.query(APP_SETTINGS_SELECT_SQL);
-        return res.json({
-          dataVersion: getDataVersion(),
-          appSettings: rowsToRecord(appSettingsRes.rows, APP_SETTING_KEYS),
-        });
-      }
-      const mirrorSlices: Record<string, unknown> = {
-        categories,
-        companyProfile,
-        locations: locationRecords,
-        suppliers,
-        users,
-        products,
-        branches,
-        fiscalYears,
-        approvalRequests,
-        assets: assetRegister,
-        permissionsMatrix: permissionMatrix,
-        auditLogs: auditTrail,
-      };
-      if (key in mirrorSlices) {
-        return res.json({ dataVersion: getDataVersion(), [key]: mirrorSlices[key] });
-      }
-    }
-
+    // Mirror-drift fix (#7): every slice is read LIVE from PostgreSQL —
+    // company-wide slices through their BOOTSTRAP_TABLES mapping and the
+    // permission matrix through its own SELECT; nothing is served from the
+    // in-memory mirrors, so a manual DB edit, a second server instance or a
+    // missed cache refresh can never be served stale. appSettings keeps its
+    // dedicated repo SELECT (it has no bootstrap-table mapping). The mirror
+    // arrays remain only as the operational cache for OTHER controllers and
+    // as a resilience fallback if the live read itself fails.
     const scope: Record<string, unknown> = { key };
     if (bId || fId) {
       const pgFiscalYears = await fetchFiscalYears(pgPool);
@@ -247,9 +229,69 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
         scope.fiscalYearEndAD = toCalendarDate(selectedFiscalYear.endDateAD);
       }
     }
+    const scopeParams = {
+      branchId: bId,
+      fiscalYearId: scope.fiscalYearId as string | undefined,
+      fiscalYearStartAD: scope.fiscalYearStartAD as string | undefined,
+      fiscalYearEndAD: scope.fiscalYearEndAD as string | undefined,
+    };
+
+    // The permission matrix is not a bootstrap table — it folds from its
+    // own (operation_id, role, allowed) rows.
+    if (key === 'permissionsMatrix') {
+      const matrix = rowsToPermissionMatrix(
+        (await pgPool.query(PERMISSION_MATRIX_SELECT_SQL)).rows
+      );
+      return res.json({ dataVersion: getDataVersion(), permissionsMatrix: matrix });
+    }
+
+    // appSettings is not an in-memory mirror — it is read from PostgreSQL
+    // (the same query the full bootstrap uses) so a just-committed
+    // PUT /api/settings is visible to the targeted slice immediately.
+    if (key === 'appSettings') {
+      const appSettingsRes = await pgPool.query(APP_SETTINGS_SELECT_SQL);
+      return res.json({
+        dataVersion: getDataVersion(),
+        appSettings: rowsToRecord(appSettingsRes.rows, APP_SETTING_KEYS),
+      });
+    }
+
+    // Everything else with a BOOTSTRAP_TABLES mapping reads live. A slice
+    // the operational-data query serves (branch/FY-scoped keys) or a
+    // mapped company-wide key both resolve through here.
+    try {
+      const slice = await fetchBootstrapSlice(pgPool, key, scopeParams);
+      if (slice !== undefined) {
+        return res.json({ dataVersion: getDataVersion(), [key]: slice });
+      }
+    } catch (sliceErr: any) {
+      // No table mapping for this key (or the live read failed): fall back
+      // to the operational-data query, then the operational cache — the
+      // pre-#7 behavior — so an unknown key can never 500 a refresh.
+      console.warn(`bootstrap/local live read failed for ${key}:`, sliceErr?.message || sliceErr);
+    }
 
     const data = await fetchOperationalData(pgPool, scope as any);
-    return res.json({ dataVersion: getDataVersion(), [key]: (data as any)[key] });
+    const operationalSlice = (data as any)[key];
+    if (operationalSlice !== undefined) {
+      return res.json({ dataVersion: getDataVersion(), [key]: operationalSlice });
+    }
+
+    // Last resort: the operational cache mirrors (covers unmapped keys).
+    const cacheSlices: Record<string, unknown> = {
+      categories,
+      companyProfile,
+      locations: locationRecords,
+      suppliers,
+      users,
+      products,
+      branches,
+      fiscalYears,
+      approvalRequests,
+      assets: assetRegister,
+      auditLogs: auditTrail,
+    };
+    return res.json({ dataVersion: getDataVersion(), [key]: cacheSlices[key] });
   } catch (err: any) {
     res.status(500).json({ message: `Bootstrap local slice failed: ${err.message}` });
   }
