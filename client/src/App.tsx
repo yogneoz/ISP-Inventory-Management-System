@@ -193,6 +193,7 @@ import { setCurrencyConfig } from './utils/nprFormat';
 import { setDefaultTaxRate } from './utils/taxConfig';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { useDialog } from './components/common/DialogProvider';
+import { KeepMounted, KeepMountedRoot } from './components/common/KeepMounted';
 import { Loader2 } from 'lucide-react';
 
 /** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
@@ -1680,8 +1681,10 @@ export default function App() {
               </p>
             </div>
           ) : (
-            <>
-              {activeTab === 'dashboard' && (
+            <KeepMountedRoot activeTab={activeTab}>
+              {(visible) => (
+                <>
+              <KeepMounted visible={visible['dashboard'] === true}>
                 <Dashboard
                   currentUser={currentUser}
                   products={products}
@@ -1703,9 +1706,9 @@ export default function App() {
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
                 />
-              )}
+              </KeepMounted>
 
-              {(activeTab === 'approvals' || activeTab === 'workflow-approval') && (
+              <KeepMounted visible={visible['approvals'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ApprovalWorkflowCenter
                     approvalRequests={approvalRequests}
@@ -1722,9 +1725,9 @@ export default function App() {
                     }}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'all-stock' && (
+              <KeepMounted visible={visible['all-stock'] === true}>
                 <ProductManagement
                   currentUser={currentUser}
                   stock={stock}
@@ -1735,9 +1738,9 @@ export default function App() {
                   searchQuery={searchQuery}
                   mode="all-stock"
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'product-master' && (
+              <KeepMounted visible={visible['product-master'] === true}>
                 <ProductManagement
                   currentUser={currentUser}
                   stock={stock}
@@ -1748,9 +1751,9 @@ export default function App() {
                   searchQuery={searchQuery}
                   mode="product-master"
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'opening-stock' && (
+              <KeepMounted visible={visible['opening-stock'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <OpeningStockManager
                     currentUser={currentUser}
@@ -1762,26 +1765,26 @@ export default function App() {
                     onSelectFiscalYear={setSelectedFiscalYearId}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'category-management' && (
+              <KeepMounted visible={visible['category-management'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <CategoryManagement
                     currentUser={currentUser}
                     products={products}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'uom-management' && (
+              <KeepMounted visible={visible['uom-management'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <UomManagement
                     currentUser={currentUser}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'import-stock' && (
+              <KeepMounted visible={visible['import-stock'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ImportStock
                     branches={branches}
@@ -1790,9 +1793,9 @@ export default function App() {
                     onRefreshData={refreshAllData}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'export-stock' && (
+              <KeepMounted visible={visible['export-stock'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ExportStock
                     currentUser={currentUser}
@@ -1804,9 +1807,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'branch-stock' && (
+              <KeepMounted visible={visible['branch-stock'] === true}>
                 <BranchStockTracking
                   currentUser={currentUser}
                   products={products}
@@ -1815,9 +1818,9 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'reorder-stock' && (
+              <KeepMounted visible={visible['reorder-stock'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ReorderStockTracking
                     currentUser={currentUser}
@@ -1832,9 +1835,9 @@ export default function App() {
                     onNavigateTab={setActiveTab}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'damaged-stock' && (
+              <KeepMounted visible={visible['damaged-stock'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <DamagedStockTracking
                     currentUser={currentUser}
@@ -1849,9 +1852,9 @@ export default function App() {
                     onNavigateTab={setActiveTab}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'stock-valuation' && (
+              <KeepMounted visible={visible['stock-valuation'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <StockValuation
                     products={products}
@@ -1861,9 +1864,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'stock-ledger' && (
+              <KeepMounted visible={visible['stock-ledger'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <StockMovementLedger
                     transactionLogs={transactionLogs}
@@ -1878,9 +1881,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'physical-stock-audit' && (
+              <KeepMounted visible={visible['physical-stock-audit'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <PhysicalStockAudit
                     currentUser={currentUser}
@@ -1905,9 +1908,9 @@ export default function App() {
                     }
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'fixed-assets' && (
+              <KeepMounted visible={visible['fixed-assets'] === true}>
                 <FixedAssetRegister
                   currentUser={currentUser}
                   assets={assets}
@@ -1918,15 +1921,15 @@ export default function App() {
                   onCreateAsset={handleCreateAsset}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'dev-statcard' && import.meta.env.DEV && (
+              <KeepMounted visible={visible['dev-statcard'] === true && import.meta.env.DEV}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <StatCardShowcase />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'customers' && (
+              <KeepMounted visible={visible['customers'] === true}>
                 <CustomerMasterDirectory
                   branches={branches}
                   currentUser={currentUser}
@@ -1937,9 +1940,9 @@ export default function App() {
                     if (filter) setSearchQuery(filter);
                   }}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'customer-devices' && (
+              <KeepMounted visible={visible['customer-devices'] === true}>
                 <CustomersManagement
                   currentUser={currentUser}
                   customerDevices={customerDevices}
@@ -1962,9 +1965,9 @@ export default function App() {
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToMaster={() => setActiveTab('customers')}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'complete-serial-inventory' && (
+              <KeepMounted visible={visible['complete-serial-inventory'] === true}>
                 <SerialLogRegister
                   branches={branches}
                   selectedBranchId={selectedBranchId}
@@ -1973,17 +1976,17 @@ export default function App() {
                   onRefreshData={refreshAllData}
                   refreshKey={registerRefresh.serialLog}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'locations' && (
+              <KeepMounted visible={visible['locations'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <LocationsManagement
                     branches={branches}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'import-customers' && (
+              <KeepMounted visible={visible['import-customers'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ImportCustomers
                     branches={branches}
@@ -1993,9 +1996,9 @@ export default function App() {
                     }}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-po' && (
+              <KeepMounted visible={visible['create-po'] === true}>
                 <PurchaseOrders
                   companyProfile={companyProfile}
                   purchaseInvoices={purchaseInvoices}
@@ -2015,9 +2018,9 @@ export default function App() {
                   onDeletePO={handleDeletePO}
                   sseRefreshKey={registerRefresh.purchaseOrders}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'po-list' && (
+              <KeepMounted visible={visible['po-list'] === true}>
                 <PurchaseOrders
                   companyProfile={companyProfile}
                   purchaseInvoices={purchaseInvoices}
@@ -2037,9 +2040,9 @@ export default function App() {
                   onDeletePO={handleDeletePO}
                   sseRefreshKey={registerRefresh.purchaseOrders}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-purchase' && (
+              <KeepMounted visible={visible['create-purchase'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <PurchaseInvoices
                     companyProfile={companyProfile}
@@ -2061,9 +2064,9 @@ export default function App() {
                     sseRefreshKey={registerRefresh.purchaseInvoices}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'purchase-list' && (
+              <KeepMounted visible={visible['purchase-list'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <PurchaseInvoices
                     companyProfile={companyProfile}
@@ -2085,9 +2088,9 @@ export default function App() {
                     sseRefreshKey={registerRefresh.purchaseInvoices}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-sale' && (
+              <KeepMounted visible={visible['create-sale'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <SalesInvoices
                     companyProfile={companyProfile}
@@ -2107,9 +2110,9 @@ export default function App() {
                     onCancelInvoice={handleCancelSalesInvoice}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'sales-list' && (
+              <KeepMounted visible={visible['sales-list'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <SalesInvoices
                     companyProfile={companyProfile}
@@ -2129,9 +2132,9 @@ export default function App() {
                     onCancelInvoice={handleCancelSalesInvoice}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'purchase-returns' && (
+              <KeepMounted visible={visible['purchase-returns'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ReturnsRegister
                     kind="PURCHASE"
@@ -2150,9 +2153,9 @@ export default function App() {
                     onApproveReturn={handleApprovePurchaseReturn}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-purchase-return' && (
+              <KeepMounted visible={visible['create-purchase-return'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ReturnsRegister
                     kind="PURCHASE"
@@ -2172,9 +2175,9 @@ export default function App() {
                     onApproveReturn={handleApprovePurchaseReturn}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'sales-returns' && (
+              <KeepMounted visible={visible['sales-returns'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ReturnsRegister
                     kind="SALES"
@@ -2193,9 +2196,9 @@ export default function App() {
                     onApproveReturn={handleApproveSalesReturn}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-sales-return' && (
+              <KeepMounted visible={visible['create-sales-return'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ReturnsRegister
                     kind="SALES"
@@ -2215,9 +2218,9 @@ export default function App() {
                     onApproveReturn={handleApproveSalesReturn}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-shipment' && (
+              <KeepMounted visible={visible['create-shipment'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <Shipments
                     currentUser={currentUser}
@@ -2240,9 +2243,9 @@ export default function App() {
                     onCancelApproval={handleCancelApprovalRequest}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'create-transfer' && (
+              <KeepMounted visible={visible['create-transfer'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2273,9 +2276,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'receive-shipment' && (
+              <KeepMounted visible={visible['receive-shipment'] === true}>
                 <ReceiveInboundWarehouse
                   currentUser={currentUser}
                   operations={stockOperations}
@@ -2289,9 +2292,9 @@ export default function App() {
                   onReceiveShipment={handleReceiveShipment}
                   onCancelReceiveShipment={handleCancelReceiveShipment}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'receive-branch-transfer' && (
+              <KeepMounted visible={visible['receive-branch-transfer'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2322,9 +2325,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'shipment-list' && (
+              <KeepMounted visible={visible['shipment-list'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <Shipments
                     currentUser={currentUser}
@@ -2347,9 +2350,9 @@ export default function App() {
                     onCancelApproval={handleCancelApprovalRequest}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'pullout' && (
+              <KeepMounted visible={visible['pullout'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2380,9 +2383,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'damage' && (
+              <KeepMounted visible={visible['damage'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2413,9 +2416,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'pullout-report' && (
+              <KeepMounted visible={visible['pullout-report'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2437,9 +2440,9 @@ export default function App() {
                   onReceiveOperation={handleReceiveOperation}
                   onReverseOperation={handleReverseStockOperation}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'damage-report' && (
+              <KeepMounted visible={visible['damage-report'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2460,9 +2463,9 @@ export default function App() {
                   onCreateOperation={handleCreateOperation}
                   onReverseOperation={handleReverseStockOperation}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'stock-out' && (
+              <KeepMounted visible={visible['stock-out'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2493,9 +2496,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'assign-asset' && (
+              <KeepMounted visible={visible['assign-asset'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2526,9 +2529,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'asset-deployments' && (
+              <KeepMounted visible={visible['asset-deployments'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <AssetDeployments
                     assets={assets}
@@ -2540,9 +2543,9 @@ export default function App() {
                     onUnassignAsset={handleUpdateAssetStatus}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'consumable-issue' && (
+              <KeepMounted visible={visible['consumable-issue'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2573,9 +2576,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'consumables-register' && (
+              <KeepMounted visible={visible['consumables-register'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2610,12 +2613,12 @@ export default function App() {
                   }}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
               {/* Device Exchange: StockOperations DEVICE_EXCHANGE tab. The other
                   exchange entry point is the per-device modal in
                   CustomersManagement — both submit api.exchangeCustomerDevice. */}
-              {activeTab === 'device-exchange' && (
+              <KeepMounted visible={visible['device-exchange'] === true}>
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -2646,9 +2649,9 @@ export default function App() {
                   onReverseOperation={handleReverseStockOperation}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'warranty-products' && (
+              <KeepMounted visible={visible['warranty-products'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <WarrantyProducts
                     customerDevices={customerDevices}
@@ -2659,9 +2662,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'branches' && (
+              <KeepMounted visible={visible['branches'] === true}>
                 <BranchesManagement
                   currentUser={currentUser}
                   branches={branches}
@@ -2678,9 +2681,9 @@ export default function App() {
                     refreshAllData();
                   }}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'suppliers' && (
+              <KeepMounted visible={visible['suppliers'] === true}>
                 <SuppliersManagement
                   currentUser={currentUser}
                   suppliers={suppliers}
@@ -2697,9 +2700,9 @@ export default function App() {
                     refreshAllData();
                   }}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'users' && (
+              <KeepMounted visible={visible['users'] === true}>
                 <UsersManagement
                   currentUser={currentUser}
                   users={users}
@@ -2721,13 +2724,13 @@ export default function App() {
                     refreshAllData();
                   }}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'permissions' && (
+              <KeepMounted visible={visible['permissions'] === true}>
                 <PermissionManagement currentUser={currentUser} permissionsMatrix={permissionsMatrix} />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'company-setup' && (
+              <KeepMounted visible={visible['company-setup'] === true}>
                 <CompanySetupManagement
                   currentUser={currentUser}
                   companyProfile={companyProfile}
@@ -2743,9 +2746,9 @@ export default function App() {
                     return true;
                   }}
                 />
-              )}
+              </KeepMounted>
 
-              {activeTab === 'clear-demo-data' && (
+              <KeepMounted visible={visible['clear-demo-data'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <ClearDemoDataView
                     currentUser={currentUser}
@@ -2763,9 +2766,9 @@ export default function App() {
                     onNavigateDashboard={() => setActiveTab('dashboard')}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'financial-statements' && (
+              <KeepMounted visible={visible['financial-statements'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <FinancialStatements
                     financialSummary={financialSummary}
@@ -2780,9 +2783,9 @@ export default function App() {
                     fiscalYearId={resolveDefaultFiscalYear(fiscalYears)?.id}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'vendor-ledger' && (
+              <KeepMounted visible={visible['vendor-ledger'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <VendorLedger
                     suppliers={suppliers}
@@ -2791,9 +2794,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'customer-ledger' && (
+              <KeepMounted visible={visible['customer-ledger'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <CustomerLedger
                     customers={customers}
@@ -2802,9 +2805,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'vendor-opening-balances' && (
+              <KeepMounted visible={visible['vendor-opening-balances'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <VendorOpeningBalances
                     currentUser={currentUser}
@@ -2815,9 +2818,9 @@ export default function App() {
                     onSelectFiscalYear={setSelectedFiscalYearId}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'vat-register' && (
+              <KeepMounted visible={visible['vat-register'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <VatRegister
                     invoices={purchaseInvoices}
@@ -2825,9 +2828,9 @@ export default function App() {
                     companyProfile={companyProfile}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'depreciation-register' && (
+              <KeepMounted visible={visible['depreciation-register'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <DepreciationRegister
                     assets={assets}
@@ -2838,9 +2841,9 @@ export default function App() {
                     companyProfile={companyProfile}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'audit' && (
+              <KeepMounted visible={visible['audit'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <AuditTrailReports
                     auditLogs={auditLogs}
@@ -2854,9 +2857,9 @@ export default function App() {
                     companyProfile={companyProfile}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'data-recalculation' && (
+              <KeepMounted visible={visible['data-recalculation'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <DataRecalculationMaintenance
                     currentUser={currentUser}
@@ -2864,9 +2867,9 @@ export default function App() {
                     onRefreshData={refreshAllData}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'fiscal-year-closing' && (
+              <KeepMounted visible={visible['fiscal-year-closing'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <FiscalYearClosingWizard
                     fiscalYears={fiscalYears}
@@ -2894,22 +2897,22 @@ export default function App() {
                     onNavigateTab={setActiveTab}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'bs-calendar' && (
+              <KeepMounted visible={visible['bs-calendar'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <BsCalendarUtility
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'fiscal-year-management' && (
+              <KeepMounted visible={visible['fiscal-year-management'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <DocumentNumbering />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'nepali-fiscal' && (
+              <KeepMounted visible={visible['nepali-fiscal'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <NepaliFiscalManagement
                     fiscalYears={fiscalYears}
@@ -2917,9 +2920,9 @@ export default function App() {
                     dateMode={dateMode}
                   />
                 </React.Suspense>
-              )}
+              </KeepMounted>
 
-              {activeTab === 'help-documentation' && (
+              <KeepMounted visible={visible['help-documentation'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <HelpDocumentationLazy
                     currentUser={currentUser}
@@ -2936,8 +2939,10 @@ export default function App() {
                     }}
                   />
                 </React.Suspense>
+              </KeepMounted>
+                </>
               )}
-            </>
+            </KeepMountedRoot>
           )}
         </main>
       </div>

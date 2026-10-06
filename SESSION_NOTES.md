@@ -2,6 +2,55 @@
 
 _Date: 2026-10-05 · Branch: main · Tests: 619/619 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
+## ⭐ NEWEST: Tab-switch churn refactor — keep-mounted tabs (UNCOMMITTED, 2026-10-05)
+
+User: "Refactor the 66 conditional tab renders to keep-mounted with SWR-style
+caching so tab switches don't remount and re-fetch". New
+client/src/components/common/KeepMounted.tsx: KeepMountedRoot wraps all tab
+renders right after the boot-ternary in App.tsx and tracks the ever-mounted
+tab set (never-activated tabs are still NOT rendered); KeepMounted wraps each
+tab's element and hides it with display:none + aria-hidden + inert instead of
+unmounting it. All 67 conditional render sites in App.tsx
+(`{activeTab === 'x' && (` … `)}`) converted to
+`<KeepMounted visible={visible['x'] === true}>` (65 via regex + dashboard and
+approvals by hand; dev-statcard keeps `&& import.meta.env.DEV` in visible).
+Effect: tab switches no longer remount screens — React state, form inputs,
+scroll position and lazy chunks all survive a switch. Data freshness is
+per-screen and unchanged by the container: props-driven screens stay live via
+bootstrap-slice props; the six SSE-wired registers keep reacting to
+registerRefresh counters while hidden; the 11 mount/selection self-fetch
+screens keep their first-activation fetch and can opt in to
+refetch-on-reactivation via the new useActivationKey(tabKey) hook (deliberate
+per-screen decision, none wired yet — see MOUNT_REFETCH_NO_SSE_KEY). Guard
+test MOUNT_REFETCH_NO_SSE_KEY still passes unchanged (those screens remain
+mount-once); screen tallies unchanged (50 screens; 39 + 11 pins intact).
+Re-verified: tsc 0, client --noUnusedLocals 0, 619/619 + docs gate, build/
+budget/no-raw-dialogs/no-inline-sql green. No test-count change.
+
+---
+
+## ⭐ Improvement #7 — mirror-drift structural fix IMPLEMENTED (UNCOMMITTED, 2026-10-05)
+
+User: "ok, do it" (after FRONTEND-AUDIT §F documented #7 as a recommendation).
+GET /api/bootstrap now reads the permission matrix live from PostgreSQL
+(new PERMISSION_MATRIX_SELECT_SQL + rowsToPermissionMatrix in
+permissions.repo.ts). GET /api/bootstrap/local serves EVERY slice live
+from PG: new fetchBootstrapSlice(pool, key, scope) in bootstrap.repo.ts
+resolves the payload key through the shared BOOTSTRAP_TABLES configs so a
+targeted slice returns exactly what a full bootstrap would (auditLogs
+keeps its 200-row payload cap, companyProfile its single row); the
+permission matrix folds from its own SELECT, appSettings keeps the
+settings-repo SELECT. In-memory mirrors are demoted to operational cache
+for other controllers + last-resort fallback when the live read throws
+(prev behavior preserved, unknown key can never 500). Effect: manual DB
+edits, second server instances and missed cache refreshes can no longer
+be served stale. Re-verified: tsc 0, client --noUnusedLocals 0
+(server bootstrap controller noise unchanged: same 12 pre-existing
+TS6133s as HEAD), 619/619 + docs gate, build/budget/no-raw-dialogs/
+no-inline-sql green. No test-count change.
+
+---
+
 ## ⭐ NEWEST: Sync-architecture improvements #1–#6 implemented (UNCOMMITTED, 2026-10-05)
 
 User: "proceed for all and improvement recommendations from A to Z" (after the
@@ -1110,7 +1159,10 @@ unseeded calendar days use BS_DATE_FALLBACK.
   server-paged fetch = a register missing its sseRefreshKey); the 11
   mount/selection self-fetch screens (ledgers, BS calendars, Category/Uom/
   Locations, doc numbering, FinancialStatements…) stay whole-list and
-  unwired BY DESIGN (tab remount refetches them) and may not grow partial
+  unwired BY DESIGN (since the keep-mounted tab refactor below they no
+  longer remount on a tab switch — first-activation fetch + stays mounted;
+  re-fetch-on-reactivation is an opt-in via useActivationKey(tabKey)) and
+  may not grow partial
   wiring without a full DOMAIN_REGISTER_KEYS decision. Audit footnote CLOSED:
   SalesInvoices.tsx + ReturnsRegister.tsx now fetch their own server-paged
   rows (getSalesInvoices / getPurchaseReturns + getSalesReturns) and are

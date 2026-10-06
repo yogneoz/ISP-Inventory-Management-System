@@ -579,7 +579,11 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   screen, a `pageSize:` request key may appear **only** in the six wired
   registers, and the 11 mount/selection self-fetch screens (ledgers, BS
   calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
-  pinned as whole-list and unwired **by design** — tab remount refetches them.
+  pinned as whole-list and unwired **by design** — with the keep-mounted tab container
+  (components/common/KeepMounted.tsx) they no longer remount on a tab
+  switch either: each self-fetching screen fetches on its FIRST activation
+  and then stays mounted, and any screen that needs fresh data on every
+  re-activation opts in explicitly via `useActivationKey(tabKey)`.
 - **Counts stay honest** — `npm test` ends with a docs-count gate
   (`scripts/docsTestCounts.ts`): every current-state test-count claim in this
   README, handoff.md and SESSION_NOTES.md must equal the run's real suite

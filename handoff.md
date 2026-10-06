@@ -1145,8 +1145,13 @@ so any unwired new fetch fails the suite instead of shipping:
   request key is allowed ONLY in the six wired registers (a seventh server-paged fetch = a
   register missing its sseRefreshKey); the 11 mount/selection self-fetch screens (ledgers,
   BS calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are pinned as
-  whole-list and unwired **by design** — tab remount refetches them — and may not grow
-  partial wiring without a full `DOMAIN_REGISTER_KEYS` decision.
+  whole-list and
+  unwired **by design** — and since the keep-mounted tab container
+  (components/common/KeepMounted.tsx, 2026-10-05) they no longer remount on
+  a tab switch: each fetches on FIRST activation and stays mounted; re-fetch
+  on re-activation is an explicit opt-in via `useActivationKey(tabKey)`,
+  and they may not grow partial wiring without a full
+  `DOMAIN_REGISTER_KEYS` decision.
 - **Audit footnote (closed)** — SalesInvoices.tsx and ReturnsRegister.tsx now fetch their own
   server-paged rows (`getSalesInvoices` / `getPurchaseReturns` + `getSalesReturns`) and are
   pinned as SSE-wired registers: exact surface, effect deps carrying the refresh key, and
