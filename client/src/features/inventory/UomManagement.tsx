@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { UnitOfMeasure, User } from '../../types';
 import { Ruler, Plus, Edit2, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -37,9 +38,12 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
     }
   };
 
+  // Refetch on every tab re-activation (keep-mounted replacement for the old remount refetch).
+  const activationKey = useActivationKey('uom-management');
+
   useEffect(() => {
     loadUoms();
-  }, []);
+  }, [activationKey]);
 
   const filteredUoms = uoms.filter(
     (u) =>

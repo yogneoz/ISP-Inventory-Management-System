@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -77,10 +78,13 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({
     }
   };
 
+  // Refetch the selected supplier's ledger on every tab re-activation.
+  const activationKey = useActivationKey('vendor-ledger');
+
   useEffect(() => {
     fetchLedger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSupplierId]);
+  }, [selectedSupplierId, activationKey]);
 
   const handleExport = () => {
     if (!ledgerData) return;

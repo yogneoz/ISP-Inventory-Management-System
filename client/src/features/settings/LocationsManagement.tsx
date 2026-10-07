@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { Branch, LocationRecord } from '../../types';
 import { MapPin, Plus, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation } from 'lucide-react';
 import { api } from '../../services/api';
@@ -46,9 +47,12 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     }
   };
 
+  // Refetch on every tab re-activation (keep-mounted replacement for the old remount refetch).
+  const activationKey = useActivationKey('locations');
+
   useEffect(() => {
     loadLocations();
-  }, [selectedBranchFilter]);
+  }, [selectedBranchFilter, activationKey]);
 
   const filteredLocations = locations.filter((loc) => {
     const matchesSearch =

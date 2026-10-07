@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { Category, Product, User } from '../../types';
 import { Grid, Plus, Edit2, Trash2, Tag, X } from 'lucide-react';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -42,9 +43,12 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
     }
   };
 
+  // Refetch on every tab re-activation (keep-mounted replacement for the old remount refetch).
+  const activationKey = useActivationKey('category-management');
+
   useEffect(() => {
     loadCategoriesFromDb();
-  }, []);
+  }, [activationKey]);
 
   // Calculate live product counts per category
   const getProductCountForCategory = (catName: string) => {

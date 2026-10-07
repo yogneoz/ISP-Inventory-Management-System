@@ -20,10 +20,10 @@ import React, { createContext, useContext, useMemo, useRef } from 'react';
  *    the App SSE handler bumps the counter, the effect re-runs while the
  *    tab is hidden. Already correct, no change needed.
  *  - Self-fetching screens (mount/selection-fetched lists, ledgers) keep
- *    their mount fetch for the FIRST paint; when one needs re-fetch-on-
- *    re-activation (the keep-mounted replacement for "remount refetches
- *    me") it opts in with `useActivationKey(tabKey)` — a per-screen
- *    wiring decision, not a container behavior.
+ *    their mount fetch for the FIRST paint and opt in to re-fetch-on-
+ *    re-activation with `useActivationKey(tabKey)` — all 11 of them
+ *    (MOUNT_REFETCH_NO_SSE_KEY in the test guards) are wired this way,
+ *    which replaces their old "remount refetches me" behavior.
  */
 
 /** Which tab (key) is currently visible; null while the boot overlay shows. */
@@ -58,9 +58,11 @@ export function KeepMountedRoot({
 
 /**
  * Wraps one tab's element. `visible` comes from the render site (the flags
- * object) so the element only exists once its tab has been activated at
- * least once — hidden-but-mounted tabs keep rendering (and reacting to
- * fresh props) with display:none.
+ * object). Children are NOT rendered until the tab's FIRST activation —
+ * so a never-opened tab costs nothing (no chunk fetch, no mount, no screen
+ * fetch). After that first activation the element stays mounted and is
+ * merely hidden (display:none + aria-hidden + inert), so hidden tabs keep
+ * rendering (and reacting to fresh props) without remounting on switch.
  */
 export function KeepMounted({
   visible,
@@ -69,6 +71,12 @@ export function KeepMounted({
   visible: boolean;
   children: React.ReactNode;
 }) {
+  // Once the tab has been visible once, keep its children mounted forever
+  // (until the whole app unmounts). Before that, render nothing — a lazy
+  // child would otherwise fetch its chunk and mount at startup, mounting
+  // all 67 screens on page load.
+  const everVisible = useRef(visible);
+  if (visible) everVisible.current = true;
   // `inert` (plus the display:none toggle) keeps hidden tabs out of the
   // a11y tree and blocks focus/interaction inside them. The React prop is
   // lowercase-boolean-safe in React 19; for older typings it is spread so
@@ -79,7 +87,7 @@ export function KeepMounted({
       aria-hidden={!visible}
       {...(!visible ? ({ inert: '' } as Record<string, unknown>) : {})}
     >
-      {children}
+      {everVisible.current ? children : null}
     </div>
   );
 }
@@ -91,19 +99,34 @@ export function KeepMounted({
  * deps refetches on mount and each re-activation; screens that only want
  * the original mount-once behavior keep their `[]` deps and are untouched.
  *
- * Reserved for the mount-refetch screens (ledgers, BS calendars, Category/
- * Uom/Locations, doc numbering, FinancialStatements) — wiring one up is a
- * per-screen decision (see MOUNT_REFETCH_NO_SSE_KEY in the test guards).
+ * The counter only moves on a HIDDEN → VISIBLE transition (and the first
+ * activation), never on ordinary re-renders while the tab is visible —
+ * otherwise any state update while visible would tick the key and refetch
+ * in a loop (observed live: CategoryManagement refetching /api/categories
+ * continuously until this was fixed).
+ *
+ * All 11 mount-refetch screens (ledgers, BS calendars, Category/Uom/
+ * Locations, doc numbering, FinancialStatements — see
+ * MOUNT_REFETCH_NO_SSE_KEY + MOUNT_REFETCH_ACTIVATION_TABS in the test
+ * guards) pass their activation key into their fetch effect's deps.
  */
 export function useActivationKey(tabKey: string): number {
   const activeTab = useContext(ActiveTabContext);
   const wasEverVisible = useRef(false);
   const activation = useRef(0);
-  if (activeTab === tabKey && !wasEverVisible.current) {
+  const prevActive = useRef(false);
+  const isActive = activeTab === tabKey;
+  if (isActive && !wasEverVisible.current) {
+    // First activation: mount → 1 (the effect's initial run).
     wasEverVisible.current = true;
+    prevActive.current = true;
     activation.current = 1;
-  } else if (activeTab === tabKey) {
+  } else if (isActive && !prevActive.current) {
+    // Re-activation after being hidden: refetch.
+    prevActive.current = true;
     activation.current += 1;
+  } else if (!isActive) {
+    prevActive.current = false;
   }
   return activation.current;
 }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -112,10 +113,13 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     }
   }, []);
 
+  // Refetch the register on every tab re-activation (keep-mounted: no remount refetch anymore).
+  const activationKey = useActivationKey('vendor-opening-balances');
+
   useEffect(() => {
     fetchVendorRegister(selectedFyId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFyId, fetchVendorRegister]);
+  }, [selectedFyId, fetchVendorRegister, activationKey]);
 
   const fy = vendorData?.fiscalYear;
   const periodLocked = Boolean(fy?.isClosed);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { FiscalYear } from '../../types';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -156,9 +157,12 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
   };
 
   // Load calendar data and generate full database on mount
+  // (and on every tab re-activation — keep-mounted replacement for the old remount refetch).
+  const activationKey = useActivationKey('nepali-fiscal');
+
   useEffect(() => {
     refreshCalendarData();
-  }, []);
+  }, [activationKey]);
 
   const refreshCalendarData = async () => {
     try {

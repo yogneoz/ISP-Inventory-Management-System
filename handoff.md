@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 619 tests; CI runs
+                                        #   drift/concurrency guards — 620 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1100,7 +1100,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 619 tests against a real PostgreSQL 16 service container
+2. `npm test` — 620 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
@@ -1149,10 +1149,11 @@ so any unwired new fetch fails the suite instead of shipping:
   whole-list and
   unwired **by design** — and since the keep-mounted tab container
   (components/common/KeepMounted.tsx, 2026-10-05) they no longer remount on
-  a tab switch: each fetches on FIRST activation and stays mounted; re-fetch
-  on re-activation is an explicit opt-in via `useActivationKey(tabKey)`,
-  and they may not grow partial wiring without a full
-  `DOMAIN_REGISTER_KEYS` decision.
+  a tab switch: each fetches on FIRST activation and stays mounted; all 11
+  opt in to a refetch on every tab re-activation via
+  `useActivationKey(tabKey)` in their fetch effect's deps (screen → tab key
+  pinned by the MOUNT_REFETCH_ACTIVATION_TABS guard), and they may not grow
+  partial register wiring without a full `DOMAIN_REGISTER_KEYS` decision.
 - **Audit footnote (closed)** — SalesInvoices.tsx and ReturnsRegister.tsx now fetch their own
   server-paged rows (`getSalesInvoices` / `getPurchaseReturns` + `getSalesReturns`) and are
   pinned as SSE-wired registers: exact surface, effect deps carrying the refresh key, and

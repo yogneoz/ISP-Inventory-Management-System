@@ -1,7 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 619/619 green with a DB (all run in CI too — no skips since the PG service container landed)_
-
+_Date: 2026-10-05 · Branch: main · Tests: 620/620 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
 ## ⭐ §G follow-up: 3 tail panels were name-shifted (label-damage form missing) — fixed + full sidebar walkthrough (2026-10-06)
 
@@ -60,7 +59,127 @@ Shipments.
 
 ---
 
-## ⭐ NEWEST: Tab-switch churn refactor — keep-mounted tabs (UNCOMMITTED, 2026-10-05)
+## ⭐ StockOperations decomposition audit — analysis written to FRONTEND-AUDIT §G (2026-10-06)
+
+User: "Audit client side project and suggest for breaking the component. I
+think stock operation has almost 8k line of codes." Measured: it is 5,966
+lines (largest component; App.tsx next at 3,018), 79 useState, 12 tab
+panels (~2,950 JSX), rendered 11 times by App.tsx — so 11 full instances
+ride in the keep-mounted shell. Proposed: split by tab panel into
+features/inventory/stockops/*Panel.tsx (12 panels + shared/), keep
+StockOperations.tsx as a ~400-line host, move state with panels, move the
+three guard pins with the code (surface pin, consumable-register
+render-site guard, single-serial-fetch assertion), App.tsx untouched.
+Two-commit sequencing (pure move, then state relocation), same recipe
+afterwards for PhysicalStockAudit (2,552) and Shipments (2,186).
+Full proposal + size map: FRONTEND-AUDIT.md §G. No code changed.
+
+---
+
+## ⭐ Tab-switch perf measured before/after keep-mounted — 2 real defects found and fixed (2026-10-06)
+
+Task: "Measure tab-switch performance before and after the keep-mounted
+refactor (remounts, chunk loads, time-to-interactive) and document results
+in SESSION_NOTES." Method: built the pre-refactor tree (4a02ded) in a
+git worktree and both trees' production bundles, served them on
+NODE_ENV=production servers (:3001 before / :3002 after, same PG), drove
+identical click sequences in a real browser (5 tabs: Category, UoM,
+Vendor Ledger, Financial Statements, Product Master + dashboard), and
+measured with PerformanceObserver (longtask) + MutationObserver (DOM
+counter) + resource timing.
+
+The measurement EXPOSED TWO DEFECTS in the shipped refactor, both fixed:
+(1) useActivationKey incremented on EVERY render while visible, so any
+state update re-ran the fetch effect — observed live as CategoryManagement
+refetching /api/categories in an endless loop (~25 GETs/800ms). Now the
+key only moves on a hidden→visible transition. (2) KeepMounted rendered
+children unconditionally, so every tab render site (67) — and every lazy
+chunk — mounted at startup — contradicting the documented
+first-activation design and paying the whole app's chunks+mounts+fetches
+on page load. KeepMounted now
+renders null until its tab's first visibility (everVisible ref), so a
+never-opened tab costs nothing.
+
+Measured results (production builds, identical data, same machine):
+
+| Metric (per RE-activation switch) | BEFORE (remount) | AFTER (keep-mounted) |
+|---|---|---|
+| DOM nodes replaced (unmount+mount) | 688–1004 per switch (e.g. Category +353/−335, Product Master +873/−139, dashboard +333/−871) | **0** (FinancialStatements' 6-node chart swap only) |
+| Lazy chunk fetches | 0 (module cache) | 0 |
+| Long tasks (>50 ms) during switch | 0 in these passes (remount work split into sub-50 ms tasks) | 0 |
+| API GETs | self-fetch screens 1–5 (remount refetch) | identical 1–5 (deliberate useActivationKey refetch) |
+| Scroll/form state on return | LOST (typed Category search wiped — proven live) | **PRESERVED** (same input survived 2 switches) |
+| First activation of a tab | chunk fetch + mount (identical both variants; 21 feature chunks for dashboard+5 tabs) | identical |
+| Startup | 17 feature chunks (dashboard's static dep graph only), ~1.35 MB transfer | same — AFTER the defect-2 fix; BEFORE the fix it fetched every screen chunk and mounted all 67 tab containers at load |
+
+Net: tab switches stop destroying and rebuilding 300–900 DOM nodes and
+cannot lose in-progress form state; network behavior is unchanged by
+design (the 11 mount-refetch screens still refetch on re-activation via
+useActivationKey, now transition-safe). Lab cleaned up: worktree removed,
+measurement servers stopped (an empty ../ISP-pre-keepmounted dir may
+linger if a process handle holds it — safe to delete). Re-verified after
+both fixes: tsc 0, client --noUnusedLocals 0, 620/620 + docs gate,
+build/budget/no-raw-dialogs/no-inline-sql green. No test-count change.
+
+---
+
+## ⭐ Mirror-read audit — one serving-layer violation found and fixed (2026-10-06)
+
+Task: "Audit the server for any remaining reads of the demoted in-memory
+mirrors outside the documented fallback chain and fix or report them."
+Method: scanned every balanced res.json/status/send body in server/src
+(excluding runtimeState/app/dbBoot/bootstrap.controller) for references to
+the 30 runtime-state mirrors. Result: every HTTP-serving mirror read except
+one is the documented live-first + cache-fallback pattern
+(`if (getPgConnected()) try PG → return; catch → log; res.json(mirror)`) —
+inventory (stock/ops), procurement (POs/invoices/vendor payments),
+masterdata (uoms/suppliers/products/categories), shipments, admin (branches/
+doc-number configs/fiscal years), all only serving the mirror when PG is
+down or the live read failed. The one violation: GET /api/permissions
+served the in-memory permissionMatrix unconditionally — while #7 made the
+bootstrap paths serve the matrix live. FIXED in permissions.controller.ts:
+get_permissions now reads live via PERMISSION_MATRIX_SELECT_SQL +
+rowsToPermissionMatrix, falling back to the mirror only if the live read
+fails (same shape as the other live-first GETs). Write-path echoes (PUT
+responses returning the just-updated cache, which the post-write hook
+re-derives from PG anyway) and the per-request authz read in
+middleware/index.ts (enforceOperationalPermissions reading the mirror hot
+path, documented operational-cache purpose) are unchanged by design.
+Observations (pre-existing, reported not fixed): admin.controller's
+set-current-fiscal-year mutates the fiscalYears mirror objects in place
+(fy.isCurrent) instead of re-deriving — write-path, works in degraded
+no-PG mode; permissions.routes.ts and bootstrap.routes.ts import
+permissionMatrix without using it (same class as the 12 pre-existing
+server-side TS6133s). Re-verified: tsc 0, 620/620 + docs gate.
+
+---
+
+## ⭐ Mount-refetch screens now refetch on tab re-activation (2026-10-06)
+
+User: "Wire useActivationKey into the 11 mount-refetch screens so their
+lists refetch on every tab re-activation, updating the test pins
+deliberately." All 11 MOUNT_REFETCH_NO_SSE_KEY screens (BsCalendarUtility,
+CustomerLedger, DocumentNumbering, FinancialStatements, NepaliFiscalManagement,
+OpeningStockManager, VendorLedger, VendorOpeningBalances, CategoryManagement,
+UomManagement, LocationsManagement) now call
+useActivationKey('<their tab key>') and carry the key in their fetch effect's
+deps, so the list refetches on first activation AND on every re-activation of
+the (now keep-mounted) tab. Tab keys pinned in a new
+MOUNT_REFETCH_ACTIVATION_TABS table in tests/registerRefreshDomains.test.ts
+and cross-checked three ways per screen: the useActivationKey argument, the
+activationKey dep in the fetch effect, and the matching visible['<key>']
+render site in App.tsx (a wrong/missing key or dropped dep fails with a
+precise message). The screens stay whole-list and register-unwired — the
+existing mount-refetch guard test only gained the activation-key assertions
+and was renamed to say so. KeepMounted.tsx doc comments updated (no longer
+"reserved/none wired"); README/handoff/SESSION_NOTES reworded to "all 11
+refetch on re-activation"; the suite-count claims moved 619→620 for the new
+pin test (docs gate green). Re-verified: tsc 0, client --noUnusedLocals 0,
+620/620 + docs gate, build/budget/no-raw-dialogs/no-inline-sql green.
+
+---
+
+## ⭐ Tab-switch churn refactor — keep-mounted tabs (committed 1915de1, 2026-10-05)
 
 User: "Refactor the 66 conditional tab renders to keep-mounted with SWR-style
 caching so tab switches don't remount and re-fetch". New
@@ -78,8 +197,8 @@ per-screen and unchanged by the container: props-driven screens stay live via
 bootstrap-slice props; the six SSE-wired registers keep reacting to
 registerRefresh counters while hidden; the 11 mount/selection self-fetch
 screens keep their first-activation fetch and can opt in to
-refetch-on-reactivation via the new useActivationKey(tabKey) hook (deliberate
-per-screen decision, none wired yet — see MOUNT_REFETCH_NO_SSE_KEY). Guard
+refetch-on-reactivation via the new useActivationKey(tabKey) hook (all 11
+now wired — see the NEWEST entry above; see MOUNT_REFETCH_NO_SSE_KEY). Guard
 test MOUNT_REFETCH_NO_SSE_KEY still passes unchanged (those screens remain
 mount-once); screen tallies unchanged (50 screens; 39 + 11 pins intact).
 Re-verified: tsc 0, client --noUnusedLocals 0, 619/619 + docs gate, build/
@@ -87,7 +206,7 @@ budget/no-raw-dialogs/no-inline-sql green. No test-count change.
 
 ---
 
-## ⭐ Improvement #7 — mirror-drift structural fix IMPLEMENTED (UNCOMMITTED, 2026-10-05)
+## ⭐ Improvement #7 — mirror-drift structural fix IMPLEMENTED (committed 4a02ded, 2026-10-05)
 
 User: "ok, do it" (after FRONTEND-AUDIT §F documented #7 as a recommendation).
 GET /api/bootstrap now reads the permission matrix live from PostgreSQL
@@ -501,7 +620,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 619 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 620 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1067,7 +1186,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 619 tests, 0 fail). Live-verified:
+  key coverage; suite now 620 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1125,7 +1244,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 619 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 620 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1190,7 +1309,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 619 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 620 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1219,7 +1338,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   Locations, doc numbering, FinancialStatements…) stay whole-list and
   unwired BY DESIGN (since the keep-mounted tab refactor below they no
   longer remount on a tab switch — first-activation fetch + stays mounted;
-  re-fetch-on-reactivation is an opt-in via useActivationKey(tabKey)) and
+  all 11 now refetch on every tab re-activation via useActivationKey(tabKey)
+  in their fetch effect's deps — see the NEWEST entry above) and
   may not grow partial
   wiring without a full DOMAIN_REGISTER_KEYS decision. Audit footnote CLOSED:
   SalesInvoices.tsx + ReturnsRegister.tsx now fetch their own server-paged
@@ -1227,7 +1347,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 619 tests, 0 fail.
+  failures, then reverted). Suite now 620 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1242,7 +1362,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 619 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 620 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

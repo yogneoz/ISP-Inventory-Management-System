@@ -6,18 +6,33 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction, logAuditEvent } from '../app';
+import { pgPool, permissionMatrix, setPermissionMatrix, getUserFromReq, withTransaction, logAuditEvent } from '../app';
 import {
   PERMISSION_MATRIX_DELETE_ALL_SQL,
+  PERMISSION_MATRIX_SELECT_SQL,
   PERMISSION_MATRIX_UPSERT_SQL,
   permissionMatrixEntries,
   permissionMatrixUpsertParams,
+  rowsToPermissionMatrix,
 } from '../models/permissions.repo';
 /** Forwarded from permissions.routes.ts (get_permissions). */
 export async function get_permissions(req: any, res: Response): Promise<any> {
-res.json({ matrix: permissionMatrix });
+  // Mirror-drift rule (#7): the permission matrix is served LIVE from
+  // PostgreSQL — the same SELECT the bootstrap slices use — so a manual DB
+  // edit, a second server instance or a missed cache refresh can never be
+  // served stale here either. The in-memory matrix is only the operational
+  // cache the authz middleware reads per request, and the resilience
+  // fallback if the live read fails.
+  try {
+    const matrix = rowsToPermissionMatrix(
+      (await pgPool.query(PERMISSION_MATRIX_SELECT_SQL)).rows
+    );
+    res.json({ matrix });
+  } catch (err: any) {
+    console.warn('permissions live read failed, serving operational cache:', err?.message || err);
+    res.json({ matrix: permissionMatrix });
+  }
   return;
-
 }
 
 /** Forwarded from permissions.routes.ts (put_permissions). */

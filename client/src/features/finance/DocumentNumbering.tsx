@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { PageHeader } from '../../components/common/PageHeader';
 import { DocumentNumberConfig } from '../../types';
 import { api } from '../../services/api';
@@ -61,12 +62,14 @@ export const DocumentNumbering: React.FC = () => {
   // Document Numbering State
   const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>([]);
 
+  // Refetch configs on every tab re-activation (keep-mounted: no remount refetch anymore).
+  const activationKey = useActivationKey('fiscal-year-management');
   useEffect(() => {
     // DB is the single source of truth for document-numbering prefixes.
     // The client never stores a bootstrap copy locally, so stale prefixes
     // can never persist in the UI. All reads go through GET /api/document-number-configs.
     loadDocumentNumberConfigs();
-  }, []);
+  }, [activationKey]);
   const [selectedCategory, setSelectedCategory] = useState<DocCategory>('ALL');
   const [docSearchQuery, setDocSearchQuery] = useState<string>('');
   const [editingDocConfig, setEditingDocConfig] = useState<DocumentNumberConfig | null>(null);

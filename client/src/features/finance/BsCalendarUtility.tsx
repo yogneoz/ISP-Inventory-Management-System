@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
@@ -137,9 +138,12 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     }
   };
 
+  // Refetch on every tab re-activation (keep-mounted replacement for the old remount refetch).
+  const activationKey = useActivationKey('bs-calendar');
+
   useEffect(() => {
     refreshCalendarData();
-  }, []);
+  }, [activationKey]);
 
   const refreshCalendarData = async () => {
     try {

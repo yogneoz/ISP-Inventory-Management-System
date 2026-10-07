@@ -6,6 +6,7 @@
  * customer's outstanding receivable. CSV export matches the vendor ledger's.
  */
 import React, { useState, useEffect } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { CustomerRecord, Branch } from '../../types';
 import { api } from '../../services/api';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -83,10 +84,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     }
   };
 
+  // Refetch the selected customer's ledger on every tab re-activation.
+  const activationKey = useActivationKey('customer-ledger');
+
   useEffect(() => {
     fetchLedger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomerId]);
+  }, [selectedCustomerId, activationKey]);
 
   const handleExport = () => {
     if (!ledgerData) return;

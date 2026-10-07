@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -135,10 +136,13 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
     }
   }, []);
 
+  // Refetch the register on every tab re-activation (keep-mounted: no remount refetch anymore).
+  const activationKey = useActivationKey('opening-stock');
+
   useEffect(() => {
     fetchRegister(selectedFyId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFyId, fetchRegister]);
+  }, [selectedFyId, fetchRegister, activationKey]);
 
   const fy = data?.fiscalYear;
   const periodLocked = Boolean(fy?.isClosed);

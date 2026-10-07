@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { FinancialSummary, Asset, PurchaseInvoice, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -192,6 +193,8 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   }, [currentFy, fiscalYears]);
 
   // Fetch a financial summary per branch × needed fiscal year.
+  // Refetch on every tab re-activation (keep-mounted: no remount refetch anymore).
+  const activationKey = useActivationKey('financial-statements');
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -226,7 +229,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeBranches, currentFy, priorFy]);
+  }, [activeBranches, currentFy, priorFy, activationKey]);
 
   // ----- Figures per branch × fiscal year ------------------------------------
   const figuresFor = (branchId: string, fy: FiscalYear | null): BranchFigures => {

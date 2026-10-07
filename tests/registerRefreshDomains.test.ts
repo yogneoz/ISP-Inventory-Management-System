@@ -755,10 +755,11 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   ]);
 
   // The 11 screens that fetch their own rendered list/report data. They are
-  // unwired ON PURPOSE — remount-on-tab-switch refetches them — so they must
-  // not grow register wiring casually: wiring one needs a full decision
-  // (DOMAIN_REGISTER_KEYS entry + App.tsx counter + effect deps), not just a
-  // prop. Surface pins below catch any new GET either way.
+  // still whole-list (no register wiring — see the guards below), but since
+  // the keep-mounted tab container they no longer remount on a tab switch;
+  // instead each one opts in to refetch-on-reactivation via
+  // useActivationKey('<tabKey>') as a dependency of its fetch effect. The
+  // keys are pinned below so neither half can be dropped silently.
   const MOUNT_REFETCH_NO_SSE_KEY = [
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
@@ -831,7 +832,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     );
   });
 
-  test('mount-refetch screens stay whole-list and carry no register wiring', () => {
+  test('mount-refetch screens stay whole-list, carry no register wiring, and refetch on tab re-activation', () => {
     for (const screen of MOUNT_REFETCH_NO_SSE_KEY) {
       const source = readFeatureSource(screen);
       const surface = serverCallsIn(source);
@@ -846,6 +847,48 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       assert.ok(
         !/registerRefresh|sseRefreshKey|refreshKey=\{/.test(source),
         `client/src/features/${screen} carries register-refresh wiring but is not an SSE-wired register — finish the full wiring decision (DOMAIN_REGISTER_KEYS + App.tsx) or drop the prop`
+      );
+    }
+  });
+
+  // Keep-mounted tab keys for the mount-refetch screens: the useActivationKey
+  // argument must equal the App.tsx tab the screen renders under, or the
+  // activation counter never ticks (and the refetch-on-reactivation never
+  // happens). Pinned screen → tab key, checked against App.tsx itself.
+  const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string> = {
+    'finance/BsCalendarUtility.tsx': 'bs-calendar',
+    'finance/CustomerLedger.tsx': 'customer-ledger',
+    'finance/DocumentNumbering.tsx': 'fiscal-year-management',
+    'finance/FinancialStatements.tsx': 'financial-statements',
+    'finance/NepaliFiscalManagement.tsx': 'nepali-fiscal',
+    'finance/OpeningStockManager.tsx': 'opening-stock',
+    'finance/VendorLedger.tsx': 'vendor-ledger',
+    'finance/VendorOpeningBalances.tsx': 'vendor-opening-balances',
+    'inventory/CategoryManagement.tsx': 'category-management',
+    'inventory/UomManagement.tsx': 'uom-management',
+    'settings/LocationsManagement.tsx': 'locations',
+  };
+
+  test('each mount-refetch screen opts in to refetch-on-reactivation via useActivationKey', () => {
+    const appSource = readAppSource();
+    assert.deepEqual(
+      Object.keys(MOUNT_REFETCH_ACTIVATION_TABS).sort(),
+      [...MOUNT_REFETCH_NO_SSE_KEY].sort(),
+      'the activation-tab table and the mount-refetch list must cover the same screens — a screen that opts in (or stops) must be pinned in both'
+    );
+    for (const [screen, tabKey] of Object.entries(MOUNT_REFETCH_ACTIVATION_TABS)) {
+      const source = readFeatureSource(screen);
+      assert.ok(
+        source.includes(`useActivationKey('${tabKey}')`),
+        `client/src/features/${screen} no longer opts in to refetch-on-reactivation via useActivationKey('${tabKey}') — tabs stay mounted, so without it the list is fetched once per session and goes stale`
+      );
+      assert.ok(
+        /\[[^\]]*activationKey[^\]]*\]/.test(source),
+        `client/src/features/${screen} calls useActivationKey but its fetch effect does not depend on activationKey — the key must be in the effect's dependency array or re-activations never refetch`
+      );
+      assert.ok(
+        appSource.includes(`visible['${tabKey}'] === true`),
+        `App.tsx no longer renders a tab '${tabKey}' — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
       );
     }
   });

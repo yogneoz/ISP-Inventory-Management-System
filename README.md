@@ -579,11 +579,12 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   screen, a `pageSize:` request key may appear **only** in the six wired
   registers, and the 11 mount/selection self-fetch screens (ledgers, BS
   calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
-  pinned as whole-list and unwired **by design** — with the keep-mounted tab container
+  pinned as whole-list and register-unwired **by design** — with the keep-mounted tab container
   (components/common/KeepMounted.tsx) they no longer remount on a tab
   switch either: each self-fetching screen fetches on its FIRST activation
-  and then stays mounted, and any screen that needs fresh data on every
-  re-activation opts in explicitly via `useActivationKey(tabKey)`.
+  and then stays mounted, and all 11 opt in to a refetch on every tab
+  re-activation via `useActivationKey(tabKey)` in their fetch effect's deps
+  (pinned by the MOUNT_REFETCH_ACTIVATION_TABS guard).
 - **Counts stay honest** — `npm test` ends with a docs-count gate
   (`scripts/docsTestCounts.ts`): every current-state test-count claim in this
   README, handoff.md and SESSION_NOTES.md must equal the run's real suite
@@ -625,7 +626,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 619-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 620-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
