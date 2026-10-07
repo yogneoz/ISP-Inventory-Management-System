@@ -215,3 +215,155 @@ Improvement #7 landed later the same day (see its row above); re-verified:
 tsc 0 · client `--noUnusedLocals` 0 · 619/619 + docs gate · build/budget/
 no-raw-dialogs/no-inline-sql green · bootstrap.controller's server-side
 `--noUnusedLocals` diff vs HEAD shows no NEW unused symbols (12 pre-existing).
+
+## G. Component decomposition audit — StockOperations.tsx (2026-10-06)
+
+User: "Audit client side project and suggest for breaking the component. I
+think stock operation has almost 8k line of codes which is definitely very
+difficult to maintain." (Actual: 5,966 lines — the largest component in the
+app by ~2×; runner-up is App.tsx at 3,018.)
+
+### G.1 Size map — client/src (49,061 lines across App.tsx + 50 screens)
+
+| File | Lines | Note |
+| - | --- | - |
+| inventory/StockOperations.tsx | 5,966 | 12 stock tabs in ONE component; see G.2 |
+| App.tsx | 3,018 | routing/shell; already 67 KeepMounted sites |
+| inventory/PhysicalStockAudit.tsx | 2,552 | next candidate, same pattern |
+| procurement/Shipments.tsx | 2,186 | same pattern |
+| sales/CustomersManagement.tsx | 1,716 | |
+| inventory/ProductManagement.tsx | 1,473 | |
+| procurement/PurchaseInvoices.tsx | 1,456 | |
+| finance/FiscalYearClosingWizard.tsx | 1,426 | |
+| …remaining 43 screens | ≤1,347 | long tail |
+
+### G.2 Why StockOperations.tsx hurts (measured facts)
+
+- ONE exported component with **79 `useState`** hooks, 12 `useEffect`,
+  37 handler functions; every tab's state lives in a single component
+  instance, so a keystroke in one panel re-renders the entire 6k-line body.
+- App.tsx renders **`<StockOperations …>` 11 times** (pullout, damage,
+  receive-shipment, create-transfer, assign-asset, consumable-issue,
+  consumables-register, stock-out, device-exchange, serial log, stock
+  ledger contexts) — 11 full instances of the monolith are mounted by the
+  keep-mounted shell, each carrying all 79 hooks even though each surface
+  uses one or two tabs.
+- 12 conditional panels (`{activeTab === 'X' && (…)}`) of ~2,950 JSX lines:
+  RECEIVE_TRANSFER 484 · ASSIGN_ASSET 329 · CREATE_TRANSFER 273 ·
+  CONSUMABLES_REGISTER 309 · CONSUMABLE_ISSUE 298 · PRODUCT_SALE 289 ·
+  DEVICE_EXCHANGE 383 · DAMAGE_TRACKING 126 · PULLOUT_BINS 69 ·
+  CREATE_PULLOUT 35 · LABEL_DAMAGE 275 · LOGS 130.
+- Guard-test entanglement: the file is pinned in
+  tests/registerRefreshDomains.test.ts in 3 places (surface pin with its
+  `pageSize:` register allowance, the consumable-register
+  `sseRefreshKey={registerRefresh.consumableRegister}` render-site guard,
+  and the single-serial-fetch assertion) — a split must update all three
+  deliberately (same friction philosophy as every other pin).
+- Props: ~15 per instance from App.tsx (operations, products, branches,
+  currentUser, refresh hooks…) — mostly the same set on all 11 sites.
+
+### G.3 Proposed decomposition (mechanical, guard-compatible)
+
+Split BY TAB PANEL into sibling files under `features/inventory/stockops/`,
+one folder per concern, keeping `StockOperations.tsx` as a thin host that
+only resolves the active tab and passes props:
+
+```
+features/inventory/stockops/
+  PulloutBinsPanel.tsx          (~70 + shared state slice)
+  DamageTrackingPanel.tsx       (~130)
+  ReceiveTransferPanel.tsx      (~490)  ← biggest; takes registerRefresh key
+  CreateTransferPanel.tsx       (~275)
+  AssignAssetPanel.tsx          (~330)
+  ConsumableIssuePanel.tsx      (~300)
+  ConsumablesRegisterPanel.tsx  (~310)  ← keeps sseRefreshKey wiring
+  ProductSalePanel.tsx          (~290)
+  DeviceExchangePanel.tsx       (~385)
+  LogsPanel.tsx                 (~130)
+  CreatePulloutPanel.tsx        (~35)
+  LabelDamagePanel.tsx          (~275)
+  shared/
+    bsCalendarGate.ts           (the BS-date gate hook — reused by 6 panels)
+    operationFilters.ts         (op.type/branch filters, isOpInAllowedBranch)
+    pulloutFormState.ts         (PulloutItem line state + product search)
+    types.ts                    (panel props interfaces)
+StockOperations.tsx             (host: tab state + <ActivePanel …> switch, ~400)
+```
+
+Rules that keep the guards green and the behavior identical:
+1. **State moves WITH its panel.** Each panel owns its `useState` cluster;
+   the host keeps only `activeTab`, the BS-date gate and the toast. This
+   is the main win: 11 host instances × 79 hooks → each panel instance
+   carries only its own state, and a keystroke in one panel no longer
+   re-renders the other 11 surfaces' JSX.
+2. **Server-call surfaces move verbatim.** Each panel keeps exactly the
+   `api.*` calls its code makes today; `ConsumablesRegisterPanel` carries
+   the `pageSize:` fetch and `sseRefreshKey={registerRefresh.consumableRegister}`
+   unchanged, so the paged-tripwire and the render-site guard pass by
+   updating only the pin's file path.
+3. **The 11 App.tsx render sites do not change.** They keep rendering
+   `<StockOperations …>`; the host simply renders one panel instead of
+   twelve conditional blocks. Zero App.tsx churn, zero new lazy chunks
+   beyond the panel files (they compile into the StockOperations chunk
+   graph — `manualChunks` keys on `features/<group>/<file>`, so panels
+   land in per-file chunks automatically).
+4. **Update the three pins in the same commit** (surface pin: move the
+   inventory/StockOperations.tsx entry + add panel entries or teach the
+   walk to include stockops/; render-site regex unchanged — the host still
+   renders `<StockOperations>`; serial-fetch assertion moves to whichever
+   panel hosts it).
+
+### G.4 Expected outcome
+
+- Largest file drops 5,966 → ~490 (ReceiveTransferPanel); host ~400.
+- Per-panel state isolation: re-render scope shrinks from the whole
+  6k-line component to the active panel (and the host shell).
+- Each panel becomes independently testable and the guard pins become
+  per-concern instead of monolithic.
+- Same recipe then applies to PhysicalStockAudit (2,552) and Shipments
+  (2,186), which follow the identical tab-panel shape.
+
+### G.5 Risks / sequencing
+
+- Do it in TWO commits: (a) pure move — cut panels verbatim, panels take
+  props, no logic edits; (b) state relocation — move `useState` clusters
+  into panels. Verifying 620/620 after each keeps the guard net tight.
+- The `getInitialTab()`/`initialType` auto-open-modal behavior spans
+  panels (App passes `autoOpenModal` for pullout/damage entries) — keep
+  that prop on the host and let it select + forward the initial tab, not
+  open modals itself.
+- Deferred (this audit is analysis-only): whether the 11 App sites should
+  collapse to fewer host instances — that changes tab semantics
+  (activeTab is also driven by `initialType`) and deserves its own
+  decision.
+
+Verification for this audit: no code changed; file/line facts gathered via
+wc/grep on the working tree at HEAD 1915de1 + uncommitted KeepMounted fixes.
+
+### G.6 EXECUTED — commit 1 "pure move" done (2026-10-06, uncommitted)
+
+The split landed as proposed, with one refinement: instead of passing 131
+props down to each panel, the host assembles a single
+`StockOperationsCtx` value (stockops/StockOperationsContext.ts) and wraps
+its JSX in a provider; each panel destructures exactly the members its
+verbatim JSX uses — the same explicit-dependency goal with one provider
+instead of 12 prop plumbing layers. Facts on disk:
+
+- StockOperations.tsx: 5,966 → 3,063 lines (host keeps ALL state,
+  handlers, and every api.* call — including the single mount-once
+  `getSerialLogs` cache and the sse-wired consumable-register paged
+  fetch, so all three guard pins still live in the host unchanged).
+- 12 panels under inventory/stockops/*Panel.tsx (2.6–35.8 kB each), JSX
+  moved verbatim; only the `activeTab === 'X' && (` wrapper became the
+  host's `switch (activeTab)`. 11 App.tsx render sites untouched.
+- Panels make server calls only where the original block did:
+  ConsumablesRegisterPanel's export-all `getStockOperations` (all:true,
+  user-initiated); everything else is pinned `[]` in
+  SCREEN_SURFACE_PINS. No panel pages on the server (paged-tripwire
+  unchanged). Screen coverage: 50 → 62 screens, all pinned.
+- All gates green after the move: tsc 0, client noUnusedLocals 0,
+  620/620 + docs gates, build, bundle-budget (284.3/320 kB gz startup),
+  no-raw-dialogs, no-inline-sql.
+- Deviations from G.3: host is 3,063 lines, not ~400 — that shrink is
+  commit 2 (state relocation), still pending, as are the remaining
+  recipe candidates (PhysicalStockAudit, Shipments).

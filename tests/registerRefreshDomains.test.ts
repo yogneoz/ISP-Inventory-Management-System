@@ -620,7 +620,10 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features:
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 62
+  // after the §G StockOperations decomposition added 12 tab panels under
+  // inventory/stockops (each pinned below; the host keeps its dedicated
+  // register-guard pin above).
   //
   //  · 11 are pinned by the guard tests above (the three prop-rendered
   //    inventory tabs, the two create forms, the six SSE-wired paged
@@ -715,6 +718,25 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'settings/ApprovalWorkflowCenter.tsx': [],
     'settings/BranchesManagement.tsx': [],
     'settings/CompanySetupManagement.tsx': [],
+
+    // — StockOperations tab panels (FRONTEND-AUDIT.md §G decomposition): the
+    //   JSX moved verbatim out of inventory/StockOperations.tsx; ALL state
+    //   and handlers (and therefore every api.* call) stay in the host, so
+    //   the panels render props/context only. ConsumablesRegisterPanel is
+    //   the one exception: its export-all button calls getStockOperations
+    //   with all:true — a user-initiated CSV export, not a data load.
+    'inventory/stockops/AssignAssetPanel.tsx': [],
+    'inventory/stockops/ConsumableIssuePanel.tsx': [],
+    'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations'],
+    'inventory/stockops/CreatePulloutPanel.tsx': [],
+    'inventory/stockops/CreateTransferPanel.tsx': [],
+    'inventory/stockops/DamageTrackingPanel.tsx': [],
+    'inventory/stockops/DeviceExchangePanel.tsx': [],
+    'inventory/stockops/LabelDamagePanel.tsx': [],
+    'inventory/stockops/LogsPanel.tsx': [],
+    'inventory/stockops/ProductSalePanel.tsx': [],
+    'inventory/stockops/PulloutBinsPanel.tsx': [],
+    'inventory/stockops/ReceiveTransferPanel.tsx': [],
   };
 
   // Pinned by the dedicated guard tests above instead — surface AND wiring.

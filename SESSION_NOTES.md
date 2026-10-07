@@ -2,6 +2,64 @@
 
 _Date: 2026-10-05 · Branch: main · Tests: 619/619 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
+
+## ⭐ §G follow-up: 3 tail panels were name-shifted (label-damage form missing) — fixed + full sidebar walkthrough (2026-10-06)
+
+User reported the damage-label form missing. Root cause: the original
+tail spans run LOGS → CREATE_PULLOUT → LABEL_DAMAGE in file order, but
+panel names were assigned per an assumed CREATE_PULLOUT → LABEL_DAMAGE
+→ LOGS order, so CreatePulloutPanel held the LOGS JSX, LabelDamagePanel
+held CREATE_PULLOUT, and LogsPanel held the label-damage form — tsc and
+every guard stayed green (contents were each verbatim-correct contiguous
+spans; only names were off). Fixed by rotating the three files' contents
+to their names (imports/destructures travel with content; exports and
+doc comments renamed). Verified all 12 panels' normalized JSX equals
+their HEAD 1915de1 span exactly (the two remaining diffs were only an
+inner fragment wrapper — semantically identical).
+
+Then walked EVERY sidebar menu in the real browser (dev server on :3000,
+superadmin@example.com, PG seeded): 66/66 menu entries render their
+correct screen — 61 with matching visible headings, the two
+purchase-return entries (hidden by a mid-walk sidebar re-render on the
+first pass) and the table-first Damaged Stock Matrix verified on retry,
+and each of the 12 StockOperations tabs verified down to its panel
+heading (Label Local Damaged Stock → "Label Local Damaged Stock" form,
+Create Warehouse Pullout Bin → the pullout-bin form, etc.). Console
+shows only pre-login 401s + a benign React `inert` warning — no render
+errors, no error boundaries. Presence-only per the user's instruction:
+no form functions were exercised.
+
+---
+
+## ⭐ StockOperations §G split EXECUTED — commit 1 "pure move" (2026-10-06, uncommitted)
+
+User: "do necessary steps for better performance and maintainability" →
+executed the §G decomposition. StockOperations.tsx: 5,966 → 3,063 lines;
+12 verbatim tab-panel JSX blocks moved to
+features/inventory/stockops/*Panel.tsx via a single context:
+StockOperationsContext.ts (StockOperationsCtx, 131 data/handler members +
+56 setter members) — host assembles the ctx object and wraps its return
+in the provider; panels destructure exactly what their JSX uses and the
+host renders them through `switch (activeTab)`. Host keeps ALL state,
+handlers and every api.* call, so the three guard pins (12-method surface
+pin, consumable-register render-site guard, single mount-once
+getSerialLogs) hold in the host unchanged; panels pinned in
+SCREEN_SURFACE_PINS (11 × `[]`, ConsumablesRegisterPanel:
+`['getStockOperations']` for its export-all button). Screen coverage
+50 → 62; docs tallies updated (README, handoff, SESSION_NOTES). User
+cautioned to check the sidebar/menu wiring before removing anything: all
+11 App.tsx render sites and all 12 forms verified intact, and the 40
+"unused" flags were only generator-added import statements — user
+approved removing them (shared components verified still used in 11–33
+other files; no form, component, or state touched). All gates green:
+tsc 0, client noUnusedLocals 0, 620/620 + docs gates, build, bundle
+budget 284.3/320 kB gz, no-raw-dialogs, no-inline-sql. Left uncommitted.
+NEXT: §G commit 2 — relocate state clusters into panels to shrink the
+host toward ~400 lines; then the same recipe for PhysicalStockAudit and
+Shipments.
+
+---
+
 ## ⭐ NEWEST: Tab-switch churn refactor — keep-mounted tabs (UNCOMMITTED, 2026-10-05)
 
 User: "Refactor the 66 conditional tab renders to keep-mounted with SWR-style
@@ -1147,8 +1205,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   remount). Every App.tsx render site must pass its register counter (2 PO,
   2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-  (2) NEW — all 50 screens under client/src/features are pinned: a
-  SCREEN_SURFACE_PINS table (39 screens) + the 11 pinned above; an unpinned
+  (2) NEW — all 62 screens under client/src/features are pinned: a
+  SCREEN_SURFACE_PINS table (51 screens) + the 11 pinned above; an unpinned
   new screen fails coverage, and each pinned screen must match its exact
   surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
   `services/api` imports, because the audit found FinancialStatements.tsx
