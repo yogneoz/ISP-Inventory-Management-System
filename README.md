@@ -481,9 +481,9 @@ and pagination, so the client loads exactly one page of rows at a time.
 | Register | Endpoint | Status |
 | :--- | :--- | :--- |
 | Serial Log Register | `GET /api/serial-log` | **Trimmed from bootstrap** — the register is the endpoint's only consumer, so the table no longer ships in the bootstrap payload at all |
-| Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | Paged endpoint available; the table still ships in bootstrap for other consumers |
-| Purchase Orders Register | `GET /api/purchase-orders` | Paged endpoint available; the table still ships in bootstrap for other consumers |
-| Purchase Invoices Register | `GET /api/purchase-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
+| Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | **Trimmed from bootstrap** — register self-fetches its page; the remaining wholesale consumers (StockOperations' panels, movement ledger) are fed by the deferred `GET /api/bootstrap/local?key=stockOperations` hydration that runs right after bootstrap |
+| Purchase Orders Register | `GET /api/purchase-orders` | **Trimmed from bootstrap** — register self-fetches; wholesale consumers (dashboard/notification KPIs, FY closing wizard, PI PO dropdown, movement ledger, global search) are fed by deferred `GET /api/bootstrap/local?key=purchaseOrders` hydration |
+| Purchase Invoices Register | `GET /api/purchase-invoices` | **Trimmed from bootstrap** — register self-fetches; wholesale consumers (FY closing wizard, registers' links, financial statements, VAT/audit reports) are fed by deferred `GET /api/bootstrap/local?key=purchaseInvoices` hydration |
 | Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Invoices Register | `GET /api/sales-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
@@ -523,7 +523,10 @@ and pagination, so the client loads exactly one page of rows at a time.
   (purchase orders) and `sums` (purchase invoices) are SQL aggregates over the
   **full filtered set**, so metrics stay exact even when one page is displayed.
 - Omitting `page` returns the legacy plain array — older consumers (dashboard,
-  movement ledger, FY closing wizard) keep working unchanged.
+  movement ledger, FY closing wizard) keep working unchanged; they receive it
+  through the deferred `GET /api/bootstrap/local?key=<slice>` hydration that
+  runs right after each full bootstrap (the same endpoint the targeted SSE
+  refresh uses), not through the bootstrap payload itself.
 - New SQL for these endpoints lives in the repo layer (`server/src/models/*.repo.ts`);
   controllers only assemble the envelope. Filters are validated (date format,
   page clamping) before they reach SQL.
@@ -626,7 +629,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 620-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 631-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough

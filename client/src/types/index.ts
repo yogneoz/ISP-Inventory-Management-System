@@ -885,14 +885,29 @@ export interface BootstrapState {
   serialLogs?: SerialLog[];
   customerDevices: CustomerDeviceRecord[];
   customers: CustomerRecord[];
-  purchaseOrders: PurchaseOrder[];
-  purchaseInvoices: PurchaseInvoice[];
+  /**
+   * Dropped from the bootstrap payload (served by the paged
+   * GET /api/purchase-orders endpoint), so this slice is optional — the
+   * client hydrates it via deferred GET /api/bootstrap/local slices.
+   */
+  purchaseOrders?: PurchaseOrder[];
+  /**
+   * Dropped from the bootstrap payload (served by the paged
+   * GET /api/purchase-invoices endpoint), so this slice is optional — the
+   * client hydrates it via deferred GET /api/bootstrap/local slices.
+   */
+  purchaseInvoices?: PurchaseInvoice[];
   salesInvoices?: SalesInvoice[];
   purchaseReturns?: PurchaseReturn[];
   salesReturns?: SalesReturn[];
   customerPayments?: CustomerPayment[];
   shipments: Shipment[];
-  stockOperations: StockOperation[];
+  /**
+   * Dropped from the bootstrap payload (served by the paged
+   * GET /api/stock-operations endpoint), so this slice is optional — the
+   * client hydrates it via deferred GET /api/bootstrap/local slices.
+   */
+  stockOperations?: StockOperation[];
   fiscalYears: FiscalYear[];
   auditLogs: AuditLog[];
   transactionLogs: TransactionLog[];

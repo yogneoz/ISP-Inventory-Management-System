@@ -659,6 +659,9 @@ export const STOCK_OPERATION_CANCEL_SQL = `UPDATE stock_operations SET status = 
 export const STOCK_OPERATION_FIND_FOR_RECEIVE_SQL =
   'SELECT status, destination_warehouse_id AS "destinationWarehouseId", items FROM stock_operations WHERE id = $1 FOR UPDATE';
 
+/** Full-row read by id for the receive/reverse pre-checks (mirror step 3: PG-first). */
+export const STOCK_OPERATION_FIND_BY_ID_SQL = `SELECT ${STOCK_OP_SELECT_COLUMNS} FROM stock_operations WHERE id = $1`;
+
 export const STOCK_OPERATION_SET_STATUS_SQL = 'UPDATE stock_operations SET status = $1 WHERE id = $2';
 
 /** Settles received pull-out units into the destination warehouse stock. */

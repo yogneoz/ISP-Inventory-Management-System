@@ -65,6 +65,7 @@ import {
   STOCK_REVERSE_DAMAGE_SQL,
   STOCK_RETURN_QOH_SQL,
   STOCK_OPERATION_CANCEL_SQL,
+  STOCK_OPERATION_FIND_BY_ID_SQL,
   STOCK_OPERATION_FIND_FOR_RECEIVE_SQL,
   STOCK_OPERATION_SET_STATUS_SQL,
   PULLOUT_RECEIVE_STOCK_SQL,
@@ -845,8 +846,10 @@ const { branchId, type, status, query, dateFromAD, dateToAD, page, pageSize, all
   // full-array shape for existing callers (bootstrap consumers, damage
   // tracking).
   const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
-  const wantsFiltering = wantsPaged || type || status || query || dateFromAD || dateToAD;
-  if (getPgConnected() && wantsFiltering) {
+  // Mirror step 3: when PG is up the list is ALWAYS read live — even the
+  // unfiltered legacy shape (previously it served the mirror while the paged
+  // path read PG). The mirror below is demo mode / PG-down fallback only.
+  if (getPgConnected()) {
     try {
       const opts = { branchId, type, status, query, dateFromAD, dateToAD };
       if (wantsPaged) {
@@ -1166,12 +1169,19 @@ try {
       return;
     }
 
+    // Mirror step 3: PG-first read — DB truth drives the type/status guards;
+    // opIndex is only the mirror write target below (withReplaced is a no-op
+    // at -1 when the mirror has not hydrated the row).
     const opIndex = stockOperations.findIndex((o) => o.id === id);
-    if (opIndex < 0) {
+    let op: any = opIndex >= 0 ? stockOperations[opIndex] : undefined;
+    if (getPgConnected()) {
+      const r = await pgPool.query(STOCK_OPERATION_FIND_BY_ID_SQL, [id]);
+      if (r.rows.length > 0) op = r.rows[0];
+    }
+    if (!op) {
       res.status(404).json({ message: 'Stock operation not found.' });
       return;
     }
-    const op = stockOperations[opIndex];
     if (op.type !== 'DAMAGE') {
       res.status(400).json({ message: 'Only DAMAGE stock operations can be reversed.' });
       return;
@@ -1360,12 +1370,17 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
       return;
     }
 
+    // Mirror step 3: PG-first read — see post_reverse above.
     const opIndex = stockOperations.findIndex((o) => o.id === id);
-    if (opIndex < 0) {
+    let op: any = opIndex >= 0 ? stockOperations[opIndex] : undefined;
+    if (getPgConnected()) {
+      const r = await pgPool.query(STOCK_OPERATION_FIND_BY_ID_SQL, [id]);
+      if (r.rows.length > 0) op = r.rows[0];
+    }
+    if (!op) {
       res.status(404).json({ message: 'Stock operation not found.' });
       return;
     }
-    const op: any = stockOperations[opIndex];
     if (op.type !== 'CONSUMABLE_ISSUE') {
       res.status(400).json({ message: 'Only CONSUMABLE_ISSUE stock operations can be reversed here.' });
       return;
@@ -1483,7 +1498,15 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
 export async function post_receive(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    let op = stockOperations.find((o) => o.id === id);
+    // Mirror step 3: PG-first read — DB truth drives the 409 pre-check, the
+    // transaction fallbacks and the response body; the mirror below only
+    // serves demo mode / PG-down.
+    const mirrorOp = stockOperations.find((o) => o.id === id);
+    let op = mirrorOp;
+    if (getPgConnected()) {
+      const r = await pgPool.query(STOCK_OPERATION_FIND_BY_ID_SQL, [id]);
+      if (r.rows.length > 0) op = r.rows[0];
+    }
     if (op && op.status === 'RECEIVED') {
       res.status(409).json({ message: 'This stock operation has already been received.' });
       return;
@@ -1504,6 +1527,9 @@ try {
       });
     }
     if (op) op.status = 'RECEIVED';
+    // Dual-write: when the read came from PG the mirror copy still needs its
+    // status flipped (it used to BE the `op` object above).
+    if (mirrorOp && mirrorOp !== op) mirrorOp.status = 'RECEIVED';
     logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
@@ -1784,8 +1810,11 @@ try {
       branchId,
     } = req.body;
 
-    let oldRecord = customerDeviceRecords.find((c) => c.id === oldDeviceId);
-    if (getPgConnected() && !oldRecord) {
+    // Mirror step 3: PG-first — the full-row read below used to run only on
+    // a mirror miss, so a stale mirror row could seed the exchange response.
+    const mirrorOld = customerDeviceRecords.find((c) => c.id === oldDeviceId);
+    let oldRecord: any;
+    if (getPgConnected()) {
       const r = await pgPool.query(CDR_FIND_ALL_BY_ID_SQL, [oldDeviceId]);
       if (r.rows.length > 0) {
         const row = r.rows[0];
@@ -1810,12 +1839,20 @@ try {
       }
     }
 
+    if (!oldRecord) oldRecord = mirrorOld;
+
     if (!oldRecord) return res.status(404).json({ message: 'Old customer device record not found' });
 
     const dateStrAD = new Date().toISOString().split('T')[0];
 
     oldRecord.status = 'EXCHANGED';
     oldRecord.notes = `[EXCHANGED on ${dateStrAD}] Reason: ${exchangeReason || 'Defective / Replacement'}. Old device disposition: ${oldDeviceAction}. Replacement SN: ${newDeviceSerial}. ${oldRecord.notes || ''}`;
+    // Dual-write: the mirror copy used to BE oldRecord (mirror-first read),
+    // so flip it explicitly when the read came from PG.
+    if (mirrorOld && mirrorOld !== oldRecord) {
+      mirrorOld.status = oldRecord.status;
+      mirrorOld.notes = oldRecord.notes;
+    }
 
     const newRecord: CustomerDeviceRecord = {
       id: `cust-${Date.now()}`,

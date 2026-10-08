@@ -560,6 +560,29 @@ export default function App() {
 
   // Apply the active currency configuration from the company profile so every
   // formatMoney/formatNPR call site renders in the configured currency.
+  // Deferred ledger hydration (bootstrap trim): the three big ledgers no
+  // longer ship in the bootstrap payload — stockOperations, purchaseOrders
+  // and purchaseInvoices are fetched as dedicated slices from
+  // GET /api/bootstrap/local right after every full bootstrap (the same
+  // endpoint the SSE targeted refresh uses), so wholesale consumers — the
+  // dashboard/notification KPIs, the FY closing wizard, the PI PO dropdown,
+  // the movement ledger, StockOperations' panels and global search — keep
+  // their data with identical freshness while first paint gets a lighter
+  // payload. The self-fetching registers don't need these slices at all.
+  const DEFERRED_BOOTSTRAP_SLICES = ['stockOperations', 'purchaseOrders', 'purchaseInvoices'];
+  const hydrateDeferredSlices = (branchId?: string, fiscalYearId?: string) => {
+    Promise.all(
+      DEFERRED_BOOTSTRAP_SLICES.map((key) =>
+        api
+          .getLocalFor(key, branchId, fiscalYearId)
+          .then((res) => {
+            if (res.slice !== undefined) applyBootstrapData({ [key]: res.slice });
+          })
+          .catch(() => null) // one slice failing must not break the others
+      )
+    ).catch(() => undefined);
+  };
+
   const applyCurrencyConfig = (profile: CompanyProfile) => {
     setCurrencyConfig({
       code: profile.currencyCode || profile.currencySymbol || 'NPR',
@@ -624,6 +647,9 @@ export default function App() {
       if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
         applyBootstrapData(data);
+        // The three ledgers trimmed from the payload load in parallel with
+        // the sellable-serials fetch below — see hydrateDeferredSlices.
+        hydrateDeferredSlices(requestBranchId, requestFiscalYearId || undefined);
         if (data.dataVersion) serverDataVersionRef.current = data.dataVersion;
         if (!requestFiscalYearId && data.fiscalYears?.length) {
           const defaultFy = resolveDefaultFiscalYear(data.fiscalYears);

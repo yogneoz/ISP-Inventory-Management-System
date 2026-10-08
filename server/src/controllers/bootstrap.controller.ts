@@ -126,13 +126,10 @@ const { branchId, fiscalYearId } = req.query;
         assets: pgAssets,
         customerDevices: pgCustomerDevices,
         customers: data.customers,
-        purchaseOrders: pgPurchaseOrders,
-        purchaseInvoices: pgInvoices,
         salesInvoices: data.salesInvoices,
         purchaseReturns: data.purchaseReturns,
         salesReturns: data.salesReturns,
         shipments: pgShipments,
-        stockOperations: pgOps,
         fiscalYears: pgFiscalYears,
         auditLogs: pgAuditLogs,
         transactionLogs: pgTransactionLogs,
@@ -148,15 +145,20 @@ const { branchId, fiscalYearId } = req.query;
         vendorPayments: data.vendorPayments,
         // Tables trimmed from the bootstrap payload (each is served by its
         // own paged/filterable list endpoint instead, so large ledgers are
-        // never loaded wholesale into the client):
-        //   - serialLogs        → GET /api/serial-log        (paged envelope)
-        //   - stockOperations   → GET /api/stock-operations   (paged envelope)  [register only; consumers still use bootstrap]
-        //   - purchaseOrders    → GET /api/purchase-orders    (paged envelope)  [register only; consumers still use bootstrap]
-        //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope)  [register only; consumers still use bootstrap]
-        // serialLogs is the only one fully removed so far — the other three
-        // still ship because non-register consumers (dashboard KPIs, the FY
-        // closing wizard, the PI PO dropdown, the movement ledger) read them
-        // from bootstrap state. See README "Paged Register Endpoints".
+        // never loaded wholesale into the first-paint payload):
+        //   - serialLogs        → GET /api/serial-log        (paged envelope; register self-fetches)
+        //   - stockOperations   → GET /api/stock-operations   (paged envelope; register self-fetches)
+        //   - purchaseOrders    → GET /api/purchase-orders    (paged envelope; register self-fetches)
+        //   - purchaseInvoices  → GET /api/purchase-invoices  (paged envelope; register self-fetches)
+        // Their remaining wholesale consumers (dashboard/notification KPIs,
+        // the FY closing wizard, the PI PO dropdown, the movement ledger,
+        // StockOperations' panels, global search) are served by the client's
+        // deferred slice hydration right after bootstrap —
+        // GET /api/bootstrap/local?key=<slice>, the same endpoint the SSE
+        // targeted refresh uses — so freshness is identical while first
+        // paint gets a lighter payload. financialSummary above still
+        // COMPUTES from these three tables server-side; only the rows are
+        // not shipped. See README "Paged Register Endpoints".
         postgresDatabaseStatus: {
           isConnected: true,
           host: process.env.POSTGRES_HOST || 'localhost',

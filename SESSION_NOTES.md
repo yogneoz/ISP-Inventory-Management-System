@@ -1,6 +1,65 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 620/620 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 631/631 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ Bootstrap trim — stockOperations/purchaseOrders/purchaseInvoices out of the payload (2026-10-08)
+
+Backlog item 5 done. The three big ledgers no longer ship in
+`GET /api/bootstrap`: they are trimmed from the response while
+`financialSummary` keeps computing FROM them server-side (AP, damage loss,
+VAT, trading summary). Client-side, `refreshAllData` now fires
+`hydrateDeferredSlices` after every full bootstrap — three parallel
+`GET /api/bootstrap/local?key=<slice>` calls (the exact endpoint the
+SSE targeted refresh already uses), so all wholesale consumers —
+dashboard/notification KPIs, FY closing wizard, PI PO dropdown, movement
+ledger, StockOperations' 12 render sites, global search, financial
+statements/VAT/audit reports, returns — keep identical data and
+identical freshness; the self-fetching registers never needed the payload.
+`BootstrapState` marks the three fields optional (serialLogs precedent).
+New guard `tests/bootstrapTrim.test.ts` (6 tests): 2 source pins (controller
+no longer serializes the keys; App wires DEFERRED_BOOTSTRAP_SLICES + the
+hydrate call) + 4 HTTP proofs against real PG (payload omits exactly those
+keys with financialSummary intact; each key still served by
+bootstrap/local). Anti-test proof: against pre-trim code all 3 structural
+guards fail while the pre-existing slice endpoints keep passing.
+Docs: README register table + envelope note, handoff bootstrap section,
+trim-list comment rewritten. Gates: tsc 0, 631/631 + docs gate, build.
+NOTE: wholesale loading itself continues for the non-register consumers
+(moving them to per-consumer paged fetches — wizard FY-scoped, dropdown
+open-POs, KPI counts — is the follow-up that would actually cut bytes;
+the movement ledger is pinned no-fetch, so it must keep receiving props).
+Left uncommitted.
+
+---
+
+## ⭐ Mirror retirement step 3 — PG-first reads (legacy GET, receive/reverse, rename, exchange) (2026-10-08)
+
+Backlog item 2 done. When PG is connected these four sites now read
+PostgreSQL first, with the mirror demoted to demo/PG-down fallback:
+(1) legacy `GET /api/stock-operations` (no filters) — previously served
+the mirror while the paged path read PG; (2) the receive pre-check;
+(3) the damage + consumable reverse guards — via new
+`STOCK_OPERATION_FIND_BY_ID_SQL` (repo layer, `STOCK_OP_SELECT_COLUMNS`
+aliased full row); (4) `post_exchange`'s full-row read and the
+`handleUpdateSerials` rename lookup. Dual-writes preserved: the mirror
+copy of an exchanged old record and the received-status flip are now
+written explicitly when the read came from PG; the rename still cascades
+the mirror in place. New HTTP integration suite `tests/mirrorStep3.test.ts`
+(5 tests, real createApp + real PG, skips without DATABASE_URL): PG-only
+ops appear in the legacy GET, PG status beats the stale mirror, mirror-only
+ops don't leak, receive → 409, reverse → 400 (pre-fix code ran a real
+second reversal!), exchange/rename responses seed from PG. Verified the
+guards bite: against pre-fix code 4 fail in the full run and the rename
+fails in isolation (`'Stale Customer'` vs `'PG Customer'`).
+docs/mirror-audit.md findings 4 + 6, retirement order 1–3 and the stale
+vendorOpeningBalances rows refreshed (backlog item 7 closed). Still
+mirror-first (out of step-3 scope): `patch_status2` status reads, the
+`post_customerDevices` duplicate checks, the `misc.controller` approval
+lookup. Gates: tsc 0, 625/625 + docs gate, build. Left uncommitted.
+NEXT: mirror step 4 remnants (serialLogs' 3 narrow uses) or the
+PhysicalStockAudit/Shipments decompositions.
+
+---
 
 ## ⭐ StockOperations §G commit 2 — state clusters relocated into panels; host 3,063 → 492 lines (2026-10-08)
 
@@ -648,7 +707,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 620 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 631 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1082,12 +1141,11 @@ unseeded calendar days use BS_DATE_FALLBACK.
 
 ### 1. Mirror retirement steps 1+2 — DONE, see ⭐ Arc 1 above
 
-### 2. Mirror retirement step 3 (MEDIUM)
-- Invert `customerDeviceRecords` mirror-first reads → PG-first in rename/exchange flows
-  (the PG query already exists right after the mirror read — trivial inversion).
-- Point `stockOperations` find-by-id at PG (`STOCK_FIND_BY_ID_SQL` exists) — also fixes the
-  flagged inconsistency: legacy `get_stockOperations` GET (inventory.controller ~689) serves
-  the mirror even while PG is up, unlike the paged path.
+### 2. Mirror retirement step 3 (MEDIUM) — ✅ DONE (2026-10-08, see ⭐ entry at top)
+- Invert `customerDeviceRecords` mirror-first reads → PG-first in rename/exchange flows —
+  DONE (`handleUpdateSerials` + `post_exchange`; dual-writes preserved).
+- Point `stockOperations` find-by-id at PG + serve the legacy `get_stockOperations` GET
+  live from PG — DONE (`STOCK_OPERATION_FIND_BY_ID_SQL`; guarded by `tests/mirrorStep3.test.ts`).
 
 ### 3. Mirror retirement step 4 (HARD — needs design)
 - Replace mirror-based stock pre-flight checks with `SELECT … FOR UPDATE` inside the write
@@ -1109,11 +1167,13 @@ unseeded calendar days use BS_DATE_FALLBACK.
   its write loop for publish + subscribe fan-out (`ioredis`), keep the in-memory Set
   for local connections.
 
-### 5. Bootstrap trim continuation (consumer-driven)
-- `stockOperations` / `purchaseOrders` / `purchaseInvoices` still ship in bootstrap (see trim
-  list comment in bootstrap.controller.ts ~line 122). Consumers to migrate: dashboard KPIs,
-  FY-closing wizard, PI pending-PO dropdown, movement ledger. Trim list doc is in README
-  "Paged Register Endpoints".
+### 5. Bootstrap trim continuation (consumer-driven) — ✅ DONE (2026-10-08, see ⭐ entry at top)
+- `stockOperations` / `purchaseOrders` / `purchaseInvoices` are now TRIMMED from the bootstrap
+  payload; wholesale consumers are fed by deferred `GET /api/bootstrap/local` slices fired from
+  `refreshAllData` (guarded by `tests/bootstrapTrim.test.ts`). Registers self-fetch as before.
+- Follow-up (bytes, not plumbing): migrate wholesale consumers to per-consumer paged fetches
+  (wizard FY-scoped rows, PI dropdown open POs, KPI counts); StockMovementLedger is pinned
+  no-fetch so it must keep receiving props.
 
 ### 6. Smaller follow-ups
 - **Env var audit — DONE (2026-10-02).** `.env.example` now documents ONLY
@@ -1214,7 +1274,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 620 tests, 0 fail). Live-verified:
+  key coverage; suite now 631 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1272,7 +1332,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 620 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 631 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1337,7 +1397,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 620 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 631 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1375,7 +1435,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 620 tests, 0 fail.
+  failures, then reverted). Suite now 631 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1390,7 +1450,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 620 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 631 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -1399,8 +1459,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
 - `server/src/app.ts` (broadcastChange + resolveDomain import), `server/src/syncDomains.ts`
 - `server/src/controllers/bootstrap.controller.ts` (get_bootstrapLocal), routes file
 - `server/src/models/inventory.repo.ts` (batched SQL), `inventory.controller.ts` (reversals)
-- `docs/mirror-audit.md` — READ THIS FIRST for retirement work (NOTE: its step-2 findings
-  and vendorOpeningBalances/classification rows are now stale — update alongside step 3)
+- `docs/mirror-audit.md` — READ THIS FIRST for retirement work (step-2 findings,
+  vendorOpeningBalances and step-3 rows refreshed 2026-10-08 — retirement order 1–3 now DONE)
 - `client/src/utils/depreciation.ts` + `tests/depreciation.test.ts` (B5)
 - `client/src/utils/registerRefreshDomains.ts` + `tests/registerRefreshDomains.test.ts`
   (SSE domain → paged-register mapping, extracted for testability)

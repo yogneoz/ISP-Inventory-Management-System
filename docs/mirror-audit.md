@@ -28,7 +28,7 @@ roadmap (improvement #4). Findings verified against the code at commit
 
 | Class | Mirrors | Meaning |
 |---|---|---|
-| **A. Vestigial / near-dead** | `vendorOpeningBalances` | No reader anywhere outside app.ts. Delete now. |
+| **A. Vestigial / near-dead** | `vendorOpeningBalances` | No reader anywhere outside app.ts. **Deleted (retirement step 1).** |
 | **B. Read cache only** | `uomList`, `locationRecords`, `categories`, `products`, `branches`, `fiscalYears`, `companyProfile`, `docNumberConfigs`, `permissionMatrix`, `users`, `suppliers` | Serves GET endpoints / lookups; PG path re-fetches or upserts through SQL on every write. Low-risk retirement once GETs hit PG. |
 | **C. Load-bearing guards** | `inventoryStock`, `stockOperations`, `products` (validation), `customerDeviceRecords`, `serialLogs`, `damageRecords` | Read for *pre-flight validation* (stock availability, serial clash) inside request handling. Retiring these requires moving guards into SQL (some already are). Highest risk. |
 | **D. Ledger mirrors** | `transactionLogs`, `auditTrail`, `approvalRequests`, `purchaseOrders`, `purchaseInvoices`, `shipments`, `vendorPayments`, `customerMasterRecords`, `assetRegister` | Appended after writes for UI freshness; authoritative reads already go to PG in most GET paths. |
@@ -41,14 +41,14 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
 
 ## Mirror-by-mirror findings
 
-### 1. `vendorOpeningBalances` — VESTIGIAL (delete)
+### 1. `vendorOpeningBalances` — VESTIGIAL — ✅ deleted (retirement step 1)
 
 - **Readers outside app.ts:** **0** across controllers/routes/services.
 - Set by `CACHE_LOADS` at boot/refresh, counted in a boot log line, never
   read by any endpoint. The vendor-opening-balance feature reads PG directly
   (`/api/fiscal-years/:id/vendor-opening-balances`).
-- **Action:** delete the mirror, its `CACHE_LOADS` entry, setter, and boot
-  log mention. Zero behavior change.
+- **Action:** ✅ DONE — the mirror, its `CACHE_LOADS` entry, setter, and boot
+  log mention were removed with zero behavior change (Arc 1).
 
 ### 2. `serialLogs` — near-vestigial (already trimmed; 3 narrow uses)
 
@@ -82,12 +82,14 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
 
 ### 4. `stockOperations` — mostly-fresh mirror
 
-- Reads: GET list (689–692, no PG re-read!), find-by-id for
-  receive/reverse flows (886, 946, 1102, 1225). `get_stockOperations`
-  paged path reads PG, but the legacy GET and receive/reverse flows
-  still read the mirror.
-- **Action:** point find-by-id reads at PG (`STOCK_FIND_BY_ID_SQL` exists),
-  keep mirror for demo mode.
+- **✅ DONE (step 3, 2026-10-08):** the legacy `get_stockOperations` GET now
+  reads PG whenever it is connected — previously it served the mirror even
+  while PG was up (unlike the paged path) — and the receive/reverse
+  find-by-id reads are PG-first via the new `STOCK_OPERATION_FIND_BY_ID_SQL`
+  (full row, `STOCK_OP_SELECT_COLUMNS` aliases), with the mirror as
+  demo/PG-down fallback. Guarded by `tests/mirrorStep3.test.ts`.
+- Remaining PG-connected mirror reads are the step-4 pre-flight guards
+  (finding 3) plus write-side upserts during create.
 
 ### 5. `products` — dual-use
 
@@ -103,9 +105,13 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
 - ~19 refs; serial-clash pre-checks in device exchange / dual-edit flows
   read it, and `post_exchange`/rename flows fall back to it *before* PG
   (`customerRecord = customerDeviceRecords.find(...)` then PG re-query).
-  Mutations update both PG and mirror.
-- **Action:** invert to PG-first (the PG query already exists right after
-  the mirror read) — small, safe change.
+  Mutations update both PG and mirror.- **Action:** ✅ DONE for the step-3 scope (2026-10-08): `post_exchange` and the
+  rename flow (`handleUpdateSerials`) now read PG first (the PG query that used
+  to run only on a mirror miss), with mirror fallback for demo mode and the
+  dual-write flips preserved — guarded by `tests/mirrorStep3.test.ts`. Still
+  mirror-first with a PG fallback: `patch_status2` status reads, the
+  `post_customerDevices` duplicate checks, and the approval lookup in
+  `misc.controller`.
 
 ### 7. `damageRecords` — append-mirror
 
@@ -188,11 +194,13 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
 
 ## Recommended retirement order
 
-1. **Now (zero risk):** delete `vendorOpeningBalances` (finding 1).
-2. **Small batch (low risk):** PG-first GETs for uom, locations, categories,
+1. ✅ **DONE (step 1):** `vendorOpeningBalances` deleted (finding 1).
+2. ✅ **DONE (step 2):** PG-first GETs for uom, locations, categories,
    approvalRequests, auditTrail (findings 9, 8, 11).
-3. **Medium:** invert `customerDeviceRecords` mirror-first reads (finding 6);
-   point `stockOperations` find-by-id at PG (finding 4).
+3. ✅ **DONE (step 3, 2026-10-08):** invert `customerDeviceRecords`
+   rename/exchange reads (finding 6); point `stockOperations` find-by-id
+   AND the legacy unfiltered GET at PG (finding 4) — guarded by
+   `tests/mirrorStep3.test.ts`.
 4. **Hard (needs SQL guard design):** stock pre-flight into transactions
    (finding 3) with `SELECT ... FOR UPDATE`; then `serialLogs` narrow uses
    (finding 2).
@@ -213,6 +221,5 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
   concurrent issues of the same last unit to both pass pre-flight; the
   SQL guards then reject one — error surface is uglier than a pre-flight
   400, but no data corruption.
-- **`get_stockOperations` legacy path** serves the mirror even when PG is
-  up (line 689–692) — an inconsistency with the paged path; flagged for
-  step 3.
+- **`get_stockOperations` legacy path** served the mirror even when PG was
+  up — ✅ FIXED in step 3 (2026-10-08): it reads PG whenever connected.

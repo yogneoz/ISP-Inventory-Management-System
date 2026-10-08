@@ -124,7 +124,7 @@
   `boot/dbBoot.ts` (schema sync/seeding), `realtime/sse.ts`, `db/transactions.ts`,
   `services/` (audit, serial edit, doc-number claim, super-admin re-auth) and
   `utils/` (doc numbering, fiscal year, rate limiter).
-- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data query fan-out in bootstrap.repo.ts; targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
+- **Single bootstrap endpoint** (`GET /api/bootstrap`) returns ALL data in one roundtrip, filtered by `branchId` and `fiscalYearId` query params. Exception (bootstrap trim, 2026-10-08): the three big ledgers — `stockOperations`, `purchaseOrders`, `purchaseInvoices` — are **trimmed from the payload** and hydrated by the client through deferred `GET /api/bootstrap/local?key=<slice>` calls right after bootstrap (the same endpoint the SSE targeted refresh uses), so wholesale consumers keep identical freshness while first paint gets a lighter payload. Both the full bootstrap and the targeted `GET /api/bootstrap/local` slices read **live from PostgreSQL** (mirror-drift fix, 2026-10-05): the full payload runs the operational-data query fan-out in bootstrap.repo.ts; targeted slices resolve through the same `BOOTSTRAP_TABLES` column mappings (`fetchBootstrapSlice`), the permission matrix via its own SELECT, appSettings via the settings-repo SELECT. The in-memory mirrors are only the operational cache that controllers write/mutate through — never the serving layer for bootstrap reads — so a manual DB edit, a second server instance or a missed cache refresh can never be served stale (live-read failure falls back to the operational-data query, then the cache).
 - **In-memory runtime caches** are hydrated from PostgreSQL on startup (via the single `CACHE_LOADS` list in `server/src/app.ts`) and fully re-read from PostgreSQL after every successful mutating API call (an automatic hook re-reads all cache tables before the write response is sent). The arrays are declared `readonly` so the typechecker rejects any hand-maintained mirror mutation — PostgreSQL is the only place writes land, and caches are always re-derived from it.
 - **SSE (Server-Sent Events)** for real-time sync: all connected clients get a `broadcastChange()` notification on any mutation, triggering a re-fetch. Every mutation broadcast is tagged with a client `domain` (`server/src/syncDomains.ts`); a recognized domain re-fetches ONLY its bootstrap slice, any unrecognized event falls back to a full bootstrap. Reliability (2026-10-05 sync improvements): reconnects back off exponentially (1s→30s ±20% jitter) with immediate retry on tab-visibility/network recovery; on reconnect and during stream outages (30s `/api/sync/version` polling) the client reconciles the server `dataVersion` against the last applied version and refreshes if mutations were missed; a `BroadcastChannel` relays events + logout across tabs of the same browser; permission-matrix, app-settings, document-number and audit-trail mutations broadcast their own domains so those slices never lag.
 - **Server-side permission matrix**: the authoritative matrix lives in the `permission_matrix` table (seeded from the same defaults as the client at startup); clients cache it via the bootstrap payload.
@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 620 tests; CI runs
+                                        #   drift/concurrency guards — 631 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -501,7 +501,7 @@ The server registers ~130 routes. The most important ones:
 | `GET` | `/api/auth/me` | Get current user |
 | `POST` | `/api/auth/switch-profile` | Switch to another user profile (canSwitchUser=true) |
 | `PUT` | `/api/auth/profile` | Update own profile |
-| `GET` | `/api/bootstrap` | **Full atomic data sync** (1 roundtrip) |
+| `GET` | `/api/bootstrap` | **Full atomic data sync** (1 roundtrip; the three big ledgers are trimmed and hydrate via `bootstrap/local` deferred slices) |
 | `GET` | `/api/sync/stream` | SSE real-time event stream — **requires the auth token** via `Authorization: Bearer` header or `?token=` query param (EventSource cannot send headers); capped at `SSE_MAX_CONNECTIONS_PER_IP` concurrent streams per address |
 | `GET` | `/api/sync/version` | Current data version — same token rules as the stream |
 
@@ -1100,7 +1100,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 620 tests against a real PostgreSQL 16 service container
+2. `npm test` — 631 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)

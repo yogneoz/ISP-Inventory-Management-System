@@ -148,9 +148,11 @@ export async function handleUpdateSerials(req: any, res: any) {
       }
     }
 
-    // 1. Try to find customer device record
-    let customerRecord = customerDeviceRecords.find((c) => c.id === targetId || (oldDeviceSerial && c.deviceSerial === oldDeviceSerial));
-    if (getPgConnected() && !customerRecord && targetId && !targetId.startsWith('pi-') && !targetId.startsWith('ship-') && !targetId.startsWith('op-') && !targetId.startsWith('fa-')) {
+    // 1. Try to find customer device record. Mirror step 3: PG-first — the
+    // inline read below used to run only on a mirror miss, so a stale mirror
+    // row could seed the rename defaults.
+    let customerRecord: any;
+    if (getPgConnected() && targetId && !targetId.startsWith('pi-') && !targetId.startsWith('ship-') && !targetId.startsWith('op-') && !targetId.startsWith('fa-')) {
       try {
         const r = await pgPool.query(
           `SELECT id, customer_id AS "customerId", customer_name AS "customerName", customer_code AS "customerCode",
@@ -161,6 +163,9 @@ export async function handleUpdateSerials(req: any, res: any) {
         );
         if (r.rows.length > 0) customerRecord = r.rows[0];
       } catch (_e) {}
+    }
+    if (!customerRecord) {
+      customerRecord = customerDeviceRecords.find((c) => c.id === targetId || (oldDeviceSerial && c.deviceSerial === oldDeviceSerial));
     }
 
     if (customerRecord) {
