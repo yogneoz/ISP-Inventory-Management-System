@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   ConsumableIssueItem,
@@ -16,13 +16,148 @@ import {
 
 /**
  * ConsumableIssuePanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const ConsumableIssuePanel: React.FC = () => {
-  const { activeTab, allowedBranches, consumableBranchId, consumableItems, consumableProducts, consumableReason, consumableTechnician, consumableWorkOrder, customers, handleAddConsumableItem, handleRemoveConsumableItem, handleResetConsumableForm, handleSubmitConsumableIssue, handleUpdateConsumableItem, isConsumableRuleBannerVisible, locations, products, setConsumableBranchId, setConsumableReason, setConsumableTechnician, setConsumableWorkOrder, setIsConsumableRuleBannerVisible, stock } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, locations, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+
+  const consumableProducts = useMemo(
+    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Consumable Item'),
+    [products]
+  );
+
+
+  const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
+  const [consumableTechnician, setConsumableTechnician] = useState<string>('Field Splicing Technician');
+  const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
+  const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
+  const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
+  // Dismissible "Consumables Operational Rule" banner (resets on reload —
+  // intentionally not persisted so new sessions see the rule once).
+  const [isConsumableRuleBannerVisible, setIsConsumableRuleBannerVisible] = useState(true);
+
+  // Consumable Items Handlers
+  const handleResetConsumableForm = () => {
+    setConsumableItems([]);
+    setConsumableBranchId(userBranchId);
+    setConsumableTechnician('Field Splicing Technician');
+    setConsumableWorkOrder('WO-2081-SPLIT-01');
+    setConsumableReason('Field fiber splicing & customer drop installation material usage');
+  };
+
+  const handleAddConsumableItem = (prodId?: string) => {
+    // Only 'Consumable Item' group products are issuable on this requisition.
+    const selProd = consumableProducts.find((p) => p.id === prodId) || consumableProducts[0];
+    if (!selProd) return;
+
+    const existingItem = consumableItems.find((i) => i.productId === selProd.id);
+    if (existingItem) {
+      handleUpdateConsumableItem(existingItem.id, { quantity: existingItem.quantity + 1 });
+      return;
+    }
+
+    setConsumableItems([
+      ...consumableItems,
+      {
+        id: `cni-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: selProd.id,
+        productName: selProd.name,
+        sku: selProd.sku,
+        unit: selProd.unit,
+        quantity: 5,
+        unitCost: selProd.costPrice,
+        totalValue: 5 * selProd.costPrice,
+        usedAtType: 'FIELD',
+      },
+    ]);
+  };
+
+  const handleUpdateConsumableItem = (id: string, updates: Partial<ConsumableIssueItem>) => {
+    setConsumableItems(
+      consumableItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+            updated.unitCost = selProd.costPrice;
+          }
+        }
+        if (updates.quantity !== undefined || updates.unitCost !== undefined) {
+          updated.totalValue = updated.quantity * updated.unitCost;
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveConsumableItem = (id: string) => {
+    setConsumableItems(consumableItems.filter((i) => i.id !== id));
+  };
+
+
+  // 6. Submit Consumable Issue to Technician / Work Order Field Usage
+  const handleSubmitConsumableIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    if (consumableItems.length === 0) {
+      alertDialog('Please add at least one consumable item to issue.');
+      return;
+    }
+
+    const branchObj = branches.find((b) => b.id === consumableBranchId);
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        consumableBranchId,
+        branchObj?.name || consumableBranchId,
+        consumableItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+        }))
+      )
+    ) {
+      return;
+    }
+
+    const grandTotal = consumableItems.reduce((sum, item) => sum + item.totalValue, 0);
+
+    // Compact per-line destination summary embedded in the reason (shown in
+    // registers that render only the operation-level reason text).
+    const usedAtSummary = consumableItems
+      .map((item) => {
+        if (item.usedAtType === 'POP' && item.usedAtLocationName) return `${item.productName} @ POP ${item.usedAtLocationName}`;
+        if (item.usedAtType === 'CUSTOMER' && item.usedAtCustomerName) return `${item.productName} @ ${item.usedAtCustomerName}`;
+        return null;
+      })
+      .filter(Boolean)
+      .join('; ');
+
+    await onCreateOperation({
+      type: 'CONSUMABLE_ISSUE',
+      branchId: consumableBranchId,
+      branchName: branchObj?.name,
+      items: consumableItems,
+      totalValue: grandTotal,
+      technicianName: consumableTechnician,
+      workOrderRef: consumableWorkOrder,
+      reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
+      inspectorName: currentUser?.name || 'Store Supervisor',
+      status: 'LOGGED',
+    });
+
+    alertDialog(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
+    setConsumableItems([]);
+    setConsumableReason('Field fiber splicing & customer drop installation material usage');
+  };
+
   return (
     <>
       {activeTab === 'CONSUMABLE_ISSUE' && (

@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   Asset,
-  Branch,
   Product,
+  SerialLog,
 } from '../../../types';
 import type { AssignBinLine } from './StockOperationsContext';
+import { api } from '../../../services/api';
+import { tryConvertADToBS } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
@@ -20,13 +22,315 @@ import {
 
 /**
  * AssignAssetPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, assetIsSerializedProduct, assignBranchId, assignItems, assignProductDropdownRef, assignProductSearch, availableStockAssets, customers, filteredAssignProducts, handleAddAssignAssetToBin, handleAddAssignProductToBin, handleRemoveAssignItem, handleResetAssignForm, handleSubmitAssignAsset, handleUpdateAssignItem, isAssignProductDropdownOpen, locations, setAssignBranchId, setAssignProductSearch, setIsAssignProductDropdownOpen, setIsBarcodeScannerOpen, stock } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onUpdateAssetStatus, products, stock, userBranchId } = useStockOperationsCtx();
+
+  const [, setIsBarcodeScannerOpen] = useState(false);
+
+  const [assignBranchId, setAssignBranchId] = useState<string>(userBranchId);
+  const [assignItems, setAssignItems] = useState<AssignBinLine[]>([]);
+  const [assignProductSearch, setAssignProductSearch] = useState<string>('');
+  const [isAssignProductDropdownOpen, setIsAssignProductDropdownOpen] = useState<boolean>(false);
+  const assignProductDropdownRef = useRef<HTMLDivElement | null>(null);
+  // Serial-log cache for IN_STOCK serial-pair validation. The bootstrap
+  // payload excludes serialLogs, so this mount-once fetch IS the register
+  // this form validates against.
+  const [assignSerialLogCache, setAssignSerialLogCache] = useState<SerialLog[]>([]);
+  const assignSerialLogLoaded = useRef(false);
+  useEffect(() => {
+    if (assignSerialLogLoaded.current) return;
+    assignSerialLogLoaded.current = true;
+    api.getSerialLogs({ all: true })
+      .then((res) => {
+        const rows = Array.isArray(res) ? res : res.data;
+        setAssignSerialLogCache(rows || []);
+      })
+      .catch(() => setAssignSerialLogCache([]));
+  }, []);
+
+  // Catalog candidates: productGroup 'Fixed Asset' plus ONU/Router/STB hardware.
+  const assignableCatalogProducts = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.productGroup === 'Fixed Asset' ||
+          (p?.category || '').toLowerCase().includes('router') ||
+          (p?.category || '').toLowerCase().includes('onu') ||
+          (p?.category || '').toLowerCase().includes('stb') ||
+          (p?.category || '').toLowerCase().includes('equipment') ||
+          (p?.name || '').toLowerCase().includes('onu') ||
+          (p?.name || '').toLowerCase().includes('router')
+      ),
+    [products]
+  );
+
+  const assetIsSerializedProduct = (p: Product): boolean =>
+    p.requiresSerialTracking !== false && p.trackingType !== 'QUANTITY_ONLY';
+
+  const filteredAssignProducts = useMemo(() => {
+    const q = assignProductSearch.trim().toLowerCase();
+    if (!q) return assignableCatalogProducts;
+    return assignableCatalogProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q)
+    );
+  }, [assignableCatalogProducts, assignProductSearch]);
+
+  // Close the product dropdown on outside click.
+  useEffect(() => {
+    if (!isAssignProductDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (assignProductDropdownRef.current && !assignProductDropdownRef.current.contains(e.target as Node)) {
+        setIsAssignProductDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [isAssignProductDropdownOpen]);
+
+  // 4. Submit Assign Fixed Asset
+  // --- Asset deployment bin handlers (Product Sale pattern) ---
+  const handleAddAssignAssetToBin = (asset: Asset) => {
+    setAssignItems((prev) => [
+      ...prev,
+      {
+        id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        kind: 'ASSET' as const,
+        assetId: asset.id,
+        productName: asset.name,
+        sku: asset.tagNumber,
+        unit: 'Pcs',
+        quantity: 1,
+        isSerialized: false,
+        deviceSerial: '',
+        ponSerial: '',
+        macAddress: '',
+        usedAtType: 'FIELD' as const,
+        remarks: '',
+      },
+    ]);
+    setAssignProductSearch('');
+    setIsAssignProductDropdownOpen(false);
+  };
+
+  const handleAddAssignProductToBin = (prod: Product) => {
+    const serialized = assetIsSerializedProduct(prod);
+    setAssignItems((prev) => [
+      ...prev,
+      {
+        id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        kind: 'PRODUCT' as const,
+        productId: prod.id,
+        productName: prod.name,
+        sku: prod.sku,
+        unit: prod.unit,
+        quantity: 1,
+        isSerialized: serialized,
+        deviceSerial: serialized ? `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}` : '',
+        ponSerial: serialized ? `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}` : '',
+        macAddress: serialized ? '00:1A:2B:3C:4D:5E' : '',
+        usedAtType: 'FIELD' as const,
+        remarks: '',
+      },
+    ]);
+    setAssignProductSearch('');
+    setIsAssignProductDropdownOpen(false);
+  };
+
+  const handleUpdateAssignItem = (id: string, updates: Partial<AssignBinLine>) => {
+    setAssignItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+  };
+
+  const handleRemoveAssignItem = (id: string) => {
+    setAssignItems((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleResetAssignForm = () => {
+    setAssignItems([]);
+    setAssignProductSearch('');
+    setAssignBranchId(userBranchId);
+  };
+
+  // 4. Submit Assign Fixed Asset (multi-bin deployment)
+  const handleSubmitAssignAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    if (assignItems.length === 0) {
+      alertDialog('Add at least one asset/product line to the deployment bin.');
+      return;
+    }
+    const todayAD = new Date().toISOString().split('T')[0];
+    const todayBS = tryConvertADToBS(todayAD)?.formattedBSShort || '';
+
+    // Per-line validation: destination + stock + serial pairs.
+    for (const item of assignItems) {
+      if (item.usedAtType === 'POP' && !item.usedAtLocationId) {
+        alertDialog(`Line "${item.productName}": select a POP / Network Location.`);
+        return;
+      }
+      if (item.usedAtType === 'CUSTOMER' && !item.usedAtCustomerId) {
+        alertDialog(`Line "${item.productName}": select a Customer.`);
+        return;
+      }
+      if (item.kind === 'PRODUCT') {
+        const availableAssetStock = stock.find((entry) => entry.productId === item.productId && entry.branchId === assignBranchId);
+        if (!availableAssetStock || availableAssetStock.quantityOnHand < item.quantity) {
+          alertDialog(`Cannot assign "${item.productName}": requested ${item.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
+          return;
+        }
+        if (item.isSerialized) {
+          // IN_STOCK serial identity lives in the serial_log register (branch
+          // stock intake), so validate against it. customer_device_records only
+          // holds devices already issued to customers — kept as a fallback for
+          // legacy flows that seed that table directly.
+          const pair = (sn?: string, pon?: string) => ({
+            sn: (sn || '').trim().toUpperCase(),
+            pon: (pon || '').trim().toUpperCase(),
+          });
+          const want = pair(item.deviceSerial, item.ponSerial);
+          const inStockInSerialLog = assignSerialLogCache.some((log) => {
+            const got = pair(log.deviceSerial, log.ponSerial);
+            return (
+              got.sn === want.sn &&
+              got.pon === want.pon &&
+              log.branchId === assignBranchId &&
+              log.status === 'IN_STOCK' &&
+              (log.productName || '').trim().toLowerCase() === (item.productName || '').trim().toLowerCase()
+            );
+          });
+          const matchingAssetDevice = inStockInSerialLog
+            ? true
+            : customerDevices.find(
+                (device) =>
+                  device.deviceSerial?.trim().toUpperCase() === item.deviceSerial.trim().toUpperCase() &&
+                  device.ponSerial?.trim().toUpperCase() === item.ponSerial.trim().toUpperCase() &&
+                  device.branchId === assignBranchId &&
+                  device.status === 'IN_STOCK' &&
+                  device.productName?.trim().toLowerCase() === item.productName.trim().toLowerCase()
+              );
+          if (!matchingAssetDevice) {
+            alertDialog(`Line "${item.productName}": the Device Serial/PON pair must match an IN_STOCK unit at the selected branch.`);
+            return;
+          }
+        }
+      }
+    }
+
+    const createdTags: string[] = [];
+
+    for (const item of assignItems) {
+      if (item.kind === 'PRODUCT') {
+        const prodMeta = products.find((p) => p.id === item.productId);
+        for (let unitIdx = 0; unitIdx < item.quantity; unitIdx++) {
+          const unitTag = `FA-${item.sku.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10)}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await api.createAsset({
+            tagNumber: unitTag,
+            name: item.productName,
+            category: prodMeta?.category || 'IT Equipment',
+            branchId: assignBranchId,
+            acquisitionDateAD: todayAD,
+            acquisitionDateBS: todayBS,
+            acquisitionCost: prodMeta?.costPrice || 0,
+            depreciationMethod: 'STRAIGHT_LINE',
+            depreciationRatePercent: prodMeta?.depreciationRate || 15,
+            productId: item.productId,
+            status: item.usedAtType === 'CUSTOMER' ? 'ASSIGNED_TO_CUSTOMER' : 'ASSIGNED_TO_LOCATION',
+            assignedType: item.usedAtType === 'CUSTOMER' ? 'CUSTOMER' : 'LOCATION',
+            assignedCustomerId: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
+            assignedCustomerName: item.usedAtType === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
+            assignedLocationId: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationId : undefined,
+            assignedLocationName: item.usedAtType !== 'CUSTOMER' ? item.usedAtLocationName : undefined,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+            deployFromStock: true,
+            deviceSerial: item.deviceSerial || undefined,
+          });
+          createdTags.push(unitTag);
+
+          if (item.usedAtType === 'CUSTOMER' && item.usedAtCustomerId) {
+            const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
+            if (custObj) {
+              await api.createCustomerDevice({
+                customerId: custObj.id,
+                customerName: custObj.customerName,
+                customerCode: custObj.customerId,
+                contactPhone: custObj.contactNumber || '9800000000',
+                installationAddress: custObj.address || 'Nepal',
+                branchId: assignBranchId,
+                productName: item.productName,
+                deviceSerial: unitIdx === 0
+                  ? (item.deviceSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)
+                  : `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+                ponSerial: unitIdx === 0
+                  ? (item.ponSerial || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`)
+                  : `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                macAddress: unitIdx === 0 ? (item.macAddress || undefined) : undefined,
+                status: 'RENTAL',
+                issuedDateAD: todayAD,
+                issuedDateBS: todayBS,
+                notes: `[RENTAL CPE ASSET - Tag: ${unitTag}] ${item.remarks}`,
+              });
+            }
+          }
+        }
+      } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
+        const ledgerAsset = assets.find((x) => x.id === item.assetId);
+        if (item.usedAtType === 'CUSTOMER') {
+          const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
+          await onUpdateAssetStatus(item.assetId, {
+            status: 'ASSIGNED_TO_CUSTOMER',
+            assignedType: 'CUSTOMER',
+            assignedCustomerId: item.usedAtCustomerId,
+            assignedCustomerName: item.usedAtCustomerName,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+          });
+          if (custObj) {
+            await api.createCustomerDevice({
+              customerId: custObj.id,
+              customerName: custObj.customerName,
+              customerCode: custObj.customerId,
+              contactPhone: custObj.contactNumber || '9800000000',
+              installationAddress: custObj.address || 'Nepal',
+              branchId: ledgerAsset?.branchId || assignBranchId,
+              productName: ledgerAsset?.name || item.productName,
+              deviceSerial: `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+              ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+              status: 'RENTAL',
+              issuedDateAD: todayAD,
+              issuedDateBS: todayBS,
+              notes: `[FIXED ASSET CPE - Tag: ${ledgerAsset?.tagNumber}] ${item.remarks}`,
+            });
+          }
+        } else {
+          await onUpdateAssetStatus(item.assetId, {
+            status: 'ASSIGNED_TO_LOCATION',
+            assignedType: 'LOCATION',
+            assignedLocationId: item.usedAtLocationId,
+            assignedLocationName: item.usedAtLocationName,
+            assignmentDateAD: todayAD,
+            assignmentDateBS: todayBS,
+            assignmentNotes: item.remarks,
+          });
+        }
+        createdTags.push(ledgerAsset?.tagNumber || item.sku);
+      }
+    }
+
+    alertDialog(`Deployment complete — ${assignItems.length} bin line(s) processed. Tags: ${createdTags.join(', ')}`);
+    handleResetAssignForm();
+    if (typeof window !== 'undefined') window.location.reload();
+  };
+
   return (
     <>
       {activeTab === 'ASSIGN_ASSET' && (

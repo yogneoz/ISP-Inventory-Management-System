@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import type { DamageSerialEntry } from './StockOperationsContext';
 import {
-  Branch,
   Product,
-  User,
+  PulloutItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
@@ -16,13 +16,110 @@ import {
 
 /**
  * LabelDamagePanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const LabelDamagePanel: React.FC = () => {
-  const { activeTab, allowedBranches, currentUser, damageBranchId, damageInspector, damageItems, damageReason, handleAddDamageItem, handleSubmitDamageTag, isDamageModalOpen, isSuperOrInventory, products, setActiveTab, setDamageBranchId, setDamageInspector, setDamageItems, setDamageReason, setIsDamageModalOpen, stock, updateDamageItem, updateDamageItemSerial } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, initialDamageModalOpen, onCreateOperation, isSuperOrInventory, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+
+  const [isDamageModalOpen, setIsDamageModalOpen] = useState(initialDamageModalOpen);
+
+  const defaultDamageBranch = userBranchId;
+  const [damageBranchId, setDamageBranchId] = useState<string>(defaultDamageBranch);
+  const [damageItems, setDamageItems] = useState<PulloutItem[]>([]);
+  const [damageReason, setDamageReason] = useState<string>('Overstock transit damage / defective hardware unit');
+  const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
+
+  // 2. Submit Local Damage Tagging
+  const handleSubmitDamageTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
+    if (damageItems.length === 0) {
+      alertDialog('Add at least one product to the damaged stock list.');
+      return;
+    }
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        targetBranch,
+        branches.find((b) => b.id === targetBranch)?.name || targetBranch,
+        damageItems.map(({ condition: _condition, ...item }) => item)
+      )
+    ) {
+      return;
+    }
+
+    await onCreateOperation({
+      type: 'DAMAGE',
+      branchId: targetBranch,
+      productId: damageItems.length === 1 ? damageItems[0].productId : undefined,
+      productName: damageItems.length === 1 ? damageItems[0].productName : undefined,
+      quantityChanged: damageItems.reduce((sum, item) => sum + item.quantity, 0),
+      costPerUnit: damageItems.length === 1 ? damageItems[0].unitCost : 0,
+      totalValue: damageItems.reduce((sum, item) => sum + item.totalValue, 0),
+      reason: damageReason,
+      inspectorName: damageInspector,
+      status: 'LOGGED',
+      items: damageItems,
+    });
+
+    setIsDamageModalOpen(false);
+    setActiveTab('DAMAGE_TRACKING');
+    setDamageItems([]);
+  };
+
+
+  const handleAddDamageItem = (product: Product) => {
+    const isSerialized = product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
+    setDamageItems((previous) => {
+      const existing = previous.find((item) => item.productId === product.id);
+      if (existing) {
+        return previous.map((item) => item.productId === product.id ? {
+          ...item,
+          quantity: item.quantity + 1,
+          totalValue: (item.quantity + 1) * item.unitCost,
+          deviceSerials: isSerialized ? [...(item.deviceSerials || []), { deviceSerial: '', ponSerial: '' }] : undefined,
+        } : item);
+      }
+      return [...previous, {
+        id: `damage-${Date.now()}-${product.id}`,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        unit: product.unit,
+        quantity: 1,
+        condition: 'DAMAGED_STOCK',
+        unitCost: product.costPrice,
+        totalValue: product.costPrice,
+        deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+      }];
+    });
+  };
+
+  const updateDamageItem = (id: string, updates: Partial<PulloutItem>) => {
+    setDamageItems((previous) => previous.map((item) => {
+      if (item.id !== id) return item;
+      const updated = { ...item, ...updates };
+      if (updates.quantity !== undefined) {
+        const product = products.find((entry) => entry.id === item.productId);
+        const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : false;
+        updated.totalValue = updated.quantity * updated.unitCost;
+        updated.deviceSerials = isSerialized ? Array.from({ length: updated.quantity }, (_, index) => item.deviceSerials?.[index] || { deviceSerial: '', ponSerial: '' }) : undefined;
+      }
+      return updated;
+    }));
+  };
+
+  const updateDamageItemSerial = (itemId: string, index: number, field: keyof DamageSerialEntry, value: string) => {
+    setDamageItems((previous) => previous.map((item) => item.id === itemId ? {
+      ...item,
+      deviceSerials: (item.deviceSerials || []).map((entry, entryIndex) => entryIndex === index ? { ...entry, [field]: value } : entry),
+    } : item));
+  };
+
   return (
     <>
       {(isDamageModalOpen || activeTab === 'LABEL_DAMAGE') && (

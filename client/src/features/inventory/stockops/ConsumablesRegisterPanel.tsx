@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   ConsumableIssueItem,
@@ -21,13 +21,145 @@ import {
 
 /**
  * ConsumablesRegisterPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const ConsumablesRegisterPanel: React.FC = () => {
-  const { activeTab, branches, consumableRegisterBranch, consumableRegisterCount, consumableRegisterDateFrom, consumableRegisterDateTo, consumableRegisterError, consumableRegisterExpandedId, consumableRegisterLoading, consumableRegisterOps, consumableRegisterPage, consumableRegisterPageSize, consumableRegisterQuery, consumableRegisterStatus, currentUser, dateMode, handleReverseConsumableIssue, setConsumableRegisterBranch, setConsumableRegisterDateFrom, setConsumableRegisterDateTo, setConsumableRegisterExpandedId, setConsumableRegisterPage, setConsumableRegisterPageSize, setConsumableRegisterQuery, setConsumableRegisterStatus } = useStockOperationsCtx();
+  const { activeTab, branches, consumableOperations, currentUser, dateMode, onReverseConsumableIssue, promptDialog, showToast, sseRefreshKey } = useStockOperationsCtx();
+
+  const [consumableRegisterQuery, setConsumableRegisterQuery] = useState('');
+  const [consumableRegisterBranch, setConsumableRegisterBranch] = useState('ALL');
+  const [consumableRegisterStatus, setConsumableRegisterStatus] = useState('ALL');
+  const [consumableRegisterDateFrom, setConsumableRegisterDateFrom] = useState('');
+  const [consumableRegisterDateTo, setConsumableRegisterDateTo] = useState('');
+  const [consumableRegisterExpandedId, setConsumableRegisterExpandedId] = useState<string | null>(null);
+  // Server-side paged fetch state: the register asks /api/stock-operations
+  // for one page of filtered CONSUMABLE_ISSUE rows instead of receiving the
+  // whole ledger through props.
+  const [consumableRegisterRows, setConsumableRegisterRows] = useState<StockOperation[]>([]);
+  const [consumableRegisterTotal, setConsumableRegisterTotal] = useState(0);
+  const [consumableRegisterPage, setConsumableRegisterPage] = useState(1);
+  const [consumableRegisterPageSize, setConsumableRegisterPageSize] = useState(20);
+  const [consumableRegisterLoading, setConsumableRegisterLoading] = useState(false);
+  const [consumableRegisterError, setConsumableRegisterError] = useState('');
+
+  // Reverse a logged consumable issue (guarded by 'consumable-issue-reverse').
+  // Returns the issued units to branch stock and marks the record CANCELLED.
+  const handleReverseConsumableIssue = async (op: StockOperation) => {
+    const reason = await promptDialog(
+      `You are about to reverse consumable issue ${op.referenceNumber}.\n\n` +
+        `● Items: ${(op.items || []).length} line item(s)\n` +
+        `● Valuation: ${formatNPR(op.totalValue)}\n` +
+        `● Branch: ${op.branchId}\n` +
+        `● Technician: ${op.technicianName || 'N/A'}\n\n` +
+        `Reversing returns the units to available branch stock and marks this record CANCELLED. ` +
+        `This action is irreversible and is logged to the audit trail under your credentials.`,
+      {
+        title: 'Reverse Consumable Issue — Safeguard',
+        confirmLabel: 'Reverse & Return Stock',
+        cancelLabel: 'Keep Record',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      showToast('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    try {
+      if (onReverseConsumableIssue) {
+        await onReverseConsumableIssue(op.id, reason.trim());
+      } else {
+        await api.reverseConsumableIssue(op.id, reason.trim(), currentUser);
+      }
+      showToast(`Consumable issue ${op.referenceNumber} reversed. Units returned to available stock.`);
+      loadConsumableRegisterPage();
+    } catch (err: any) {
+      showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+
+  // Consumables Register: client-side fallback filter (search + branch +
+  // status + dates). Used only when the paged server fetch fails, so the
+  // register degrades to the previous prop-fed behavior instead of breaking.
+  const filterConsumableRegisterOps = useCallback((ops: StockOperation[]) => {
+    const q = consumableRegisterQuery.trim().toLowerCase();
+    return ops.filter((op) => {
+      if (consumableRegisterBranch !== 'ALL' && op.branchId !== consumableRegisterBranch) return false;
+      if (consumableRegisterStatus !== 'ALL' && (op.status || 'LOGGED') !== consumableRegisterStatus) return false;
+      // AD date range (inclusive): an op matches when dateAD falls between
+      // the bounds; a bound left empty is open-ended.
+      if (consumableRegisterDateFrom && (op.dateAD || '') < consumableRegisterDateFrom) return false;
+      if (consumableRegisterDateTo && (op.dateAD || '') > consumableRegisterDateTo) return false;
+      if (!q) return true;
+      const items = (op.items || []) as ConsumableIssueItem[];
+      const haystack = [
+        op.referenceNumber,
+        op.technicianName,
+        op.workOrderRef,
+        op.reason,
+        ...items.map((i) => i.productName),
+        ...items.map((i) => i.sku),
+        ...items.map((i) => i.usedAtLocationName),
+        ...items.map((i) => i.usedAtCustomerName),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [consumableRegisterQuery, consumableRegisterBranch, consumableRegisterStatus, consumableRegisterDateFrom, consumableRegisterDateTo]);
+
+  const consumableRegisterFallbackOps = useMemo(
+    () => filterConsumableRegisterOps(consumableOperations),
+    [filterConsumableRegisterOps, consumableOperations]
+  );
+
+  // Server-side paged fetch: one page of filtered CONSUMABLE_ISSUE rows.
+  const consumableRegisterFetchSeq = useRef(0);
+  const loadConsumableRegisterPage = useCallback(async () => {
+    const seq = ++consumableRegisterFetchSeq.current;
+    setConsumableRegisterLoading(true);
+    setConsumableRegisterError('');
+    try {
+      const envelope = await api.getStockOperations({
+        type: 'CONSUMABLE_ISSUE',
+        branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+        status: consumableRegisterStatus,
+        query: consumableRegisterQuery.trim() || undefined,
+        dateFromAD: consumableRegisterDateFrom || undefined,
+        dateToAD: consumableRegisterDateTo || undefined,
+        page: consumableRegisterPage,
+        pageSize: consumableRegisterPageSize,
+      }) as { data: StockOperation[]; totalItems: number };
+      if (seq !== consumableRegisterFetchSeq.current) return; // superseded
+      setConsumableRegisterRows(envelope.data || []);
+      setConsumableRegisterTotal(envelope.totalItems || 0);
+    } catch (err: any) {
+      if (seq !== consumableRegisterFetchSeq.current) return;
+      setConsumableRegisterError(err?.message || 'Failed to load the register');
+    } finally {
+      if (seq === consumableRegisterFetchSeq.current) setConsumableRegisterLoading(false);
+    }
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo, consumableRegisterPage, consumableRegisterPageSize]);
+
+  useEffect(() => {
+    loadConsumableRegisterPage();
+  }, [loadConsumableRegisterPage, sseRefreshKey]);
+
+  // Filter changes snap the server page back to 1.
+  useEffect(() => {
+    setConsumableRegisterPage(1);
+  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo]);
+
+  // Rows to render: the server page, or the client-side fallback after a
+  // fetch failure so the ledger still displays.
+  const consumableRegisterOps = consumableRegisterError ? consumableRegisterFallbackOps : consumableRegisterRows;
+  const consumableRegisterCount = consumableRegisterError ? consumableRegisterFallbackOps.length : consumableRegisterTotal;
+
   return (
     <>
       {activeTab === 'CONSUMABLES_REGISTER' && (

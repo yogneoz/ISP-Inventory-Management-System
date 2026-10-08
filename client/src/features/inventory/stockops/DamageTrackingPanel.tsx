@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
-  Branch,
-  Product,
+  StockOperation,
 } from '../../../types';
+import { api } from '../../../services/api';
 import { TablePagination } from '../../../components/common/TablePagination';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
@@ -14,13 +14,75 @@ import {
 
 /**
  * DamageTrackingPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const DamageTrackingPanel: React.FC = () => {
-  const { activeTab, canReverseDamage, damageLogOps, damageLogPageCount, damageLogPageSize, filteredOperations, handleReverseDamageRecord, isReversibleDamageOp, isSuperOrInventory, pagedDamageLogOps, safeDamageLogPage, setDamageLogPage, setDamageLogPageSize } = useStockOperationsCtx();
+  const { activeTab, allCombinedOps, currentUser, filteredOperations, isSuperOrInventory, onReverseOperation, promptDialog, showToast } = useStockOperationsCtx();
+
+  // 2b. Reverse a recorded damage entry (Safe-guarded; Super Admin / Inventory Manager only).
+  const canReverseDamage =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  const isReversibleDamageOp = (op: StockOperation): boolean =>
+    op.type === 'DAMAGE' && op.status !== 'CANCELLED' && !op.id.startsWith('syn-');
+
+  const handleReverseDamageRecord = async (op: StockOperation) => {
+    if (!canReverseDamage) {
+      showToast('Only Super Admin and Inventory Manager can reverse damage records.');
+      return;
+    }
+    const reason = await promptDialog(
+      `You are about to reverse damage record ${op.referenceNumber}.\n\n` +
+        `● Product: ${op.productName || op.productId}\n` +
+        `● Units: ${Math.abs(op.quantityChanged || 0)} Pcs\n` +
+        `● Valuation: ${formatNPR(op.totalValue)}\n` +
+        `● Branch: ${op.branchId}\n\n` +
+        `Reversing restores the units back to available stock and marks this record CANCELLED. ` +
+        `This action is irreversible and is logged to the audit trail under your credentials.`,
+      {
+        title: 'Reverse Damage Entry — Safeguard',
+        confirmLabel: 'Reverse & Restore Stock',
+        cancelLabel: 'Keep Record',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      showToast('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    try {
+      if (onReverseOperation) {
+        await onReverseOperation(op.id, reason.trim());
+      } else {
+        await api.reverseStockOperation(op.id, reason.trim(), currentUser);
+      }
+      showToast(`Damage record ${op.referenceNumber} reversed. Units restored to available stock.`);
+    } catch (err: any) {
+      showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+
+  // Damage-log register pagination: the DAMAGE_TRACKING tab renders this list
+  // without any server-side window, so cap the DOM with client pagination
+  // (same pattern as DamagedStockTracking).
+  const [damageLogPage, setDamageLogPage] = useState(1);
+  const [damageLogPageSize, setDamageLogPageSize] = useState(20);
+  const damageLogOps = useMemo(() => {
+    if (activeTab !== 'DAMAGE_TRACKING') return [];
+    return allCombinedOps.filter((op) => op.type === 'DAMAGE' || op.type === 'DISPOSAL');
+  }, [allCombinedOps, activeTab]);
+  const damageLogPageCount = Math.max(1, Math.ceil(damageLogOps.length / damageLogPageSize));
+  const safeDamageLogPage = Math.min(damageLogPage, damageLogPageCount);
+  const pagedDamageLogOps = useMemo(
+    () => damageLogOps.slice((safeDamageLogPage - 1) * damageLogPageSize, safeDamageLogPage * damageLogPageSize),
+    [damageLogOps, safeDamageLogPage, damageLogPageSize]
+  );
+
   return (
     <>
       {activeTab === 'DAMAGE_TRACKING' && (

@@ -1,11 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
-import {
-  Asset,
-  Branch,
-  Product,
-  Shipment,
-} from '../../../types';
+import type { TransferFormLine } from './StockOperationsContext';
+import { isOperationAllowed } from '../../../utils/permissions';
+import { tryConvertADToBS } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
 import {
@@ -18,13 +15,247 @@ import {
 
 /**
  * CreateTransferPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const CreateTransferPanel: React.FC = () => {
-  const { activeTab, allowedBranches, branches, canDispatchFromWarehouse, handleAddTransferItem, handleRemoveTransferItem, handleResetTransferForm, handleSubmitCreateTransfer, handleUpdateTransferItem, isWarehouseOrHeadOffice, products, setXferDestBranchId, setXferNotes, setXferSourceBranchId, stock, transferItems, updateTransferDeviceSerial, updateTransferPonSerial, xferDestBranchId, xferNotes, xferSourceBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, canDispatchFromWarehouse, currentUser, ensureBsDateAvailable, focusInput, isWarehouseOrHeadOffice, onCreateShipment, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+
+  const initialValidDestBranch = branches.find(
+    (b) =>
+      b.id !== userBranchId &&
+      !b.isWarehouse &&
+      !b.isHeadquarters &&
+      b.id !== 'WH001' &&
+      !b.code.toUpperCase().startsWith('WH') &&
+      !(b?.name || '').toLowerCase().includes('warehouse') &&
+      !(b?.name || '').toLowerCase().includes('head office') &&
+      !(b?.name || '').toLowerCase().includes('central')
+  )?.id || '';
+
+  const [xferSourceBranchId, setXferSourceBranchId] = useState<string>(userBranchId);
+  const [xferDestBranchId, setXferDestBranchId] = useState<string>(initialValidDestBranch);
+  const [xferNotes, setXferNotes] = useState<string>('Inter-branch inventory transfer dispatch');
+  const [transferItems, setTransferItems] = useState<TransferFormLine[]>([]);
+
+  useEffect(() => {
+    const srcBranch = branches.find((b) => b.id === xferSourceBranchId || b.code === xferSourceBranchId);
+    const warehouseOrigin = isWarehouseOrHeadOffice(srcBranch);
+    const validDestBranches = branches.filter(
+      (b) =>
+        b.id !== xferSourceBranchId &&
+        !b.isWarehouse &&
+        !b.isHeadquarters &&
+        b.id !== 'WH001' &&
+        !b.code.toUpperCase().startsWith('WH') &&
+        !(b?.name || '').toLowerCase().includes('warehouse') &&
+        !(b?.name || '').toLowerCase().includes('head office') &&
+        !(b?.name || '').toLowerCase().includes('central') &&
+        (!warehouseOrigin || b.allowWarehouseTransfer !== false)
+    );
+
+    if (validDestBranches.length > 0) {
+      if (!validDestBranches.some((b) => b.id === xferDestBranchId)) {
+        setXferDestBranchId(validDestBranches[0].id);
+      }
+    }
+  }, [xferSourceBranchId, branches, xferDestBranchId]);
+
+  // Transfer Items Handlers
+  const handleResetTransferForm = () => {
+    setTransferItems([]);
+    setXferNotes('Inter-branch inventory transfer dispatch');
+    setXferSourceBranchId(userBranchId);
+    setXferDestBranchId(branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || '');
+  };
+
+  const updateTransferDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setTransferItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updateTransferPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setTransferItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const handleAddTransferItem = (prodId?: string) => {
+    const selProd = products.find((p) => p.id === prodId) || products[0];
+    if (!selProd) return;
+
+    const isSerialized = selProd.requiresSerialTracking !== false && selProd.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
+
+    const existingIdx = transferItems.findIndex((i) => i.productId === selProd.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setTransferItems((prev) =>
+        prev.map((item, idx) => {
+          if (idx !== existingIdx) return item;
+          const newQty = item.quantitySent + 1;
+          const currentSerials = [...(item.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...item,
+            quantity: newQty,
+            quantitySent: newQty,
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
+      );
+    } else {
+      targetLineIdx = transferItems.length;
+      targetSerialIdx = 0;
+      setTransferItems((prev) => [
+        ...prev,
+        {
+          id: `xfer-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: selProd.id,
+          productName: selProd.name,
+          sku: selProd.sku,
+          unit: selProd.unit,
+          quantity: 1,
+          quantitySent: 1,
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+        },
+      ]);
+    }
+
+    if (isSerialized) {
+      focusInput(`transfer-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
+  };
+
+  const handleUpdateTransferItem = (id: string, updates: Partial<TransferFormLine>) => {
+    setTransferItems(
+      transferItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+          }
+        }
+        if (updates.quantitySent !== undefined) {
+          updated.quantity = updated.quantitySent;
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantitySent) {
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantitySent);
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveTransferItem = (id: string) => {
+    setTransferItems(transferItems.filter((i) => i.id !== id));
+  };
+
+
+  // 3. Submit Create Transfer
+  const handleSubmitCreateTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    const srcBranch = branches.find((b) => b.id === xferSourceBranchId || b.code === xferSourceBranchId);
+    const destBranch = branches.find((b) => b.id === xferDestBranchId || b.code === xferDestBranchId);
+
+    if (!srcBranch || !destBranch) {
+      alertDialog('Please select both a valid Source Branch and Destination Branch.');
+      return;
+    }
+
+    if (xferSourceBranchId === xferDestBranchId) {
+      alertDialog('Source and Destination branches must be different.');
+      return;
+    }
+
+    // Warehouse functions (wh-restrict-transfer): warehouse-origin transfers are
+    // limited to the Super Admin / Inventory Manager roles and to destination
+    // branches configured to accept warehouse transfers (allowWarehouseTransfer).
+    if (isWarehouseOrHeadOffice(srcBranch)) {
+      if (!isOperationAllowed('wh-restrict-transfer', currentUser?.role)) {
+        alertDialog('Warehouse stock transfers are restricted to the Super Admin and Inventory Manager roles only.');
+        return;
+      }
+      if (destBranch.allowWarehouseTransfer === false) {
+        alertDialog(
+          `${destBranch.name} (${destBranch.code}) is not authorized to receive warehouse transfers. ` +
+            'Enable "Allow Warehouse Transfers" for this branch in Branch Settings first.'
+        );
+        return;
+      }
+    }
+
+    if (transferItems.length === 0) {
+      alertDialog('Please add at least one product item to transfer.');
+      return;
+    }
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        xferSourceBranchId,
+        srcBranch.name,
+        transferItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantitySent,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
+      return;
+    }
+
+    if (onCreateShipment) {
+      // Date integrity: AD dispatch date is canonical; BS is derived from the seeded calendar.
+      const dispatchDateAD = new Date().toISOString().split('T')[0];
+      const dispatchBS = tryConvertADToBS(dispatchDateAD);
+      await onCreateShipment({
+        trackingCode: `TRF-BR-${Math.floor(100000 + Math.random() * 900000)}`,
+        type: 'INTER_BRANCH',
+        sourceBranchId: xferSourceBranchId,
+        sourceBranchName: srcBranch.name,
+        destinationBranchId: xferDestBranchId,
+        destinationBranchName: destBranch.name,
+        dispatchDateAD,
+        dispatchDateBS: dispatchBS?.formattedBSShort || '',
+        estimatedArrivalAD: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+        status: 'DISPATCHED',
+        items: transferItems,
+        notes: xferNotes,
+      });
+      alertDialog(`Inter-Branch Stock Transfer with ${transferItems.length} line item(s) successfully dispatched!`);
+      setTransferItems([]);
+      setActiveTab('RECEIVE_TRANSFER');
+    }
+  };
+
   return (
     <>
       {activeTab === 'CREATE_TRANSFER' && (

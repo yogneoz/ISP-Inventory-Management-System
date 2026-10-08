@@ -8,10 +8,10 @@ import {
 
 /**
  * PulloutBinsPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const PulloutBinsPanel: React.FC = () => {
   const { activeTab, confirmDialog, currentUser, filteredOperations, onReceiveOperation } = useStockOperationsCtx();

@@ -2,6 +2,34 @@
 
 _Date: 2026-10-05 · Branch: main · Tests: 620/620 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
+## ⭐ StockOperations §G commit 2 — state clusters relocated into panels; host 3,063 → 492 lines (2026-10-08)
+
+Second §G commit: every per-panel state cluster (form fields, submit
+handlers, panel-local fetch effects) moved out of
+StockOperations.tsx into its owning stockops/*Panel.tsx through the
+existing StockOperationsContext setters — pure relocation, no behavior
+change; panels destructure exactly what their JSX uses. The host now
+cross-tab chrome only: activeTab + initialType sync, the BS-date
+availability check, branch filter, the exchange-tab device fetch (the
+tab-bar counter), toast, and the submit-flow tab resets. Two more host
+pieces extracted: the sub-tab bar → stockops/StockOperationsTabBar.tsx
+(249 lines, pinned as the 63rd feature screen) and pure view
+derivations → stockops/stockOperationViews.ts (118 lines). Host:
+3,063 → 492 lines, 79 → 9 hook sites (target was ~400; the remainder
+is the 11 render-site switch + chrome). Guard updates deliberate, not
+weakened: the host's surface pin is now its two chrome reads
+(`getBsDayRecordByAdDate` + `getCustomerDevices`), the ten submit
+mutations moved onto the five mutating panels' own SCREEN_SURFACE_PINS,
+and the mount-once `assignSerialLogCache` pin relocated to
+AssignAssetPanel; StockOperationsTabBar added to SCREEN_SURFACE_PINS
+(coverage 62 → 63). Docs tallies updated (README, handoff,
+SESSION_NOTES). All gates green: tsc 0, client noUnusedLocals 0
+(baseline 7 → 0), 620/620 + docs gate, build, bundle budget
+283.9/320 kB gz. NEXT: same recipe for PhysicalStockAudit (2,552
+lines) and Shipments (2,186 lines).
+
+---
+
 ## ⭐ §G follow-up: 3 tail panels were name-shifted (label-damage form missing) — fixed + full sidebar walkthrough (2026-10-06)
 
 User reported the damage-label form missing. Root cause: the original
@@ -1324,8 +1352,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   remount). Every App.tsx render site must pass its register counter (2 PO,
   2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-  (2) NEW — all 62 screens under client/src/features are pinned: a
-  SCREEN_SURFACE_PINS table (51 screens) + the 11 pinned above; an unpinned
+  (2) NEW — all 63 screens under client/src/features are pinned: a
+  SCREEN_SURFACE_PINS table (52 screens) + the 11 pinned above; an unpinned
   new screen fails coverage, and each pinned screen must match its exact
   surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
   `services/api` imports, because the audit found FinancialStatements.tsx

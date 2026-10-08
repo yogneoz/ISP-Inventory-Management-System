@@ -429,13 +429,15 @@ describe('Paged-tab audit guard — no self-fetching data loads', () => {
     assert.match(source, /useEffect\(\(\) => \{\s*checkBsDateAvailability\(\);/);
   });
 
-  test('contrast: the self-fetch pattern this guard rejects, correctly wired in StockOperations', () => {
+  test('contrast: the self-fetch pattern this guard rejects, correctly wired in the StockOperations register panel', () => {
     // A paged tab that self-fetches MUST be wired to an
     // SSE register key — that wiring is the decision this
-    // guard forces. StockOperations' consumable register
-    // is the canonical wired example: it re-runs its
+    // guard forces. The StockOperations consumable register
+    // (stockops/ConsumablesRegisterPanel.tsx since §G commit 2,
+    // when its state + fetch effect moved out of the host) is
+    // the canonical wired example: it re-runs its
     // paged fetch whenever its sseRefreshKey bumps.
-    const source = readFeatureSource('inventory/StockOperations.tsx');
+    const source = readFeatureSource('inventory/stockops/ConsumablesRegisterPanel.tsx');
     assert.match(source, /const loadConsumableRegisterPage = useCallback/);
     assert.match(source, /\[loadConsumableRegisterPage, sseRefreshKey\]/);
     // App.tsx feeds the SSE-driven counter into EVERY render site of the
@@ -583,36 +585,37 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assertEveryRenderSiteWired('SerialLogRegister', /refreshKey=\{registerRefresh\.serialLog\}/);
   });
 
-  test('StockOperations: full api surface pinned; its serialLog fetch stays the mount-once validation cache', () => {
+  test('StockOperations: host api surface pinned; the assign panel keeps the mount-once serialLog cache', () => {
     const source = readFeatureSource('inventory/StockOperations.tsx');
-    // 12 distinct methods across 15 call sites, each an explicit decision:
+    // §G commit 2 relocated every submit handler — and with it 10 of the
+    // original 12 methods — into the owning stockops/*Panel.tsx. What stays
+    // in the host are the two chrome-level reads: the BS-calendar gate and
+    // the exchange tab's device list (the tab-bar counter needs it mounted).
     assert.deepEqual(serverCallsIn(source), [
-      'cancelApprovalRequest',
-      'cancelShipment',
-      'createApprovalRequest',
-      'createAsset',
-      'createCustomerDevice',
-      'exchangeCustomerDevice',
       'getBsDayRecordByAdDate',
       'getCustomerDevices',
-      'getSerialLogs',
-      'getStockOperations',
-      'reverseConsumableIssue',
-      'reverseStockOperation',
     ]);
     assertNoRawFetch(source, 'StockOperations.tsx');
 
-    // serialLog host: EXACTLY ONE getSerialLogs, and it must stay a
-    // mount-once ([] deps) fetch behind the assignSerialLogLoaded guard.
-    // Deliberately NOT sse-wired: the bootstrap payload excludes
-    // serialLogs, so the IN_STOCK pair-validation cache fills when this
-    // effect first runs and is refreshed by remount. Moving it out of the
-    // guard, giving the effect deps, or adding a second serial-log fetch
-    // here fails this assertion and forces an explicit wiring decision.
-    const serialFetches = source.match(/api\.getSerialLogs/g) || [];
-    assert.equal(serialFetches.length, 1, 'StockOperations must host exactly one serial-log fetch');
+    // The serialLog pair-validation cache moved WITH the assign form into
+    // AssignAssetPanel: EXACTLY ONE getSerialLogs there, still a mount-once
+    // ([] deps) fetch behind the assignSerialLogLoaded guard. Deliberately
+    // NOT sse-wired: the bootstrap payload excludes serialLogs, so the
+    // IN_STOCK pair-validation cache fills when the panel first mounts and
+    // is refreshed by remount. The host must host NONE — a serial-log fetch
+    // reappearing here, giving the effect deps, or adding a second fetch in
+    // the panel fails these assertions and forces an explicit decision.
+    const hostSerialFetches = source.match(/api\.getSerialLogs/g) || [];
+    assert.equal(
+      hostSerialFetches.length,
+      0,
+      'StockOperations must no longer host a serial-log fetch — it lives in AssignAssetPanel'
+    );
+    const assignSource = readFeatureSource('inventory/stockops/AssignAssetPanel.tsx');
+    const serialFetches = assignSource.match(/api\.getSerialLogs/g) || [];
+    assert.equal(serialFetches.length, 1, 'AssignAssetPanel must host exactly one serial-log fetch');
     assert.match(
-      source,
+      assignSource,
       /useEffect\(\(\) => \{\s*if \(assignSerialLogLoaded\.current\) return;\s*assignSerialLogLoaded\.current = true;\s*api\.getSerialLogs\(\{ all: true \}\)[\s\S]*?\}, \[\]\);/,
       'the assignSerialLogCache fetch must stay mount-once ([] deps) behind assignSerialLogLoaded'
     );
@@ -620,10 +623,10 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features — now 62
-  // after the §G StockOperations decomposition added 12 tab panels under
-  // inventory/stockops (each pinned below; the host keeps its dedicated
-  // register-guard pin above).
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 63
+  // after the §G StockOperations decomposition added 12 tab panels (and
+  // commit 2 the extracted tab-bar chrome) under inventory/stockops — each
+  // pinned below; the host keeps its dedicated register-guard pin above.
   //
   //  · 11 are pinned by the guard tests above (the three prop-rendered
   //    inventory tabs, the two create forms, the six SSE-wired paged
@@ -635,7 +638,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   //    they render come from bootstrap-slice props.
   //  · 23 render props/callbacks only — zero server calls of their own.
   //
-  // SCREEN_SURFACE_PINS pins each of those 39 screens to the EXACT server
+  // SCREEN_SURFACE_PINS pins every one of those screens to the EXACT server
   // calls it makes today — api.* methods AND named services/api imports,
   // because FinancialStatements.tsx imports getFinancialSummary instead of
   // calling api.* — so ANY new fetch (paged or not, wired or not) fails
@@ -719,24 +722,28 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'settings/BranchesManagement.tsx': [],
     'settings/CompanySetupManagement.tsx': [],
 
-    // — StockOperations tab panels (FRONTEND-AUDIT.md §G decomposition): the
-    //   JSX moved verbatim out of inventory/StockOperations.tsx; ALL state
-    //   and handlers (and therefore every api.* call) stay in the host, so
-    //   the panels render props/context only. ConsumablesRegisterPanel is
-    //   the one exception: its export-all button calls getStockOperations
-    //   with all:true — a user-initiated CSV export, not a data load.
-    'inventory/stockops/AssignAssetPanel.tsx': [],
+    // — StockOperations tab panels (FRONTEND-AUDIT.md §G): §G commit 1
+    //   moved the JSX verbatim; commit 2 relocated each panel's state and
+    //   handlers with it, so the api surface below is each panel's own.
+    //   The one non-obvious split: the register panel's export-all button
+    //   and its paged fetch share getStockOperations, and the exchange
+    //   panel re-fetches the device list after its mutation (the host
+    //   keeps its own getCustomerDevices for the tab-bar counter).
+    //   StockOperationsTabBar.tsx is the §G-commit-2 chrome extraction:
+    //   the sub-tab strip, zero server calls of its own.
+    'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice', 'getSerialLogs'],
     'inventory/stockops/ConsumableIssuePanel.tsx': [],
-    'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations'],
+    'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],
     'inventory/stockops/CreateTransferPanel.tsx': [],
-    'inventory/stockops/DamageTrackingPanel.tsx': [],
-    'inventory/stockops/DeviceExchangePanel.tsx': [],
+    'inventory/stockops/DamageTrackingPanel.tsx': ['reverseStockOperation'],
+    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
     'inventory/stockops/LogsPanel.tsx': [],
     'inventory/stockops/ProductSalePanel.tsx': [],
     'inventory/stockops/PulloutBinsPanel.tsx': [],
-    'inventory/stockops/ReceiveTransferPanel.tsx': [],
+    'inventory/stockops/ReceiveTransferPanel.tsx': ['cancelApprovalRequest', 'cancelShipment', 'createApprovalRequest'],
+    'inventory/stockops/StockOperationsTabBar.tsx': [],
   };
 
   // Pinned by the dedicated guard tests above instead — surface AND wiring.
@@ -821,7 +828,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       paged,
       [
         'inventory/SerialLogRegister.tsx',
-        'inventory/StockOperations.tsx',
+        'inventory/stockops/ConsumablesRegisterPanel.tsx',
         'procurement/PurchaseInvoices.tsx',
         'procurement/PurchaseOrders.tsx',
         'sales/CustomerMasterDirectory.tsx',

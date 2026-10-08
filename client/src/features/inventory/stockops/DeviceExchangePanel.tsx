@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
+  CustomerDeviceRecord,
 } from '../../../types';
+import { api } from '../../../services/api';
 import { FormCard } from '../../../components/common/FormCard';
 import {
   Plus,
@@ -14,13 +16,108 @@ import {
 
 /**
  * DeviceExchangePanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const DeviceExchangePanel: React.FC = () => {
-  const { activeTab, exchangeCustomerDevices, exchangeNewMac, exchangeNewPon, exchangeNewSerial, exchangeNotes, exchangeProductName, exchangeReason, exchangeSearchQuery, filteredExchangeDevices, handlePerformExchange, isLoadingExchangeDevices, isSubmittingExchange, oldDeviceAction, products, selectedDeviceForExchange, setExchangeNewMac, setExchangeNewPon, setExchangeNewSerial, setExchangeNotes, setExchangeProductName, setExchangeReason, setExchangeSearchQuery, setOldDeviceAction, setSelectedDeviceForExchange } = useStockOperationsCtx();
+  const { activeTab, alertDialog, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
+
+  const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
+  const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
+  const [exchangeReason, setExchangeReason] = useState<string>('Defective / Hardware Fault (No Power / Optical Loss)');
+  const [oldDeviceAction, setOldDeviceAction] = useState<'DAMAGE' | 'RESTOCK' | 'DISPOSED'>('RESTOCK');
+  const [exchangeProductName, setExchangeProductName] = useState<string>('');
+  const [exchangeNewSerial, setExchangeNewSerial] = useState<string>('');
+  const [exchangeNewPon, setExchangeNewPon] = useState<string>('');
+  const [exchangeNewMac, setExchangeNewMac] = useState<string>('');
+  const [exchangeNotes, setExchangeNotes] = useState<string>('');
+
+  const [isSubmittingExchange, setIsSubmittingExchange] = useState<boolean>(false);
+
+  const handlePerformExchange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    if (!selectedDeviceForExchange) {
+      alertDialog('Please select a customer device to exchange.');
+      return;
+    }
+    if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
+      alertDialog('Please enter new device serial number (SN) and PON serial number.');
+      return;
+    }
+    const exchangeBranchId = selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId;
+    const replacementDevice = customerDevices.find(
+      (device) =>
+        device.deviceSerial?.trim().toUpperCase() === exchangeNewSerial.trim().toUpperCase() &&
+        device.ponSerial?.trim().toUpperCase() === exchangeNewPon.trim().toUpperCase() &&
+        device.branchId === exchangeBranchId &&
+        device.status === 'IN_STOCK' &&
+        device.productName?.trim().toLowerCase() === (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase()
+    );
+    if (!replacementDevice) {
+      alertDialog('The replacement Device Serial/PON pair must match an IN_STOCK device at the selected branch.');
+      return;
+    }
+
+    setIsSubmittingExchange(true);
+    try {
+      await api.exchangeCustomerDevice({
+        oldDeviceId: selectedDeviceForExchange.id,
+        exchangeReason,
+        oldDeviceAction,
+        newProductName: exchangeProductName || selectedDeviceForExchange.productName,
+        newDeviceSerial: exchangeNewSerial.trim(),
+        newPonSerial: exchangeNewPon.trim(),
+        newMacAddress: exchangeNewMac.trim() || undefined,
+        notes: exchangeNotes.trim() || undefined,
+        branchId: exchangeBranchId,
+      });
+
+      const actionText =
+        oldDeviceAction === 'RESTOCK'
+          ? 'Old device serial restored to branch available inventory stock (+1)'
+          : oldDeviceAction === 'DAMAGE'
+          ? 'Old device serial moved to defective stock bin'
+          : 'Old device serial marked as scrapped/disposed';
+
+      alertDialog(`Device Exchange Successful!\nCustomer: ${selectedDeviceForExchange.customerName}\nNew Serial: ${exchangeNewSerial.trim()}\n${actionText}`);
+
+      setSelectedDeviceForExchange(null);
+      setExchangeNewSerial('');
+      setExchangeNewPon('');
+      setExchangeNewMac('');
+      setExchangeNotes('');
+
+      // Refresh list
+      const updatedDevs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
+      setExchangeCustomerDevices(updatedDevs);
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err: any) {
+      alertDialog(err?.message || 'Failed to exchange device.');
+    } finally {
+      setIsSubmittingExchange(false);
+    }
+  };
+
+  const filteredExchangeDevices = exchangeCustomerDevices.filter((d) => {
+    // Only RENTAL (or legacy ACTIVE) CPE products are eligible for hardware exchange
+    if (d.status !== 'RENTAL' && d.status !== 'ACTIVE') return false;
+    if (!exchangeSearchQuery.trim()) return true;
+    const q = (exchangeSearchQuery || '').toLowerCase();
+    return (
+      (d?.customerName || '').toLowerCase().includes(q) ||
+      (d?.customerCode || '').toLowerCase().includes(q) ||
+      (d?.deviceSerial || '').toLowerCase().includes(q) ||
+      (d?.ponSerial || '').toLowerCase().includes(q) ||
+      (d?.productName || '').toLowerCase().includes(q) ||
+      (d.contactPhone && d.contactPhone.includes(q))
+    );
+  });
+
   return (
     <>
       {activeTab === 'DEVICE_EXCHANGE' && (

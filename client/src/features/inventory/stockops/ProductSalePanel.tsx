@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
-  Branch,
-  Product,
+  CustomerRecord,
+  SaleItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
@@ -20,13 +20,255 @@ import {
 
 /**
  * ProductSalePanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const ProductSalePanel: React.FC = () => {
-  const { activeTab, allowedBranches, customers, filteredSellCustomers, handleAddSellItem, handleRemoveSellItem, handleResetSellForm, handleSubmitSellProductSale, handleUpdateSellItem, isSellCustomerDropdownOpen, products, saleEligibleProducts, sellBranchId, sellCustomerDisplay, sellCustomerDropdownRef, sellCustomerId, sellCustomerQuery, sellItems, sellNotes, sellPaymentMethod, setIsSellCustomerDropdownOpen, setSellBranchId, setSellCustomerId, setSellCustomerQuery, setSellNotes, setSellPaymentMethod, stock, updateSellDeviceSerial, updateSellPonSerial } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, focusInput, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+
+  // Product-group filtered catalogs (types/index.ts: 'Product Item' | 'Fixed Asset' |
+  // 'Consumable Item'; absent productGroup defaults to 'Product Item' everywhere else
+  // in the app, matching ProductManagement's display convention).
+  const saleEligibleProducts = useMemo(
+    () => products.filter((p) => (p.productGroup || 'Product Item') === 'Product Item'),
+    [products]
+  );
+
+  // Sale Items Handlers
+  const handleResetSellForm = () => {
+    setSellItems([]);
+    const first = customers[0];
+    setSellCustomerId(first?.id || '');
+    setSellCustomerQuery(first ? sellCustomerDisplay(first) : '');
+    setSellBranchId(userBranchId);
+    setSellPaymentMethod('Cash / Direct Payment');
+    setSellNotes('Direct retail product item sale to customer');
+  };
+
+  const updateSellDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSellItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updateSellPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSellItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const handleAddSellItem = (prodId?: string) => {
+    // Only 'Product Item' group products are sellable on this invoice.
+    const selProd = saleEligibleProducts.find((p) => p.id === prodId) || saleEligibleProducts[0];
+    if (!selProd) return;
+
+    const isSerialized = selProd.requiresSerialTracking !== false && selProd.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
+
+    const existingIdx = sellItems.findIndex((i) => i.productId === selProd.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setSellItems((prev) =>
+        prev.map((item, idx) => {
+          if (idx !== existingIdx) return item;
+          const newQty = item.quantity + 1;
+          const currentSerials = [...(item.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...item,
+            quantity: newQty,
+            totalValue: Math.max(0, newQty * item.sellingPrice - item.discount),
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
+      );
+    } else {
+      targetLineIdx = sellItems.length;
+      targetSerialIdx = 0;
+      const price = selProd.sellingPrice || 1000;
+      setSellItems((prev) => [
+        ...prev,
+        {
+          id: `sli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: selProd.id,
+          productName: selProd.name,
+          sku: selProd.sku,
+          unit: selProd.unit,
+          quantity: 1,
+          sellingPrice: price,
+          discount: 0,
+          totalValue: price,
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+        },
+      ]);
+    }
+
+    if (isSerialized) {
+      focusInput(`sale-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
+  };
+
+  const handleUpdateSellItem = (id: string, updates: Partial<SaleItem>) => {
+    setSellItems(
+      sellItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+            if (updates.sellingPrice === undefined) {
+              updated.sellingPrice = selProd.sellingPrice || 1000;
+            }
+          }
+        }
+        if (updates.quantity !== undefined || updates.sellingPrice !== undefined || updates.discount !== undefined) {
+          updated.totalValue = Math.max(0, (updated.quantity * updated.sellingPrice) - updated.discount);
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantity) {
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantity);
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveSellItem = (id: string) => {
+    setSellItems(sellItems.filter((i) => i.id !== id));
+  };
+
+  const handleSubmitSellProductSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    const cust = customers.find((c) => c.id === sellCustomerId);
+    const branchObj = branches.find((b) => b.id === sellBranchId);
+    const branchName = branchObj?.name || sellBranchId;
+
+    if (!cust) {
+      alertDialog('Please select a customer from the search results before saving.');
+      return;
+    }
+    if (sellItems.length === 0) {
+      alertDialog('Please add at least one product item to the sales invoice.');
+      return;
+    }
+
+    // Strict validation for Branch Stock Quantity and Serial Register
+    if (
+      !validateSourceBranchStockAndSerials(
+        sellBranchId,
+        branchName,
+        sellItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
+      return;
+    }
+
+    const grossTotal = sellItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0);
+    const totalDiscount = sellItems.reduce((s, i) => s + i.discount, 0);
+    const netSaleAmount = Math.max(0, grossTotal - totalDiscount);
+
+    await onCreateOperation({
+      type: 'STOCK_OUT',
+      branchId: sellBranchId,
+      branchName,
+      items: sellItems,
+      totalValue: netSaleAmount,
+      customerId: cust.id,
+      customerName: `${cust.customerName} (${cust.customerId})`,
+      paymentMethod: sellPaymentMethod,
+      reason: `Customer Product Sale Invoice (${sellItems.length} items): ${cust.customerName} - ${sellNotes}`,
+      inspectorName: currentUser?.name || 'Sales Representative',
+      status: 'LOGGED',
+    });
+
+    alertDialog(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: ${formatNPR(netSaleAmount)}.
+Sold device(s) tagged as SOLD in Customer Device Directory.`);
+    setSellItems([]);
+  };
+
+
+  // 5. Submit Product Sale to Customer
+  // 5. (PHASE 1) Product Sale form state — provisionally re-exported for
+  //    the merge into SalesInvoices.tsx (Phase 2). Retained in this file
+  //    until the refactor target is approved.
+  const [sellCustomerId, setSellCustomerId] = useState<string>(customers[0]?.id || '');
+  const [sellBranchId, setSellBranchId] = useState<string>(userBranchId);
+  const [sellPaymentMethod, setSellPaymentMethod] = useState<string>('Cash / Direct Payment');
+  const [sellNotes, setSellNotes] = useState<string>('Direct retail product item sale to customer');
+  const [sellItems, setSellItems] = useState<SaleItem[]>([]);
+
+  // Customer SEARCH field state (searchable input + dropdown, not a native select).
+  // `sellCustomerQuery` is the visible text; `sellCustomerId` stays the canonical FK.
+  const sellCustomerDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [sellCustomerQuery, setSellCustomerQuery] = useState<string>(() => {
+    const c = customers[0];
+    return c ? `${c.customerName} (${c.customerId})` : '';
+  });
+  const [isSellCustomerDropdownOpen, setIsSellCustomerDropdownOpen] = useState<boolean>(false);
+
+  const sellCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
+
+
+  // Filter the customer search dropdown by query text.
+  const filteredSellCustomers = useMemo(() => {
+    const q = sellCustomerQuery.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.customerName.toLowerCase().includes(q) ||
+        c.customerId.toLowerCase().includes(q) ||
+        (c.contactNumber || '').toLowerCase().includes(q) ||
+        (c.address || '').toLowerCase().includes(q)
+    );
+  }, [customers, sellCustomerQuery]);
+
+  // Close the customer dropdown on outside click.
+  useEffect(() => {
+    if (!isSellCustomerDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (sellCustomerDropdownRef.current && !sellCustomerDropdownRef.current.contains(e.target as Node)) {
+        setIsSellCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [isSellCustomerDropdownOpen]);
+  // (form reset, customers list loads, default selection).
+  useEffect(() => {
+    const c = customers.find((x) => x.id === sellCustomerId);
+    if (c) setSellCustomerQuery(sellCustomerDisplay(c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellCustomerId, customers]);
+
   return (
     <>
       {activeTab === 'PRODUCT_SALE' && (

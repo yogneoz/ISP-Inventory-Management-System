@@ -1128,15 +1128,18 @@ so any unwired new fetch fails the suite instead of shipping:
 - **Wired registers** — PurchaseOrders (`getPurchaseOrders` only), PurchaseInvoices
   (`getPurchaseInvoices` + the three payment-modal calls), SerialLogRegister
   (`getSerialLogs`, `lookupSerial`, both serial-edit mutations; NOTE its wiring prop is
-  `refreshKey`, not `sseRefreshKey`) and StockOperations (full 12-method allowlist, with
-  its `assignSerialLogCache` serial-log fetch pinned as the ONE mount-once `[]`-deps host
-  fetch — deliberately not sse-wired; bootstrap excludes serialLogs, so remount refreshes
-  it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
+  `refreshKey`, not `sseRefreshKey`) and StockOperations (since §G commit 2 the HOST is
+  pinned to its two chrome reads only — `getBsDayRecordByAdDate` + the exchange tab's
+  `getCustomerDevices` for the tab-bar counter — while the ten submit-mutation methods
+  live behind the five mutating panels' own `SCREEN_SURFACE_PINS`; the
+  `assignSerialLogCache` serial-log fetch is pinned as the ONE mount-once `[]`-deps fetch
+  in AssignAssetPanel — deliberately not sse-wired; bootstrap excludes serialLogs, so
+  remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 62 screens — the §G StockOperations
-  split added 12 tab panels)** — a `SCREEN_SURFACE_PINS`
-  table pins the 51 screens not covered above (the other 11 are pinned by the dedicated
+- **Feature-screen coverage (2026-10-03 audit, all 63 screens — the §G StockOperations
+  split added 12 tab panels plus the extracted tab-bar chrome)** — a `SCREEN_SURFACE_PINS`
+  table pins the 52 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports

@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
-  Branch,
   Product,
+  PulloutItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
@@ -17,13 +17,226 @@ import {
 
 /**
  * CreatePulloutPanel - tab panel extracted VERBATIM from StockOperations.tsx
- * (decomposition audit, FRONTEND-AUDIT.md Section G, "pure move" step).
- * The host owns ALL state and handlers; this panel destructures them from
- * the StockOperations context and renders the exact conditional block the
- * host used to render inline. No logic changes.
+ * (FRONTEND-AUDIT.md Section G: commit 1 moved the JSX verbatim; commit 2
+ * relocated this panel's state, effects and handlers here as well). The
+ * panel renders the exact conditional block the host used to render inline;
+ * everything it does not own comes from the StockOperations context.
  */
 export const CreatePulloutPanel: React.FC = () => {
-  const { activeTab, binNotes, branches, destWarehouseId, destWarehouseOptions, effectivePulloutSourceBranches, handleAddProductToPullout, handleRemovePulloutItem, handleSubmitPulloutBin, handleUpdatePulloutItem, isPulloutModalOpen, products, pulloutItems, setActiveTab, setBinNotes, setDestWarehouseId, setIsPulloutModalOpen, setPulloutItems, setSourceBranchId, sourceBranchId, stock, updatePulloutDeviceSerial, updatePulloutPonSerial } = useStockOperationsCtx();
+  const { activeTab, alertDialog, allowedBranches, branches, currentUser, ensureBsDateAvailable, focusInput, initialPulloutModalOpen, onCreateOperation, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+
+  const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(initialPulloutModalOpen);
+
+  // Filter Central Warehouse & Warehouse locations for pullouts (exclude standard retail branches)
+  const warehouseLocations = branches.filter(
+    (b) =>
+      b.isHeadquarters ||
+      b.isWarehouse ||
+      b.code.toUpperCase().startsWith('WH') ||
+      (b?.name || '').toLowerCase().includes('warehouse') ||
+      (b?.name || '').toLowerCase().includes('head office') ||
+      (b?.name || '').toLowerCase().includes('central')
+  );
+  const destWarehouseOptions = warehouseLocations.length > 0 ? warehouseLocations : branches.filter((b) => b.isHeadquarters);
+
+  // Filter source branches for pullouts: ONLY retail / store branches (exclude Head Office / WH001 / warehouses)
+  const pulloutSourceBranches = allowedBranches.filter(
+    (b) =>
+      !b.isHeadquarters &&
+      !b.isWarehouse &&
+      b.id !== 'WH001' &&
+      !b.code.toUpperCase().startsWith('WH') &&
+      !(b?.name || '').toLowerCase().includes('head office') &&
+      !(b?.name || '').toLowerCase().includes('central warehouse')
+  );
+  const effectivePulloutSourceBranches =
+    pulloutSourceBranches.length > 0
+      ? pulloutSourceBranches
+      : allowedBranches.filter((b) => b.id !== 'WH001');
+
+  const initialPulloutSourceBranchId =
+    effectivePulloutSourceBranches.find((b) => b.id === userBranchId)?.id ||
+    effectivePulloutSourceBranches[0]?.id ||
+    allowedBranches.find((b) => b.id !== 'WH001')?.id ||
+    'BRH01';
+
+  const [sourceBranchId, setSourceBranchId] = useState<string>(initialPulloutSourceBranchId);
+  const [destWarehouseId, setDestWarehouseId] = useState<string>(
+    destWarehouseOptions[0]?.id || branches.find((b) => b.isHeadquarters)?.id || 'WH001'
+  );
+
+  useEffect(() => {
+    if (effectivePulloutSourceBranches.length > 0) {
+      if (!effectivePulloutSourceBranches.some((b) => b.id === sourceBranchId)) {
+        setSourceBranchId(effectivePulloutSourceBranches[0].id);
+      }
+    }
+  }, [effectivePulloutSourceBranches, sourceBranchId]);
+
+  const [binInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
+  const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
+  const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
+  const [, setProdSearchInput] = useState<string>('');
+  const [, setIsSearchOpen] = useState<boolean>(false);
+
+  // Pullout Item Handlers
+  const handleAddProductToPullout = (prod: Product) => {
+    const isSerialized = prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
+
+    const existingIdx = pulloutItems.findIndex((i) => i.productId === prod.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setPulloutItems((prev) =>
+        prev.map((i, idx) => {
+          if (idx !== existingIdx) return i;
+          const newQty = i.quantity + 1;
+          const currentSerials = [...(i.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...i,
+            quantity: newQty,
+            totalValue: newQty * i.unitCost,
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
+      );
+    } else {
+      targetLineIdx = pulloutItems.length;
+      targetSerialIdx = 0;
+      const srcStock = stock.find((s) => s.productId === prod.id && s.branchId === sourceBranchId);
+      const availDamaged = srcStock?.damagedQty || 0;
+      const defaultCond = availDamaged > 0 ? 'DAMAGED_STOCK' : 'OVERSTOCK';
+
+      setPulloutItems((prev) => [
+        ...prev,
+        {
+          id: `pli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: prod.id,
+          productName: prod.name,
+          sku: prod.sku,
+          unit: prod.unit,
+          quantity: 1,
+          condition: defaultCond,
+          unitCost: prod.costPrice,
+          totalValue: prod.costPrice,
+          reason: defaultCond === 'DAMAGED_STOCK' ? 'Damaged inventory return' : 'Surplus overstock return to warehouse',
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
+        },
+      ]);
+    }
+    setProdSearchInput('');
+    setIsSearchOpen(false);
+
+    if (isSerialized) {
+      focusInput(`pullout-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
+  };
+
+  const updatePulloutDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setPulloutItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updatePulloutPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setPulloutItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const handleUpdatePulloutItem = (id: string, updates: Partial<PulloutItem>) => {
+    setPulloutItems(
+      pulloutItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.quantity !== undefined || updates.unitCost !== undefined) {
+          updated.totalValue = updated.quantity * updated.unitCost;
+          // Sync serials count if quantity changed and serials exist
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantity) {
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantity);
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemovePulloutItem = (id: string) => {
+    setPulloutItems(pulloutItems.filter((i) => i.id !== id));
+  };
+
+
+  // 1. Submit Pullout Dispatch
+  const handleSubmitPulloutBin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ensureBsDateAvailable()) return;
+    if (pulloutItems.length === 0) {
+      alertDialog('Please add at least one stock item to the pullout bin.');
+      return;
+    }
+
+    const srcBranch = branches.find((b) => b.id === sourceBranchId);
+    const destWh = branches.find((b) => b.id === destWarehouseId);
+
+    // Strict validation for Branch Stock Quantity and Serial Register
+    if (
+      !validateSourceBranchStockAndSerials(
+        sourceBranchId,
+        srcBranch?.name || sourceBranchId,
+        pulloutItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+          condition: i.condition,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
+      return;
+    }
+
+    const grandTotal = pulloutItems.reduce((sum, item) => sum + item.totalValue, 0);
+
+    await onCreateOperation({
+      type: 'PULLOUT',
+      branchId: sourceBranchId,
+      branchName: srcBranch?.name,
+      destinationWarehouseId: destWarehouseId,
+      destinationWarehouseName: destWh?.name,
+      items: pulloutItems,
+      totalValue: grandTotal,
+      reason: binNotes,
+      inspectorName: binInspector,
+      status: 'DISPATCHED',
+    });
+
+    alertDialog(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
+
+    setIsPulloutModalOpen(false);
+    setActiveTab('PULLOUT_BINS');
+    setPulloutItems([]);
+  };
+
   return (
     <>
       {(isPulloutModalOpen || activeTab === 'CREATE_PULLOUT') && (
