@@ -132,7 +132,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 ## 🚀 Complete Installation & Setup Guide
 
 ### 📋 Prerequisites
-- **Node.js**: `v20.x` or `v22.x` LTS recommended ([Download Node.js](https://nodejs.org/))
+- **Node.js**: `v24.x` LTS recommended (v22.x also works) ([Download Node.js](https://nodejs.org/))
 - **npm**: `v10.x+` (comes bundled with Node.js)
 - **Git**: Installed and configured
 - **PostgreSQL** *(required)*: `v14+` (can be auto-installed via `npm run setup:pg`)
@@ -320,8 +320,8 @@ npm run integrity:check
 # Update System Packages
 sudo apt update && sudo apt upgrade -y
 
-# Install Node.js 20 LTS & Build Tools
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Install Node.js 24 LTS & Build Tools
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs build-essential git nginx postgresql postgresql-contrib
 
 # Install PM2 Process Manager globally

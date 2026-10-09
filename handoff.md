@@ -971,11 +971,11 @@ node scripts/reset_fresh_demo.mjs   # Full reset & reseed
 
 ```dockerfile
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 RUN npm ci && npm run build
 
 # Stage 2: Production
-FROM node:20-alpine
+FROM node:24-alpine
 COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 CMD ["node", "dist/server.cjs"]
