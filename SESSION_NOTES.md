@@ -1,6 +1,75 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 631/631 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 635/635 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ Shipments decomposed — register + create-shipment subcomponents; host 2,186 → 398 lines (2026-10-09)
+
+The 2,186-line Shipments.tsx split into three files along its two sub-tabs:
+`ShipmentRegister.tsx` (~1,141 lines — metrics, report filters, table + CSV
+export + pagination, and the receive / cancel-receive modal flows; the
+screen's three api.* fallbacks cancelReceiveShipment, createApprovalRequest,
+cancelApprovalRequest moved with their handlers, so its SCREEN_SURFACE_PINS
+entry took them over from the host), `CreateShipmentForm.tsx` (~547 — the
+inter-branch transfer form: branch pair, barcode entry, serial bin,
+validation, dispatch — fetch-free like PurchaseInvoiceForm, submits through
+App callbacks only), and `Shipments.tsx` (398, was 2,186 — host chrome:
+PageHeader + header search, sub-tab bar with both count badges, manifest
+viewer modal, floating toast, activeTab sync; the duplicate second activeTab
+effect was dropped with the split).
+
+State split follows what the chrome renders: the host keeps the 5 filter
+primitives + filteredShipments (the header search input AND the REGISTER
+badge read them — hoisting also keeps typing at one commit), `lines`
+(CREATE badge), tab/viewing/toast state; the register owns its modal and
+pagination state, the form owns branch pair + notes. Both children render
+inside KeepMounted wrappers keyed on internalTab, so sub-tab switches behave
+exactly like the old component-level state — pagination page, open
+verification modals and the half-filled form all survive (a plain
+conditional render would reset them). The manifest viewer deliberately stays
+in the host: a keep-mounted wrapper's display:none would hide the modal
+while internalTab === 'VIEW'. Also deleted: the unreachable
+`{false && <>…}` duplicate create-form modal (~265 lines of dead JSX).
+
+Guard: a new registerRefreshDomains test pins both KeepMounted wirings, the
+hoisted draft bin + host-filtered badge, and the host's zero-call surface;
+SCREEN_SURFACE_PINS now reads Shipments: [], ShipmentRegister: [the 3
+fallbacks], CreateShipmentForm: []. Coverage 63 → 65 screens (table 52 →
+54) — README/handoff/SESSION_NOTES tallies updated; suite 634 → 635 (+1
+guard test), 11 docs-count spots refreshed. Gates: tsc 0, 635/635 + docs
+gate, build.
+
+## ⭐ Keystroke coalescing — one commit per register search keystroke (2026-10-08)
+
+Typing in a register search box fired TWO commits per keystroke; both are now
+coalesced into one by moving the two hook-bridge syncs out of passive effects
+and into React's "adjusting state when a prop changes" pattern (adjust DURING
+RENDER so the correction lands in the SAME commit as the value that triggered
+it):
+(1) FilterCard's `setDraft(searchValue)` effect — the controlled/uncontrolled
+draft buffer — synced one commit late on every `searchValue` change (even when
+the draft already matched, because an equal-value setState from a passive
+effect does not bail out); (2) `useClientPagination`'s `setPageState(1)` reset
+effect — re-rendered even when the page was already 1 (same non-bailout), and
+on page > 1 needed a whole second commit to snap back. Attribution was proven
+with a temporary dev Profiler + an effect log: commit 1 = search state,
+commit 2 = the effect syncs. Verification in the browser (dev React, 40 seeded
+rows): header search typing 3 keystrokes → exactly 3 commits (was 6); typing
+on page 2 → 1 commit with the page reset landing in the same commit (range
+"16–30 of 40" → "1–15 of 40" in that commit); FilterCard's debounced input →
+1 light draft commit per keystroke + 1 apply commit, no redundant sync
+commit; Clear button + header↔draft mirroring parity confirmed. Both syncs
+were MOVED, not deleted (the draft still mirrors external searchValue
+changes; the page still snaps to 1 on filter change), and all 24
+`useClientPagination` consumers keep identical semantics — their resetKeys
+are render-stable (unstable ones would already have looped the old effect).
+Guard: `tests/searchSingleCommit.test.ts` (3 source pins — render-adjust
+present in both files, effect-based syncs absent, draft sync still present).
+Note: React 19.3 strips `Profiler onRender` from production builds entirely
+(0 occurrences in `react-dom-client.production.js`), so production commit
+profiling needs dispatch-window wall-clock timing instead. Suite now 635
+tests, 0 fail (tsc 0, build).
+
+---
 
 ## ⭐ Bootstrap trim — stockOperations/purchaseOrders/purchaseInvoices out of the payload (2026-10-08)
 
@@ -707,7 +776,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 631 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 635 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1274,7 +1343,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 631 tests, 0 fail). Live-verified:
+  key coverage; suite now 635 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1332,7 +1401,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 631 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 635 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1397,7 +1466,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 631 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 635 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1412,8 +1481,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   remount). Every App.tsx render site must pass its register counter (2 PO,
   2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-  (2) NEW — all 63 screens under client/src/features are pinned: a
-  SCREEN_SURFACE_PINS table (52 screens) + the 11 pinned above; an unpinned
+  (2) NEW — all 65 screens under client/src/features are pinned: a
+  SCREEN_SURFACE_PINS table (54 screens) + the 11 pinned above; an unpinned
   new screen fails coverage, and each pinned screen must match its exact
   surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
   `services/api` imports, because the audit found FinancialStatements.tsx
@@ -1435,7 +1504,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 631 tests, 0 fail.
+  failures, then reverted). Suite now 635 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1450,7 +1519,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 631 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 635 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

@@ -682,7 +682,15 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'settings/LocationsManagement.tsx': ['createLocation', 'getLocations'],
 
     // — write-only / auxiliary-read screens: grids render bootstrap props —
-    'procurement/Shipments.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
+    //   Shipments decomposition (2026-10-09): the 2,186-line screen split
+    //   into a thin host (header, tab bar, manifest viewer, toast — zero
+    //   server calls) plus ShipmentRegister (the three cancel/receive
+    //   fallbacks moved with their flows) and CreateShipmentForm (submits
+    //   through App callbacks only — must stay fetch-free, like
+    //   PurchaseInvoiceForm / PurchaseOrderForm).
+    'procurement/CreateShipmentForm.tsx': [],
+    'procurement/Shipments.tsx': [],
+    'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
     'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
@@ -810,6 +818,32 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         `client/src/features/${screen} gained or lost a server call — pin the new surface deliberately, and wire any paged data to a register key first`
       );
     }
+  });
+
+  test('Shipments stays a thin host: both subcomponents keep-mounted, draft bin hoisted, zero server calls', () => {
+    // Decomposition contract (2026-10-09): the host renders BOTH halves
+    // inside KeepMounted wrappers keyed on internalTab — the state the old
+    // monolith owned at component level (pagination page, open verification
+    // modals, half-filled create form) survives sub-tab switches only while
+    // the children stay mounted. An unwrapped child would remount (and reset)
+    // on every switch; a conditional render would lose the draft entirely.
+    const host = readFeatureSource('procurement/Shipments.tsx');
+    assert.match(
+      host,
+      /<KeepMounted visible=\{internalTab === 'REGISTER'\}>[\s\S]*?<ShipmentRegister\b/,
+      'the register must render inside a KeepMounted wrapper keyed on internalTab'
+    );
+    assert.match(
+      host,
+      /<KeepMounted visible=\{internalTab === 'CREATE_SHIPMENT'\}>[\s\S]*?<CreateShipmentForm\b/,
+      'the create form must render inside a KeepMounted wrapper keyed on internalTab'
+    );
+    // The tab badges render in the host: the CREATE badge counts the draft
+    // bin (so `lines` is hoisted out of the form) and the REGISTER badge
+    // counts the host-filtered rows (so the filter primitives are too).
+    assert.match(host, /const \[lines, setLines\] = useState<ShipmentFormLine\[\]>\(\[\]\);/);
+    assert.match(host, /\{filteredShipments\.length\}/);
+    assert.deepEqual(serverCallsIn(host), [], 'the host is chrome — header, tab bar, manifest viewer, toast');
   });
 
   test('no screen fetches around its pin — raw fetch/axios/EventSource banned everywhere', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 /**
@@ -29,11 +29,20 @@ export function useClientPagination<T>(
   const [page, setPageState] = useState(1);
   const [pageSize, setPageSize] = useState(defaultPageSize);
 
-  // Snap back to page 1 whenever the filters change.
-  useEffect(() => {
-    setPageState(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, resetKeys);
+  // Snap back to page 1 whenever the filters change. This is adjusted
+  // DURING RENDER (React's "adjusting state when a prop changes" pattern)
+  // rather than in an effect, so the page reset lands in the SAME commit as
+  // the filter update. The effect-based reset dispatched a second, redundant
+  // commit on every keystroke — even when the page was already 1 — because
+  // an equal-value setState coming from a passive effect does not bail out.
+  const [prevResetKeys, setPrevResetKeys] = useState<unknown[]>(resetKeys);
+  if (
+    resetKeys.length !== prevResetKeys.length ||
+    resetKeys.some((k, i) => !Object.is(k, prevResetKeys[i]))
+  ) {
+    setPrevResetKeys(resetKeys);
+    if (page !== 1) setPageState(1);
+  }
 
   const totalItems = items.length;
   const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));

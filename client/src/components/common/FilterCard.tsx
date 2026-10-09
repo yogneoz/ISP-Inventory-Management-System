@@ -55,10 +55,16 @@ export function FilterCard({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep the draft in sync when the applied value changes from outside
-  // (e.g. the Clear button).
-  useEffect(() => {
-    setDraft(searchValue);
-  }, [searchValue]);
+  // (e.g. the Clear button or the register's own search box). Adjusted
+  // DURING RENDER (React's "adjusting state when a prop changes" pattern)
+  // so the sync lands in the SAME commit as the searchValue update — an
+  // effect-based sync dispatched a second, redundant commit on every
+  // keystroke even when the draft already matched.
+  const [prevSearchValue, setPrevSearchValue] = useState(searchValue);
+  if (!Object.is(searchValue, prevSearchValue)) {
+    setPrevSearchValue(searchValue);
+    if (!Object.is(draft, searchValue)) setDraft(searchValue);
+  }
 
   useEffect(() => {
     return () => {
