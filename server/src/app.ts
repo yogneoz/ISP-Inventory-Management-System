@@ -50,7 +50,7 @@ import {
 import { hashPassword, verifyPassword, issueAuthToken, getUserFromReq, verifyAuthToken } from './middleware/auth';
 import {
   authenticateUser, requireAuth, requirePostgres, enforceFiscalYearWriteAccess,
-  requireRole, enforceOperationalPermissions, enforceBranchAccess, requirePermission,
+  requireRole, enforceOperationalPermissions, enforceBranchAccess, requirePermission, requirePermissionAny,
 } from './middleware';
 import { fetchFiscalYears, fetchOperationalData, fetchOpeningStock, parseSerialHistory } from './models/bootstrap.repo';
 import { errorHandler } from './errors/errorHandler';
@@ -116,7 +116,7 @@ export {
   withPrepended, withAppended, withReplaced, withSorted, mutable,
   hashPassword, verifyPassword, issueAuthToken, getUserFromReq, verifyAuthToken,
   authenticateUser, requireAuth, requirePostgres, enforceFiscalYearWriteAccess,
-  requireRole, enforceOperationalPermissions, enforceBranchAccess, requirePermission,
+  requireRole, enforceOperationalPermissions, enforceBranchAccess, requirePermission, requirePermissionAny,
   INITIAL_COMPANY_PROFILE, INITIAL_DOCUMENT_NUMBER_CONFIGS, INITIAL_MASTER_UOM,
   INITIAL_MASTER_LOCATIONS, INITIAL_MASTER_BRANCHES, INITIAL_MASTER_FISCAL_YEARS,
   INITIAL_MASTER_SUPPLIERS, EXAMPLE_USER_PASSWORD, INITIAL_EXAMPLE_USERS,

@@ -206,6 +206,10 @@ interface SidebarProps {
   pendingPoCount: number;
   pendingBillCount: number;
   inTransitShipmentCount: number;
+  /** Pending shipments destined for the central warehouse (receive-station badge). */
+  warehouseInboundCount?: number;
+  /** Pending transfers destined for the active branch (branch receive badge). */
+  branchInboundCount?: number;
   pendingApprovalCount?: number;
   onCloseMobile?: () => void;
   /**
@@ -242,6 +246,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingPoCount,
   pendingBillCount,
   inTransitShipmentCount,
+  warehouseInboundCount,
+  branchInboundCount,
   pendingApprovalCount,
   onCloseMobile,
   permissionsVersion,
@@ -436,7 +442,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'receive-shipment' as NavTab,
       label: 'Receive Inbound Stock & Pullouts',
       icon: Inbox,
-      badge: inTransitShipmentCount,
+      badge: warehouseInboundCount ?? inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
     });
   }
@@ -448,7 +454,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'receive-branch-transfer' as NavTab,
       label: 'Receive Branch Stock Transfer',
       icon: Inbox,
-      badge: inTransitShipmentCount,
+      badge: branchInboundCount ?? inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
     });
   }
@@ -462,18 +468,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isOperationAllowed('branch-pullout-dispatch', currentUser?.role)) {
     warehouseChildren.push({ id: 'pullout' as NavTab, label: 'Create Warehouse Pullout Bin', icon: ArrowUpRight });
   }
-  if (warehouseChildren.length > 0) {
+  if (isOperationAllowed('pullout-report-view', currentUser?.role)) {
     warehouseChildren.push({
       id: 'pullout-report' as NavTab,
       label: 'Warehouse Pullout Report',
       icon: ClipboardList,
       hasSeparatorAbove: true,
     });
+  }
+  if (warehouseChildren.length > 0) {
     groups.push({
       id: 'logistics',
       title: 'Warehouse & Transfers',
       icon: Truck,
-      badgeCount: inTransitShipmentCount,
+      badgeCount:
+        warehouseInboundCount !== undefined && branchInboundCount !== undefined
+          ? warehouseInboundCount + branchInboundCount
+          : inTransitShipmentCount,
       children: warehouseChildren,
     });
   }

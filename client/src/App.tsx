@@ -301,6 +301,7 @@ export default function App() {
     'receive-shipment': 'wh-receive-pullouts',
     'shipment-list': 'shipment-history',
     pullout: 'branch-pullout-dispatch',
+    'pullout-report': 'pullout-report-view',
     damage: 'branch-damage-mark',
     'receive-branch-transfer': 'branch-transfer-receive',
     'create-transfer': 'branch-transfer-create',
@@ -1501,6 +1502,33 @@ export default function App() {
         !dismissedSet.has(`ship-${sh.id}`)
     ).length + pendingPulloutsCount;
 
+  // Lane-scoped pending counts: each receive station's badge only counts the
+  // shipments that station can actually receive (warehouse lane incl. pending
+  // pullout bins, vs the active branch's inbound transfer lane) instead of
+  // one shared in-transit number shown on every receive nav item.
+  const isWarehouseDestination = (branchId: string) => {
+    const destBranch = branches.find((x) => x.id === branchId);
+    return (
+      branchId === 'WH001' ||
+      Boolean(destBranch?.isHeadquarters || destBranch?.isWarehouse) ||
+      (destBranch?.code || '').toUpperCase().startsWith('WH') ||
+      /warehouse|head office/i.test(destBranch?.name || '')
+    );
+  };
+  const isPendingShipment = (sh: (typeof shipments)[number]) =>
+    (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
+    !dismissedSet.has(`ship-${sh.id}`);
+  const warehouseInboundCount =
+    shipments.filter(
+      (sh) => isPendingShipment(sh) && isWarehouseDestination(sh.destinationBranchId)
+    ).length + pendingPulloutsCount;
+  const branchInboundCount = shipments.filter(
+    (sh) =>
+      isPendingShipment(sh) &&
+      !isWarehouseDestination(sh.destinationBranchId) &&
+      (activeBranchContext === 'ALL' || sh.destinationBranchId === activeBranchContext)
+  ).length;
+
   const handleDismissNotification = (id: string) => {
     setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
   };
@@ -1686,6 +1714,8 @@ export default function App() {
             pendingPoCount={pendingPoCount}
             pendingBillCount={pendingBillCount}
             inTransitShipmentCount={inTransitShipmentCount}
+            warehouseInboundCount={warehouseInboundCount}
+            branchInboundCount={branchInboundCount}
             pendingApprovalCount={approvalRequests.filter(
               (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
             ).length}

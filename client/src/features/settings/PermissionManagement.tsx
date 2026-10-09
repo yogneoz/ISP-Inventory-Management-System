@@ -127,6 +127,12 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         description: 'Audit shipment transfer codes, tracking logs, and in-transit statuses',
         permissions: DEFAULT_PERMISSIONS_MATRIX['shipment-history'],
       },
+      {
+        id: 'pullout-report-view',
+        operationName: 'View Warehouse Pullout Report',
+        description: 'Read-only branch register of pullout bins dispatched to HQ with their receiving status',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['pullout-report-view'],
+      },
     ],
   },
   {

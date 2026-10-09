@@ -13,9 +13,7 @@ import {
   getPgConnected,
   inventoryStock,
   issueNextDocNumber,
-  logAuditEvent,
-  requirePermission,
-  setShipments,
+  logAuditEvent,  requirePermission, requirePermissionAny, requireAuth, setShipments,
   shipments,
   withPrepended,
   withReplaced,
@@ -24,11 +22,11 @@ import {
 import { pgPool } from '../app';
 
 export function registerShipmentsRoutes(app: Express) {
-app.get('/api/shipments', async (req, res, next) => { get_shipments(req as any, res as any).catch(next); });
+app.get('/api/shipments', requireAuth, async (req, res, next) => { get_shipments(req as any, res as any).catch(next); });
 
 app.post('/api/shipments', requirePermission('shipment-create'), async (req, res, next) => { post_shipments(req as any, res as any).catch(next); });
 
-app.post('/api/shipments/:id/receive', requirePermission('wh-receive-pullouts'), async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
+app.post('/api/shipments/:id/receive', requirePermissionAny('wh-receive-pullouts', 'branch-transfer-receive'), async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
 
 app.post('/api/shipments/:id/cancel', async (req, res, next) => { post_cancel(req as any, res as any).catch(next); });
 

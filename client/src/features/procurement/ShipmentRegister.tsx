@@ -531,10 +531,37 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
                 shipmentPagination.pagedItems.map((sh) => {
                   const pendingCancelReq = approvalRequests?.find(
                     (r) =>
-                      r.type === 'CANCEL_RECEIVE_TRANSFER' &&
+                      (r.type === 'CANCEL_RECEIVE_TRANSFER' ||
+                        r.type === 'CANCEL_IN_TRANSIT_TRANSFER' ||
+                        r.type === 'CANCEL_TRANSFER') &&
                       (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) &&
                       r.status === 'PENDING'
                   );
+
+                  // Receiving is destination-side and lane-scoped, mirroring
+                  // the server's post_receive gate: the warehouse lane
+                  // (pullouts/inbound) needs wh-receive-pullouts, the branch
+                  // lane needs branch-transfer-receive, and the destination
+                  // must be a branch this account operates. Low-privilege
+                  // roles therefore get a view-only row.
+                  const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId);
+                  const destIsWarehouse =
+                    sh.destinationBranchId === 'WH001' ||
+                    Boolean(destBranchObj?.isHeadquarters || destBranchObj?.isWarehouse) ||
+                    (destBranchObj?.code || '').toUpperCase().startsWith('WH') ||
+                    /warehouse|head office/i.test(destBranchObj?.name || '');
+                  const laneReceiveOp = destIsWarehouse ? 'wh-receive-pullouts' : 'branch-transfer-receive';
+                  const canReceiveLane = isOperationAllowed(laneReceiveOp, currentUser?.role);
+                  const receiverBranches = new Set<string>([
+                    currentUser?.branchId || '',
+                    ...(currentUser?.allowedBranchIds || []),
+                  ]);
+                  const destInScope =
+                    !currentUser?.branchId ||
+                    currentUser.branchId === 'ALL' ||
+                    receiverBranches.has(sh.destinationBranchId);
+                  const receiverActive = !['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(sh.status);
+                  const canShowReceiveButton = canReceiveLane && destInScope && receiverActive;
 
                   return (
                   <tr key={sh.id} className={`transition-colors ${
@@ -596,8 +623,8 @@ export const ShipmentRegister: React.FC<ShipmentRegisterProps> = ({
                           <Eye className="h-3.5 w-3.5" />
                         </button>
 
-                        {/* Receiving verification button for destination branch */}
-                        {sh.status !== 'RECEIVED' && sh.status !== 'CANCELLED' && (
+                        {/* Receiving verification button — destination-side, lane- and scope-gated */}
+                        {canShowReceiveButton && (
                           <button
                             onClick={() => openReceiveModal(sh)}
                             title="Acknowledge & Receive Inbound Stock"

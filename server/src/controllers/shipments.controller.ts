@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, logAuditEvent } from '../app';
+import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, logAuditEvent } from '../app';
 import {
   SHIPMENT_LIST_SQL, SHIPMENT_EXISTS_SQL, SHIPMENT_UPSERT_SQL, shipmentUpsertParams,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
@@ -16,16 +16,38 @@ import {
 } from '../models/shipments.repo';
 /** Forwarded from shipments.routes.ts (get_shipments). */
 export async function get_shipments(req: any, res: Response): Promise<any> {
-if (getPgConnected()) {
+// Audience scoping: branch-bound accounts only ever see shipments that
+  // touch one of their own branches (mirrors the bootstrap scope for these
+  // roles); SUPER_ADMIN and HQ-wide accounts see everything. The route is
+  // authenticated via requireAuth, so req.user is present.
+  const user = req.user || getUserFromReq(req);
+  const scoped = (rows: readonly any[]): readonly any[] => {
+    if (
+      !user ||
+      user.role === 'SUPER_ADMIN' ||
+      user.role === 'HEAD_OFFICE_ADMIN' ||
+      !user.branchId ||
+      user.branchId === 'ALL'
+    ) {
+      return rows;
+    }
+    const mine = new Set<string>([user.branchId, ...(user.allowedBranchIds || [])]);
+    return rows.filter((row) => {
+      const src = row.sourceBranchId ?? row.source_branch_id;
+      const dst = row.destinationBranchId ?? row.destination_branch_id;
+      return mine.has(src) || mine.has(dst);
+    });
+  };
+  if (getPgConnected()) {
     try {
       const r = await pgPool.query(SHIPMENT_LIST_SQL);
-      res.json(r.rows);
+      res.json(scoped(r.rows));
       return;
     } catch (err) {
       console.error('Error fetching shipments from DB:', err);
     }
   }
-  res.json(shipments);
+  res.json(scoped(shipments));
 
 }
 
@@ -139,6 +161,51 @@ try {
     if (['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(sh.status)) {
       res.status(409).json({ message: `Shipment ${sh.trackingCode} is already ${sh.status.toLowerCase()} and cannot be received again.` });
       return;
+    }
+
+    // Lane scoping: the route accepts EITHER warehouse receiving (pullouts,
+    // supplier inbound) OR branch-transfer receiving (inter-branch lanes),
+    // but each shipment only unlocks its own lane's operation in the
+    // permission matrix. This is what makes a Permission Management toggle
+    // authoritative: disabling wh-receive-pullouts stops warehouse-lane
+    // receipts, and disabling branch-transfer-receive stops transfer
+    // receipts on branch lanes. SUPER_ADMIN keeps its matrix bypass, and
+    // enforceBranchAccess has already constrained branch-bound accounts to
+    // shipments touching their own branches.
+    const receiveUser = req.user || getUserFromReq(req);
+    if (!receiveUser || !receiveUser.email) {
+      return res.status(401).json({ message: 'Unauthorized: Authentication required' });
+    }
+    if (receiveUser.role !== 'SUPER_ADMIN') {
+      // Destination affinity: receiving always happens on the destination
+      // side, so the destination branch must fall inside the account's own
+      // branch scope (branch users: their branch; HQ-wide accounts: any).
+      const receiverBranches = new Set<string>([
+        receiveUser.branchId || '',
+        ...(receiveUser.allowedBranchIds || []),
+      ]);
+      const destInScope =
+        !receiveUser.branchId ||
+        receiveUser.branchId === 'ALL' ||
+        receiverBranches.has(sh.destinationBranchId);
+      if (!destInScope) {
+        return res.status(403).json({
+          message: `Forbidden: shipment ${sh.trackingCode} is not destined for a branch you operate.`,
+        });
+      }
+      const destBranch = branches.find((b) => b.id === sh.destinationBranchId);
+      const destIsWarehouse =
+        sh.destinationBranchId === 'WH001' ||
+        Boolean(destBranch?.isHeadquarters || destBranch?.isWarehouse) ||
+        (destBranch?.code || '').toUpperCase().startsWith('WH') ||
+        /warehouse|head office/i.test(destBranch?.name || '');
+      const laneOp = destIsWarehouse ? 'wh-receive-pullouts' : 'branch-transfer-receive';
+      const laneRow = permissionMatrix[laneOp];
+      if (!laneRow || !laneRow[receiveUser.role]) {
+        return res.status(403).json({
+          message: `Forbidden: role '${receiveUser.role}' is not permitted for operation '${laneOp}' on this receiving lane.`,
+        });
+      }
     }
 
     let hasDiscrepancy = false;

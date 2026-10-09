@@ -38,6 +38,10 @@ export const StockOperationsTabBar: React.FC<{ initialType?: string }> = ({ init
     saleOperations,
     shipments,
   } = useStockOperationsCtx();
+  // Report screens are read-only registers: they mount their panel directly
+  // and render no tab strip, so the report cannot be used to hop into the
+  // dispatch/receive panels it only documents.
+  if (initialType === 'PULLOUT_REPORT' || initialType === 'DAMAGE_REPORT') return null;
   return (
       <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto border-slate-200 dark:border-slate-800`}>
         {initialType !== 'PULLOUT' && initialType !== 'DAMAGE' && initialType !== 'PULLOUT_REPORT' && initialType !== 'DAMAGE_REPORT' && (() => {

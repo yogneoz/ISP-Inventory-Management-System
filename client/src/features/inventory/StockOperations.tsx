@@ -390,7 +390,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     onCancelReceiveShipment,
     onCreateOperation,
     onCreateShipment,
-    onReceiveOperation,
+    // Report mode is view-only: PulloutBinsPanel hides its Receive action
+    // when this is undefined, keeping the Warehouse Pullout Report read-only.
+    onReceiveOperation: initialType === 'PULLOUT_REPORT' ? undefined : onReceiveOperation,
     onReceiveShipment,
     onRequestApproval,
     onReverseConsumableIssue,

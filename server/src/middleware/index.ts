@@ -176,12 +176,12 @@ export async function enforceBranchAccess(req: any, res: any, next: any) {
 }
 
 /**
- * Matrix-based operation permission middleware.
- * Checks the user's role against the server-side permission matrix,
- * then enforces branch-level procurement/warehouse-transfer flags.
- * SUPER_ADMIN bypasses the matrix but is still bound by branch flags.
+ * Matrix-based operation permission middleware accepting ANY of the listed
+ * operations (OR semantics). Checks the user's role against the server-side
+ * permission matrix, then enforces branch-level procurement/warehouse-transfer
+ * flags. SUPER_ADMIN bypasses the matrix but is still bound by branch flags.
  */
-export function requirePermission(operationId: string) {
+export function requirePermissionAny(...operationIds: string[]) {
   return async (req: any, res: any, next: any) => {
     const user = req.user || getUserFromReq(req);
     if (!user || !user.email) {
@@ -197,39 +197,44 @@ export function requirePermission(operationId: string) {
     const relevantBranchIds = Array.from(new Set([branchId, sourceBranchId].filter(Boolean)));
     const restrictedBranches = relevantBranchIds.map((id) => branches.find((b) => b.id === id)).filter(Boolean) as Array<typeof branches[number]>;
     const allowProcurement = restrictedBranches.every((branch) => branch.allowProcurement !== false);
-    const allowWarehouseTransfer = restrictedBranches.every((branch) => branch.allowWarehouseTransfer !== false);
+    const allowWarehouseTransfer = restrictedBranches.every((branch) => branch.allowWarehouseTransfer !== false);    const procurementOps = ['po-create', 'po-receive', 'inv-create', 'inv-pay'];
+    const warehouseTransferOps = ['wh-restrict-transfer', 'branch-transfer-create'];
+    const touchesProcurement = operationIds.some((id) => procurementOps.includes(id));
+    const touchesWarehouseTransfer = operationIds.some((id) => warehouseTransferOps.includes(id));
 
     if (role === 'SUPER_ADMIN') {
-      if (
-        allowProcurement === false &&
-        (operationId === 'po-create' || operationId === 'po-receive' || operationId === 'inv-create' || operationId === 'inv-pay')
-      ) {
+      if (allowProcurement === false && touchesProcurement) {
         return res.status(403).json({ message: `Forbidden: procurement is disabled on branch '${branchId}'.` });
       }
-      if (
-        allowWarehouseTransfer === false &&
-        (operationId === 'wh-restrict-transfer' || operationId === 'branch-transfer-create')
-      ) {
+      if (allowWarehouseTransfer === false && touchesWarehouseTransfer) {
         return res.status(403).json({ message: `Forbidden: warehouse transfer is restricted on branch '${branchId}'.` });
       }
       return next();
     }
 
-    const opRow = permissionMatrix[operationId];
-    if (!opRow || !opRow[role]) {
+    const allowedByMatrix = operationIds.some((operationId) => {
+      const opRow = permissionMatrix[operationId];
+      return Boolean(opRow && opRow[role]);
+    });
+    if (!allowedByMatrix) {
       return res.status(403).json({
-        message: `Forbidden: role '${role}' is not permitted for operation '${operationId}'.`,
+        message: `Forbidden: role '${role}' is not permitted for operation '${operationIds.join("' or '")}'.`,
       });
     }
 
-    if (allowProcurement === false && (operationId === 'po-create' || operationId === 'po-receive' || operationId === 'inv-create' || operationId === 'inv-pay')) {
+    if (allowProcurement === false && touchesProcurement) {
       return res.status(403).json({ message: `Forbidden: procurement is disabled on branch '${branchId}'.` });
     }
-    if (allowWarehouseTransfer === false && (operationId === 'wh-restrict-transfer' || operationId === 'branch-transfer-create')) {
+    if (allowWarehouseTransfer === false && touchesWarehouseTransfer) {
       return res.status(403).json({ message: `Forbidden: warehouse transfer is restricted on branch '${branchId}'.` });
     }
 
     req.user = user;
     next();
   };
+}
+
+/** Single-operation convenience wrapper over requirePermissionAny. */
+export function requirePermission(operationId: string) {
+  return requirePermissionAny(operationId);
 }
