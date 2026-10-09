@@ -27,6 +27,8 @@
  *   8. ShipmentRegister's Receive button is lane- and scope-gated
  *      (view-only rows for low-privilege roles).
  *   9. Receive-station badges are lane-scoped instead of one shared number.
+ *  10. Registers 2 and 3 share ONE receive-verification workflow module
+ *      (the duplicated handler + modal copies are gone).
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -156,6 +158,46 @@ describe('register audience contract', () => {
     assert.ok(
       register.includes('receiverBranches.has(sh.destinationBranchId)'),
       'the Receive action must require destination affinity, mirroring the server'
+    );
+  });
+
+  test('Registers 2 and 3 share a single receive-verification workflow', () => {
+    const shared = 'client/src/components/common/ReceiveVerificationModal.tsx';
+    const modal = read(shared);
+    assert.ok(
+      modal.includes('export function useReceiveVerification') &&
+        modal.includes('export const ReceiveVerificationModal'),
+      'the shared module must export both the hook and the modal component'
+    );
+    const register = read('client/src/features/procurement/ShipmentRegister.tsx');
+    const panel = read('client/src/features/inventory/stockops/ReceiveTransferPanel.tsx');
+    for (const [name, source] of [['ShipmentRegister', register], ['ReceiveTransferPanel', panel]] as const) {
+      assert.ok(
+        source.includes('useReceiveVerification('),
+        `${name} must consume the shared receive-verification hook`
+      );
+      assert.ok(
+        source.includes('<ReceiveVerificationModal receive={receive} />'),
+        `${name} must render the shared modal`
+      );
+      assert.ok(
+        !source.includes('const openReceiveModal = (sh: Shipment)'),
+        `${name} must not carry its own copy of the receive handlers`
+      );
+      assert.ok(
+        !source.includes('Inbound Stock Physical Verification'),
+        `${name} must not carry its own copy of the receive modal JSX`
+      );
+    }
+    // Each register keeps its own BS-date policy: the stock-ops panel injects
+    // the StockOperations gate, the procurement register has never had one.
+    assert.ok(
+      panel.includes('useReceiveVerification({ onReceiveShipment, ensureBsDateAvailable, notify: showToast })'),
+      'ReceiveTransferPanel must keep injecting the BS-date gate'
+    );
+    assert.ok(
+      register.includes('useReceiveVerification({ onReceiveShipment, notify: showToast })'),
+      'ShipmentRegister must keep its no-BS-gate behaviour through the shared hook'
     );
   });
 
