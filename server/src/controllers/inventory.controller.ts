@@ -720,7 +720,11 @@ try {
       stockRecord.quantityOnHand -= qty;
       stockRecord.lastUpdated = new Date().toISOString();
       setTransactionLogs([txn as any, ...transactionLogs]);
-      if (newAsset.deviceSerial) {
+      // PG-down demo mode only: flip the mirror serial directly. With PG
+      // connected, SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL already ran inside the
+      // write transaction above and cacheRefreshHook re-derives serialLogs
+      // from PG truth before the response is sent (mirror step 4).
+      if (newAsset.deviceSerial && !getPgConnected()) {
         const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(newAsset.deviceSerial).trim().toLowerCase() && e.status === 'IN_STOCK');
         if (sl) {
           sl.status = newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED';
@@ -805,7 +809,10 @@ try {
           stockRecord.lastUpdated = new Date().toISOString();
         }
         setTransactionLogs([restockTxn as any, ...transactionLogs]);
-        restoreInMemorySerial(serialLogs, asset);
+        // PG-down demo mode only: with PG connected,
+        // SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL above already restored the serial
+        // in the transaction and cacheRefreshHook re-derives the mirror.
+        if (!getPgConnected()) restoreInMemorySerial(serialLogs, asset);
         logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
       }
     }
@@ -1123,10 +1130,14 @@ try {
           }
           if (opType === 'DAMAGE') {
             stockRecord.damagedQty = (stockRecord.damagedQty || 0) + quantity;
-            // Mirror the serial quarantine (IN_STOCK → DAMAGED) into the
-            // in-memory register so the Serial Log Register UI reflects it
-            // without a reload.
-            quarantineInMemorySerials(serialLogs, [item] as any, newOp as any);
+            // PG-down demo mode only: mirror the serial quarantine directly.
+            // With PG connected, quarantineSerialsInDb already wrote the
+            // IN_STOCK → DAMAGED transition inside the same transaction and
+            // the Serial Log Register reads PG (cacheRefreshHook reconciles
+            // the mirror after the response).
+            if (!getPgConnected()) {
+              quarantineInMemorySerials(serialLogs, [item] as any, newOp as any);
+            }
             // Keep the in-memory damage register in lock-step with the DB so
             // the Damaged Stock screen and ledger reflect it immediately.
             const damageRef = `${newOp.referenceNumber}-${item.productId}`;
@@ -1327,14 +1338,18 @@ try {
     setInventoryStock(stockRows);
     setDamageRecords(cancelledRecords);
 
-    // Mirror the serial restoration into the in-memory register too.
-    restoreInMemorySerials(
-      mutable(serialLogs),
-      operationItems.flatMap((item: any) => (Array.isArray(item.deviceSerials) ? item.deviceSerials : [])),
-      op,
-      `Restored — damage ${op.referenceNumber} reversed by ${reversedBy}: ${reason}`,
-      reversalDateAD
-    );
+    // PG-down demo mode only: mirror the serial restoration directly. With PG
+    // connected, restoreSerialsInDb already ran inside the transaction above
+    // and cacheRefreshHook re-derives the mirror from PG after the response.
+    if (!getPgConnected()) {
+      restoreInMemorySerials(
+        mutable(serialLogs),
+        operationItems.flatMap((item: any) => (Array.isArray(item.deviceSerials) ? item.deviceSerials : [])),
+        op,
+        `Restored — damage ${op.referenceNumber} reversed by ${reversedBy}: ${reason}`,
+        reversalDateAD
+      );
+    }
 
     setTransactionLogs([
       ...(reversalLedger.length > 0 ? reversalLedger : reversalLedgerDemo).filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),

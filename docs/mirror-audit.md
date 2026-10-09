@@ -201,9 +201,15 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
    rename/exchange reads (finding 6); point `stockOperations` find-by-id
    AND the legacy unfiltered GET at PG (finding 4) — guarded by
    `tests/mirrorStep3.test.ts`.
-4. **Hard (needs SQL guard design):** stock pre-flight into transactions
-   (finding 3) with `SELECT ... FOR UPDATE`; then `serialLogs` narrow uses
-   (finding 2).
+4. ✅ **DONE (step 4, 2026-10-09):** stock pre-flight into transactions
+   (finding 3) with `SELECT ... FOR UPDATE` — shipped as lock-and-re-verify
+   in `post_stockOperations` / `post_reverse` / `post_assets` (Arc 6, C3);
+   then `serialLog`s narrow uses (finding 2) — all five gated to PG-down
+   demo mode with `!getPgConnected()` (deploy flip, unassign restore, damage
+   quarantine, damage-reverse restore, serial-edit clash pre-check + mirror
+   rename); PG checks/writes in the same request are authoritative and
+   cacheRefreshHook re-derives the mirror from PG after the response.
+   Guarded by `tests/serialLogsMirrorGate.test.ts`.
 5. **Consumer-driven:** PO/PI/shipments/vendorPayments mirrors die as the
    last bootstrap consumers move to PG fetches (finding 10) — tracked in
    the bootstrap trim list in bootstrap.controller.ts.
@@ -216,10 +222,12 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
   computes `quantityBefore` from `inventoryStock`; if the mirror is stale
   (write from another process), the ledger shows wrong before/after values.
   The PG update itself is guarded, so stock stays correct — but the ledger
-  audit trail can be wrong. Fix belongs with step 4.
+  audit trail can be wrong. — ✅ FIXED (step 4 / B1): the ledger reads
+  `quantityBefore` from the guarded UPDATE's RETURNING rows.
 - **Pre-flight races:** mirror-based availability checks allow two
   concurrent issues of the same last unit to both pass pre-flight; the
   SQL guards then reject one — error surface is uglier than a pre-flight
-  400, but no data corruption.
+  400, but no data corruption. — ✅ FIXED (step 4 / Arc 6 C3): the verdict
+  is now lock-and-re-verify inside the write transaction.
 - **`get_stockOperations` legacy path** served the mirror even when PG was
   up — ✅ FIXED in step 3 (2026-10-08): it reads PG whenever connected.

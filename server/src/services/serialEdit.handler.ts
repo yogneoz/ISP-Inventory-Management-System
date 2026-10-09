@@ -353,8 +353,13 @@ export async function handleUpdateSerials(req: any, res: any) {
       }
     });
 
-    // In-memory serial_log sync (one row per serial, reject duplicate).
-    {
+    // In-memory serial_log sync (one row per serial, reject duplicate) —
+    // PG-down demo mode only. With PG connected, the duplicate checks above
+    // and the cascading-update transaction are authoritative, and
+    // cacheRefreshHook re-derives serialLogs from PG after the response; a
+    // stale mirror row here could wrongly reject a rename PG already
+    // committed (mirror step 4).
+    if (!getPgConnected()) {
       const nowIso = new Date().toISOString();
       // Reject if a different row already holds the target serial
       const clash = findInMemorySerialClash(serialLogs, normalizedDeviceSerial, oldDeviceSerial);

@@ -1,6 +1,38 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 645/645 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 648/648 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ Mirror retirement step 4 COMPLETE — serialLogs mirror is demo-mode only (2026-10-09)
+
+The last unfinished half of step 4 (Arc 6 had shipped the FOR UPDATE half):
+five narrow `serialLogs` mirror sites still decided or mutated state on every
+request even when PG was connected, where the authoritative write/check had
+already run inside the same request's transaction:
+- post_assets deploy flip IN_STOCK → CUSTOMER/POP_ASSIGNED (controller ~724)
+- patch_status unassign restore (`restoreInMemorySerial` ~811)
+- damage create quarantine (`quarantineInMemorySerials` ~1132)
+- damage reverse restore (`restoreInMemorySerials` ~1334)
+- serial-edit clash pre-check + mirror rename (serialEdit.handler ~356/367)
+
+Fix: every site is now gated on `!getPgConnected()` — the mirror serves
+PG-down demo mode ONLY. With PG connected the same request already ran
+SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL / SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL /
+quarantineSerialsInDb / restoreSerialsInDb / the serial-edit duplicate checks
++ cascading-update tx, and cacheRefreshHook re-derives serialLogs from PG
+truth before the response is sent (serial_log ∈ CACHE_LOADS; its `apply`
+unconditionally reassigns, no rows.length guard) — so the mirror writes were
+pure redundancy, and the register reads are PG-backed anyway.
+
+Bonus correctness fix: the serial-edit clash pre-check ran AFTER the PG
+rename transaction committed, so a stale mirror row could 409 a rename
+PostgreSQL had already accepted. Gating removes that hazard entirely.
+
+Guard: new `tests/serialLogsMirrorGate.test.ts` (+3 tests, +14 assertions →
+648/648): source pins all five sites inside an `!getPgConnected()` scope and
+pins that the serial_log cache-load `apply` still reassigns from PG rows (the
+reconciliation the gate depends on). docs/mirror-audit.md step 4 marked
+DONE — retirement steps 1–4 all complete; step 5 (consumer-driven bootstrap
+trim) is the last, and it's byte-plumbing, not correctness.
 
 ## ⭐ Four-register audience contract — lane permissions, branch scoping, view-only report (2026-10-09)
 
@@ -836,7 +868,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 645 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 648 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1276,13 +1308,13 @@ unseeded calendar days use BS_DATE_FALLBACK.
 - Point `stockOperations` find-by-id at PG + serve the legacy `get_stockOperations` GET
   live from PG — DONE (`STOCK_OPERATION_FIND_BY_ID_SQL`; guarded by `tests/mirrorStep3.test.ts`).
 
-### 3. Mirror retirement step 4 (HARD — needs design)
-- Replace mirror-based stock pre-flight checks with `SELECT … FOR UPDATE` inside the write
-  transaction (pattern exists in `post_receive`). NOTE: the reversal-ledger half of this
-  is already fixed (B1 above — ledger reads RETURNING rows), what remains is the
-  two-concurrent-issues pre-flight race and friendlier error surface.
-- Then drop `serialLogs` mirror's 3 narrow uses (clash pre-check app.ts ~1317,
-  quarantine/restore in damage flows, serial PATCH lookup ~1829) — PG equivalents already run.
+### 3. Mirror retirement step 4 — ✅ DONE (2026-10-09, see ⭐ entry at top)
+- Stock pre-flight race + friendlier errors: done earlier (Arc 6 — C3
+  lock-and-re-verify with `STOCK_LOCK_FOR_UPDATE_SQL` inside the write tx).
+- `serialLogs` mirror narrow uses: done (2026-10-09) — all five sites (deploy
+  flip, unassign restore, damage quarantine, damage-reverse restore,
+  serial-edit clash pre-check + rename) gated to PG-down demo mode; guarded
+  by `tests/serialLogsMirrorGate.test.ts`.
 
 ### 4. Redis Pub/Sub event bus — DECLINED (decided 2026-09-26, do not re-litigate)
 - Decision: NOT needed for this deployment. Rationale: single Node process
@@ -1403,7 +1435,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 645 tests, 0 fail). Live-verified:
+  key coverage; suite now 648 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1461,7 +1493,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 645 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 648 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1526,7 +1558,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 645 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 648 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1564,7 +1596,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 645 tests, 0 fail.
+  failures, then reverted). Suite now 648 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1579,7 +1611,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 645 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 648 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
