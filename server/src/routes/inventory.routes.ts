@@ -76,7 +76,11 @@ app.post('/api/stock-operations/:id/reverse', requireRole('SUPER_ADMIN', 'INVENT
 
 app.post('/api/stock-operations/:id/reverse-consumable', requirePermission('consumable-issue-reverse'), async (req, res, next) => { post_reverseConsumable(req as any, res as any).catch(next); });
 
-app.post('/api/stock-operations/:id/receive', async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
+// Receive-lane gate: the client only offers this action when the role holds
+// 'wh-receive-pullouts' (PulloutBinsPanel), but the route had no server-side
+// check — any authenticated role could credit warehouse stock by calling it
+// directly. The matrix op is now enforced here, exactly as the UI implies.
+app.post('/api/stock-operations/:id/receive', requirePermission('wh-receive-pullouts'), async (req, res, next) => { post_receive(req as any, res as any).catch(next); });
 
 app.get('/api/customer-devices', async (req, res, next) => { get_customerDevices(req as any, res as any).catch(next); });
 
