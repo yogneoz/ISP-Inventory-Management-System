@@ -8,7 +8,7 @@
 import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, logAuditEvent } from '../app';
 import {
-  SHIPMENT_LIST_SQL, SHIPMENT_EXISTS_SQL, SHIPMENT_UPSERT_SQL, shipmentUpsertParams,
+  SHIPMENT_LIST_SQL, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
@@ -54,7 +54,35 @@ export async function get_shipments(req: any, res: Response): Promise<any> {
 /** Forwarded from shipments.routes.ts (post_shipments). */
 export async function post_shipments(req: any, res: Response): Promise<any> {
 try {
-    const sourceBranch = branches.find((b) => b.id === req.body.sourceBranchId);
+    // VULN-001/003: authorize on the EFFECTIVE branch ids — the branches the
+    // request will actually act on — not only the fields the client chose to
+    // send. A missing source defaults to the caller's own branch (never a
+    // different one); HQ-wide accounts (SUPER/HEAD_OFFICE, or a signed
+    // 'ALL'/empty branch scope) keep the legacy first-branch default.
+    const createActor = req.user || getUserFromReq(req) || {};
+    const hqWideCreator =
+      createActor.role === 'SUPER_ADMIN' ||
+      createActor.role === 'HEAD_OFFICE_ADMIN' ||
+      !createActor.branchId ||
+      createActor.branchId === 'ALL';
+    const creatorScope = new Set<string>([createActor.branchId || '', ...(createActor.allowedBranchIds || [])]);
+    const effectiveSourceBranchId =
+      (typeof req.body.sourceBranchId === 'string' && req.body.sourceBranchId) ||
+      (hqWideCreator ? (branches[0]?.id || 'WH001') : createActor.branchId) ||
+      '';
+    const effectiveDestBranchId = typeof req.body.destinationBranchId === 'string' ? req.body.destinationBranchId : '';
+    if (!hqWideCreator) {
+      const effectiveBranches: Array<[string, string]> = [
+        ['source', effectiveSourceBranchId],
+        ['destination', effectiveDestBranchId],
+      ];
+      for (const [label, branchId] of effectiveBranches) {
+        if (branchId && !creatorScope.has(branchId)) {
+          return res.status(400).json({ message: `Forbidden: the ${label} branch '${branchId}' is outside your branch scope.` });
+        }
+      }
+    }
+    const sourceBranch = branches.find((b) => b.id === effectiveSourceBranchId);
     const destBranch = branches.find((b) => b.id === req.body.destinationBranchId);
 
     // BS calendar gate: a shipment dispatch may only be posted when its date
@@ -74,13 +102,17 @@ try {
       });
     }
 
-    const sourceBranchId = req.body.sourceBranchId || branches[0]?.id || 'WH001';
+    const sourceBranchId = effectiveSourceBranchId;
     const trackingCode = req.body.trackingCode || (await issueNextDocNumber(sourceBranchId, 'ST', dispatchDateAD));
 
     const newShipment = {
       ...req.body,
       id: req.body.id || `sh-${Date.now()}`,
       trackingCode,
+      // Stamped AFTER the spread so an omitted source can never erase the
+      // effective branch the create was authorized against (VULN-001): the
+      // stock deduction below now always runs against a real, in-scope branch.
+      sourceBranchId,
       sourceBranchName: sourceBranch?.name || req.body.sourceBranchName || 'Source',
       destinationBranchName: destBranch?.name || req.body.destinationBranchName || 'Destination',
       // Date integrity: the AD dispatch date stays in the AD column, and the BS
@@ -92,10 +124,24 @@ try {
       items: req.body.items || [],
     };
 
-    let shipmentAlreadyExists = shipments.some((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode);
-    if (getPgConnected() && !shipmentAlreadyExists) {
-      const existing = await pgPool.query(SHIPMENT_EXISTS_SQL, [newShipment.id, newShipment.trackingCode]);
-      shipmentAlreadyExists = existing.rowCount === 1;
+    // VULN-003: a client-supplied id / tracking code may name an existing
+    // shipment. Overwriting its status/items is only allowed when that
+    // shipment touches the caller's own branches; otherwise it is an
+    // out-of-scope overwrite.
+    let existingRow: { sourceBranchId?: string | null; destinationBranchId?: string | null } | null =
+      (shipments.find((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode) as any) || null;
+    if (getPgConnected()) {
+      const existing = await pgPool.query(SHIPMENT_FIND_FOR_OVERWRITE_SQL, [newShipment.id, newShipment.trackingCode]);
+      if (existing.rows[0]) existingRow = existing.rows[0];
+    }
+    const shipmentAlreadyExists = Boolean(existingRow);
+    if (existingRow && !hqWideCreator) {
+      const touched = [existingRow.sourceBranchId, existingRow.destinationBranchId].filter(Boolean) as string[];
+      if (!touched.some((branchId) => creatorScope.has(branchId))) {
+        return res.status(403).json({
+          message: 'Forbidden: a shipment with this id or tracking code already exists outside your branch scope.',
+        });
+      }
     }
 
     const idx = shipments.findIndex((s) => s.id === newShipment.id);
@@ -160,6 +206,16 @@ try {
     if (!sh) return res.status(404).json({ message: 'Shipment not found' });
     if (['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(sh.status)) {
       res.status(409).json({ message: `Shipment ${sh.trackingCode} is already ${sh.status.toLowerCase()} and cannot be received again.` });
+      return;
+    }
+
+    // VULN-001: a shipment without a source branch never deducted inventory
+    // (legacy rows or the pre-fix create omission), so crediting the
+    // destination would fabricate stock out of nothing.
+    if (!sh.sourceBranchId) {
+      res.status(400).json({
+        message: `Shipment ${sh.trackingCode} has no source branch, so its receipt would fabricate stock. Cancel it and recreate the dispatch from the sending branch.`,
+      });
       return;
     }
 
@@ -266,7 +322,10 @@ try {
 export async function post_cancel(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const { user, reason } = req.body || {};
+    const { reason } = req.body || {};
+    // Actor identity comes from the verified session, never the request body
+    // (VULN-002): a spoofed body user must not reach the audit trail.
+    const cancelActor = req.user || getUserFromReq(req) || {};
 
     let sh = shipments.find((s) => s.id === id || s.trackingCode === id);
     if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
@@ -279,7 +338,7 @@ try {
       return;
     }
 
-    const cancellationNotes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
+    const cancellationNotes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${cancelActor.name || cancelActor.email || 'System'}${reason ? ': ' + reason : ''}`;
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -323,7 +382,9 @@ try {
 export async function post_cancelReceive(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const { user, reason } = req.body || {};
+    const { reason } = req.body || {};
+    // Actor identity comes from the verified session, never the request body.
+    const undoActor = req.user || getUserFromReq(req) || {};
 
     let sh = shipments.find((s) => s.id === id || s.trackingCode === id);
     if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
@@ -333,7 +394,7 @@ try {
       });
     }
 
-    const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled by ${user?.name || 'Admin'}${reason ? ': ' + reason : ''}`;
+    const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled by ${undoActor.name || undoActor.email || 'System'}${reason ? ': ' + reason : ''}`;
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {

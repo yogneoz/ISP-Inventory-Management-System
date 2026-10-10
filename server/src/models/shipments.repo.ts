@@ -21,6 +21,12 @@ export const SHIPMENT_LIST_SQL =
 /** Existence probe before upserting a shipment (drives stock side effects). */
 export const SHIPMENT_EXISTS_SQL = 'SELECT 1 FROM shipments WHERE id = $1 OR tracking_code = $2 LIMIT 1';
 
+// Create-time id/tracking-code collision scope check: returns the branches the
+// existing shipment touches so the caller's branch scope can be compared
+// before any overwrite (VULN-003).
+export const SHIPMENT_FIND_FOR_OVERWRITE_SQL =
+  'SELECT id, source_branch_id AS "sourceBranchId", destination_branch_id AS "destinationBranchId" FROM shipments WHERE id = $1 OR tracking_code = $2 LIMIT 1';
+
 // ---------------------------------------------------------------------------
 // Create (dispatch)
 // ---------------------------------------------------------------------------

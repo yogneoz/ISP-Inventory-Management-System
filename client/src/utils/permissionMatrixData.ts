@@ -42,6 +42,7 @@ export const INVENTORY_OPERATIONS = [
   'branch-transfer-create',
   'branch-transfer-receive',
   'branch-transfer-cancel-receive',
+  'shipment-cancel',
   'branch-transfer-request-cancel',
   'branch-pullout-dispatch',
   'pullout-report-view',
@@ -95,6 +96,10 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<string, boolean>>
   'branch-transfer-create': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: false, AUDITOR: false },
   'branch-transfer-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: false, AUDITOR: false },
   'branch-transfer-cancel-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
+  // Cancel an in-transit dispatch before receipt: creator-parity with
+  // shipment-create (the roles that may dispatch may cancel their own),
+  // gated server-side on POST /api/shipments/:id/cancel.
+  'shipment-cancel': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: false, AUDITOR: false },
   'branch-transfer-request-cancel': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: false, FIELD_TECHNICIAN: false, AUDITOR: false },
   'branch-pullout-dispatch': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: false },
   'pullout-report-view': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: true, HEAD_OFFICE_ADMIN: true, PROCUREMENT_OFFICER: true, FIELD_TECHNICIAN: true, AUDITOR: true },
