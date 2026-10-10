@@ -319,7 +319,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               (!cd.productName || cd.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
           );
           if (!match) {
-            alertDialog(`Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} must match an IN_STOCK ${item.productName} record at ${branchName}.`);
+            // Serial-tracked products are HARD-BLOCKED here on purpose: a
+            // serial that is not in this branch's IN_STOCK register cannot be
+            // tagged, pulled, issued or sold — the server enforces the same
+            // rule, so this is not a client-side limitation to route around.
+            // The dialog therefore states the requirement and the exact next
+            // step instead of a bare "must match" dead end.
+            const known = customerDevices.find(
+              (cd) => cd.deviceSerial?.trim().toUpperCase() === cleanSerial
+            );
+            const where = known
+              ? `it is registered at "${branches.find((b) => b.id === known.branchId)?.name || known.branchId}" with status "${known.status}"`
+              : `no device with that serial exists in the register yet`;
+            alertDialog(
+              `Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} cannot be used for "${item.productName}" at ${branchName} — ${where}.\n\n` +
+                `This product is serial-tracked, so the serial must already be in "${branchName}"'s register with status IN_STOCK before stock can move.\n\n` +
+                `Next step: open Inventory & Stock ➔ Customer Device Serials and receive this unit into "${branchName}" (scan the serial, confirm the product), then retry this operation.`
+            );
             return false;
           }
         }

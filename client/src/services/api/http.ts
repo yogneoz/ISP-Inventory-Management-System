@@ -27,6 +27,30 @@ export const setFiscalYearContext = (fiscalYearId: string | null) => {
   currentFiscalYearId = fiscalYearId;
 };
 
+// ---------------------------------------------------------------------------
+// Toast contract
+//
+// Every failed request carries a ready-to-render toast payload on its Error
+// (`error.toast`), and mutations additionally broadcast it so the global
+// <ToastHost/> can render it. Without this a rejection that no caller catches
+// dies as an unhandled promise rejection and the UI silently does nothing —
+// exactly the damage-tagging bug found in the 2026-10-10 walkthrough (the
+// form neither saved nor explained why).
+//
+// Broadcast scope is deliberate:
+//   - 401 is NOT toasted: the expired-session flow owns that message
+//     (inventory_auth_expired → App forces logout).
+//   - GETs are NOT toasted: they are background refreshes/polls whose failure
+//     state the app already surfaces elsewhere, and toasting them would spam
+//     a toast every poll while the database is down.
+// ---------------------------------------------------------------------------
+export const API_TOAST_EVENT = 'inventory_api_toast';
+
+export interface ApiToastIntent {
+  message: string;
+  status?: number;
+}
+
 // In-flight promise cache to deduplicate simultaneous duplicate requests
 const inFlightRequests = new Map<string, Promise<any>>();
 
@@ -59,9 +83,15 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit): Pro
         const error = new Error(errorBody.message || `Request failed with status ${res.status}`);
         // Attach status code for 401 detection
         (error as any).status = res.status;
+        // Toast intent (see the contract above): attach it to every failure,
+        // broadcast it for failed mutations.
+        const toastIntent: ApiToastIntent = { message: error.message, status: res.status };
+        (error as any).toast = toastIntent;
         // Dispatch auth expiration event on 401 so App can force logout
         if (res.status === 401) {
           window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
+        } else if (!isGet && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(API_TOAST_EVENT, { detail: toastIntent }));
         }
         throw error;
       }

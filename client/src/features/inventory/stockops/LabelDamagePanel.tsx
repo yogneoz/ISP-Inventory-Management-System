@@ -52,19 +52,27 @@ export const LabelDamagePanel: React.FC = () => {
       return;
     }
 
-    await onCreateOperation({
-      type: 'DAMAGE',
-      branchId: targetBranch,
-      productId: damageItems.length === 1 ? damageItems[0].productId : undefined,
-      productName: damageItems.length === 1 ? damageItems[0].productName : undefined,
-      quantityChanged: damageItems.reduce((sum, item) => sum + item.quantity, 0),
-      costPerUnit: damageItems.length === 1 ? damageItems[0].unitCost : 0,
-      totalValue: damageItems.reduce((sum, item) => sum + item.totalValue, 0),
-      reason: damageReason,
-      inspectorName: damageInspector,
-      status: 'LOGGED',
-      items: damageItems,
-    });
+    try {
+      await onCreateOperation({
+        type: 'DAMAGE',
+        branchId: targetBranch,
+        productId: damageItems.length === 1 ? damageItems[0].productId : undefined,
+        productName: damageItems.length === 1 ? damageItems[0].productName : undefined,
+        quantityChanged: damageItems.reduce((sum, item) => sum + item.quantity, 0),
+        costPerUnit: damageItems.length === 1 ? damageItems[0].unitCost : 0,
+        totalValue: damageItems.reduce((sum, item) => sum + item.totalValue, 0),
+        reason: damageReason,
+        inspectorName: damageInspector,
+        status: 'LOGGED',
+        items: damageItems,
+      });
+    } catch {
+      // The rejection itself was already surfaced by the global <ToastHost/>
+      // (fetchJson broadcasts a toast intent for every failed mutation), so
+      // this catch exists only to stop the SUCCESS path below: the form must
+      // keep its items and reason so the input can be corrected and retried.
+      return;
+    }
 
     setIsDamageModalOpen(false);
     setActiveTab('DAMAGE_TRACKING');

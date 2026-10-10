@@ -2,6 +2,43 @@
 
 _Date: 2026-10-05 · Branch: main · Tests: 672/672 green with a DB (all run in CI too — no skips since the PG service container landed)_
 
+## ⭐ UX fixes from the damage walkthrough: central API-failure toast + real `inert` (2026-10-10)
+
+Two defects the damage-then-reverse walkthrough surfaced in the CLIENT:
+
+- **Silent server rejections (fixed centrally):** a failed save died as an
+  unhandled promise rejection — the damage form neither saved nor explained
+  why (walkthrough: `Insufficient inventory … Available: 0` on a 400). Rather
+  than patching each call site, the request pipeline now owns it:
+  `fetchJson` (services/api/http.ts) attaches a toast intent to EVERY failed
+  request and broadcasts `inventory_api_toast` for failed MUTATIONS; the new
+  global `components/common/ToastHost.tsx` (mounted once in App.tsx) renders
+  it — one toast at a time, auto-dismiss, `role=status` + aria-live.
+  Deliberate scope: **401 is NOT toasted** (the expired-session flow owns it)
+  and **GETs are NOT toasted** (background refreshes — a DB outage would spam
+  a toast every poll).
+  The four stock-op panels (LabelDamage, CreatePullout, ProductSale,
+  ConsumableIssue) gained a `catch { return; }` around `onCreateOperation`
+  that exists ONLY to stop their success path (clear form / success dialog /
+  tab switch) after a rejected write — the toast is already shown centrally,
+  and the panel's items stay editable for a retry.
+- **`inert` was a no-op (fixed):** KeepMounted passed `inert: ''`, which
+  React 19 warns about ("Received an empty string for a boolean attribute")
+  AND treats as **false** — so hidden keep-mounted tabs were never inert. Now
+  `inert={!visible}`: verified live, all 66 hidden tab wrappers report
+  `inert === true`.
+- **Serial validation stays MANDATORY (message only):** the walkthrough's
+  "can't tag a serialized product" is by design for serial-track products —
+  `validateSourceBranchStockAndSerials` still hard-blocks a serial that is not
+  IN_STOCK at that branch, but the dialog now says WHY, whether the serial
+  exists elsewhere (registered at another branch / wrong status / not
+  registered at all), and the exact next step (Customer Device Serials →
+  receive into that branch → retry).
+
+Verified in the browser against the real server: a deliberate 400 on the
+Damage form shows the server's own message as a toast and the form keeps its
+items. Gates: `tsc` 0, `npm test` 672/672 (docs gate green), `build` 0.
+
 ## ⭐ Receive-lane 403s over real HTTP — found + closed an ungated receive endpoint (2026-10-10)
 
 The four-register audience contract had only ever been pinned at SOURCE level

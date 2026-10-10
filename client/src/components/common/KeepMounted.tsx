@@ -78,14 +78,15 @@ export function KeepMounted({
   const everVisible = useRef(visible);
   if (visible) everVisible.current = true;
   // `inert` (plus the display:none toggle) keeps hidden tabs out of the
-  // a11y tree and blocks focus/interaction inside them. The React prop is
-  // lowercase-boolean-safe in React 19; for older typings it is spread so
-  // TS stays happy either way.
+  // a11y tree and blocks focus/interaction inside them. React 19 models
+  // `inert` as a real BOOLEAN attribute: passing an empty string logs
+  // "Received an empty string for a boolean attribute `inert`" on every
+  // hidden tab AND is treated as false — so the flag was a no-op.
   return (
     <div
       style={visible ? undefined : { display: 'none' }}
       aria-hidden={!visible}
-      {...(!visible ? ({ inert: '' } as Record<string, unknown>) : {})}
+      inert={!visible}
     >
       {everVisible.current ? children : null}
     </div>

@@ -196,19 +196,28 @@ export const ProductSalePanel: React.FC = () => {
     const totalDiscount = sellItems.reduce((s, i) => s + i.discount, 0);
     const netSaleAmount = Math.max(0, grossTotal - totalDiscount);
 
-    await onCreateOperation({
-      type: 'STOCK_OUT',
-      branchId: sellBranchId,
-      branchName,
-      items: sellItems,
-      totalValue: netSaleAmount,
-      customerId: cust.id,
-      customerName: `${cust.customerName} (${cust.customerId})`,
-      paymentMethod: sellPaymentMethod,
-      reason: `Customer Product Sale Invoice (${sellItems.length} items): ${cust.customerName} - ${sellNotes}`,
-      inspectorName: currentUser?.name || 'Sales Representative',
-      status: 'LOGGED',
-    });
+    try {
+      await onCreateOperation({
+        type: 'STOCK_OUT',
+        branchId: sellBranchId,
+        branchName,
+        items: sellItems,
+        totalValue: netSaleAmount,
+        customerId: cust.id,
+        customerName: `${cust.customerName} (${cust.customerId})`,
+        paymentMethod: sellPaymentMethod,
+        reason: `Customer Product Sale Invoice (${sellItems.length} items): ${cust.customerName} - ${sellNotes}`,
+        inspectorName: currentUser?.name || 'Sales Representative',
+        status: 'LOGGED',
+      });
+    } catch {
+      // The rejection itself was already surfaced by the global <ToastHost/>
+      // (fetchJson broadcasts a toast intent for every failed mutation), so
+      // this catch exists only to stop the SUCCESS path below — otherwise the
+      // invoice would be reported as logged and the cart cleared even though
+      // the server rejected the write. The items stay so they can be retried.
+      return;
+    }
 
     alertDialog(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: ${formatNPR(netSaleAmount)}.
 Sold device(s) tagged as SOLD in Customer Device Directory.`);

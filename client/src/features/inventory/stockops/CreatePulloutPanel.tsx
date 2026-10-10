@@ -217,18 +217,26 @@ export const CreatePulloutPanel: React.FC = () => {
 
     const grandTotal = pulloutItems.reduce((sum, item) => sum + item.totalValue, 0);
 
-    await onCreateOperation({
-      type: 'PULLOUT',
-      branchId: sourceBranchId,
-      branchName: srcBranch?.name,
-      destinationWarehouseId: destWarehouseId,
-      destinationWarehouseName: destWh?.name,
-      items: pulloutItems,
-      totalValue: grandTotal,
-      reason: binNotes,
-      inspectorName: binInspector,
-      status: 'DISPATCHED',
-    });
+    try {
+      await onCreateOperation({
+        type: 'PULLOUT',
+        branchId: sourceBranchId,
+        branchName: srcBranch?.name,
+        destinationWarehouseId: destWarehouseId,
+        destinationWarehouseName: destWh?.name,
+        items: pulloutItems,
+        totalValue: grandTotal,
+        reason: binNotes,
+        inspectorName: binInspector,
+        status: 'DISPATCHED',
+      });
+    } catch {
+      // The rejection itself was already surfaced by the global <ToastHost/>
+      // (fetchJson broadcasts a toast intent for every failed mutation), so
+      // this catch exists only to stop the SUCCESS path below: the bin
+      // contents stay in the form so they can be corrected and retried.
+      return;
+    }
 
     alertDialog(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
 

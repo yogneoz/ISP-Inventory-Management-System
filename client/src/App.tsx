@@ -48,6 +48,7 @@ import {
   type RegisterRefreshKey,
 } from './utils/registerRefreshDomains';
 import { LoginModal } from './components/common/LoginModal';
+import { ToastHost } from './components/common/ToastHost';
 import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
@@ -3069,6 +3070,9 @@ export default function App() {
         onUpdateProfile={handleUpdateProfile}
         onLogout={handleLogout}
       />
+
+      {/* Global API-failure toast (fetchJson broadcasts the intent) */}
+      <ToastHost />
     </div>
   );
 }

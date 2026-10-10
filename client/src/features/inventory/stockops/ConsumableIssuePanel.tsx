@@ -140,18 +140,27 @@ export const ConsumableIssuePanel: React.FC = () => {
       .filter(Boolean)
       .join('; ');
 
-    await onCreateOperation({
-      type: 'CONSUMABLE_ISSUE',
-      branchId: consumableBranchId,
-      branchName: branchObj?.name,
-      items: consumableItems,
-      totalValue: grandTotal,
-      technicianName: consumableTechnician,
-      workOrderRef: consumableWorkOrder,
-      reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
-      inspectorName: currentUser?.name || 'Store Supervisor',
-      status: 'LOGGED',
-    });
+    try {
+      await onCreateOperation({
+        type: 'CONSUMABLE_ISSUE',
+        branchId: consumableBranchId,
+        branchName: branchObj?.name,
+        items: consumableItems,
+        totalValue: grandTotal,
+        technicianName: consumableTechnician,
+        workOrderRef: consumableWorkOrder,
+        reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}${usedAtSummary ? ` — Used at: ${usedAtSummary}` : ''}`,
+        inspectorName: currentUser?.name || 'Store Supervisor',
+        status: 'LOGGED',
+      });
+    } catch {
+      // The rejection itself was already surfaced by the global <ToastHost/>
+      // (fetchJson broadcasts a toast intent for every failed mutation), so
+      // this catch exists only to stop the SUCCESS path below — otherwise the
+      // issue would be reported as logged even though the server rejected the
+      // write. The line items stay so they can be corrected and retried.
+      return;
+    }
 
     alertDialog(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
     setConsumableItems([]);
