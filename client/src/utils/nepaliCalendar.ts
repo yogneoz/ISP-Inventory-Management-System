@@ -696,6 +696,27 @@ export function hasExactBSDayRecord(adDateStr: string): boolean {
 }
 
 /**
+ * Mandatory-BS resolver for operation payloads: BS dates are required on
+ * every persisted operation, so whenever a payload builder has an AD date
+ * but no BS date, it must auto-look-up the BS date from the synced
+ * bs_day_records calendar table (client-side mirror of the server's seeded
+ * data). Returns the "YYYY-MM-DD BS" string, or null when the calendar has
+ * no exact mapping for the date — callers MUST block the operation and show
+ * the "contact your system administrator for BS month seeding" message
+ * instead of sending an empty, estimated, or hardcoded BS date.
+ */
+export function ensureBSDayForAD(adDateStr: string | null | undefined): string | null {
+  const target = String(adDateStr || '').split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) return null;
+  if (!hasExactBSDayRecord(target)) return null;
+  try {
+    return convertADToBS(target).formattedBSShort;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Converts AD Date String (YYYY-MM-DD) to formatted BS String using reference bsCalendarData.
  */
 export function convertADToBS(adDateStr: string): {

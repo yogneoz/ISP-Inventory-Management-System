@@ -116,7 +116,7 @@ describe('purchase returns repo', () => {
 
   test('txn log rows use the PURCHASE_RETURN change type with negative quantity', () => {
     const p = prTxnLogParams(
-      { returnNumber: 'DN-1', returnDateAD: '2026-09-01' },
+      { returnNumber: 'DN-1', returnDateAD: '2026-09-01', returnDateBS: '2083-05-18 BS' },
       { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 3, unitPrice: 10 },
       'WH001', 2
     );
@@ -172,7 +172,7 @@ describe('sales invoices repo', () => {
 
   test('txn log rows use the SALES_INVOICE change type with negative quantity', () => {
     const p = siTxnLogParams(
-      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01' },
+      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01', invoiceDateBS: '2083-05-18 BS' },
       { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
       'WH001', 0
     );
@@ -219,12 +219,12 @@ describe('sales invoice cancel repo', () => {
 
   test('the cancel ledger row mirrors the sale but with its own type and sign', () => {
     const sale = siTxnLogParams(
-      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01' },
+      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01', invoiceDateBS: '2083-05-18 BS' },
       { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
       'WH001', 0
     );
     const cancel = siCancelTxnLogParams(
-      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01' },
+      { invoiceNumber: 'INV-1', invoiceDateAD: '2026-09-01', invoiceDateBS: '2083-05-18 BS' },
       { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
       'WH001', 0,
       { ad: '2026-09-05', bs: '2083-05-20 BS' }
@@ -282,7 +282,7 @@ describe('sales returns repo', () => {
 
   test('txn log rows use the SALES_RETURN change type with positive quantity', () => {
     const p = srTxnLogParams(
-      { returnNumber: 'CN-1', returnDateAD: '2026-09-01' },
+      { returnNumber: 'CN-1', returnDateAD: '2026-09-01', returnDateBS: '2083-05-18 BS' },
       { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 8 },
       'WH001', 1
     );

@@ -7,7 +7,7 @@ import {
 } from '../../../types';
 import type { AssignBinLine } from './StockOperationsContext';
 import { api } from '../../../services/api';
-import { tryConvertADToBS } from '../../../utils/nepaliCalendar';
+import { ensureBSDayForAD } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
@@ -167,7 +167,14 @@ export const AssignAssetPanel: React.FC = () => {
       return;
     }
     const todayAD = new Date().toISOString().split('T')[0];
-    const todayBS = tryConvertADToBS(todayAD)?.formattedBSShort || '';
+    // BS dates are mandatory: resolve today's BS date from the synced seeded
+    // calendar and block the deployment when it has no exact record (never
+    // send an empty or estimated BS date).
+    const todayBS = ensureBSDayForAD(todayAD);
+    if (!todayBS) {
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
 
     // Per-line validation: destination + stock + serial pairs.
     for (const item of assignItems) {

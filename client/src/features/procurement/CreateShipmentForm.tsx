@@ -8,7 +8,7 @@ import {
   User,
   CustomerDeviceRecord,
 } from '../../types';
-import { convertADToBS } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { Plus, Send, Barcode, Boxes, Trash2 } from 'lucide-react';
@@ -161,7 +161,13 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     if (lines.length === 0) return;
 
     const todayAD = new Date().toISOString().split('T')[0];
-    const bsObj = convertADToBS(todayAD);
+    // BS dates are mandatory: auto-resolve from the synced seeded calendar
+    // and block the dispatch when it has no exact record for today.
+    const dispatchDateBS = ensureBSDayForAD(todayAD);
+    if (!dispatchDateBS) {
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
     const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destBranch = branches.find((b) => b.id === destinationBranchId);
 
@@ -249,7 +255,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
       destinationBranchId,
       destinationBranchName: destBranch?.name || 'Destination Branch',
       dispatchDateAD: todayAD,
-      dispatchDateBS: bsObj.formattedBSShort,
+      dispatchDateBS,
       estimatedArrivalAD: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
       status: 'IN_TRANSIT',
       items,

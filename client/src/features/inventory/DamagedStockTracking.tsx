@@ -5,7 +5,7 @@ import { api } from '../../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
-import { hasExactBSDayRecord, tryConvertADToBS, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, hasExactBSDayRecord, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
 import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import {
@@ -411,7 +411,14 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       // Date integrity: keep the AD date as the canonical value and derive the
       // BS date from the seeded calendar (never a hardcoded literal).
       const disposalDateAD = new Date().toISOString().split('T')[0];
-      const disposalBS = tryConvertADToBS(disposalDateAD);
+      // BS dates are mandatory: resolve from the synced seeded calendar and
+      // block the write-off when it has no exact record (never send ''/hardcode).
+      const disposalDateBS = ensureBSDayForAD(disposalDateAD);
+      if (!disposalDateBS) {
+        alertDialog(`BS date is not available for ${disposalDateAD}. Please contact your system administrator for BS month seeding.`);
+        setIsSubmittingDisposal(false);
+        return;
+      }
 
       const opData: Partial<StockOperation> = {
         type: 'DISPOSAL',
@@ -429,7 +436,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         reason: `[${disposalMethod}] ${disposalNotes} (Gross: ${formatNPR(grossCost ?? 0)}, Salvage: ${formatNPR(salvageVal ?? 0)}, Net Loss: ${formatNPR(netLoss ?? 0)})`,
         inspectorName: currentUser?.name || 'Inventory Quality Auditor',
         dateAD: disposalDateAD,
-        dateBS: disposalBS?.formattedBSShort || '',
+        dateBS: disposalDateBS,
         fiscalYear: getNepaliFiscalYear(disposalDateAD),
         status: 'LOGGED',
       };

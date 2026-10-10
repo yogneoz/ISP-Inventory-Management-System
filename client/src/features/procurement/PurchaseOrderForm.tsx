@@ -27,7 +27,7 @@ import {
 import { formCardClass } from '../../components/common/FormCard';
 import { DateField } from '../../components/DateField';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
-import { convertADToBS } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
@@ -321,7 +321,13 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     }
 
     const todayAD = new Date().toISOString().split('T')[0];
-    const bsObj = convertADToBS(todayAD);
+    // BS dates are mandatory: auto-resolve from the synced seeded calendar
+    // and block the order when it has no exact record for today.
+    const orderDateBS = ensureBSDayForAD(todayAD);
+    if (!orderDateBS) {
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
     const appliedBillDiscount = Math.min(grossSubtotal, Math.max(0, billWiseDiscount));
 
     const items: POLineItem[] = lines.map((l, idx) => {
@@ -362,7 +368,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         supplierName,
         branchId,
         orderDateAD: todayAD,
-        orderDateBS: bsObj.formattedBSShort,
+        orderDateBS,
         expectedDeliveryDateAD,
         status: 'SENT',
         items,

@@ -108,11 +108,11 @@ describe('piUpsertParams', () => {
   });
 
   test('passes supplierId through raw (controller resolves it before calling)', () => {
-    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', supplierId: 's1' }, '[]')[4], 's1');
+    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', supplierId: 's1', invoiceDateBS: '2083-04-10 BS' }, '[]')[4], 's1');
   });
 
   test('resolves poReferenceId from poId fallback', () => {
-    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', poId: 'po-1' }, '[]')[2], 'po-1');
+    assert.equal(piUpsertParams({ id: 'i', invoiceNumber: 'n', branchId: 'b', poId: 'po-1', invoiceDateBS: '2083-04-10 BS' }, '[]')[2], 'po-1');
   });
 
   test('piReceiveStockParams builds deterministic stock id with min level 5 in SQL', () => {
@@ -131,13 +131,20 @@ describe('piUpsertParams', () => {
     assert.match(params[1] as string, /^TXN-\d{5}$/);
     assert.equal(params[9], 'PI-7');
     assert.equal(params[11], 'bs');
-    const fallback = piTxnLogParams({ invoiceNumber: 'PI-8' }, { productId: 'p1' }, 'WH001');
+    const fallbackInv = { invoiceNumber: 'PI-8', invoiceDateBS: '2083-04-10 BS' };
+    const fallback = piTxnLogParams(fallbackInv, { productId: 'p1' }, 'WH001');
     assert.match(fallback[10] as string, /^\d{4}-\d{2}-\d{2}T/);
-    assert.equal(fallback[11], '2083-04-16 BS');
+    assert.equal(fallback[11], '2083-04-10 BS');
+    // Mandatory BS: a missing BS date must fail loudly instead of persisting
+    // the old fictitious '2083-04-16 BS' fallback.
+    assert.throws(
+      () => piTxnLogParams({ invoiceNumber: 'PI-8' }, { productId: 'p1' }, 'WH001'),
+      /requires invoiceDateBS/
+    );
   });
 
   test('piTxnLogParams ids stay unique when one invoice repeats a product', () => {
-    const inv = { invoiceNumber: 'PI-9' };
+    const inv = { invoiceNumber: 'PI-9', invoiceDateBS: '2083-04-10 BS' };
     const first = piTxnLogParams(inv, { productId: 'p1' }, 'WH001', 0)[0] as string;
     const second = piTxnLogParams(inv, { productId: 'p1' }, 'WH001', 1)[0] as string;
     assert.notEqual(first, second);

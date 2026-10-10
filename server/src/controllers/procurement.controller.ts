@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns } from '../app';
 import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
 import { computeBillTotals, defaultVatRateFor } from '../utils/money';
-import { resolveBsDateForLedger, BS_DATE_FALLBACK } from '../utils/bsDate';
+import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
 import {
   buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
@@ -301,13 +301,18 @@ try {
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
     const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'PI', invDate));
+    // BS dates are mandatory: derive from bs_day_records for the invoice's
+    // own AD date; 400 when unseeded (client-supplied BS never overrides).
+    const invoiceDateBS = await bsDateOr400(res, invDate);
+    if (!invoiceDateBS) return;
     const newInv = {
       id: req.body.id || `inv-${Date.now()}`,
       invoiceNumber,
       invoiceDateAD: invDate,
-      // C4: BS fallback derives from the actually-stored AD invoice date.
-      invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || await resolveBsDateForLedger(invDate),
       ...req.body,
+      // Placed after the spread so a client-supplied BS can never override
+      // the server-derived value.
+      invoiceDateBS,
     };
     const items = req.body.items || req.body.lines || [];
     // C1: the invoice's financial aggregates are recomputed from line
@@ -757,12 +762,16 @@ try {
 
     const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req).branchId || branches[0]?.id || 'WH001';
     const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
-    let paymentDateBS = body.paymentDateBS || linkedInvoice?.invoiceDateBS || '';
-    try {
-      const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
-      if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
-    } catch (_e) {}
-    if (!paymentDateBS) paymentDateBS = BS_DATE_FALLBACK; // last resort (bs_day_records already tried above)
+    // BS dates are mandatory: derive from bs_day_records for the payment's
+    // OWN AD date (never the linked invoice's date, never a fallback);
+    // 400 when the calendar day is unseeded.
+    const paymentDateBS = await bsDateOr400(res, paymentDateAD);
+    if (!paymentDateBS) return;
+    let chequeDateBS: string | null = null;
+    if (body.chequeDateAD) {
+      chequeDateBS = await bsDateOr400(res, body.chequeDateAD);
+      if (!chequeDateBS) return;
+    }
 
     const paymentMethod = (body.paymentMethod || 'CASH').toUpperCase();
     // Generate payment number from the daily per-branch sequence based on the
@@ -789,7 +798,7 @@ try {
       accountNumber: body.accountNumber || null,
       chequeNumber: body.chequeNumber || null,
       chequeDateAD: body.chequeDateAD || null,
-      chequeDateBS: body.chequeDateBS || null,
+      chequeDateBS,
       transactionReference: body.transactionReference || null,
       notes: body.notes || null,
       status: 'POSTED',
@@ -1255,6 +1264,10 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     const totals = computeBillTotals(items, undefined, defaultVatRateFor(companyProfile));
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
+    // BS dates are mandatory: derive from bs_day_records for the return's
+    // own AD date; 400 when unseeded.
+    const prReturnDateBS = await bsDateOr400(res, retDate);
+    if (!prReturnDateBS) return;
     const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'DN', retDate));
 
     let invoiceRow: any = purchaseInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
@@ -1282,7 +1295,7 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
       supplierName: req.body.supplierName || invoiceRow.supplierName || 'Vendor',
       branchId: targetBranchId,
       returnDateAD: retDate,
-      returnDateBS: req.body.returnDateBS || req.body.returnDateBs || await resolveBsDateForLedger(retDate),
+      returnDateBS: prReturnDateBS,
       reason: req.body.reason || 'DEFECTIVE',
       notes: req.body.notes || '',
       taxableAmount: totals.taxableAmount,

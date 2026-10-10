@@ -1,6 +1,47 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 656/656 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 664/664 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ Mandatory BS dates — client auto-lookup + server derive-or-400 + schema hardening (2026-10-10)
+
+Full-project audit found every spot where a BS date could go NULL, empty, or
+fictitious, then closed all three classes (+8 tests → 664/664):
+
+**Audit result (schema 24 BS columns — 10 NOT NULL, 14 nullable):
+holes fixed:**
+- `shipments.received_date_bs` stored NULL on receipt when the calendar day
+  was unseeded → now `bsDateOr400` (derive from bs_day_records for the
+  receipt's own AD date, 400 bsDateMissing when unseeded).
+- Client `|| ''` payload gaps: AssignAssetPanel (assets/customer devices),
+  FixedAssetRegister, DamagedStockTracking disposal, + CreateShipmentForm /
+  PurchaseOrderForm / PurchaseInvoiceForm switched from bare convertADToBS
+  to the new `ensureBSDayForAD()` (nepaliCalendar) — resolves from the
+  synced seeded calendar and BLOCKS with the BS-seeding toast when the day
+  has no exact record.
+- Vendor/customer payments: fell back to `BS_DATE_FALLBACK '2083-04-16 BS'`
+  (fictitious) and even reused the linked invoice's BS as the payment date →
+  derive-or-400 for paymentDateBS AND chequeDateAD/chequeDateBS.
+- PI/SI/PR/SR create + SI cancel stamps: `resolveBsDateForLedger` fallback
+  replaced by `bsDateOr400` (server-derived, client BS never overrides —
+  PI create moves the resolved value after `...req.body` so the spread
+  can't shadow it).
+- Asset create: acquisition/assignment/linked-PI BS derive-or-400 gates;
+  txn stamp `|| ''` gone. FY create derives its BS period server-side
+  (client values only for unseeded boundary days, e.g. a future FY start).
+- Repo param builders (procurement + sales) THROW on a missing BS instead
+  of persisting the fallback (ledger-row builders included).
+- Schema migration (idempotent DO block in scripts/schema.sql): backfills
+  NULL/empty BS from bs_day_records joins, then tightens ONLY where clean —
+  payment_date_bs + timestamp_bs now NOT NULL on all 4 tables; conditional
+  CHECKs: shipments received, cheque pairs ×2, stock_operations date_bs
+  <> '', fixed_assets acquisition/assignment, cdr issued. Verified live:
+  6 CHECK constraints present, 0 remaining nulls.
+
+Test-fixture lessons: fixtures must now carry real BS dates (the throw-loud
+repo builders reject BS-less inputs — that's the contract); the
+salesInvoiceCancel customer-payment fixture derives its BS from
+bs_day_records inline. `BS_DATE_FALLBACK` remains ONLY for display-path
+ledger rendering (todayBs when a calendar gap hits an audit row).
 
 ## ⭐ Shipment authorization hardening — VULN-001/2/3 fixed, VERIFY-001 answered (2026-10-10)
 
@@ -917,7 +958,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 656 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 664 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1484,7 +1525,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 656 tests, 0 fail). Live-verified:
+  key coverage; suite now 664 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1542,7 +1583,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 656 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 664 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1607,7 +1648,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 656 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 664 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1645,7 +1686,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 656 tests, 0 fail.
+  failures, then reverted). Suite now 664 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1660,7 +1701,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 656 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 664 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

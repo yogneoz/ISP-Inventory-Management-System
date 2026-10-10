@@ -8,7 +8,6 @@
  * defined once in this layer.
  */
 import type { QueryResult } from 'pg';
-import { BS_DATE_FALLBACK } from '../utils/bsDate';
 
 /** Minimal query interface satisfied by the pg Pool (and test doubles). */
 export interface QueryExecutor {
@@ -350,7 +349,7 @@ export function piTxnLogParams(inv: Record<string, any>, item: Record<string, an
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     inv.invoiceDateAD || new Date().toISOString(),
-    inv.invoiceDateBS || BS_DATE_FALLBACK, // last resort; callers resolve from bs_day_records first
+    inv.invoiceDateBS || (() => { throw new Error('purchase-invoice insert requires invoiceDateBS resolved from bs_day_records'); })(),
   ];
 }
 
@@ -705,7 +704,7 @@ export function prTxnLogParams(ret: Record<string, any>, item: Record<string, an
     Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
-    ret.returnDateBS || BS_DATE_FALLBACK,
+    ret.returnDateBS || (() => { throw new Error('purchase-return insert requires returnDateBS resolved from bs_day_records'); })(),
   ];
 }
 

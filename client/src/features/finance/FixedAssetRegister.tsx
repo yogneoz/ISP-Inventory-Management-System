@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Asset, Branch, User } from '../../types';
-import { formatDualDate, convertADToBS } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, formatDualDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -47,6 +47,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
+  const [bsError, setBsError] = useState<string | null>(null);
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<Asset | null>(null);
 
   // Form state
@@ -88,7 +89,14 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
-    const bsObj = convertADToBS(acquisitionDateAD);
+    // BS dates are mandatory: resolve from the synced seeded calendar and
+    // block the save when it has no exact record for the acquisition date.
+    const acquisitionDateBS = ensureBSDayForAD(acquisitionDateAD);
+    if (!acquisitionDateBS) {
+      setBsError(`BS date is not available for ${acquisitionDateAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
+    setBsError(null);
 
     await onCreateAsset({
       tagNumber,
@@ -96,9 +104,9 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
       category,
       branchId,
       acquisitionDateAD,
-      acquisitionDateBS: bsObj.formattedBSShort,
+      acquisitionDateBS,
       purchaseInvoiceDateAD: acquisitionDateAD,
-      purchaseInvoiceDateBS: bsObj.formattedBSShort,
+      purchaseInvoiceDateBS: acquisitionDateBS,
       capitalizationDateAD: acquisitionDateAD,
       placedInServiceDateAD: acquisitionDateAD,
       acquisitionCost: Number(acquisitionCost),
@@ -539,6 +547,12 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                   />
                 </div>
               </div>
+
+              {bsError && (
+                <p role="alert" className="text-xs font-semibold text-red-600 dark:text-red-400">
+                  {bsError}
+                </p>
+              )}
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
                 <button

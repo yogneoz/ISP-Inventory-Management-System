@@ -1363,3 +1363,92 @@ END $$;
 
 -- vendor_payments fiscal-year backfill (ran in dbBoot before consolidation).
 UPDATE vendor_payments SET fiscal_year_id = (SELECT id FROM fiscal_years fy WHERE payment_date_ad BETWEEN fy.start_date_ad AND fy.end_date_ad ORDER BY fy.start_date_ad DESC LIMIT 1) WHERE fiscal_year_id IS NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- Mandatory BS-date hardening (2026-10-10): every operation's BS date must be
+-- persisted once its event happened -- no NULL, empty, or fallback values.
+-- Step 1 backfills NULL/empty BS values from bs_day_records where the AD
+-- counterpart day is seeded; step 2 tightens NOT NULL / conditional CHECK
+-- constraints ONLY where the column is left clean, so calendars with gaps
+-- degrade gracefully instead of breaking writes. Idempotent on every boot.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  -- 1. Backfills (bs_day_records.bs_date carries no ' BS' suffix).
+  UPDATE vendor_payments p SET payment_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (p.payment_date_bs IS NULL OR p.payment_date_bs = '') AND b.ad_date = p.payment_date_ad;
+  UPDATE customer_payments p SET payment_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (p.payment_date_bs IS NULL OR p.payment_date_bs = '') AND b.ad_date = p.payment_date_ad;
+  UPDATE vendor_payments p SET cheque_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE p.cheque_date_ad IS NOT NULL AND (p.cheque_date_bs IS NULL OR p.cheque_date_bs = '') AND b.ad_date = p.cheque_date_ad;
+  UPDATE customer_payments p SET cheque_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE p.cheque_date_ad IS NOT NULL AND (p.cheque_date_bs IS NULL OR p.cheque_date_bs = '') AND b.ad_date = p.cheque_date_ad;
+  UPDATE shipments s SET received_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE s.received_date_bs IS NULL AND s.received_date_ad IS NOT NULL AND b.ad_date = s.received_date_ad;
+  UPDATE audit_logs a SET timestamp_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (a.timestamp_bs IS NULL OR a.timestamp_bs = '') AND b.ad_date = a.timestamp_ad::date;
+  UPDATE transaction_logs t SET timestamp_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (t.timestamp_bs IS NULL OR t.timestamp_bs = '') AND b.ad_date = t.timestamp_ad::date;
+  UPDATE fixed_assets f SET acquisition_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (f.acquisition_date_bs IS NULL OR f.acquisition_date_bs = '') AND b.ad_date = f.acquisition_date_ad;
+  UPDATE fixed_assets f SET assignment_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE f.assignment_date_ad IS NOT NULL AND (f.assignment_date_bs IS NULL OR f.assignment_date_bs = '') AND b.ad_date = f.assignment_date_ad;
+  UPDATE customer_device_records c SET issued_date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE c.issued_date_ad IS NOT NULL AND (c.issued_date_bs IS NULL OR c.issued_date_bs = '') AND b.ad_date = c.issued_date_ad;
+  UPDATE stock_operations o SET date_bs = b.bs_date || ' BS'
+    FROM bs_day_records b
+    WHERE (o.date_bs IS NULL OR o.date_bs = '') AND b.ad_date = o.date_ad;
+
+  -- 2. Tighten constraints only where the backfill left the column clean.
+  IF NOT EXISTS (SELECT 1 FROM vendor_payments WHERE payment_date_bs IS NULL OR payment_date_bs = '') THEN
+    ALTER TABLE vendor_payments ALTER COLUMN payment_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM customer_payments WHERE payment_date_bs IS NULL OR payment_date_bs = '') THEN
+    ALTER TABLE customer_payments ALTER COLUMN payment_date_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM audit_logs WHERE timestamp_bs IS NULL OR timestamp_bs = '') THEN
+    ALTER TABLE audit_logs ALTER COLUMN timestamp_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM transaction_logs WHERE timestamp_bs IS NULL OR timestamp_bs = '') THEN
+    ALTER TABLE transaction_logs ALTER COLUMN timestamp_bs SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM stock_operations WHERE date_bs = '') THEN
+    ALTER TABLE stock_operations DROP CONSTRAINT IF EXISTS stock_operations_date_bs_not_empty;
+    ALTER TABLE stock_operations ADD CONSTRAINT stock_operations_date_bs_not_empty CHECK (date_bs <> '');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fixed_assets WHERE acquisition_date_bs IS NULL OR acquisition_date_bs = '') THEN
+    ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_acquisition_bs_required;
+    ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_acquisition_bs_required CHECK (acquisition_date_bs <> '');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fixed_assets WHERE assignment_date_ad IS NOT NULL AND (assignment_date_bs IS NULL OR assignment_date_bs = '')) THEN
+    ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_assignment_bs_required;
+    ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_assignment_bs_required CHECK (assignment_date_ad IS NULL OR (assignment_date_bs IS NOT NULL AND assignment_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM customer_device_records WHERE issued_date_ad IS NOT NULL AND (issued_date_bs IS NULL OR issued_date_bs = '')) THEN
+    ALTER TABLE customer_device_records DROP CONSTRAINT IF EXISTS cdr_issued_bs_required;
+    ALTER TABLE customer_device_records ADD CONSTRAINT cdr_issued_bs_required CHECK (issued_date_ad IS NULL OR (issued_date_bs IS NOT NULL AND issued_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM shipments WHERE status IN ('RECEIVED', 'DISCREPANCY') AND received_date_bs IS NULL) THEN
+    ALTER TABLE shipments DROP CONSTRAINT IF EXISTS shipments_received_bs_required;
+    ALTER TABLE shipments ADD CONSTRAINT shipments_received_bs_required CHECK (status NOT IN ('RECEIVED', 'DISCREPANCY') OR (received_date_bs IS NOT NULL AND received_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM vendor_payments WHERE cheque_date_ad IS NOT NULL AND (cheque_date_bs IS NULL OR cheque_date_bs = '')) THEN
+    ALTER TABLE vendor_payments DROP CONSTRAINT IF EXISTS vendor_payments_cheque_bs_required;
+    ALTER TABLE vendor_payments ADD CONSTRAINT vendor_payments_cheque_bs_required CHECK (cheque_date_ad IS NULL OR (cheque_date_bs IS NOT NULL AND cheque_date_bs <> ''));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM customer_payments WHERE cheque_date_ad IS NOT NULL AND (cheque_date_bs IS NULL OR cheque_date_bs = '')) THEN
+    ALTER TABLE customer_payments DROP CONSTRAINT IF EXISTS customer_payments_cheque_bs_required;
+    ALTER TABLE customer_payments ADD CONSTRAINT customer_payments_cheque_bs_required CHECK (cheque_date_ad IS NULL OR (cheque_date_bs IS NOT NULL AND cheque_date_bs <> ''));
+  END IF;
+END $$;

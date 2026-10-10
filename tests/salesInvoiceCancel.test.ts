@@ -269,8 +269,9 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
     );
     await pool!.query(
       `INSERT INTO customer_payments (id, payment_number, customer_name, branch_id, invoice_id, invoice_number,
-         payment_date_ad, amount, status)
-       VALUES ($1, 'SIVTEST-CR-1', 'SIV Paid Customer', $2, $3, 'SIVTEST-PAID-1', $4, 50, 'POSTED')`,
+         payment_date_ad, payment_date_bs, amount, status)
+       VALUES ($1, 'SIVTEST-CR-1', 'SIV Paid Customer', $2, $3, 'SIVTEST-PAID-1', $4,
+         (SELECT bs_date || ' BS' FROM bs_day_records WHERE ad_date = $4), 50, 'POSTED')`,
       ['sivtest-pay-1', BR, id, todayAD]
     );
 

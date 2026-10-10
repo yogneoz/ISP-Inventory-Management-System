@@ -8,7 +8,6 @@
  * defined once in this layer.
  */
 import type { QueryResult } from 'pg';
-import { BS_DATE_FALLBACK } from '../utils/bsDate';
 
 /** Minimal query interface satisfied by the pg Pool (and test doubles). */
 export interface QueryExecutor {
@@ -163,7 +162,7 @@ export function siTxnLogParams(inv: Record<string, any>, item: Record<string, an
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     inv.invoiceDateAD || new Date().toISOString(),
-    inv.invoiceDateBS || BS_DATE_FALLBACK,
+    inv.invoiceDateBS || (() => { throw new Error('sales-invoice insert requires invoiceDateBS resolved from bs_day_records'); })(),
   ];
 }
 
@@ -297,7 +296,7 @@ export function siCancelTxnLogParams(
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     cancelDate?.ad || inv.invoiceDateAD || new Date().toISOString(),
-    cancelDate?.bs || inv.invoiceDateBS || BS_DATE_FALLBACK,
+    cancelDate?.bs || inv.invoiceDateBS || (() => { throw new Error('sales-invoice cancel requires a BS date resolved from bs_day_records'); })(),
   ];
 }
 
@@ -460,7 +459,7 @@ export function srTxnLogParams(ret: Record<string, any>, item: Record<string, an
     Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
-    ret.returnDateBS || BS_DATE_FALLBACK,
+    ret.returnDateBS || (() => { throw new Error('sales-return insert requires returnDateBS resolved from bs_day_records'); })(),
   ];
 }
 

@@ -13,7 +13,7 @@ import {
 } from '../app';
 import { salesInvoices, salesReturns, setSalesInvoices } from '../state/runtimeState';
 import { computeBillTotals, defaultVatRateFor } from '../utils/money';
-import { resolveBsDateForLedger } from '../utils/bsDate';
+import { bsDateOr400 } from '../utils/bsDate';
 import {
   buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
   SI_INSERT_SQL, siInsertParams, SI_FIND_SQL, SI_EXISTS_SQL,
@@ -281,6 +281,10 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const invDate = req.body.invoiceDateAD || req.body.invoiceDateAd || new Date().toISOString().split('T')[0];
     const invoiceNumber = req.body.invoiceNumber || (await issueNextDocNumber(targetBranchId, 'INV', invDate));
+    // BS dates are mandatory: derive from bs_day_records for the invoice's
+    // own AD date; 400 when unseeded.
+    const invoiceDateBS = await bsDateOr400(res, invDate);
+    if (!invoiceDateBS) return;
 
     const newInv: any = {
       id: req.body.id || `si-${Date.now()}`,
@@ -289,7 +293,7 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
       customerName: req.body.customerName || 'Walk-in Customer',
       branchId: targetBranchId,
       invoiceDateAD: invDate,
-      invoiceDateBS: req.body.invoiceDateBS || req.body.invoiceDateBs || await resolveBsDateForLedger(invDate),
+      invoiceDateBS,
       dueDateAD: req.body.dueDateAD || req.body.dueDateAd || null,
       dueDateBS: req.body.dueDateBS || req.body.dueDateBs || null,
       taxableAmount: totals.taxableAmount,
@@ -386,7 +390,9 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
     }
 
     const cancelAD = new Date().toISOString().split('T')[0];
-    const cancelBS = await resolveBsDateForLedger(cancelAD);
+    // BS dates are mandatory even for the cancellation stamp.
+    const cancelBS = await bsDateOr400(res, cancelAD);
+    if (!cancelBS) return;
 
     await withTransaction(async (client) => {
       const lockedRes = await client.query(SI_LOCK_FOR_CANCEL_SQL, [id]);
@@ -536,6 +542,10 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
     const totals = computeBillTotals(items);
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
     const retDate = req.body.returnDateAD || req.body.returnDateAd || new Date().toISOString().split('T')[0];
+    // BS dates are mandatory: derive from bs_day_records for the return's
+    // own AD date; 400 when unseeded.
+    const srReturnDateBS = await bsDateOr400(res, retDate);
+    if (!srReturnDateBS) return;
     const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'CN', retDate));
 
     let invoiceRow: any = salesInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
@@ -562,7 +572,7 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
       customerName: req.body.customerName || 'Walk-in Customer',
       branchId: targetBranchId,
       returnDateAD: retDate,
-      returnDateBS: req.body.returnDateBS || req.body.returnDateBs || await resolveBsDateForLedger(retDate),
+      returnDateBS: srReturnDateBS,
       reason: req.body.reason || 'DEFECTIVE',
       restockable: req.body.restockable !== false,
       notes: req.body.notes || '',
@@ -938,18 +948,21 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
 
     const branchId = body.branchId || linkedInvoice?.branchId || getUserFromReq(req)?.branchId || branches[0]?.id || 'WH001';
     const paymentDateAD = String(body.paymentDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
-    let paymentDateBS = body.paymentDateBS || '';
-    try {
-      const bsDay = await findBsDayRecordForAdDate(paymentDateAD);
-      if (bsDay.found && bsDay.record?.bsDate) paymentDateBS = bsDay.record.bsDate;
-    } catch (_e) {}
-    if (!paymentDateBS) paymentDateBS = await resolveBsDateForLedger(paymentDateAD);
+    // BS dates are mandatory: derive from bs_day_records for the payment's
+    // OWN AD date; 400 when unseeded (no fallback, no empty string).
+    const paymentDateBS = await bsDateOr400(res, paymentDateAD);
+    if (!paymentDateBS) return;
 
     const paymentMethod = String(body.paymentMethod || 'CASH').toUpperCase();
     // CR = cash receipt, BR = bank receipt (transfer/cheque/card/online) —
     // mirrors the vendor side's CP/BP split.
     const payDocType = paymentMethod === 'CASH' ? 'CR' : 'BR';
     const paymentNumber = body.paymentNumber || (await issueNextDocNumber(branchId, payDocType, paymentDateAD));
+    let chequeDateBS: string | null = null;
+    if (body.chequeDateAD) {
+      chequeDateBS = await bsDateOr400(res, body.chequeDateAD);
+      if (!chequeDateBS) return;
+    }
 
     const newPayment = {
       id: `cp-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -968,7 +981,7 @@ export async function post_customerPayments(req: any, res: Response): Promise<an
       accountNumber: body.accountNumber || null,
       chequeNumber: body.chequeNumber || null,
       chequeDateAD: body.chequeDateAD || null,
-      chequeDateBS: body.chequeDateBS || null,
+      chequeDateBS,
       transactionReference: body.transactionReference || null,
       notes: body.notes || null,
       status: 'POSTED',

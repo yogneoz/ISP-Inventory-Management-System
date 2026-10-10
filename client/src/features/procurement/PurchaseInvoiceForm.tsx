@@ -33,7 +33,7 @@ import { formCardClass } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { DateField } from '../../components/DateField';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
-import { convertADToBS } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
@@ -408,8 +408,18 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       return;
     }
 
-    const invBs = convertADToBS(purchaseDateAD);
-    const vendorBillBs = convertADToBS(vendorBillDateAD);
+    // BS dates are mandatory: auto-resolve both dates from the synced seeded
+    // calendar and block the bill when either has no exact record.
+    const invBs = ensureBSDayForAD(purchaseDateAD);
+    if (!invBs) {
+      alertDialog(`BS date is not available for ${purchaseDateAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
+    const vendorBillBs = ensureBSDayForAD(vendorBillDateAD);
+    if (!vendorBillBs) {
+      alertDialog(`BS date is not available for ${vendorBillDateAD}. Please contact your system administrator for BS month seeding.`);
+      return;
+    }
 
     const items: PurchaseInvoiceItem[] = calculatedLines.map((l, idx) => ({
       id: `inv-item-${Date.now()}-${idx}`,
@@ -437,9 +447,9 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       poReferenceId: selectedPoId || undefined,
       branchId,
       invoiceDateAD: purchaseDateAD,
-      invoiceDateBS: invBs.formattedBSShort,
+      invoiceDateBS: invBs,
       dueDateAD: vendorBillDateAD,
-      dueDateBS: vendorBillBs.formattedBSShort,
+      dueDateBS: vendorBillBs,
       paymentMethod: 'CREDIT',
       items,
       subtotalAmount: grossSubtotal,
@@ -450,7 +460,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       grandTotal: grandTotalCalculated,
       paymentStatus: 'UNPAID',
       amountPaid: 0,
-      notes: `Purchase Date: ${purchaseDateAD} (${invBs.formattedBSShort}). Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs.formattedBSShort}). ${notes}`,
+      notes: `Purchase Date: ${purchaseDateAD} (${invBs}). Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs}). ${notes}`,
     });
 
     setSaveMessage('Vendor bill saved successfully and purchase quantities were posted.');

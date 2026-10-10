@@ -14,6 +14,7 @@ import {
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
   shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
 } from '../models/shipments.repo';
+import { bsDateOr400 } from '../utils/bsDate';
 /** Forwarded from shipments.routes.ts (get_shipments). */
 export async function get_shipments(req: any, res: Response): Promise<any> {
 // Audience scoping: branch-bound accounts only ever see shipments that
@@ -270,10 +271,12 @@ try {
     // Date integrity: the BS receipt date is ALWAYS derived from the seeded
     // bs_day_records row for the AD receipt date — a hardcoded or client-
     // supplied BS value is never stored in received_date_bs.
-    const bsDayForReceipt = await findBsDayRecordForAdDate(sh.receivedDateAD);
-    const receivedDateBS: string | null = bsDayForReceipt.found
-      ? `${bsDayForReceipt.record.bsDate} BS`
-      : null;
+    // BS dates are mandatory: derive the receipt BS date from
+    // bs_day_records for the receipt's own AD date; 400 when the day is
+    // unseeded (the old behavior stored NULL, leaving a RECEIVED shipment
+    // without its BS date).
+    const receivedDateBS = await bsDateOr400(res, sh.receivedDateAD);
+    if (!receivedDateBS) return;
     sh.receivedDateBS = receivedDateBS || undefined;
 
     sh.items.forEach((item: any, idx: number) => {

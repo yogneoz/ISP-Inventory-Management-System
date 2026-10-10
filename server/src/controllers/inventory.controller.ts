@@ -6,6 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
+import { bsDateOr400 } from '../utils/bsDate';
 import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, setDataVersion, getDataVersion } from '../app';
 import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
@@ -622,6 +623,25 @@ try {
       newAsset.purchaseInvoiceDateBS = linkedInvoice.invoiceDateBS;
     }
 
+    // BS dates are mandatory on asset writes: derive any missing BS date
+    // from bs_day_records for the asset's own AD dates; 400 when a calendar
+    // day is unseeded (never persist empty, estimated, or hardcoded BS).
+    if (!String(newAsset.acquisitionDateBS || '').trim()) {
+      const acqBS = await bsDateOr400(res, newAsset.acquisitionDateAD);
+      if (!acqBS) return;
+      newAsset.acquisitionDateBS = acqBS;
+    }
+    if (newAsset.assignmentDateAD && !String(newAsset.assignmentDateBS || '').trim()) {
+      const asnBS = await bsDateOr400(res, newAsset.assignmentDateAD);
+      if (!asnBS) return;
+      newAsset.assignmentDateBS = asnBS;
+    }
+    if (newAsset.purchaseInvoiceDateAD && !String(newAsset.purchaseInvoiceDateBS || '').trim()) {
+      const piBS = await bsDateOr400(res, newAsset.purchaseInvoiceDateAD);
+      if (!piBS) return;
+      newAsset.purchaseInvoiceDateBS = piBS;
+    }
+
     const computedValues = calculateFixedAssetValues({
       ...newAsset,
       acquisitionDateAD: newAsset.acquisitionDateAD,
@@ -663,7 +683,7 @@ try {
         unitCost: Number(newAsset.acquisitionCost) || product?.costPrice || 0,
         referenceDocId: newAsset.tagNumber,
         timestampAD: String(newAsset.acquisitionDateAD).split('T')[0],
-        timestampBS: newAsset.acquisitionDateBS || '',
+        timestampBS: newAsset.acquisitionDateBS,
       };
 
       if (getPgConnected()) {

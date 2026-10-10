@@ -717,6 +717,14 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
   }
 
   const cleanCode = code.trim();
+  // BS dates are mandatory and server-authoritative where the calendar is
+  // seeded: derive the period's BS dates from bs_day_records for the AD
+  // boundaries; the client's values only apply for unseeded boundary days
+  // (e.g. a future FY start beyond the seeded calendar).
+  const startDay = await findBsDayRecordForAdDate(String(startDateAD).split('T')[0]);
+  const endDay = await findBsDayRecordForAdDate(String(endDateAD).split('T')[0]);
+  const resolvedStartBS = startDay.found && startDay.record?.bsDate ? `${startDay.record.bsDate} BS` : startDateBS.trim();
+  const resolvedEndBS = endDay.found && endDay.record?.bsDate ? `${endDay.record.bsDate} BS` : endDateBS.trim();
   try {
     // Prevent overlapping fiscal periods so every AD date belongs to exactly one
     // fiscal year (the assign_fiscal_year_id_from_date trigger relies on this).
@@ -733,7 +741,7 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
     const id = `fy-${crypto.randomUUID()}`;
     const result = await pgPool.query(
       FY_INSERT_SQL,
-      fiscalYearInsertParams({ id, code: cleanCode, startDateAD, endDateAD, startDateBS: startDateBS.trim(), endDateBS: endDateBS.trim() })
+      fiscalYearInsertParams({ id, code: cleanCode, startDateAD, endDateAD, startDateBS: resolvedStartBS, endDateBS: resolvedEndBS })
     );
     const newFiscalYear = result.rows[0];
     setFiscalYears(withSorted(

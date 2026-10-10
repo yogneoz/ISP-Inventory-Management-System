@@ -50,3 +50,28 @@ export function resolveBsDateForLedgerSync(adDate?: string | null): string {
 export function todayBs(): string {
   return resolveBsDateForLedgerSync();
 }
+
+/**
+ * Mandatory-BS resolver for persisted operation dates: derives the BS date
+ * for the operation's OWN AD date from bs_day_records and, when that
+ * calendar day is unseeded, sends a 400 (bsDateMissing) and returns null.
+ * Persisted rows must never carry an empty, estimated, or fallback BS date;
+ * client-supplied BS values cannot override the derived one (same rule the
+ * dispatch/receipt date gates already follow).
+ */
+export async function bsDateOr400(res: any, adDate: unknown): Promise<string | null> {
+  const ad = String(adDate || '').split('T')[0];
+  try {
+    if (ad) {
+      const day = await findBsDayRecordForAdDate(ad);
+      if (day.found && day.record?.bsDate) return `${day.record.bsDate} BS`;
+    }
+  } catch (_err) {
+    // handled by the 400 below
+  }
+  res.status(400).json({
+    message: `BS date is not available for ${ad || 'the requested date'}. Please contact your system administrator for BS month seeding.`,
+    bsDateMissing: true,
+  });
+  return null;
+}
