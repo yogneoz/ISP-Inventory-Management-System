@@ -321,7 +321,8 @@ export const PI_RECEIVE_STOCK_SQL = `INSERT INTO inventory_stock (id, product_id
  VALUES ($1, $2, $3, $4, 5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
    quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-   last_updated = CURRENT_TIMESTAMP;`;
+   last_updated = CURRENT_TIMESTAMP
+ RETURNING quantity_on_hand`;
 
 export function piReceiveStockParams(branchId: string, item: Record<string, any>): unknown[] {
   return [`stk-${branchId.toLowerCase()}-${item.productId}`, item.productId, branchId, Number(item.quantity) || 0];
@@ -334,9 +335,16 @@ export function piReceiveStockParams(branchId: string, item: Record<string, any>
  * for the same product commit in the same millisecond.
  */
 export const PI_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
- VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function piTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
+/**
+ * PURCHASE_INVOICE ledger row. `stockBefore` is the TRUE quantity_on_hand
+ * before the receipt (RETURNING balance minus the change); when omitted the
+ * row degrades to the old placeholder shape instead of inventing a balance.
+ */
+export function piTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+  const changed = Number(item.quantity) || 0;
+  const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
     `txn-${Date.now()}-${item.productId}-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -345,7 +353,9 @@ export function piTxnLogParams(inv: Record<string, any>, item: Record<string, an
     item.productName || 'Product',
     branchId,
     'PURCHASE_INVOICE',
-    Number(item.quantity) || 0,
+    before,
+    changed,
+    before + changed,
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     inv.invoiceDateAD || new Date().toISOString(),
@@ -379,7 +389,45 @@ export const PI_UNDO_PAYMENT_SQL = `UPDATE purchase_invoices SET
 
 /** Reverses received stock for a deleted invoice item, guarding on quantity. */
 export const PI_REVERSE_STOCK_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`;
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ RETURNING quantity_on_hand`;
+
+/**
+ * Compensating PURCHASE_INVOICE_CANCELLED ledger row written when an invoice
+ * is deleted: the original receipt row stays (audit immutability), so the
+ * deletion must reverse it out of the movement ledger with a positive mirror
+ * row carrying the same reference document.
+ */
+export const PI_CANCEL_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
+
+export function piCancelTxnLogParams(
+  inv: Record<string, any>,
+  item: Record<string, any>,
+  branchId: string,
+  itemIndex: number,
+  stockBefore: number,
+  cancelDate: { ad: string; bs: string }
+): unknown[] {
+  const changed = Number(item.quantity) || 0;
+  const before = Math.max(0, Number(stockBefore) || 0);
+  return [
+    `txn-${Date.now()}-${item.productId}-pic-${itemIndex}`,
+    `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+    item.productId,
+    item.sku || '',
+    item.productName || 'Product',
+    branchId,
+    'PURCHASE_INVOICE_CANCELLED',
+    before,
+    changed,
+    before + changed,
+    Number(item.unitPrice) || 0,
+    inv.invoiceNumber,
+    cancelDate.ad,
+    cancelDate.bs,
+  ];
+}
 
 export const CDR_ASSIGNED_CHECK_SQL =
   `SELECT 1 FROM customer_device_records
@@ -677,21 +725,25 @@ export const PR_RETURNED_QTY_SQL =
 /** Deducts returned stock from the branch, guarding on quantity (over-draw prevention). */
 export const PR_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`;
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ RETURNING quantity_on_hand`;
 
 /** Restores stock when a posted return is cancelled. */
 export const PR_RESTORE_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3`;
+ WHERE product_id = $2 AND branch_id = $3
+ RETURNING quantity_on_hand`;
 
 /** Cancels a return only while it is still POSTED (idempotent no-op otherwise). */
 export const PR_CANCEL_SQL = `UPDATE purchase_returns SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'POSTED'`;
 
 /** Appends a PURCHASE_RETURN ledger row (quantity_changed negative). Mirrors PI_TXN_LOG_SQL. */
 export const PR_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
- VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function prTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
+export function prTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+  const changed = -(Math.abs(Number(item.quantity)) || 0);
+  const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
     `txn-${Date.now()}-${item.productId}-pr-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -700,11 +752,49 @@ export function prTxnLogParams(ret: Record<string, any>, item: Record<string, an
     item.productName || 'Product',
     branchId,
     'PURCHASE_RETURN',
-    -(Math.abs(Number(item.quantity)) || 0),
+    before,
+    changed,
+    Math.max(0, before + changed),
     Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
     ret.returnDateBS || (() => { throw new Error('purchase-return insert requires returnDateBS resolved from bs_day_records'); })(),
+  ];
+}
+
+/**
+ * Compensating PURCHASE_RETURN_CANCELLED ledger row: cancelling a posted
+ * return restores the deducted units, so the ledger nets the return back to
+ * zero with a positive mirror of the original PURCHASE_RETURN row.
+ */
+export const PR_CANCEL_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
+
+export function prCancelTxnLogParams(
+  ret: Record<string, any>,
+  item: Record<string, any>,
+  branchId: string,
+  itemIndex: number,
+  stockBefore: number,
+  cancelDate: { ad: string; bs: string }
+): unknown[] {
+  const changed = Math.abs(Number(item.quantity)) || 0;
+  const before = Math.max(0, Number(stockBefore) || 0);
+  return [
+    `txn-${Date.now()}-${item.productId}-prc-${itemIndex}`,
+    `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+    item.productId,
+    item.sku || '',
+    item.productName || 'Product',
+    branchId,
+    'PURCHASE_RETURN_CANCELLED',
+    before,
+    changed,
+    before + changed,
+    Number(item.unitPrice) || 0,
+    ret.returnNumber,
+    cancelDate.ad,
+    cancelDate.bs,
   ];
 }
 

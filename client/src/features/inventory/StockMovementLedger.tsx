@@ -237,23 +237,23 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         // Log occurred AFTER period end
         totalAfterPeriodQtyChanges += l.quantityChanged;
       } else {
-        // Log is WITHIN period
-        if (l.changeType === 'INBOUND_PO' || l.changeType === 'PURCHASE_INVOICE' || l.changeType === 'DAMAGE_REVERSED' || l.changeType === 'SALES_RETURN' || l.changeType === 'SALES_INVOICE_CANCELLED' || (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged > 0)) {
-          receivedQty += Math.abs(l.quantityChanged);
+        // Log is WITHIN period. Classification is sign-based so every
+        // changeType (including TRANSFER_OUT/TRANSFER_IN and the
+        // PHYSICAL_AUDIT_* reconciliations) lands in the right bucket:
+        // positive quantityChanged restocks usable QOH, negative depletes it.
+        // Two exceptions carry their own column semantics:
+        // - DAMAGE moves usable units into the damaged pool (tracked in the
+        //   Damaged column, not Delivered — its qtyChanged is negative).
+        // - DISPOSAL shrinks the DAMAGED pool only; quantity_on_hand never
+        //   held those units, so it must not move the QOH matrix at all.
+        if (l.changeType === 'DISPOSAL') {
+          // Damaged-pool write-off: no QOH effect, skip the matrix.
         } else if (l.changeType === 'DAMAGE') {
           damagedQty += Math.abs(l.quantityChanged);
-        } else if (
-          l.changeType === 'PULLOUT' ||
-          l.changeType === 'STOCK_OUT' ||
-          l.changeType === 'CONSUMABLE_ISSUE' ||
-          l.changeType === 'SALES_INVOICE' ||
-          l.changeType === 'PURCHASE_RETURN' ||
-          (l.changeType === 'SHIPMENT_TRANSFER' && l.quantityChanged < 0)
-        ) {
+        } else if (l.quantityChanged > 0) {
+          receivedQty += Math.abs(l.quantityChanged);
+        } else if (l.quantityChanged < 0) {
           deliveredQty += Math.abs(l.quantityChanged);
-        } else if (l.changeType === 'MANUAL_ADJUSTMENT') {
-          if (l.quantityChanged > 0) receivedQty += l.quantityChanged;
-          else deliveredQty += Math.abs(l.quantityChanged);
         }
       }
     });

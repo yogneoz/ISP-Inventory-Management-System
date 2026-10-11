@@ -138,18 +138,28 @@ export const SI_FIND_ONE_SQL =
  */
 export const SI_DEDUCT_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`;
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ RETURNING quantity_on_hand`;
 
 /** Restores stock when a sales invoice is cancelled/deleted. */
 export const SI_RESTORE_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3`;
+ WHERE product_id = $2 AND branch_id = $3
+ RETURNING quantity_on_hand`;
 
-/** Appends a SALES_INVOICE ledger row (negative quantity change). Mirrors PI_TXN_LOG_SQL. */
+/**
+ * Appends a SALES_INVOICE ledger row (negative quantity change). Mirrors
+ * PI_TXN_LOG_SQL. `stockBefore` is the TRUE quantity_on_hand before the sale
+ * (post-update balance minus the change); when omitted the row degrades to
+ * the old placeholder shape (before 0 / after |changed|) instead of lying
+ * about a balance it never read.
+ */
 export const SI_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
- VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function siTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
+export function siTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+  const changed = -(Math.abs(Number(item.quantity)) || 0);
+  const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
     `txn-${Date.now()}-${item.productId}-si-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -158,7 +168,9 @@ export function siTxnLogParams(inv: Record<string, any>, item: Record<string, an
     item.productName || 'Product',
     branchId,
     'SALES_INVOICE',
-    -(Math.abs(Number(item.quantity)) || 0),
+    before,
+    changed,
+    Math.max(0, before + changed),
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     inv.invoiceDateAD || new Date().toISOString(),
@@ -282,8 +294,11 @@ export function siCancelTxnLogParams(
   item: Record<string, any>,
   branchId: string,
   itemIndex = 0,
-  cancelDate?: { ad: string; bs: string }
+  cancelDate?: { ad: string; bs: string },
+  stockBefore?: number
 ): unknown[] {
+  const changed = Math.abs(Number(item.quantity)) || 0;
+  const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
     `txn-${Date.now()}-${item.productId}-sic-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -292,7 +307,9 @@ export function siCancelTxnLogParams(
     item.productName || 'Product',
     branchId,
     'SALES_INVOICE_CANCELLED',
-    Math.abs(Number(item.quantity)) || 0,
+    before,
+    changed,
+    before + changed,
     Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     cancelDate?.ad || inv.invoiceDateAD || new Date().toISOString(),
@@ -428,7 +445,8 @@ export const SR_RESTOCK_SQL = `INSERT INTO inventory_stock (id, product_id, bran
  VALUES ($1, $2, $3, $4, 5)
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
    quantity_on_hand = inventory_stock.quantity_on_hand + $4,
-   last_updated = CURRENT_TIMESTAMP`;
+   last_updated = CURRENT_TIMESTAMP
+ RETURNING quantity_on_hand`;
 
 export function srRestockParams(branchId: string, item: Record<string, any>): unknown[] {
   return [`stk-${branchId.toLowerCase()}-${item.productId}`, item.productId, branchId, Math.abs(Number(item.quantity)) || 0];
@@ -437,16 +455,19 @@ export function srRestockParams(branchId: string, item: Record<string, any>): un
 /** Deducts stock again when a posted sales return is cancelled. */
 export const SR_REDEDUCT_STOCK_SQL = `UPDATE inventory_stock
  SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
- WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1`;
+ WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1
+ RETURNING quantity_on_hand`;
 
 /** Cancels a return only while it is still POSTED (idempotent no-op otherwise). */
 export const SR_CANCEL_SQL = `UPDATE sales_returns SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'POSTED'`;
 
 /** Appends a SALES_RETURN ledger row (positive quantity change). Mirrors PI_TXN_LOG_SQL. */
 export const SR_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
- VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9, $10, $11, $12)`;
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function srTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0): unknown[] {
+export function srTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+  const changed = Math.abs(Number(item.quantity)) || 0;
+  const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
     `txn-${Date.now()}-${item.productId}-sr-${itemIndex}`,
     `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -455,11 +476,49 @@ export function srTxnLogParams(ret: Record<string, any>, item: Record<string, an
     item.productName || 'Product',
     branchId,
     'SALES_RETURN',
-    Math.abs(Number(item.quantity)) || 0,
+    before,
+    changed,
+    before + changed,
     Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
     ret.returnDateBS || (() => { throw new Error('sales-return insert requires returnDateBS resolved from bs_day_records'); })(),
+  ];
+}
+
+/**
+ * Compensating SALES_RETURN_CANCELLED ledger row: cancelling a posted return
+ * re-deducts the restocked units, so the ledger nets the return back to zero
+ * with a negative mirror of the original SALES_RETURN row.
+ */
+export const SR_CANCEL_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
+
+export function srCancelTxnLogParams(
+  ret: Record<string, any>,
+  item: Record<string, any>,
+  branchId: string,
+  itemIndex: number,
+  stockBefore: number,
+  cancelDate: { ad: string; bs: string }
+): unknown[] {
+  const changed = -(Math.abs(Number(item.quantity)) || 0);
+  const before = Math.max(0, Number(stockBefore) || 0);
+  return [
+    `txn-${Date.now()}-${item.productId}-src-${itemIndex}`,
+    `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+    item.productId,
+    item.sku || '',
+    item.productName || 'Product',
+    branchId,
+    'SALES_RETURN_CANCELLED',
+    before,
+    changed,
+    Math.max(0, before + changed),
+    Number(item.unitPrice) || 0,
+    ret.returnNumber,
+    cancelDate.ad,
+    cancelDate.bs,
   ];
 }
 

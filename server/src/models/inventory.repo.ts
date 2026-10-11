@@ -795,6 +795,41 @@ export function cdrAssignmentStockParams(
 }
 
 /**
+ * CDR release credit: returns a device to branch stock, materialising the
+ * stock row when the branch has none yet. `quantity_on_hand` is only ever
+ * credited (the controller passes a positive stockChange on release), and
+ * RETURNING gives the true post-update balance for the ledger row.
+ */
+export const CDR_ASSIGNMENT_STOCK_RETURN_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand)
+ VALUES ($4, $2, $3, $1)
+ ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   quantity_on_hand = inventory_stock.quantity_on_hand + $1,
+   last_updated = CURRENT_TIMESTAMP
+ RETURNING quantity_on_hand`;
+
+export function cdrAssignmentReturnParams(
+  stockChange: number,
+  productId: string,
+  branchId: string
+): unknown[] {
+  return [stockChange, productId, branchId, `stk-${branchId.toLowerCase()}-${productId}`];
+}
+
+/**
+ * Proof that this device serial's stock unit was already consumed by the
+ * Assign Fixed Asset deploy-from-stock path: serial_log attributes the serial
+ * to a fixed asset AND the deterministic STOCK_OUT ledger row that deploy
+ * writes (`txn-asset-<assetId>`) exists. When this matches, the rental-CPE
+ * record created for the same deployment must NOT consume a second unit —
+ * the asset's ledger row is the single movement for that device.
+ */
+export const CDR_ASSET_DEPLOY_PROOF_SQL = `SELECT 1 FROM serial_log sl
+ WHERE lower(trim(sl.device_serial)) = lower(trim($1))
+   AND sl.source_type = 'FIXED_ASSET'
+   AND EXISTS (SELECT 1 FROM transaction_logs tl WHERE tl.id = 'txn-asset-' || sl.source_id)
+ LIMIT 1`;
+
+/**
  * Auto-provisions/updates the customer directory row and its
  * assigned-devices counter (conflict keyed on customer_id).
  */

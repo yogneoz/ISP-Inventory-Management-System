@@ -17,7 +17,7 @@ import {
   buildPiListSql, PI_UPSERT_SQL, piUpsertParams, PI_RECEIVE_STOCK_SQL, piReceiveStockParams,
   PI_TXN_LOG_SQL, piTxnLogParams, PI_DELETE_SQL, PI_RECORD_PAYMENT_SQL, PI_RESET_PAYMENT_SQL, PI_UNDO_PAYMENT_SQL,
   PI_LOCK_FOR_UPDATE_SQL, PI_BALANCE_AFTER_SQL, VP_LOCK_STATUS_SQL,
-  PI_REVERSE_STOCK_SQL, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
+  PI_REVERSE_STOCK_SQL, PI_CANCEL_TXN_LOG_SQL, piCancelTxnLogParams, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
   VP_REVERSE_SQL, VP_INSERT_SQL, vpInsertParams, buildVendorPaymentWhere, VP_ORDER_BY, VP_BY_INVOICE_SQL_SUFFIX,
   LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
   PO_PATCH_STATUS_SQL, PI_EXISTS_SQL, PI_FIND_FOR_DELETE_SQL,
@@ -28,6 +28,7 @@ import {
   PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
   PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
   PR_TXN_LOG_SQL, prTxnLogParams, PR_SELECT_COLUMNS, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
+  PR_CANCEL_TXN_LOG_SQL, prCancelTxnLogParams,
   PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
 } from '../models/procurement.repo';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
@@ -389,9 +390,14 @@ try {
 
         if (!invoiceAlreadyExists) for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
           const item = items[itemIdx];
-          await client.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
+          const received = await client.query(PI_RECEIVE_STOCK_SQL, piReceiveStockParams(targetBranchId, item));
 
-          await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId, itemIdx));
+          // Real ledger balance: the upsert RETURNING gives the post-receipt
+          // QOH, so the PURCHASE_INVOICE row records the TRUE before/after.
+          const after = Number(received.rows?.[0]?.quantity_on_hand);
+          const qty = Number(item.quantity) || 0;
+          const stockBefore = Number.isFinite(after) ? after - qty : undefined;
+          await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore));
         }
 
         const poRef = newInv.poReferenceId || req.body.poId;
@@ -465,9 +471,25 @@ try {
           const assigned = await client.query(CDR_ASSIGNED_CHECK_SQL, [serials, purchaseRefs]);
           if (assigned.rowCount) throw new Error('This invoice has serial devices that are already assigned or consumed and cannot be deleted.');
         }
+        // Stock reversal + compensating ledger rows in ONE per-product pass:
+        // the original PURCHASE_INVOICE rows stay (audit immutability), so
+        // the deletion reverses them out of the movement ledger with positive
+        // mirror rows carrying the TRUE balance from the guarded reversal's
+        // RETURNING (before + restored = after).
+        const cancelAD = new Date().toISOString().split('T')[0];
+        const cancelBsRec = await findBsDayRecordForAdDate(cancelAD);
+        const cancelBS = cancelBsRec.found ? `${cancelBsRec.record.bsDate} BS` : '';
+        let lineIdx = 0;
         for (const [productId, quantity] of quantities) {
           const updated = await client.query(PI_REVERSE_STOCK_SQL, [quantity, productId, invoice.branchId]);
           if (updated.rowCount !== 1) throw new Error(`Insufficient stock to reverse invoice item ${productId}.`);
+          const after = Number(updated.rows?.[0]?.quantity_on_hand);
+          const stockBefore = Number.isFinite(after) ? after + quantity : 0;
+          const item = items.find((entry: any) => entry.productId === productId) || { productId };
+          await client.query(
+            PI_CANCEL_TXN_LOG_SQL,
+            piCancelTxnLogParams(invoice, item, invoice.branchId, lineIdx++, stockBefore, { ad: cancelAD, bs: cancelBS })
+          );
         }
         if (serials.length > 0 && purchaseRefs.length > 0) {
           await client.query(CDR_IN_STOCK_DELETE_SQL, [serials, purchaseRefs]);
@@ -1230,7 +1252,11 @@ async function applyPurchaseReturnEffects(client: any, ret: any, items: any[], b
     if (deducted.rowCount !== 1) {
       throw new Error(`Insufficient stock to return ${qty} × ${item.productName || item.productId} at branch ${branchId}.`);
     }
-    await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx));
+    // Real ledger balance: the guarded UPDATE RETURNING gives the
+    // post-deduction QOH, so before = after + qty.
+    const after = Number(deducted.rows?.[0]?.quantity_on_hand);
+    const stockBefore = Number.isFinite(after) ? after + qty : undefined;
+    await client.query(PR_TXN_LOG_SQL, prTxnLogParams(ret, item, branchId, itemIdx, stockBefore));
     const serials = returnItemSerials(item);
     if (serials.length > 0) {
       await client.query(PR_SERIAL_FLIP_SQL, [
@@ -1368,6 +1394,11 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
       return res.status(400).json({ message: `Only POSTED or DRAFT returns can be cancelled (current status: ${ret.status}).` });
     }
 
+    // BS date for the compensating ledger rows: today's seeded BS record.
+    const prCancelAD = new Date().toISOString().split('T')[0];
+    const prCancelBsRec = await findBsDayRecordForAdDate(prCancelAD);
+    const prCancelBS = prCancelBsRec.found ? `${prCancelBsRec.record.bsDate} BS` : '';
+
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         // Guarded cancel: flips status only when still POSTED/DRAFT (race-safe).
@@ -1378,8 +1409,19 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
           : await client.query(PR_CANCEL_SQL, [ret.id]);
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
         if (ret.status === 'POSTED') {
+          let cancelLineIdx = 0;
           for (const item of ret.items || []) {
-            await client.query(PR_RESTORE_STOCK_SQL, [Math.abs(Number(item.quantity)) || 0, item.productId, ret.branchId]);
+            const restoreQty = Math.abs(Number(item.quantity)) || 0;
+            const restored = await client.query(PR_RESTORE_STOCK_SQL, [restoreQty, item.productId, ret.branchId]);
+            // Compensating PURCHASE_RETURN_CANCELLED ledger row: the original
+            // deduction row stays, so a positive mirror nets the return back
+            // to zero with the TRUE balance from the restore's RETURNING.
+            const after = Number(restored.rows?.[0]?.quantity_on_hand);
+            const stockBefore = Number.isFinite(after) ? after - restoreQty : 0;
+            await client.query(
+              PR_CANCEL_TXN_LOG_SQL,
+              prCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: prCancelAD, bs: prCancelBS })
+            );
             const serials = returnItemSerials(item);
             if (serials.length > 0) {
               await client.query(PR_SERIAL_FLIP_SQL, [

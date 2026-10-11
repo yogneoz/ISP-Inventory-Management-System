@@ -6,15 +6,74 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, logAuditEvent } from '../app';
+import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent } from '../app';
 import {
   SHIPMENT_LIST_SQL, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
-  shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
+  shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_STOCK_LOCK_SQL,
 } from '../models/shipments.repo';
+import { buildTxnMultiRowInsertSql, flattenTxnParams, txnInsertOnConflictParams } from '../models/inventory.repo';
 import { bsDateOr400 } from '../utils/bsDate';
+import type { TransactionLog } from '../../../client/src/types';
+
+/**
+ * Builds one movement-ledger row for a shipment leg: TRANSFER_OUT at the
+ * source on dispatch, TRANSFER_IN at the destination on receipt, and the
+ * compensating types on the two undo paths. quantityBefore is read from the
+ * stock row LOCKED in the same transaction, so before + changed = after
+ * always reconciles with inventory_stock.
+ */
+function buildTransferTxn(
+  sh: { id: string; trackingCode: string },
+  item: any,
+  index: number,
+  branchId: string,
+  changeType: TransactionLog['changeType'],
+  before: number,
+  changed: number,
+  timestampAD: string,
+  timestampBS: string
+): TransactionLog {
+  const product = products.find((entry) => entry.id === item.productId);
+  return {
+    id: `txn-sh-${sh.id}-${changeType}-${index}`,
+    transactionNumber: `${sh.trackingCode}-${index + 1}`,
+    productId: item.productId,
+    productSku: product?.sku || item.sku || '',
+    productName: product?.name || item.productName || 'Product',
+    branchId,
+    changeType,
+    quantityBefore: before,
+    quantityChanged: changed,
+    quantityAfter: Math.max(0, before + changed),
+    unitCost: Number(item.unitCost ?? product?.costPrice) || 0,
+    referenceDocId: sh.id,
+    timestampAD: new Date(`${timestampAD}T00:00:00.000Z`).toISOString(),
+    timestampBS,
+  };
+}
+
+/**
+ * Merges ledger rows into the in-memory mirror, deduplicating by id so the
+ * PG path (which already persisted its rows) and the demo-mode path can both
+ * call it safely.
+ */
+function appendLedgerMirror(rows: TransactionLog[]): void {
+  if (rows.length === 0) return;
+  const known = new Set(transactionLogs.map((entry) => entry.id));
+  const fresh: TransactionLog[] = [];
+  for (const row of rows) {
+    if (!known.has(row.id)) {
+      known.add(row.id);
+      fresh.push(row);
+    }
+  }
+  if (fresh.length > 0) setTransactionLogs([...fresh, ...transactionLogs]);
+}
+
+/** Forwarded from shipments.routes.ts (get_shipments). */
 /** Forwarded from shipments.routes.ts (get_shipments). */
 export async function get_shipments(req: any, res: Response): Promise<any> {
 // Audience scoping: branch-bound accounts only ever see shipments that
@@ -153,13 +212,20 @@ try {
         await client.query(SHIPMENT_UPSERT_SQL, shipmentUpsertParams(newShipment));
 
         if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+          const dispatchTxns: TransactionLog[] = [];
+          let lineIdx = 0;
           for (const item of newShipment.items) {
             const qtySent = shipmentQtySent(item);
+            // Lock the source row so the TRANSFER_OUT ledger row records the
+            // TRUE quantity before/after inside this same transaction.
+            const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, newShipment.sourceBranchId]);
+            const before = Number(locked.rows[0]?.quantityOnHand) || 0;
             const updated = await client.query(
               SHIPMENT_DEDUCT_SOURCE_SQL,
               [qtySent, item.productId, newShipment.sourceBranchId]
             );
             if (updated.rowCount !== 1) throw new Error(`Insufficient stock for ${item.productName || item.productId}.`);
+            dispatchTxns.push(buildTransferTxn(newShipment, item, lineIdx++, newShipment.sourceBranchId, 'TRANSFER_OUT', before, -qtySent, newShipment.dispatchDateAD, newShipment.dispatchDateBS));
 
             if (newShipment.destinationBranchId) {
               await client.query(
@@ -168,18 +234,25 @@ try {
               );
             }
           }
+          if (dispatchTxns.length > 0) {
+            await client.query(buildTxnMultiRowInsertSql(dispatchTxns.length), flattenTxnParams(dispatchTxns.map((txn) => txnInsertOnConflictParams(txn))));
+          }
         }
       });
     }
 
     if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
-      newShipment.items.forEach((item: any) => {
+      const dispatchTxns: TransactionLog[] = [];
+      const dispatchSrcId = newShipment.sourceBranchId;
+      newShipment.items.forEach((item: any, idx: number) => {
         const qtySent = Number(item.quantitySent || item.quantity || 1);
         let sourceStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === newShipment.sourceBranchId);
+        const before = Number(sourceStk?.quantityOnHand) || 0;
         if (sourceStk) {
           sourceStk.quantityOnHand = Math.max(0, sourceStk.quantityOnHand - qtySent);
           sourceStk.lastUpdated = new Date().toISOString();
         }
+        dispatchTxns.push(buildTransferTxn(newShipment, item, idx, dispatchSrcId, 'TRANSFER_OUT', before, -qtySent, newShipment.dispatchDateAD, newShipment.dispatchDateBS));
         if (newShipment.destinationBranchId) {
           let destStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === newShipment.destinationBranchId);
           if (destStk) {
@@ -188,6 +261,7 @@ try {
           }
         }
       });
+      appendLedgerMirror(dispatchTxns);
     }
     logAuditEvent(req, 'CREATE_SHIPMENT', 'LOGISTICS', `Created Shipment #${newShipment.trackingCode}`);
     res.status(201).json(newShipment);
@@ -297,6 +371,7 @@ try {
     sh.hasDiscrepancy = hasDiscrepancy;
     sh.status = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
 
+    const receiveTxns: TransactionLog[] = [];
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         await client.query(
@@ -304,14 +379,56 @@ try {
           [sh.status, sh.receivedByNotes, receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
         );
 
+        let lineIdx = 0;
         for (const item of sh.items) {
+          const receivedQty = shipmentReceivedQty(item);
+          // Lock the destination row so the TRANSFER_IN ledger row records
+          // the true quantity before/after alongside the credit itself.
+          const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, sh.destinationBranchId]);
+          const before = Number(locked.rows[0]?.quantityOnHand) || 0;
           await client.query(
             SHIPMENT_RECEIVE_STOCK_SQL,
             shipmentReceiveStockParams(sh.destinationBranchId, item)
           );
+          if (sh.destinationBranchId) {
+            receiveTxns.push(buildTransferTxn(sh, item, lineIdx++, sh.destinationBranchId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
+          }
+        }
+        if (receiveTxns.length > 0) {
+          await client.query(buildTxnMultiRowInsertSql(receiveTxns.length), flattenTxnParams(receiveTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
       });
     }
+    // Mirror the settlement in memory: demo mode has no other path that ever
+    // credited destination stock on receipt, so the ledger and QOH both lived
+    // only on the PG path before this.
+    if (sh.destinationBranchId) {
+      const receiveDestId = sh.destinationBranchId;
+      sh.items.forEach((item: any, idx: number) => {
+        const receivedQty = shipmentReceivedQty(item);
+        let destStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === receiveDestId);
+        if (!destStk) {
+          destStk = {
+            id: `stk-${receiveDestId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: receiveDestId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            minReorderLevel: 5,
+            lastUpdated: new Date().toISOString(),
+          };
+          setInventoryStock([...inventoryStock, destStk]);
+        }
+        const before = Number(destStk.quantityOnHand) || 0;
+        destStk.quantityOnHand = before + receivedQty;
+        destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - receivedQty);
+        destStk.lastUpdated = new Date().toISOString();
+        receiveTxns.push(buildTransferTxn(sh, item, idx, receiveDestId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
+      });
+    }
+    appendLedgerMirror(receiveTxns);
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
@@ -342,6 +459,10 @@ try {
     }
 
     const cancellationNotes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled by ${cancelActor.name || cancelActor.email || 'System'}${reason ? ': ' + reason : ''}`;
+    const cancelDateAD = new Date().toISOString().split('T')[0];
+    const cancelBsDay = await findBsDayRecordForAdDate(cancelDateAD);
+    const cancelDateBS = cancelBsDay.found ? `${cancelBsDay.record.bsDate} BS` : '';
+    const cancelTxns: TransactionLog[] = [];
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -353,13 +474,19 @@ try {
         const destinationBranchId = current.rows[0].destinationBranchId || sh.destinationBranchId;
         const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || sh.items);
         await client.query(SHIPMENT_CANCEL_SQL, ['CANCELLED', cancellationNotes, id]);
+        let lineIdx = 0;
         for (const item of items) {
           const qtySent = shipmentQtySent(item);
           if (qtySent > 0 && sourceBranchId) {
+            // Lock the source row so the TRANSFER_CANCELLED ledger row carries
+            // the true before/after of the restoration.
+            const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, sourceBranchId]);
+            const before = Number(locked.rows[0]?.quantityOnHand) || 0;
             await client.query(
               SHIPMENT_CANCEL_RESTORE_SOURCE_SQL,
               [qtySent, item.productId, sourceBranchId]
             );
+            cancelTxns.push(buildTransferTxn(sh, item, lineIdx++, sourceBranchId, 'TRANSFER_CANCELLED', before, qtySent, cancelDateAD, cancelDateBS));
           }
           if (qtySent > 0 && destinationBranchId) {
             await client.query(
@@ -368,8 +495,34 @@ try {
             );
           }
         }
+        if (cancelTxns.length > 0) {
+          await client.query(buildTxnMultiRowInsertSql(cancelTxns.length), flattenTxnParams(cancelTxns.map((txn) => txnInsertOnConflictParams(txn))));
+        }
       });
     }
+    // Mirror the restoration in memory: demo mode previously never returned
+    // source stock or released the destination reservation on cancel.
+    sh.items.forEach((item: any, idx: number) => {
+      const qtySent = shipmentQtySent(item);
+      if (qtySent <= 0) return;
+      if (sh.sourceBranchId) {
+        const sourceStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === sh.sourceBranchId);
+        const before = Number(sourceStk?.quantityOnHand) || 0;
+        if (sourceStk) {
+          sourceStk.quantityOnHand = before + qtySent;
+          sourceStk.lastUpdated = new Date().toISOString();
+        }
+        cancelTxns.push(buildTransferTxn(sh, item, idx, sh.sourceBranchId, 'TRANSFER_CANCELLED', before, qtySent, cancelDateAD, cancelDateBS));
+      }
+      if (sh.destinationBranchId) {
+        const destStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === sh.destinationBranchId);
+        if (destStk) {
+          destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
+          destStk.lastUpdated = new Date().toISOString();
+        }
+      }
+    });
+    appendLedgerMirror(cancelTxns);
     sh.status = 'CANCELLED';
     sh.notes = cancellationNotes;
     logAuditEvent(req, 'CANCEL_TRANSFER', 'LOGISTICS', `Cancelled transfer ${sh.trackingCode}`);
@@ -398,6 +551,10 @@ try {
     }
 
     const undoNote = (sh.notes ? sh.notes + ' | ' : '') + `Receipt cancelled by ${undoActor.name || undoActor.email || 'System'}${reason ? ': ' + reason : ''}`;
+    const undoDateAD = new Date().toISOString().split('T')[0];
+    const undoBsDay = await findBsDayRecordForAdDate(undoDateAD);
+    const undoDateBS = undoBsDay.found ? `${undoBsDay.record.bsDate} BS` : '';
+    const undoTxns: TransactionLog[] = [];
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -409,22 +566,48 @@ try {
         }
         const destBranchId = row.destinationBranchId;
         const items = typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || sh.items);
+        let lineIdx = 0;
         for (const item of items) {
           const qty = shipmentReceivedQty(item);
           if (qty > 0 && destBranchId) {
+            // Lock the destination row so the TRANSFER_RECEIPT_CANCELLED
+            // ledger row carries the true before/after of the reversal.
+            const locked = await client.query(SHIPMENT_STOCK_LOCK_SQL, [item.productId, destBranchId]);
+            const before = Number(locked.rows[0]?.quantityOnHand) || 0;
             const undone = await client.query(SHIPMENT_UNDO_RECEIVE_STOCK_SQL, [qty, item.productId, destBranchId]);
             if (undone.rowCount !== 1) {
               throw new Error(`Insufficient stock at the destination branch to undo the receipt of ${item.productName || item.productId}.`);
             }
+            undoTxns.push(buildTransferTxn(sh, item, lineIdx++, destBranchId, 'TRANSFER_RECEIPT_CANCELLED', before, -qty, undoDateAD, undoDateBS));
           }
+        }
+        if (undoTxns.length > 0) {
+          await client.query(buildTxnMultiRowInsertSql(undoTxns.length), flattenTxnParams(undoTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
         await client.query(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, [id, undoNote]);
       });
     }
 
     // In-memory cache mirror (same contract as post_cancel): the shipment is
-    // back In-Transit with its receive bookkeeping cleared. Stock caches are
-    // re-read by the cache-refresh hook after this mutating response.
+    // back In-Transit with its receive bookkeeping cleared. Destination stock
+    // is reversed here too — demo mode previously never debited it, so the
+    // undo silently kept fabricating credited units.
+    if (sh.destinationBranchId) {
+      const undoDestId = sh.destinationBranchId;
+      sh.items.forEach((item: any, idx: number) => {
+        const qty = shipmentReceivedQty(item);
+        if (qty <= 0) return;
+        const destStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === undoDestId);
+        const before = Number(destStk?.quantityOnHand) || 0;
+        if (destStk) {
+          destStk.quantityOnHand = Math.max(0, before - qty);
+          destStk.incomingQty = (destStk.incomingQty || 0) + qty;
+          destStk.lastUpdated = new Date().toISOString();
+        }
+        undoTxns.push(buildTransferTxn(sh, item, idx, undoDestId, 'TRANSFER_RECEIPT_CANCELLED', before, -qty, undoDateAD, undoDateBS));
+      });
+    }
+    appendLedgerMirror(undoTxns);
     sh.status = 'IN_TRANSIT';
     sh.receivedByNotes = undefined;
     sh.receivedDateAD = undefined;

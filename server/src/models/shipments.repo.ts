@@ -64,6 +64,15 @@ export function shipmentQtySent(item: Record<string, any>): number {
   return Number(item.quantitySent || item.quantity || 1);
 }
 
+/**
+ * Locks one product/branch stock row so a transfer can record the TRUE
+ * quantity_before / quantity_after in the movement ledger inside the same
+ * transaction as the stock mutation (TRANSFER_OUT / TRANSFER_IN /
+ * TRANSFER_CANCELLED / TRANSFER_RECEIPT_CANCELLED rows).
+ */
+export const SHIPMENT_STOCK_LOCK_SQL =
+  'SELECT quantity_on_hand AS "quantityOnHand", incoming_qty AS "incomingQty" FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 FOR UPDATE';
+
 /** Deducts shipped quantity from the source branch, guarding on stock level. */
 export const SHIPMENT_DEDUCT_SOURCE_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP
  WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`;

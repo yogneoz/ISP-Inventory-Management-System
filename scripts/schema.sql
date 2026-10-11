@@ -477,7 +477,7 @@ CREATE TABLE IF NOT EXISTS transaction_logs (
     product_sku VARCHAR(100),
     product_name VARCHAR(255),
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
-    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN', 'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')),
+    change_type VARCHAR(50) NOT NULL CHECK (change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN', 'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT', 'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN', 'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED', 'PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED')),
     quantity_before INT NOT NULL,
     quantity_changed INT NOT NULL,
     quantity_after INT NOT NULL,
@@ -1091,6 +1091,24 @@ ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check C
 -- declares `status` with its CHECK.)
 -- ============================================================================
 ALTER TABLE sales_invoices ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('POSTED', 'CANCELLED'));
+
+-- ============================================================================
+-- v3.5 MIGRATION: compensating ledger rows for document cancel/delete
+-- (PI delete, PR cancel and SR cancel restore stock but until now wrote no
+-- reversing ledger row, so the movement ledger overstated those documents'
+-- stock effects forever. Rewrites the ledger CHECK to accept the three
+-- compensating change types; no-op on fresh installs via the CREATE TABLE
+-- list above.)
+-- ============================================================================
+ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
+ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
+  change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN',
+    'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
+    'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
+    'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED',
+    'PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED')
+);
 
 -- ============================================================================
 -- HIGH-PERFORMANCE INDEXES

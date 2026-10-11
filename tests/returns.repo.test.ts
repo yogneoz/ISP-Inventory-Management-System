@@ -20,6 +20,9 @@ import {
   PR_SERIAL_FLIP_SQL,
   PR_POST_DRAFT_SQL,
   PR_CANCEL_DRAFT_SQL,
+  PR_RESTORE_STOCK_SQL,
+  PR_CANCEL_TXN_LOG_SQL,
+  prCancelTxnLogParams,
 } from '../server/src/models/procurement.repo';
 import {
   buildSalesInvoiceListSql,
@@ -47,6 +50,9 @@ import {
   SR_CANCEL_SQL,
   SR_TXN_LOG_SQL,
   SR_SELECT_COLUMNS,
+  SR_REDEDUCT_STOCK_SQL,
+  SR_CANCEL_TXN_LOG_SQL,
+  srCancelTxnLogParams,
   LEDGER_CUSTOMER_INVOICES_SQL,
   LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL,
@@ -121,8 +127,41 @@ describe('purchase returns repo', () => {
       'WH001', 2
     );
     assert.equal(p[6], 'PURCHASE_RETURN');
-    assert.equal(p[7], -3);
+    assert.equal(p[8], -3);
+    // Placeholder fallback: without a locked balance the row degrades to
+    // before 0 / after 0 rather than inventing a balance.
+    assert.equal(p[7], 0);
+    assert.equal(p[9], 0);
     assert.match(PR_TXN_LOG_SQL, /change_type/);
+  });
+
+  test('txn log rows carry the TRUE before/after when a locked balance is supplied', () => {
+    const p = prTxnLogParams(
+      { returnNumber: 'DN-2', returnDateAD: '2026-09-01', returnDateBS: '2083-05-18 BS' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 3, unitPrice: 10 },
+      'WH001', 0,
+      10
+    );
+    assert.equal(p[7], 10, 'quantity_before = locked balance');
+    assert.equal(p[8], -3, 'quantity_changed = -returned qty');
+    assert.equal(p[9], 7, 'quantity_after = before + changed');
+  });
+
+  test('purchase-return cancel writes a compensating row and restores with RETURNING', () => {
+    assert.match(PR_RESTORE_STOCK_SQL, /RETURNING quantity_on_hand/);
+    assert.match(PR_DEDUCT_STOCK_SQL, /RETURNING quantity_on_hand/);
+    const p = prCancelTxnLogParams(
+      { returnNumber: 'DN-3', returnDateAD: '2026-09-01', returnDateBS: '2083-05-18 BS' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 3, unitPrice: 10 },
+      'WH001', 0,
+      7,
+      { ad: '2026-09-05', bs: '2083-05-20 BS' }
+    );
+    assert.equal(p[6], 'PURCHASE_RETURN_CANCELLED');
+    assert.equal(p[7], 7, 'pre-restore balance');
+    assert.equal(p[8], 3, 'positive: it undoes the return\u2019s -3');
+    assert.equal(p[9], 10, 'after = before + changed');
+    assert.equal(p[12], '2026-09-05', 'stamped with the cancellation date');
   });
 
   test('serial flips target RETURNED_TO_VENDOR and append history entries', () => {
@@ -164,9 +203,10 @@ describe('sales invoices repo', () => {
     assert.equal(p[17], '[]');
   });
 
-  test('selling deducts stock with a no-negative-stock guard', () => {
+  test('selling deducts stock with a no-negative-stock guard and returns the new balance', () => {
     assert.match(SI_DEDUCT_STOCK_SQL, /quantity_on_hand >= \$1/);
     assert.match(SI_DEDUCT_STOCK_SQL, /quantity_on_hand = quantity_on_hand - \$1/);
+    assert.match(SI_DEDUCT_STOCK_SQL, /RETURNING quantity_on_hand/);
     assert.match(SI_TXN_LOG_SQL, /change_type/);
   });
 
@@ -177,7 +217,21 @@ describe('sales invoices repo', () => {
       'WH001', 0
     );
     assert.equal(p[6], 'SALES_INVOICE');
-    assert.equal(p[7], -2);
+    assert.equal(p[8], -2);
+    assert.equal(p[7], 0, 'placeholder before when no locked balance supplied');
+    assert.equal(p[9], 0, 'placeholder after clamps at zero');
+  });
+
+  test('sale row carries the TRUE before/after from the locked balance', () => {
+    const p = siTxnLogParams(
+      { invoiceNumber: 'INV-9', invoiceDateAD: '2026-09-01', invoiceDateBS: '2083-05-18 BS' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
+      'WH001', 0,
+      14
+    );
+    assert.equal(p[7], 14, 'quantity_before = pre-sale balance');
+    assert.equal(p[8], -2);
+    assert.equal(p[9], 12, 'quantity_after = before + changed');
   });
 });
 
@@ -230,10 +284,23 @@ describe('sales invoice cancel repo', () => {
       { ad: '2026-09-05', bs: '2083-05-20 BS' }
     );
     assert.equal(cancel[6], 'SALES_INVOICE_CANCELLED');
-    assert.equal(cancel[7], 2, 'positive: it undoes the sale\u2019s -2');
-    assert.equal(cancel[9], sale[9], 'same reference document');
-    assert.equal(cancel[10], '2026-09-05', 'stamped with the cancellation date');
+    assert.equal(cancel[8], 2, 'positive: it undoes the sale\u2019s -2');
+    assert.equal(cancel[11], sale[11], 'same reference document');
+    assert.equal(cancel[12], '2026-09-05', 'stamped with the cancellation date');
     assert.notEqual(cancel[0], sale[0], 'distinct ledger row id');
+  });
+
+  test('cancel row carries the TRUE before/after when the restore balance is supplied', () => {
+    const cancel = siCancelTxnLogParams(
+      { invoiceNumber: 'INV-2', invoiceDateAD: '2026-09-01', invoiceDateBS: '2083-05-18 BS' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 5 },
+      'WH001', 0,
+      { ad: '2026-09-05', bs: '2083-05-20 BS' },
+      8
+    );
+    assert.equal(cancel[7], 8, 'pre-restore balance');
+    assert.equal(cancel[8], 2);
+    assert.equal(cancel[9], 10, 'after = before + changed');
   });
 });
 
@@ -287,8 +354,27 @@ describe('sales returns repo', () => {
       'WH001', 1
     );
     assert.equal(p[6], 'SALES_RETURN');
-    assert.equal(p[7], 2);
+    assert.equal(p[8], 2);
+    assert.equal(p[7], 0, 'placeholder before when no locked balance supplied');
+    assert.equal(p[9], 2, 'placeholder after = before + changed');
     assert.match(SR_TXN_LOG_SQL, /change_type/);
+  });
+
+  test('sales-return cancel restores with RETURNING and writes a negative mirror row', () => {
+    assert.match(SR_REDEDUCT_STOCK_SQL, /RETURNING quantity_on_hand/);
+    assert.match(SR_RESTOCK_SQL, /RETURNING quantity_on_hand/);
+    const p = srCancelTxnLogParams(
+      { returnNumber: 'CN-2', returnDateAD: '2026-09-01', returnDateBS: '2083-05-18 BS' },
+      { productId: 'p1', sku: 'S1', productName: 'P1', quantity: 2, unitPrice: 8 },
+      'WH001', 0,
+      12,
+      { ad: '2026-09-05', bs: '2083-05-20 BS' }
+    );
+    assert.equal(p[6], 'SALES_RETURN_CANCELLED');
+    assert.equal(p[7], 12, 'pre-re-deduct balance');
+    assert.equal(p[8], -2, 'negative: it undoes the return\u2019s +2');
+    assert.equal(p[9], 10, 'after = before + changed');
+    assert.equal(p[12], '2026-09-05');
   });
 
   test('select projections expose camelCase columns', () => {

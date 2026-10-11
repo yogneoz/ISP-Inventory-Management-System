@@ -22,6 +22,7 @@ import {
   SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
   SR_RETURNED_QTY_SQL, SR_RESTOCK_SQL, srRestockParams, SR_REDEDUCT_STOCK_SQL, SR_CANCEL_SQL,
   SR_TXN_LOG_SQL, srTxnLogParams, SR_SELECT_COLUMNS, SR_FIND_ONE_SQL,
+  SR_CANCEL_TXN_LOG_SQL, srCancelTxnLogParams,
   LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
@@ -76,16 +77,25 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
     const item = items[itemIdx];
     if (ret.restockable !== false) {
-      await client.query(SR_RESTOCK_SQL, srRestockParams(branchId, item));
+      const restocked = await client.query(SR_RESTOCK_SQL, srRestockParams(branchId, item));
+      // Real ledger balance: RETURNING gives the post-restock QOH, so the
+      // SALES_RETURN row records the TRUE before/after instead of 0/changed.
+      const after = Number(restocked.rows?.[0]?.quantity_on_hand);
+      const qty = Math.abs(Number(item.quantity)) || 0;
+      const stockBefore = Number.isFinite(after) ? after - qty : undefined;
+      await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx, stockBefore));
     } else {
       // Non-restockable: route the units into the damage register (plan extras
-      // — returned-but-damaged units never pollute sellable stock).
+      // — returned-but-damaged units never pollute sellable stock). No QOH
+      // ledger row is written: quantity_on_hand never moved, and the old
+      // unconditional +qty SALES_RETURN row claimed a restock that did not
+      // happen. The damage register (damaged-pool sub-ledger) carries these
+      // units instead.
       await client.query(
         SR_DAMAGE_INSERT_SQL,
         srDamageInsertParams(ret, item, branchId, `${ret.returnNumber}-SR-${itemIdx}`, createdBy)
       );
     }
-    await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx));
     const serials = returnItemSerials(item);
     if (serials.length > 0) {
       await client.query(SR_SERIAL_FLIP_SQL, [
@@ -326,7 +336,11 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
           if (deducted.rowCount !== 1) {
             throw new Error(`Insufficient stock to sell ${qty} × ${item.productName || item.productId} at branch ${targetBranchId}.`);
           }
-          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx));
+          // Real ledger balance: the guarded UPDATE RETURNING gives the
+          // post-deduction QOH, so before = after + qty.
+          const after = Number(deducted.rows?.[0]?.quantity_on_hand);
+          const stockBefore = Number.isFinite(after) ? after + qty : undefined;
+          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore));
         }
       });
     }
@@ -431,6 +445,7 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
       for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
         const item = items[itemIdx];
         const qty = Math.abs(Number(item.quantity)) || 0;
+        let restoreAfter: number | undefined;
         if (qty > 0) {
           const restored = await client.query(SI_RESTORE_STOCK_SQL, [qty, item.productId, inv.branchId]);
           if (restored.rowCount !== 1) {
@@ -438,8 +453,10 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
               `Could not restore stock for ${item.productName || item.productId} at branch ${inv.branchId} — nothing was cancelled.`
             );
           }
+          const after = Number(restored.rows?.[0]?.quantity_on_hand);
+          restoreAfter = Number.isFinite(after) ? after - qty : undefined;
         }
-        await client.query(SI_TXN_LOG_SQL, siCancelTxnLogParams(inv, item, inv.branchId, itemIdx, { ad: cancelAD, bs: cancelBS }));
+        await client.query(SI_TXN_LOG_SQL, siCancelTxnLogParams(inv, item, inv.branchId, itemIdx, { ad: cancelAD, bs: cancelBS }, restoreAfter));
       }
 
       const claimed = await client.query(SI_CLAIMED_SERIALS_SQL, [inv.invoiceNumber]);
@@ -646,6 +663,11 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
       return res.status(400).json({ message: `Only POSTED or DRAFT returns can be cancelled (current status: ${ret.status}).` });
     }
 
+    // BS date for the compensating ledger rows: today's seeded BS record.
+    const srCancelAD = new Date().toISOString().split('T')[0];
+    const srCancelBS = await bsDateOr400(res, srCancelAD);
+    if (!srCancelBS) return;
+
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         // Guarded cancel: flips status only when still POSTED/DRAFT (race-safe).
@@ -657,8 +679,22 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
         if (cancelled.rowCount !== 1) throw new Error('Return was already cancelled by another user.');
         if (ret.status === 'POSTED') {
           if (ret.restockable !== false) {
+            let cancelLineIdx = 0;
             for (const item of ret.items || []) {
-              await client.query(SR_REDEDUCT_STOCK_SQL, [Math.abs(Number(item.quantity)) || 0, item.productId, ret.branchId]);
+              const redeductQty = Math.abs(Number(item.quantity)) || 0;
+              const rededucted = await client.query(SR_REDEDUCT_STOCK_SQL, [redeductQty, item.productId, ret.branchId]);
+              if (rededucted.rowCount !== 1) {
+                throw new Error(`Could not reverse restocked stock for ${item.productName || item.productId} at branch ${ret.branchId} — nothing was cancelled.`);
+              }
+              // Compensating SALES_RETURN_CANCELLED ledger row: the original
+              // restock row stays, so a negative mirror nets the return back
+              // to zero with the TRUE balance from the re-deduct's RETURNING.
+              const after = Number(rededucted.rows?.[0]?.quantity_on_hand);
+              const stockBefore = Number.isFinite(after) ? after + redeductQty : 0;
+              await client.query(
+                SR_CANCEL_TXN_LOG_SQL,
+                srCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: srCancelAD, bs: srCancelBS })
+              );
             }
           } else {
             // Cancel the damage-register rows this return created.

@@ -19,6 +19,8 @@ import {
   piUpsertParams,
   piReceiveStockParams,
   piTxnLogParams,
+  PI_RECEIVE_STOCK_SQL,
+  PI_REVERSE_STOCK_SQL,
   buildVendorPaymentWhere,
   vpInsertParams,
   ledgerNameParams,
@@ -125,22 +127,40 @@ describe('piUpsertParams', () => {
   test('piTxnLogParams emits a PURCHASE_INVOICE log row with item defaults', () => {
     const inv = { invoiceNumber: 'PI-7', invoiceDateAD: '2026-03-01', invoiceDateBS: 'bs' };
     const params = piTxnLogParams(inv, { productId: 'p1' }, 'WH001');
-    // 12 binds: quantity_before is a literal 0 and quantity binds once ($8, $8)
-    assert.equal(params.length, 12);
+    // 14 binds: before / changed / after are explicit ($8, $9, $10); the
+    // placeholder fallback (no locked balance) keeps before 0 / after = changed.
+    assert.equal(params.length, 14);
     assert.match(params[0] as string, /^txn-\d+-p1-0$/);
     assert.match(params[1] as string, /^TXN-\d{5}$/);
-    assert.equal(params[9], 'PI-7');
-    assert.equal(params[11], 'bs');
+    assert.equal(params[6], 'PURCHASE_INVOICE');
+    assert.equal(params[7], 0, 'placeholder before');
+    assert.equal(params[8], 0, 'quantity defaults to 0 without item.quantity');
+    assert.equal(params[9], 0, 'after = before + changed');
+    assert.equal(params[11], 'PI-7');
+    assert.equal(params[13], 'bs');
     const fallbackInv = { invoiceNumber: 'PI-8', invoiceDateBS: '2083-04-10 BS' };
     const fallback = piTxnLogParams(fallbackInv, { productId: 'p1' }, 'WH001');
-    assert.match(fallback[10] as string, /^\d{4}-\d{2}-\d{2}T/);
-    assert.equal(fallback[11], '2083-04-10 BS');
+    assert.match(fallback[12] as string, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(fallback[13], '2083-04-10 BS');
     // Mandatory BS: a missing BS date must fail loudly instead of persisting
     // the old fictitious '2083-04-16 BS' fallback.
     assert.throws(
       () => piTxnLogParams({ invoiceNumber: 'PI-8' }, { productId: 'p1' }, 'WH001'),
       /requires invoiceDateBS/
     );
+  });
+
+  test('piTxnLogParams records the TRUE before/after from the locked balance', () => {
+    const inv = { invoiceNumber: 'PI-10', invoiceDateBS: '2083-04-10 BS' };
+    const p = piTxnLogParams(inv, { productId: 'p1', quantity: 5 }, 'WH001', 0, 12);
+    assert.equal(p[7], 12, 'quantity_before = pre-receipt balance');
+    assert.equal(p[8], 5, 'quantity_changed = received qty');
+    assert.equal(p[9], 17, 'quantity_after = before + changed');
+  });
+
+  test('PI receive stock upsert RETURNING feeds the ledger balance', () => {
+    assert.match(PI_RECEIVE_STOCK_SQL, /RETURNING quantity_on_hand/);
+    assert.match(PI_REVERSE_STOCK_SQL, /RETURNING quantity_on_hand/);
   });
 
   test('piTxnLogParams ids stay unique when one invoice repeats a product', () => {

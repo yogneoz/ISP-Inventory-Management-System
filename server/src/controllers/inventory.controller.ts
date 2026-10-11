@@ -83,6 +83,9 @@ import {
   customerDeviceInsertParams,
   CDR_ASSIGNMENT_STOCK_SQL,
   cdrAssignmentStockParams,
+  CDR_ASSIGNMENT_STOCK_RETURN_SQL,
+  cdrAssignmentReturnParams,
+  CDR_ASSET_DEPLOY_PROOF_SQL,
   CDR_CUSTOMER_COUNT_UPSERT_SQL,
   customerCountUpsertParams,
   buildSerialLookupSql,
@@ -535,18 +538,56 @@ try {
         }
       });
     } else {
+      // Demo mode: stock moved here too, but until now no PHYSICAL_AUDIT_*
+      // rows were written, so the ledger silently missed every reconciliation
+      // that ran without PG. Record them with the same real before/after the
+      // PG path persists.
+      const auditTxns: TransactionLog[] = [];
       for (const item of varianceItems) {
         let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === branchId);
-        if (stk) {
-          const qtyBefore = stk.quantityOnHand || 0;
-          const targetCounted = Number(item.countedQty) || 0;
-          const delta = targetCounted - qtyBefore;
-          stk.quantityOnHand = targetCounted;
-          stk.lastUpdated = new Date().toISOString();
-          totalAdjusted += 1;
-          netFinancialImpact += delta * (item.unitCost || 0);
+        if (!stk) {
+          const createdRow: any = {
+            id: `stk-${branchId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: branchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          setInventoryStock(withAppended(inventoryStock, createdRow));
+          stk = createdRow;
         }
+        const auditedStk = stk as NonNullable<typeof stk>;
+        const qtyBefore = auditedStk.quantityOnHand || 0;
+        const targetCounted = Number(item.countedQty) || 0;
+        const delta = targetCounted - qtyBefore;
+        const unitCost = item.unitCost || 0;
+        auditedStk.quantityOnHand = targetCounted;
+        auditedStk.lastUpdated = new Date().toISOString();
+        totalAdjusted += 1;
+        netFinancialImpact += delta * unitCost;
+        if (delta === 0) continue;
+        const prod = products.find((p) => p.id === item.productId);
+        auditTxns.push({
+          id: `txn-${Date.now()}-${item.productId}-aud`,
+          transactionNumber: `TXN-AUD-${Math.floor(10000 + Math.random() * 90000)}`,
+          productId: item.productId,
+          productSku: prod?.sku || item.sku || '',
+          productName: prod?.name || item.productName || '',
+          branchId: branchId,
+          changeType: (delta > 0 ? 'PHYSICAL_AUDIT_EXCESS' : 'PHYSICAL_AUDIT_SHORTAGE') as TransactionLog['changeType'],
+          quantityBefore: qtyBefore,
+          quantityChanged: delta,
+          quantityAfter: targetCounted,
+          unitCost: unitCost || prod?.costPrice || 0,
+          referenceDocId: auditRefNumber || `AUDIT-${Date.now()}`,
+          timestampAD: new Date().toISOString(),
+          timestampBS: auditBsDate,
+        } as TransactionLog);
       }
+      if (auditTxns.length > 0) setTransactionLogs([...auditTxns, ...transactionLogs]);
     }
 
     const branch = branches.find((b) => b.id === branchId);
@@ -921,25 +962,48 @@ try {
     const branchObj = branches.find((b) => b.id === req.body.branchId);
     const destWarehouseObj = branches.find((b) => b.id === (req.body.destinationWarehouseId || 'WH001'));
     const items = req.body.items || [];
+    // MANUAL_ADJUSTMENT carries a SIGNED quantity (negative draws stock,
+    // positive credits it); every other type draws stock and keeps the legacy
+    // absolute fallback for the single-item request shape.
+    const manualDeltaOf = (item: any): number =>
+      opType === 'MANUAL_ADJUSTMENT' ? Number(item.quantity) || 0 : 0;
+    const usesDamagedPool = (item: any): boolean =>
+      opType === 'DISPOSAL' || item.condition === 'DAMAGED_STOCK';
     const operationItems = items.length > 0
       ? items
       : req.body.productId
-      ? [{ productId: req.body.productId, productName: req.body.productName || '', quantity: Math.abs(Number(req.body.quantityChanged) || 0), deviceSerials: req.body.deviceSerials || [] }]
+      ? [{ productId: req.body.productId, productName: req.body.productName || '', quantity: opType === 'MANUAL_ADJUSTMENT' ? (Number(req.body.quantityChanged) || 0) : Math.abs(Number(req.body.quantityChanged) || 0), deviceSerials: req.body.deviceSerials || [] }]
       : [];
-    const stockConsumingType = ['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE'].includes(opType);
+    // DISPOSAL writes units off the damaged pool and MANUAL_ADJUSTMENT can
+    // credit stock — both move inventory, so both join the drawing types in
+    // the lock + guarded-apply path (stock-movement audit).
+    const stockConsumingType = ['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE', 'DISPOSAL', 'MANUAL_ADJUSTMENT'].includes(opType);
+    // Serial/PON register checks only apply to operations that DRAW serialized
+    // units out of stock; disposals draw quarantined units and manual credits
+    // have no serials to match against the IN_STOCK register.
+    const serialValidatedType = ['DAMAGE', 'PULLOUT', 'STOCK_OUT', 'CONSUMABLE_ISSUE'].includes(opType);
     if (stockConsumingType) {
       for (const item of operationItems) {
         const product = products.find((entry) => entry.id === item.productId);
         const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === req.body.branchId);
-        const quantity = Number(item.quantity) || 0;
-        const availableQuantity = item.condition === 'DAMAGED_STOCK'
+        const manualDelta = manualDeltaOf(item);
+        const quantity = opType === 'MANUAL_ADJUSTMENT' ? Math.abs(manualDelta) : Number(item.quantity) || 0;
+        const availableQuantity = usesDamagedPool(item)
           ? Number(stockRecord?.damagedQty) || 0
           : Number(stockRecord?.quantityOnHand) || 0;
-        if (!stockRecord || quantity < 1 || availableQuantity < quantity) {
+        if (opType === 'MANUAL_ADJUSTMENT' && manualDelta === 0) {
+          continue; // zero-delta adjustment: no stock movement to verify
+        }
+        if (opType === 'MANUAL_ADJUSTMENT' && manualDelta > 0) {
+          if (quantity < 1) {
+            res.status(400).json({ message: `Invalid adjustment quantity for ${item.productName || item.productId}.` });
+            return;
+          }
+        } else if (!stockRecord || quantity < 1 || availableQuantity < quantity) {
           res.status(400).json({ message: `Insufficient inventory for ${item.productName || item.productId}. Available: ${availableQuantity}, requested: ${quantity}.` });
           return;
         }
-        const isSerialized = product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : true;
+        const isSerialized = serialValidatedType && (product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : true);
         if (isSerialized) {
           const serialEntries = item.deviceSerials || [];
           if (serialEntries.length < quantity) {
@@ -1003,6 +1067,7 @@ try {
       STOCK_OUT: 'SALE',
       CONSUMABLE_ISSUE: 'CON',
       MANUAL_ADJUSTMENT: 'SA',
+      DISPOSAL: 'DSP',
     };
     const docType = opTypeDocMap[opType] || opType.slice(0, 4).toUpperCase();
     const newOp = {
@@ -1026,19 +1091,37 @@ try {
     // Keep the movement ledger authoritative for stock operations as well as
     // purchase invoices and transfers. Pullouts from damaged stock do not
     // change available quantity_on_hand, so they are intentionally excluded
-    // from this quantity ledger.
+    // from this quantity ledger — as are zero-delta manual adjustments (no
+    // movement happened). DISPOSAL rows carry the DAMAGED pool before/after
+    // (quantity_on_hand never held those units); every other row is
+    // quantity_on_hand semantics with before + changed = after.
     const operationTransactions: TransactionLog[] = operationItems
       .filter((item: any) => !(opType === 'PULLOUT' && item.condition === 'DAMAGED_STOCK'))
+      .filter((item: any) => !(opType === 'MANUAL_ADJUSTMENT' && (Number(item.quantity) || 0) === 0))
       .map((item: any, index: number) => {
         const stockRecord = inventoryStock.find(
           (entry) => entry.productId === item.productId && entry.branchId === newOp.branchId
         );
         const product = products.find((entry) => entry.id === item.productId);
         const quantity = Number(item.quantity) || 1;
-        const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
-        // DAMAGE ops move units from usable to damaged, still consuming
-        // quantity_on_hand; DISPOSAL / PULLOUT / STOCK_OUT consume stock too.
-        const quantityChanged = -(opType === 'DAMAGE' ? quantity : Math.abs(quantity));
+        const manualDelta = manualDeltaOf(item);
+        const quantityBefore = opType === 'DISPOSAL'
+          ? Number(stockRecord?.damagedQty) || 0
+          : Number(stockRecord?.quantityOnHand) || 0;
+        // DAMAGE ops move units from usable to damaged (still consuming
+        // quantity_on_hand); PULLOUT / STOCK_OUT / CONSUMABLE_ISSUE consume
+        // quantity_on_hand; DISPOSAL shrinks the damaged pool only;
+        // MANUAL_ADJUSTMENT applies its signed quantity verbatim.
+        const quantityChanged = opType === 'DISPOSAL'
+          ? -Math.abs(quantity)
+          : opType === 'MANUAL_ADJUSTMENT'
+            ? manualDelta
+            : -(opType === 'DAMAGE' ? quantity : Math.abs(quantity));
+        const quantityAfter = opType === 'DISPOSAL'
+          ? Math.max(0, quantityBefore - Math.abs(quantity))
+          : opType === 'MANUAL_ADJUSTMENT'
+            ? Math.max(0, quantityBefore + manualDelta)
+            : Math.max(0, quantityBefore - quantity);
         return {
           id: `txn-${newOp.id}-${item.productId}-${index}`,
           transactionNumber: `${newOp.referenceNumber}-${index + 1}`,
@@ -1049,7 +1132,7 @@ try {
           changeType: (opType === 'DAMAGE' ? 'DAMAGE' : opType) as TransactionLog['changeType'],
           quantityBefore,
           quantityChanged,
-          quantityAfter: Math.max(0, quantityBefore - quantity),
+          quantityAfter,
           unitCost: Number(item.unitCost ?? item.costPerUnit ?? newOp.costPerUnit) || product?.costPrice || 0,
           referenceDocId: newOp.referenceNumber,
           timestampAD: new Date(`${newOp.dateAD}T00:00:00.000Z`).toISOString(),
@@ -1072,10 +1155,25 @@ try {
           const lockedMap = new Map<string, LockedStockRow>(
             (locked.rows || []).map((r: LockedStockRow) => [r.product_id, r])
           );
+          // Rebuild each ledger row's before/after from the LOCKED DB truth:
+          // the mirror the rows were drafted from can be stale, and an
+          // inaccurate quantity_before/after would break the ledger's
+          // before + changed = after invariant for concurrent movements.
+          for (const txn of operationTransactions) {
+            const row = lockedMap.get(txn.productId);
+            if (!row) continue; // credit creates the row; mirror 0 is correct
+            const before = opType === 'DISPOSAL'
+              ? Number(row.damaged_qty) || 0
+              : Number(row.quantity_on_hand) || 0;
+            txn.quantityBefore = before;
+            txn.quantityAfter = Math.max(0, before + txn.quantityChanged);
+          }
           for (const item of operationItems) {
             const row = lockedMap.get(item.productId);
-            const quantity = Number(item.quantity) || 0;
-            if (item.condition === 'DAMAGED_STOCK') {
+            const manualDelta = manualDeltaOf(item);
+            if (opType === 'MANUAL_ADJUSTMENT' && manualDelta >= 0) continue; // credit needs no existing row
+            const quantity = opType === 'MANUAL_ADJUSTMENT' ? -manualDelta : Number(item.quantity) || 0;
+            if (usesDamagedPool(item)) {
               if (!row || Number(row.damaged_qty) < quantity) {
                 throw new Error(`Insufficient damaged stock in the database for ${item.productName || item.productId}. Available: ${row ? Number(row.damaged_qty) : 0}, requested: ${quantity}. Please retry.`);
               }
@@ -1092,6 +1190,7 @@ try {
 
         for (const item of operationItems) {
           const qty = Number(item.quantity) || 1;
+          const manualDelta = manualDeltaOf(item);
           let result;
           if (opType === 'DAMAGE') {
             result = await client.query(STOCK_DAMAGE_APPLY_SQL, [qty, item.productId, newOp.branchId]);
@@ -1102,6 +1201,24 @@ try {
             );
           } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
             result = await client.query(STOCK_CONSUME_QOH_SQL, [qty, item.productId, newOp.branchId]);
+          } else if (opType === 'DISPOSAL') {
+            // Write-off: units leave the DAMAGED pool (quantity_on_hand never
+            // held them), guarded on damaged_qty so a disposal can never
+            // write off more than the pool carries.
+            result = await client.query(STOCK_RELEASE_DAMAGED_SQL, [Math.abs(qty), item.productId, newOp.branchId]);
+          } else if (opType === 'MANUAL_ADJUSTMENT' && manualDelta !== 0) {
+            if (manualDelta < 0) {
+              result = await client.query(STOCK_CONSUME_QOH_SQL, [-manualDelta, item.productId, newOp.branchId]);
+            } else {
+              // Credit upserts, so a product/branch without a stock row yet
+              // materialises instead of failing the whole operation.
+              result = await client.query(PULLOUT_RECEIVE_STOCK_SQL, [
+                `stk-${newOp.branchId.toLowerCase()}-${item.productId}`,
+                item.productId,
+                newOp.branchId,
+                manualDelta,
+              ]);
+            }
           }
           if (stockConsumingType && result && result.rowCount !== 1) {
             throw new Error(`Stock changed before this operation could be posted for ${item.productName || item.productId}. Please retry.`);
@@ -1140,11 +1257,33 @@ try {
     setStockOperations(idx >= 0 ? withReplaced(stockOperations, idx, newOp) : withPrepended(stockOperations, newOp));
     if (stockConsumingType) {
       for (const item of operationItems) {
-        const stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === newOp.branchId);
+        let stockRecord = inventoryStock.find((entry) => entry.productId === item.productId && entry.branchId === newOp.branchId);
         const quantity = Number(item.quantity) || 0;
+        const manualDelta = manualDeltaOf(item);
+        if (opType === 'MANUAL_ADJUSTMENT' && manualDelta === 0) continue;
+        if (!stockRecord && opType === 'MANUAL_ADJUSTMENT' && manualDelta > 0) {
+          // Credit materialises the branch row the same way the PG upsert does.
+          const creditedRow: any = {
+            id: `stk-${newOp.branchId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: newOp.branchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            minReorderLevel: 5,
+            lastUpdated: new Date().toISOString(),
+          };
+          stockRecord = creditedRow;
+          setInventoryStock(withAppended(inventoryStock, creditedRow));
+        }
         if (stockRecord) {
-          if (opType === 'PULLOUT' && item.condition === 'DAMAGED_STOCK') {
+          if (opType === 'DISPOSAL') {
+            stockRecord.damagedQty = Math.max(0, (stockRecord.damagedQty || 0) - Math.abs(quantity));
+          } else if (opType === 'PULLOUT' && item.condition === 'DAMAGED_STOCK') {
             stockRecord.damagedQty = Math.max(0, (stockRecord.damagedQty || 0) - quantity);
+          } else if (opType === 'MANUAL_ADJUSTMENT') {
+            stockRecord.quantityOnHand = Math.max(0, (stockRecord.quantityOnHand || 0) + manualDelta);
           } else {
             stockRecord.quantityOnHand -= quantity;
           }
@@ -1547,6 +1686,37 @@ try {
       return;
     }
 
+    // Ledger rows for the destination credit: TRANSFER_IN at the receiving
+    // warehouse, with before/after read from the row LOCKED in the same
+    // transaction (PG) or from the mirror (demo mode).
+    const receiveTxns: TransactionLog[] = [];
+    const buildReceiveTxn = (
+      receiveOp: { id: string; referenceNumber?: string },
+      item: any,
+      idx: number,
+      whId: string,
+      qty: number,
+      before: number
+    ): TransactionLog => {
+      const product = products.find((entry) => entry.id === item.productId);
+      return {
+        id: `txn-${receiveOp.id}-recv-${item.productId}`,
+        transactionNumber: `${receiveOp.referenceNumber || receiveOp.id}-RCV-${idx + 1}`,
+        productId: item.productId,
+        productSku: product?.sku || item.sku || '',
+        productName: product?.name || item.productName || 'Product',
+        branchId: whId,
+        changeType: 'TRANSFER_IN',
+        quantityBefore: before,
+        quantityChanged: qty,
+        quantityAfter: before + qty,
+        unitCost: Number(item.unitCost ?? item.costPerUnit ?? product?.costPrice) || 0,
+        referenceDocId: receiveOp.id,
+        timestampAD: new Date(`${op?.dateAD || new Date().toISOString().split('T')[0]}T00:00:00.000Z`).toISOString(),
+        timestampBS: op?.dateBS || '',
+      } as TransactionLog;
+    };
+
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         const current = await client.query(STOCK_OPERATION_FIND_FOR_RECEIVE_SQL, [id]);
@@ -1555,16 +1725,72 @@ try {
         await client.query(STOCK_OPERATION_SET_STATUS_SQL, ['RECEIVED', id]);
         const whId = current.rows[0].destinationWarehouseId || op?.destinationWarehouseId || 'WH001';
         const items = typeof current.rows[0].items === 'string' ? JSON.parse(current.rows[0].items) : (current.rows[0].items || op?.items || []);
+        // Lock the destination rows so each TRANSFER_IN row records the TRUE
+        // quantity before/after inside this same transaction.
+        const lockedRows = await client.query(
+          STOCK_LOCK_FOR_UPDATE_SQL,
+          stockLockForUpdateParams(items as Array<{ productId: string }>, whId)
+        );
+        const beforeByProduct = new Map<string, number>(
+          (lockedRows.rows || []).map((row: any) => [String(row.product_id), Number(row.quantity_on_hand) || 0])
+        );
+        let lineIdx = 0;
         for (const item of items) {
           const qty = Number(item.quantity) || 1;
+          const before = beforeByProduct.get(String(item.productId)) || 0;
           await client.query(PULLOUT_RECEIVE_STOCK_SQL, pulloutReceiveStockParams(whId, item));
+          receiveTxns.push(buildReceiveTxn(current.rows[0], item, lineIdx++, whId, qty, before));
         }
+        if (receiveTxns.length > 0) {
+          await client.query(
+            buildTxnMultiRowInsertSql(receiveTxns.length),
+            flattenTxnParams(receiveTxns.map((txn) => txnInsertOnConflictParams(txn)))
+          );
+        }
+      });
+    } else {
+      // Demo mode: the destination warehouse credit previously never happened
+      // at all here — only the status flipped, so received pullouts silently
+      // vanished from stock. Credit the mirror and record the same TRANSFER_IN
+      // rows the PG path writes.
+      const whId = op?.destinationWarehouseId || 'WH001';
+      const items = (op?.items || []) as any[];
+      items.forEach((item: any, idx: number) => {
+        const qty = Number(item.quantity) || 1;
+        let destStk = inventoryStock.find(
+          (entry) => entry.productId === item.productId && entry.branchId === whId
+        );
+        const before = Number(destStk?.quantityOnHand) || 0;
+        if (!destStk) {
+          const creditedRow: any = {
+            id: `stk-${whId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: whId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            minReorderLevel: 5,
+            lastUpdated: new Date().toISOString(),
+          };
+          setInventoryStock(withAppended(inventoryStock, creditedRow));
+          destStk = creditedRow;
+        }
+        const creditedStk = destStk as NonNullable<typeof destStk>;
+        creditedStk.quantityOnHand = before + qty;
+        creditedStk.lastUpdated = new Date().toISOString();
+        if (op) receiveTxns.push(buildReceiveTxn(op, item, idx, whId, qty, before));
       });
     }
     if (op) op.status = 'RECEIVED';
     // Dual-write: when the read came from PG the mirror copy still needs its
     // status flipped (it used to BE the `op` object above).
     if (mirrorOp && mirrorOp !== op) mirrorOp.status = 'RECEIVED';
+    if (receiveTxns.length > 0) {
+      const known = new Set(transactionLogs.map((entry) => entry.id));
+      const fresh = receiveTxns.filter((txn) => !known.has(txn.id));
+      if (fresh.length > 0) setTransactionLogs([...fresh, ...transactionLogs]);
+    }
     logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin`);
     res.json(op || { message: 'Stock operation received' });
   } catch (err: any) {
@@ -1654,15 +1880,78 @@ try {
     const product = products.find((entry) => entry.name.trim().toLowerCase() === String(newRecord.productName || '').trim().toLowerCase());
     if (isAssigned && !product) return res.status(400).json({ message: 'A valid product is required when assigning a device.' });
 
+    const issuedDateAD = newRecord.issuedDateAD || new Date().toISOString().split('T')[0];
+    const issuedDateBS = newRecord.issuedDateBS || todayBs(); // C4: from bs_day_records cache
+
+    // ---------------------------------------------------------------------
+    // Single-movement guard (stock-movement audit): a unit deployed by the
+    // Assign Fixed Asset flow (deployFromStock) already consumed one stock
+    // unit and wrote its own STOCK_OUT ledger row (`txn-asset-<assetId>`).
+    // The rental-CPE record that same flow creates must NOT consume a second
+    // unit: when the serial carries that proof, the stock change (either
+    // direction) is skipped and the asset's ledger row stands as the single
+    // movement for the device. Every stock change this endpoint DOES apply
+    // writes its own ledger row below, so the movement ledger always matches
+    // inventory_stock.
+    // ---------------------------------------------------------------------
+    let stockAlreadyConsumedByAsset = false;
+    if (assignmentDelta !== 0 && normalizedDeviceSerial) {
+      if (getPgConnected()) {
+        const proof = await pgPool.query(CDR_ASSET_DEPLOY_PROOF_SQL, [normalizedDeviceSerial]);
+        stockAlreadyConsumedByAsset = (proof.rowCount ?? 0) > 0;
+      } else {
+        const deployed = serialLogs.find(
+          (entry) =>
+            String(entry.deviceSerial || '').trim().toUpperCase() === normalizedDeviceSerial &&
+            entry.sourceType === 'FIXED_ASSET' &&
+            entry.sourceId
+        );
+        stockAlreadyConsumedByAsset = Boolean(
+          deployed && transactionLogs.some((txn) => txn.id === `txn-asset-${deployed.sourceId}`)
+        );
+      }
+    }
+    const applyStockChange = assignmentDelta !== 0 && Boolean(product) && !stockAlreadyConsumedByAsset;
+
+    /** Ledger row for the ±1 stock movement this endpoint applies. */
+    const buildAssignmentTxn = (quantityBefore: number, quantityAfter: number): TransactionLog => ({
+      id: `txn-cdr-${newRecord.id}-${assignmentDelta > 0 ? 'assign' : 'release'}`,
+      transactionNumber: `TXN-CDR-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: product!.id,
+      productSku: product!.sku || '',
+      productName: product!.name || newRecord.productName || 'Product',
+      branchId,
+      changeType: (assignmentDelta > 0 ? 'STOCK_OUT' : 'MANUAL_ADJUSTMENT') as TransactionLog['changeType'],
+      quantityBefore,
+      quantityChanged: quantityAfter - quantityBefore,
+      quantityAfter,
+      unitCost: Number(product!.costPrice) || 0,
+      referenceDocId: custCode || normalizedDeviceSerial || newRecord.id,
+      timestampAD: issuedDateAD,
+      timestampBS: issuedDateBS,
+    });
+
     if (getPgConnected()) {
       await withTransaction(async (client) => {
-        if (assignmentDelta !== 0 && product) {
+        if (applyStockChange && product) {
           const stockChange = assignmentDelta < 0 ? 1 : -1;
-          const stockResult = await client.query(
-            CDR_ASSIGNMENT_STOCK_SQL,
-            cdrAssignmentStockParams(stockChange, product.id, branchId, assignmentDelta > 0 ? 1 : 0)
-          );
+          // Both directions return the true post-update balance so the ledger
+          // row records database-accurate before/after quantities.
+          const stockResult = stockChange < 0
+            ? await client.query(
+                CDR_ASSIGNMENT_STOCK_SQL,
+                cdrAssignmentStockParams(stockChange, product.id, branchId, 1)
+              )
+            : await client.query(
+                CDR_ASSIGNMENT_STOCK_RETURN_SQL,
+                cdrAssignmentReturnParams(stockChange, product.id, branchId)
+              );
           if (stockResult.rowCount !== 1) throw new Error(`Insufficient available stock for ${newRecord.productName}.`);
+          const quantityAfter = Number(stockResult.rows[0]?.quantity_on_hand);
+          await client.query(
+            TXN_INSERT_ON_CONFLICT_SQL,
+            txnInsertOnConflictParams(buildAssignmentTxn(quantityAfter - stockChange, quantityAfter))
+          );
         }
         await client.query(
           CDR_UPSERT_SQL,
@@ -1672,8 +1961,8 @@ try {
             customerCode: custCode,
             branchId,
             status: nextStatus,
-            issuedDateAD: newRecord.issuedDateAD || new Date().toISOString().split('T')[0],
-            issuedDateBS: newRecord.issuedDateBS || todayBs(), // C4: from bs_day_records cache
+            issuedDateAD,
+            issuedDateBS,
           } as CustomerDeviceRecord)
         );
 
@@ -1692,14 +1981,32 @@ try {
           })
         );
       });
-    } else if (assignmentDelta !== 0 && product) {
+    } else if (applyStockChange && product) {
       const stockRecord = inventoryStock.find((entry) => entry.productId === product.id && entry.branchId === branchId);
-      if (!stockRecord || (assignmentDelta > 0 && stockRecord.quantityOnHand < 1)) {
+      if (assignmentDelta > 0 && (!stockRecord || stockRecord.quantityOnHand < 1)) {
         res.status(400).json({ message: `Insufficient available stock for ${newRecord.productName}.` });
         return;
       }
-      stockRecord.quantityOnHand -= assignmentDelta;
-      stockRecord.lastUpdated = new Date().toISOString();
+      const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
+      const quantityAfter = assignmentDelta > 0 ? quantityBefore - 1 : quantityBefore + 1;
+      if (stockRecord) {
+        stockRecord.quantityOnHand = quantityAfter;
+        stockRecord.lastUpdated = new Date().toISOString();
+      } else {
+        // Release materialises the branch row the same way the PG path does.
+        setInventoryStock(withAppended(inventoryStock, {
+          id: `stk-${branchId.toLowerCase()}-${product.id}`,
+          productId: product.id,
+          branchId,
+          quantityOnHand: quantityAfter,
+          damagedQty: 0,
+          reservedQty: 0,
+          incomingQty: 0,
+          minReorderLevel: 5,
+          lastUpdated: new Date().toISOString(),
+        }));
+      }
+      setTransactionLogs(withPrepended(transactionLogs, buildAssignmentTxn(quantityBefore, quantityAfter)));
     }
     const idx = customerDeviceRecords.findIndex((c) => c.id === newRecord.id);
     setCustomerDeviceRecords(idx >= 0
