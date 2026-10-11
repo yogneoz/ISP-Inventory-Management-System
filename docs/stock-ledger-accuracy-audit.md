@@ -1,6 +1,6 @@
 # Stock Movement Ledger — Calculation & Accuracy Audit
 
-_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 679/679 tests green · docs-count gate green · `npm run build` green_
+_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 696/696 tests green · docs-count gate green · `npm run build` green_
 
 Scope: every operation that moves inventory was traced from HTTP handler → SQL/mirror
 mutation → `transaction_logs` row → the client Stock Movement Ledger matrix, and fixed
@@ -157,10 +157,12 @@ with the Customer Device Serials directory after every customer-end action.
 ## Verification
 
 - `npx tsc --noEmit` — clean.
-- `npm test` — 679/679 green (7 new tests: true before/after for PI/SI/SR/PR rows, the
-  three cancel mirror builders, and the `RETURNING` contracts; existing placeholder-shape
-  tests updated to the 14-bind layout).
-- Docs-count gate — all current-state test counts match 679.
+- `npm test` — 696/696 green (24 new: 7 ledger tests — true before/after for
+  PI/SI/SR/PR rows, the three cancel mirror builders, the `RETURNING` contracts;
+  17 CDR↔serial_log sync tests — status mapping, exchange disposition, sync SQL
+  shape, demo-mode mirror flip. Existing placeholder-shape tests updated to the
+  14-bind layout).
+- Docs-count gate — all current-state test counts match 696.
 - `npm run build` — vite + esbuild succeed (pre-existing `import.meta` cjs warning in
   dbBoot unchanged).
 
