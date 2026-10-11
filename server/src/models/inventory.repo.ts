@@ -938,6 +938,43 @@ export const SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL =
   `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, updated_at = $2
    WHERE lower(trim(device_serial)) = lower(trim($3)) AND status IN ('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED')`;
 
+/**
+ * SERIAL_LOG_SYNC_ON_CDR_SQL — keeps the Serial Log Register in step with a
+ * Customer Device Serials lifecycle mutation (assign, collect, refund,
+ * approval-executed status change, exchange). UPDATE-if-exists by the same
+ * case/trim-insensitive key as uq_serial_log_device_serial: a CDR row naming
+ * a serial the register has never seen must NOT fabricate a register entry.
+ * IN_STOCK clears the customer attribution; every other status keeps/sets it.
+ * The new history entry ($5, a JSON array string) is appended atomically.
+ */
+export const SERIAL_LOG_SYNC_ON_CDR_SQL = `UPDATE serial_log
+ SET status = $1::varchar,
+     customer_id = CASE WHEN $1::varchar = 'IN_STOCK' THEN NULL ELSE COALESCE($2::varchar, customer_id) END,
+     customer_name = CASE WHEN $1::varchar = 'IN_STOCK' THEN NULL ELSE COALESCE($3::varchar, customer_name) END,
+     branch_id = COALESCE($4::varchar, branch_id),
+     history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $5::jsonb)::text,
+     updated_at = NOW()
+ WHERE lower(trim(device_serial)) = lower(trim($6::text))`;
+
+export function serialLogCdrSyncParams(opts: {
+  status: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  branchId?: string | null;
+  /** JSON array string (from cdrHistoryEntry) appended to history_json. */
+  historyEntry: string;
+  deviceSerial: string;
+}): unknown[] {
+  return [
+    opts.status,
+    opts.customerId ?? null,
+    opts.customerName ?? null,
+    opts.branchId ?? null,
+    opts.historyEntry,
+    opts.deviceSerial,
+  ];
+}
+
 /** Per-status counts with the same filter fragment (register KPI cards). */
 export const SERIAL_LOG_STATUS_COUNT_SQL = 'SELECT status, COUNT(*)::int AS count FROM serial_log';
 

@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
@@ -33,6 +33,8 @@ import {
   auditReconcileStockParams,
 } from '../models/misc.repo';
 import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL } from '../models/shipments.repo';
+import { SERIAL_LOG_SYNC_ON_CDR_SQL, serialLogCdrSyncParams } from '../models/inventory.repo';
+import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror } from '../services/cdrSerialSync';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -206,6 +208,30 @@ try {
 
           await client.query(CDR_SET_STATUS_SQL, [targetStatus, request.targetId || '', request.deviceSerial || '']);
 
+          // Sync the Serial Log Register with the approved status change:
+          // collecting/refunding a device must free its register unit from
+          // CUSTOMER_ASSIGNED, or the register's status filter disagrees
+          // with the customer directory forever (CDR↔serial_log audit).
+          const approvedSerialStatus = serialStatusForCdrStatus(targetStatus);
+          if (approvedSerialStatus && (request.deviceSerial || '').trim()) {
+            await client.query(
+              SERIAL_LOG_SYNC_ON_CDR_SQL,
+              serialLogCdrSyncParams({
+                status: approvedSerialStatus,
+                customerId: request.customerCode || null,
+                customerName: request.customerName || null,
+                branchId: request.branchId || null,
+                historyEntry: cdrHistoryEntry(
+                  approvedSerialStatus,
+                  request.requestNumber,
+                  new Date().toISOString().split('T')[0],
+                  `Approved ${request.requestNumber}: CPE status ${request.currentStatus} → ${targetStatus}`
+                ),
+                deviceSerial: request.deviceSerial,
+              })
+            );
+          }
+
           if (request.restockQtyOnApproval || isDisconnectReq) {
             const prod = products.find((p) => p.name.toLowerCase() === request.productName?.toLowerCase()) || products[0];
             let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === request.branchId);
@@ -345,6 +371,23 @@ try {
         const targetStatus = isDisconnectReq ? 'ROUTER_COLLECTED' : request.requestedStatus;
         if (devRecord) {
           devRecord.status = targetStatus as CustomerDeviceRecord['status'];
+        }
+        // Demo mode: mirror the register flip the PG path writes above.
+        const approvedSerialStatus = serialStatusForCdrStatus(targetStatus);
+        if (approvedSerialStatus && (request.deviceSerial || '').trim()) {
+          setSerialLogs(flipSerialMirror(
+            serialLogs,
+            request.deviceSerial,
+            approvedSerialStatus,
+            request.customerCode || null,
+            request.customerName || null,
+            cdrHistoryEntry(
+              approvedSerialStatus,
+              request.requestNumber,
+              new Date().toISOString().split('T')[0],
+              `Approved ${request.requestNumber}: CPE status ${request.currentStatus} → ${targetStatus}`
+            )
+          ));
         }
       }
     }

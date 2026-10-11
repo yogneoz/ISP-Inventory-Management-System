@@ -127,6 +127,33 @@ Received/Delivered), and DISPOSAL was never bucketed. Classification is now **si
 Every change type the server can now emit lands in a bucket, and
 `opening + received − delivered − damaged = closing` reconciles with live stock.
 
+### 9. Customer Device Serials lifecycle never synced the Serial Log Register
+([cdrSerialSync.ts](../server/src/services/cdrSerialSync.ts), [inventory.repo.ts](../server/src/models/inventory.repo.ts),
+[inventory.controller.ts](../server/src/controllers/inventory.controller.ts), [misc.controller.ts](../server/src/controllers/misc.controller.ts))
+
+The **Customer Device Serials** directory (`customer_device_records`) is the
+customer-end view: assign a unit, collect the router, refund, exchange. The
+**Serial Log Register** (`serial_log`) is the movement register filtered by
+status (`IN_STOCK`, `CUSTOMER_ASSIGNED`, `DAMAGED`, …). The two drifted apart
+because **every CDR lifecycle mutation ignored `serial_log`**:
+
+| CDR action | Old register behaviour | Fixed behaviour |
+|---|---|---|
+| Assign (`post_customerDevices`) | unit stayed `IN_STOCK` in the register | flipped to `CUSTOMER_ASSIGNED` with customer + history |
+| Direct status patch (`patch_status2`: collect/reverse/refund) | unit stayed `CUSTOMER_ASSIGNED` forever | flipped to `IN_STOCK`, customer cleared |
+| Approval-executed change (`misc post_process`) | stock restocked, register never told | register flipped in the same transaction |
+| Device exchange (`post_exchange`) | old serial stayed assigned; new serial unknown | old → `IN_STOCK`/`DAMAGED` per disposition; new → `CUSTOMER_ASSIGNED` |
+
+The mapping lives in one service (`serialStatusForCdrStatus` /
+`serialStatusForExchangeAction`); the flip is `SERIAL_LOG_SYNC_ON_CDR_SQL`,
+**UPDATE-if-exists** on the same case/trim-insensitive key as
+`uq_serial_log_device_serial` — a CDR row naming a serial the register never
+received does not fabricate a register entry. `IN_STOCK` clears the customer
+customer attribution; the new history entry appends atomically as jsonb. All
+four PG paths flip inside their existing transactions; demo mode mirrors via
+`flipSerialMirror`. Filtering the Serial Log Register by status now agrees
+with the Customer Device Serials directory after every customer-end action.
+
 ## Verification
 
 - `npx tsc --noEmit` — clean.

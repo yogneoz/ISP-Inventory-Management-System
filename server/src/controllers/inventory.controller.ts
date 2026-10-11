@@ -101,7 +101,15 @@ import {
   SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
   SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
   SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
+  SERIAL_LOG_SYNC_ON_CDR_SQL,
+  serialLogCdrSyncParams,
 } from '../models/inventory.repo';
+import {
+  serialStatusForCdrStatus,
+  serialStatusForExchangeAction,
+  cdrHistoryEntry,
+  flipSerialMirror,
+} from '../services/cdrSerialSync';
 /** Forwarded from inventory.routes.ts (get_stock). */
 export async function get_stock(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
@@ -1966,6 +1974,33 @@ try {
           } as CustomerDeviceRecord)
         );
 
+        // Sync the Serial Log Register: assigning (or releasing) a device in
+        // this directory must flip the unit's register status, or the
+        // register's status filter disagrees with the customer directory
+        // (CDR↔serial_log audit). UPDATE-if-exists — a serial the register
+        // never received is not fabricated here.
+        if (normalizedDeviceSerial) {
+          const serialStatus = serialStatusForCdrStatus(nextStatus);
+          if (serialStatus) {
+            await client.query(
+              SERIAL_LOG_SYNC_ON_CDR_SQL,
+              serialLogCdrSyncParams({
+                status: serialStatus,
+                customerId: newRecord.customerId || custCode || null,
+                customerName: newRecord.customerName || null,
+                branchId,
+                historyEntry: cdrHistoryEntry(
+                  serialStatus,
+                  newRecord.id,
+                  issuedDateAD,
+                  `Customer device assignment: status ${nextStatus} for ${newRecord.customerName}`
+                ),
+                deviceSerial: normalizedDeviceSerial,
+              })
+            );
+          }
+        }
+
         const countDelta = assignmentDelta;
         await client.query(
           CDR_CUSTOMER_COUNT_UPSERT_SQL,
@@ -2012,6 +2047,25 @@ try {
     setCustomerDeviceRecords(idx >= 0
       ? withReplaced(customerDeviceRecords, idx, { ...newRecord, status: nextStatus, branchId })
       : withPrepended(customerDeviceRecords, { ...newRecord, status: nextStatus, branchId }));
+    // Demo mode: mirror the register flip the PG path wrote above.
+    if (!getPgConnected() && normalizedDeviceSerial) {
+      const serialStatus = serialStatusForCdrStatus(nextStatus);
+      if (serialStatus) {
+        setSerialLogs(flipSerialMirror(
+          serialLogs,
+          normalizedDeviceSerial,
+          serialStatus,
+          newRecord.customerId || custCode || null,
+          newRecord.customerName || null,
+          cdrHistoryEntry(
+            serialStatus,
+            newRecord.id,
+            issuedDateAD,
+            `Customer device assignment: status ${nextStatus} for ${newRecord.customerName}`
+          )
+        ));
+      }
+    }
     logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName}`, newRecord.branchId);
     res.status(201).json(newRecord);
   } catch (err: any) {
@@ -2041,7 +2095,51 @@ try {
     record.status = newStatusStr;
 
     if (getPgConnected()) {
-      await pgPool.query(CDR_UPDATE_STATUS_SQL, [newStatusStr, id]);
+      // One transaction: the CDR status flip and the Serial Log Register
+      // flip commit together or not at all (previously the register was
+      // never told, so collected/refunded units stayed CUSTOMER_ASSIGNED
+      // there forever — CDR↔serial_log audit finding).
+      await withTransaction(async (client) => {
+        await client.query(CDR_UPDATE_STATUS_SQL, [newStatusStr, id]);
+        const serialStatus = serialStatusForCdrStatus(newStatusStr);
+        if (serialStatus && record!.deviceSerial) {
+          await client.query(
+            SERIAL_LOG_SYNC_ON_CDR_SQL,
+            serialLogCdrSyncParams({
+              status: serialStatus,
+              customerId: (record as any).customerId ?? null,
+              customerName: (record as any).customerName ?? null,
+              branchId: (record as any).branchId ?? null,
+              historyEntry: cdrHistoryEntry(
+                serialStatus,
+                id,
+                new Date().toISOString().split('T')[0],
+                `CPE status change: ${oldStatus} → ${newStatusStr}`
+              ),
+              deviceSerial: record!.deviceSerial,
+            })
+          );
+        }
+      });
+    }
+    // Demo mode: mirror the register flip so both surfaces stay in step.
+    if (!getPgConnected()) {
+      const serialStatus = serialStatusForCdrStatus(newStatusStr);
+      if (serialStatus && record.deviceSerial) {
+        setSerialLogs(flipSerialMirror(
+          serialLogs,
+          record.deviceSerial,
+          serialStatus,
+          (record as any).customerId ?? null,
+          (record as any).customerName ?? null,
+          cdrHistoryEntry(
+            serialStatus,
+            id,
+            new Date().toISOString().split('T')[0],
+            `CPE status change: ${oldStatus} → ${newStatusStr}`
+          )
+        ));
+      }
     }
     logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
@@ -2222,7 +2320,78 @@ try {
         await client.query(CDR_EXCHANGE_STATUS_SQL, ['EXCHANGED', oldRecord.notes, oldDeviceId]);
 
         await client.query(CDR_EXCHANGE_INSERT_SQL, customerDeviceInsertParams(newRecord));
+
+        // Sync the Serial Log Register with BOTH halves of the exchange:
+        // the old unit's disposition (restock → IN_STOCK, damage/disposal →
+        // DAMAGED) and the replacement unit taking over the customer
+        // (CUSTOMER_ASSIGNED). Neither was recorded before, so the register
+        // kept the old serial assigned and never knew the new one
+        // (CDR↔serial_log audit finding). UPDATE-if-exists on both.
+        const exchangeDateAD = dateStrAD;
+        const oldSerialStatus = serialStatusForExchangeAction(oldDeviceAction);
+        await client.query(
+          SERIAL_LOG_SYNC_ON_CDR_SQL,
+          serialLogCdrSyncParams({
+            status: oldSerialStatus,
+            customerId: null,
+            customerName: null,
+            branchId: branchId || oldRecord.branchId || null,
+            historyEntry: cdrHistoryEntry(
+              oldSerialStatus,
+              newRecord.id,
+              exchangeDateAD,
+              `Device exchanged for ${oldRecord.customerName}: old unit ${oldDeviceAction} (replaced by SN ${newDeviceSerial})`
+            ),
+            deviceSerial: oldRecord.deviceSerial,
+          })
+        );
+        await client.query(
+          SERIAL_LOG_SYNC_ON_CDR_SQL,
+          serialLogCdrSyncParams({
+            status: 'CUSTOMER_ASSIGNED',
+            customerId: newRecord.customerId || null,
+            customerName: newRecord.customerName || null,
+            branchId: newRecord.branchId || null,
+            historyEntry: cdrHistoryEntry(
+              'CUSTOMER_ASSIGNED',
+              newRecord.id,
+              exchangeDateAD,
+              `Replacement device assigned to ${newRecord.customerName} (replaced SN ${oldRecord.deviceSerial})`
+            ),
+            deviceSerial: newRecord.deviceSerial,
+          })
+        );
       });
+    } else {
+      // Demo mode: mirror both register flips.
+      const oldSerialStatus = serialStatusForExchangeAction(oldDeviceAction);
+      let nextSerials = flipSerialMirror(
+        serialLogs,
+        oldRecord.deviceSerial,
+        oldSerialStatus,
+        null,
+        null,
+        cdrHistoryEntry(
+          oldSerialStatus,
+          newRecord.id,
+          dateStrAD,
+          `Device exchanged for ${oldRecord.customerName}: old unit ${oldDeviceAction} (replaced by SN ${newDeviceSerial})`
+        )
+      );
+      nextSerials = flipSerialMirror(
+        nextSerials,
+        newRecord.deviceSerial,
+        'CUSTOMER_ASSIGNED',
+        newRecord.customerId || null,
+        newRecord.customerName || null,
+        cdrHistoryEntry(
+          'CUSTOMER_ASSIGNED',
+          newRecord.id,
+          dateStrAD,
+          `Replacement device assigned to ${newRecord.customerName} (replaced SN ${oldRecord.deviceSerial})`
+        )
+      );
+      setSerialLogs(nextSerials);
     }
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
