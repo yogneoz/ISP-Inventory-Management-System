@@ -1,6 +1,6 @@
 # Stock Movement Ledger — Calculation & Accuracy Audit
 
-_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 709/709 tests green · docs-count gate green · `npm run build` green_
+_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 712/712 tests green · docs-count gate green · `npm run build` green_
 
 Scope: every operation that moves inventory was traced from HTTP handler → SQL/mirror
 mutation → `transaction_logs` row → the client Stock Movement Ledger matrix, and fixed
@@ -157,7 +157,7 @@ with the Customer Device Serials directory after every customer-end action.
 ## Verification
 
 - `npx tsc --noEmit` — clean.
-- `npm test` — 709/709 green (24 new: 7 ledger tests — true before/after for
+- `npm test` — 712/712 green (24 new: 7 ledger tests — true before/after for
   PI/SI/SR/PR rows, the three cancel mirror builders, the `RETURNING` contracts;
   17 CDR↔serial_log sync tests — status mapping, exchange disposition, sync SQL
   shape, demo-mode mirror flip. Existing placeholder-shape tests updated to the
@@ -188,3 +188,22 @@ with the Customer Device Serials directory after every customer-end action.
   (`requireRole('SUPER_ADMIN')`) — idempotent, PG-only, safe to re-run. Covered by the
   `replayLedgerBalances` block in `tests/demoFinanceLedger.test.ts` (reconstruction,
   pool routing, idempotence, zero-clamp, per-group independence, no input mutation).
+
+## Data integrity under a database outage (fail-closed, verified)
+
+Every `/api` request — reads, writes, and document creation, including login —
+passes through the `requirePostgres` middleware
+([middleware/index.ts](../server/src/middleware/index.ts)). It re-attempts a live
+connection per request and returns **503 with the availability message** whenever
+PostgreSQL is unreachable; only `/api/health` stays up for monitoring. Therefore no
+HTTP request can ever reach the in-memory demo code paths while the database is
+down: every piece of data created through the application is created in the
+database. When the database comes back, the next request reconnects automatically
+(no restart needed). Locked by `tests/requirePostgresGate.test.ts`.
+
+Testing caveat (learned the hard way): a `DATABASE_URL` in `.env` overrides the
+pool's separate `host`/`port` options in `server/db.ts`, and the tsx loader injects
+`.env` at startup — so pointing `POSTGRES_PORT` at a dead port from the shell does
+NOT simulate an outage (the pool still connects via the URL). A deterministic
+no-database test must clear `DATABASE_URL` and set the dead port BEFORE the first
+server import, exactly as `tests/requirePostgresGate.test.ts` does.
