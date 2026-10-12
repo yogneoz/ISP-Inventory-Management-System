@@ -696,6 +696,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
       'recalculateFixedAssets',
+      'recalculateLedgerBalances',
       'recalculateLiveStock',
       'repairFiscalYearLinks',
       'rollForwardVendorOpenings',

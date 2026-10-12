@@ -357,6 +357,31 @@ export const LIVE_STOCK_RECALC_SQL = `WITH latest AS (
  RETURNING s.id`;
 
 // ---------------------------------------------------------------------------
+// Admin recalculation — ledger-balance backfill
+// ---------------------------------------------------------------------------
+
+/**
+ * Streams the columns the in-process replay needs to reconstruct true
+ * before/after balances. Ordered chronologically (timestamp_ad ASC, id ASC)
+ * so the replay's per-group sort is stable; the client-side group is what
+ * resets the running balance at each (product, branch) boundary.
+ */
+export const LEDGER_BALANCE_SELECT_SQL =
+  'SELECT id, product_id AS "productId", branch_id AS "branchId", change_type AS "changeType", quantity_changed AS "quantityChanged", timestamp_ad AS "timestampAD" FROM transaction_logs ORDER BY timestamp_ad ASC, id ASC';
+
+/**
+ * Applies one reconstructed (before, after) pair back onto its ledger row,
+ * clamped at 0 so a historical sign inconsistency can never surface as
+ * negative stock. Executed per changed row inside the backfill transaction.
+ */
+export const LEDGER_BALANCE_UPDATE_SQL =
+  'UPDATE transaction_logs SET quantity_before = $2, quantity_after = $3 WHERE id = $1';
+
+export function ledgerBalanceUpdateParams(u: { id: string; quantityBefore: number; quantityAfter: number }): unknown[] {
+  return [u.id, u.quantityBefore, u.quantityAfter];
+}
+
+// ---------------------------------------------------------------------------
 // BS calendar — day-record rebuild / seed / sync
 // ---------------------------------------------------------------------------
 

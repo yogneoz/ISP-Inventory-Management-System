@@ -741,7 +741,7 @@ export const PR_CANCEL_SQL = `UPDATE purchase_returns SET status = 'CANCELLED', 
 export const PR_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function prTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+export function prTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number, unitCostOverride?: number): unknown[] {
   const changed = -(Math.abs(Number(item.quantity)) || 0);
   const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
@@ -755,7 +755,7 @@ export function prTxnLogParams(ret: Record<string, any>, item: Record<string, an
     before,
     changed,
     Math.max(0, before + changed),
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
     ret.returnDateBS || (() => { throw new Error('purchase-return insert requires returnDateBS resolved from bs_day_records'); })(),
@@ -776,7 +776,8 @@ export function prCancelTxnLogParams(
   branchId: string,
   itemIndex: number,
   stockBefore: number,
-  cancelDate: { ad: string; bs: string }
+  cancelDate: { ad: string; bs: string },
+  unitCostOverride?: number
 ): unknown[] {
   const changed = Math.abs(Number(item.quantity)) || 0;
   const before = Math.max(0, Number(stockBefore) || 0);
@@ -791,7 +792,7 @@ export function prCancelTxnLogParams(
     before,
     changed,
     before + changed,
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     ret.returnNumber,
     cancelDate.ad,
     cancelDate.bs,

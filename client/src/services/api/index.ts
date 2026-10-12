@@ -77,6 +77,7 @@ export const api = {
   // Admin recalculation / repair utilities
   recalculateFixedAssets: admin.recalculateFixedAssets,
   recalculateLiveStock: admin.recalculateLiveStock,
+  recalculateLedgerBalances: admin.recalculateLedgerBalances,
   rebuildBsDayRecords: admin.rebuildBsDayRecords,
   repairFiscalYearLinks: admin.repairFiscalYearLinks,
 

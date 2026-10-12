@@ -157,7 +157,7 @@ export const SI_RESTORE_STOCK_SQL = `UPDATE inventory_stock
 export const SI_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function siTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+export function siTxnLogParams(inv: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number, unitCostOverride?: number): unknown[] {
   const changed = -(Math.abs(Number(item.quantity)) || 0);
   const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
@@ -171,7 +171,7 @@ export function siTxnLogParams(inv: Record<string, any>, item: Record<string, an
     before,
     changed,
     Math.max(0, before + changed),
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     inv.invoiceDateAD || new Date().toISOString(),
     inv.invoiceDateBS || (() => { throw new Error('sales-invoice insert requires invoiceDateBS resolved from bs_day_records'); })(),
@@ -295,7 +295,8 @@ export function siCancelTxnLogParams(
   branchId: string,
   itemIndex = 0,
   cancelDate?: { ad: string; bs: string },
-  stockBefore?: number
+  stockBefore?: number,
+  unitCostOverride?: number
 ): unknown[] {
   const changed = Math.abs(Number(item.quantity)) || 0;
   const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
@@ -310,7 +311,7 @@ export function siCancelTxnLogParams(
     before,
     changed,
     before + changed,
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     inv.invoiceNumber,
     cancelDate?.ad || inv.invoiceDateAD || new Date().toISOString(),
     cancelDate?.bs || inv.invoiceDateBS || (() => { throw new Error('sales-invoice cancel requires a BS date resolved from bs_day_records'); })(),
@@ -465,7 +466,7 @@ export const SR_CANCEL_SQL = `UPDATE sales_returns SET status = 'CANCELLED', upd
 export const SR_TXN_LOG_SQL = `INSERT INTO transaction_logs (id, transaction_number, product_id, product_sku, product_name, branch_id, change_type, quantity_before, quantity_changed, quantity_after, unit_cost, reference_doc_id, timestamp_ad, timestamp_bs)
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`;
 
-export function srTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number): unknown[] {
+export function srTxnLogParams(ret: Record<string, any>, item: Record<string, any>, branchId: string, itemIndex = 0, stockBefore?: number, unitCostOverride?: number): unknown[] {
   const changed = Math.abs(Number(item.quantity)) || 0;
   const before = Number.isFinite(Number(stockBefore)) ? Math.max(0, Number(stockBefore)) : 0;
   return [
@@ -479,7 +480,7 @@ export function srTxnLogParams(ret: Record<string, any>, item: Record<string, an
     before,
     changed,
     before + changed,
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     ret.returnNumber,
     ret.returnDateAD || new Date().toISOString(),
     ret.returnDateBS || (() => { throw new Error('sales-return insert requires returnDateBS resolved from bs_day_records'); })(),
@@ -500,7 +501,8 @@ export function srCancelTxnLogParams(
   branchId: string,
   itemIndex: number,
   stockBefore: number,
-  cancelDate: { ad: string; bs: string }
+  cancelDate: { ad: string; bs: string },
+  unitCostOverride?: number
 ): unknown[] {
   const changed = -(Math.abs(Number(item.quantity)) || 0);
   const before = Math.max(0, Number(stockBefore) || 0);
@@ -515,7 +517,7 @@ export function srCancelTxnLogParams(
     before,
     changed,
     Math.max(0, before + changed),
-    Number(item.unitPrice) || 0,
+    Number.isFinite(Number(unitCostOverride)) ? Number(unitCostOverride) : Number(item.unitPrice) || 0,
     ret.returnNumber,
     cancelDate.ad,
     cancelDate.bs,

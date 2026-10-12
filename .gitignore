@@ -8,3 +8,6 @@ temp_po.txt
 tsc_all.txt
 .env*
 !.env.example
+
+# Freebuff tool artifacts (crash logs, run docs) — not project source
+.freebuff/

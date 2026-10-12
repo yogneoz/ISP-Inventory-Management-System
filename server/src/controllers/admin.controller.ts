@@ -38,6 +38,9 @@ import {
   ASSET_RECALC_SELECT_SQL,
   ASSET_RECALC_UPDATE_SQL,
   LIVE_STOCK_RECALC_SQL,
+  LEDGER_BALANCE_SELECT_SQL,
+  LEDGER_BALANCE_UPDATE_SQL,
+  ledgerBalanceUpdateParams,
   BS_CALENDAR_YEARS_SELECT_SQL,
   BS_CALENDAR_YEAR_UPSERT_SQL,
   BS_CALENDAR_YEAR_SET_START_SQL,
@@ -76,6 +79,7 @@ import {
   FY_REFERENCE_TABLES,
   fiscalYearReferenceCountSql,
 } from '../models/admin.repo';
+import { replayLedgerBalances, LedgerReplayRow } from '../models/txnLogRows';
 /** Forwarded from admin.routes.ts (post_clearDemoData). */
 export async function post_clearDemoData(req: any, res: Response): Promise<any> {
 try {
@@ -451,6 +455,48 @@ try {
     res.status(500).json({ message: `Unable to recalculate live stock: ${error.message}` });
   }
 
+}
+
+/**
+ * Forwarded from admin.routes.ts (post_ledgerBalances).
+ *
+ * Backfills true quantity_before / quantity_after on every movement-ledger row
+ * by replaying the signed quantity_changed delta per (product, branch) in
+ * chronological order. Historical rows were written with placeholder balances
+ * (before = 0, after = |changed|), which the ledger UI rendered as a fake
+ * "Qty Before" of 0; because quantity_changed is a faithful delta for every
+ * change_type (see replayLedgerBalances for the pool routing), the true
+ * balances are fully recoverable. The pass is idempotent — replaying an
+ * already-correct ledger reproduces the same values — and it runs entirely
+ * from the row deltas, so it is correct even for rows whose absolute balances
+ * are wrong. Guarded to PostgreSQL: there is no persistent ledger to repair in
+ * demo mode, and the in-memory mirror rows already carry true balances.
+ */
+export async function post_ledgerBalances(req: any, res: Response): Promise<any> {
+  if (!getPgConnected()) {
+    return res.json({ updated: 0, message: 'PostgreSQL is unavailable — the in-memory ledger already carries true balances, nothing to backfill.' });
+  }
+  try {
+    const select = await pgPool.query(LEDGER_BALANCE_SELECT_SQL);
+    const rows = (select.rows || []) as LedgerReplayRow[];
+    const { updates, skipped } = replayLedgerBalances(rows);
+
+    let updated = 0;
+    if (updates.length > 0) {
+      await withTransaction(async (client) => {
+        for (const update of updates) {
+          const result = await client.query(LEDGER_BALANCE_UPDATE_SQL, ledgerBalanceUpdateParams(update));
+          updated += result.rowCount || 0;
+        }
+      });
+    }
+
+    logAuditEvent(req, 'BACKFILL_LEDGER_BALANCES', 'SYSTEM', `Reconstructed before/after balances for ${updated} movement-ledger row(s) by replaying signed deltas${skipped ? ` (${skipped} row(s) skipped: no product/branch)` : ''}.`);
+    res.json({ updated, skipped, message: `Reconstructed true before/after balances for ${updated} movement-ledger row(s).${skipped ? ` ${skipped} row(s) skipped (no product/branch to group under).` : ''} Idempotent — safe to re-run.` });
+  } catch (error: any) {
+    console.error('Error backfilling ledger balances:', error);
+    res.status(500).json({ message: `Unable to backfill ledger balances: ${error.message}` });
+  }
 }
 
 /** Forwarded from admin.routes.ts (post_bsDayRecords). */

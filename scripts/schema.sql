@@ -720,7 +720,7 @@ CREATE TABLE IF NOT EXISTS serial_log (
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     customer_id VARCHAR(50),
     customer_name VARCHAR(200),
-    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR')),
     source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
     source_id VARCHAR(50),
     history_json TEXT DEFAULT '[]',
@@ -1353,6 +1353,37 @@ ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
 ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_serial_log_device_serial ON serial_log((lower(trim(device_serial))));
+
+-- ---------------------------------------------------------------------------
+-- serial_log.status vocabulary hardening (2026-10-11): the CDR side already
+-- declares its status CHECK; mirror it on the register. The vocabulary is
+-- exactly what the server writes today: IN_STOCK / IN_TRANSIT (purchases &
+-- shipments), CUSTOMER_ASSIGNED / POP_LOCATION_ASSIGNED (deployments & CDR
+-- sync), DAMAGED (quarantine & damaged-exchange disposition), RETURNED
+-- (legacy manual rows kept filterable), SOLD (sales-invoice serial flip) and
+-- RETURNED_TO_VENDOR (purchase-return serial flip). Applied conditionally
+-- (same degrade-gracefully pattern as the BS-date hardening below): a legacy
+-- database still holding a stray manual value skips the constraint instead
+-- of failing boot.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  -- Fresh installs already carry the inline column CHECK from the CREATE
+  -- TABLE above (auto-named serial_log_status_check); only legacy tables
+  -- need the conditional ADD, and only when every row is already clean.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'serial_log_status_check'
+      AND conrelid = 'serial_log'::regclass
+  ) AND NOT EXISTS (
+    SELECT 1 FROM serial_log
+    WHERE status NOT IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR')
+  ) THEN
+    ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_known;
+    ALTER TABLE serial_log ADD CONSTRAINT serial_log_status_known
+      CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR'));
+  END IF;
+END $$;
 
 -- Legacy shipment/stock-ops date indexes (dbBoot-only before consolidation).
 CREATE INDEX IF NOT EXISTS idx_shipments_dispatch_date ON shipments(dispatch_date_ad);

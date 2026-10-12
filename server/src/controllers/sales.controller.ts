@@ -7,12 +7,15 @@
 import type { Request, Response } from 'express';
 import {
   getPgConnected, pgPool, issueNextDocNumber, inventoryStock, logAuditEvent,
-  withTransaction, branches, products, suppliers, setInventoryStock, withAppended,
+  withTransaction, branches, products, suppliers, setInventoryStock, withAppended, withPrepended,
+  transactionLogs, setTransactionLogs,
   getUserFromReq, purchaseReturns, customerMasterRecords, findBsDayRecordForAdDate,
   customerPayments, companyProfile,
 } from '../app';
-import { salesInvoices, salesReturns, setSalesInvoices } from '../state/runtimeState';
-import { computeBillTotals, defaultVatRateFor } from '../utils/money';
+import { salesInvoices, salesReturns, setSalesInvoices, setSalesReturns } from '../state/runtimeState';
+import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
+import { TransactionLog } from '../../../client/src/types';
+import { demoSalesInvoiceTxn, demoSalesReturnTxn, demoSalesReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
 import {
   buildSalesInvoiceListSql, buildSalesInvoiceCountQuery, buildSalesInvoicePagedQuery,
@@ -83,7 +86,7 @@ async function applySalesReturnEffects(client: any, ret: any, items: any[], bran
       const after = Number(restocked.rows?.[0]?.quantity_on_hand);
       const qty = Math.abs(Number(item.quantity)) || 0;
       const stockBefore = Number.isFinite(after) ? after - qty : undefined;
-      await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx, stockBefore));
+      await client.query(SR_TXN_LOG_SQL, srTxnLogParams(ret, item, branchId, itemIdx, stockBefore, resolveLedgerUnitCost(products, item)));
     } else {
       // Non-restockable: route the units into the damage register (plan extras
       // — returned-but-damaged units never pollute sellable stock). No QOH
@@ -340,9 +343,30 @@ export async function post_salesInvoices(req: any, res: Response): Promise<any> 
           // post-deduction QOH, so before = after + qty.
           const after = Number(deducted.rows?.[0]?.quantity_on_hand);
           const stockBefore = Number.isFinite(after) ? after + qty : undefined;
-          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore));
+          await client.query(SI_TXN_LOG_SQL, siTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore, resolveLedgerUnitCost(products, item)));
         }
       });
+    } else {
+      // Demo mode (no PG): mirror the same effects in memory so the finance
+      // register and movement ledger stay consistent with or without the DB
+      // (audit gap: creates used to leave the ledger empty when PG was down).
+      // newInv is already POSTED; the demo insert mirrors it verbatim.
+      setSalesInvoices(withPrepended(salesInvoices, newInv));
+      const newTxns: TransactionLog[] = [];
+      for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+        const item = items[itemIdx];
+        const qty = Math.abs(Number(item.quantity)) || 0;
+        const { stock, before } = findOrCreateDemoStock(inventoryStock, setInventoryStock, item.productId, targetBranchId);
+        stock.quantityOnHand = Math.max(0, before - qty);
+        stock.lastUpdated = new Date().toISOString();
+        newTxns.push(demoSalesInvoiceTxn(itemIdx, {
+          productId: item.productId, productSku: item.sku, productName: item.productName,
+          branchId: targetBranchId, quantityBefore: before, quantityChanged: -qty,
+          unitCost: resolveLedgerUnitCost(products, item), referenceDocId: invoiceNumber,
+          timestampAD: newInv.invoiceDateAD, timestampBS: newInv.invoiceDateBS,
+        }));
+      }
+      if (newTxns.length > 0) setTransactionLogs([...newTxns, ...transactionLogs]);
     }
 
     logAuditEvent(req, 'CREATE_SALES_INVOICE', 'SALES', `Created Sales Invoice #${newInv.invoiceNumber} for customer ${newInv.customerName}`);
@@ -456,7 +480,7 @@ export async function post_salesInvoiceCancel(req: any, res: Response): Promise<
           const after = Number(restored.rows?.[0]?.quantity_on_hand);
           restoreAfter = Number.isFinite(after) ? after - qty : undefined;
         }
-        await client.query(SI_TXN_LOG_SQL, siCancelTxnLogParams(inv, item, inv.branchId, itemIdx, { ad: cancelAD, bs: cancelBS }, restoreAfter));
+        await client.query(SI_TXN_LOG_SQL, siCancelTxnLogParams(inv, item, inv.branchId, itemIdx, { ad: cancelAD, bs: cancelBS }, restoreAfter, resolveLedgerUnitCost(products, item)));
       }
 
       const claimed = await client.query(SI_CLAIMED_SERIALS_SQL, [inv.invoiceNumber]);
@@ -632,6 +656,30 @@ export async function post_salesReturns(req: any, res: Response): Promise<any> {
           await applySalesReturnEffects(client, newRet, items, targetBranchId, getUserFromReq(req)?.email);
         }
       });
+    } else {
+      // Demo mode (no PG): persist the return and, when POSTED, mirror the
+      // stock effect + SALES_RETURN ledger rows in memory (the PG transaction
+      // above is skipped entirely when the DB is down). A POSTED restockable
+      // return credits sellable stock; a non-restockable one routes to the
+      // damage register and writes NO QOH row (quantity never moved) — the
+      // same rule the PG path follows.
+      setSalesReturns(withPrepended(salesReturns, newRet));
+      if (newRet.status === 'POSTED' && newRet.restockable !== false) {
+        const demoTxns: TransactionLog[] = [];
+        items.forEach((item: any, itemIdx: number) => {
+          const qty = Math.abs(Number(item.quantity)) || 0;
+          const { stock, before } = findOrCreateDemoStock(inventoryStock, setInventoryStock, item.productId, targetBranchId);
+          stock.quantityOnHand = before + qty;
+          stock.lastUpdated = new Date().toISOString();
+          demoTxns.push(demoSalesReturnTxn(itemIdx, {
+            productId: item.productId, productSku: item.sku, productName: item.productName,
+            branchId: targetBranchId, quantityBefore: before, quantityChanged: qty,
+            unitCost: resolveLedgerUnitCost(products, item), referenceDocId: returnNumber,
+            timestampAD: newRet.returnDateAD, timestampBS: newRet.returnDateBS,
+          }));
+        });
+        if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
+      }
     }
 
     if (newRet.status === 'DRAFT') {
@@ -693,7 +741,7 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
               const stockBefore = Number.isFinite(after) ? after + redeductQty : 0;
               await client.query(
                 SR_CANCEL_TXN_LOG_SQL,
-                srCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: srCancelAD, bs: srCancelBS })
+                srCancelTxnLogParams(ret, item, ret.branchId, cancelLineIdx++, stockBefore, { ad: srCancelAD, bs: srCancelBS }, resolveLedgerUnitCost(products, item))
               );
             }
           } else {
@@ -718,6 +766,27 @@ export async function post_salesReturnCancel(req: any, res: Response): Promise<a
           }
         }
       });
+    } else if (ret.status === 'POSTED' && ret.restockable !== false) {
+      // Demo mode (no PG): mirror the POSTED-cancel restock reversal in memory
+      // — re-deduct the credited stock and append compensating
+      // SALES_RETURN_CANCELLED rows (a negative mirror of the original
+      // restock). A non-restockable return credited no sellable stock, so
+      // there is nothing to reverse — matching the PG path.
+      const demoCancelTxns: TransactionLog[] = [];
+      let demoCancelLine = 0;
+      (ret.items || []).forEach((item: any) => {
+        const redeductQty = Math.abs(Number(item.quantity)) || 0;
+        const { stock, before } = findOrCreateDemoStock(inventoryStock, setInventoryStock, item.productId, ret.branchId);
+        stock.quantityOnHand = Math.max(0, before - redeductQty);
+        stock.lastUpdated = new Date().toISOString();
+        demoCancelTxns.push(demoSalesReturnCancelTxn(demoCancelLine++, {
+          productId: item.productId, productSku: item.sku, productName: item.productName,
+          branchId: ret.branchId, quantityBefore: before, quantityChanged: -redeductQty,
+          unitCost: resolveLedgerUnitCost(products, item), referenceDocId: ret.returnNumber,
+          timestampAD: srCancelAD, timestampBS: srCancelBS,
+        }));
+      });
+      if (demoCancelTxns.length > 0) setTransactionLogs([...demoCancelTxns, ...transactionLogs]);
     }
 
     logAuditEvent(req, 'CANCEL_SALES_RETURN', 'SALES', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Sales Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);

@@ -1,6 +1,6 @@
 # Stock Movement Ledger — Calculation & Accuracy Audit
 
-_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 696/696 tests green · docs-count gate green · `npm run build` green_
+_Date: 2026-10-11 · Gates: `tsc --noEmit` clean · 709/709 tests green · docs-count gate green · `npm run build` green_
 
 Scope: every operation that moves inventory was traced from HTTP handler → SQL/mirror
 mutation → `transaction_logs` row → the client Stock Movement Ledger matrix, and fixed
@@ -157,21 +157,34 @@ with the Customer Device Serials directory after every customer-end action.
 ## Verification
 
 - `npx tsc --noEmit` — clean.
-- `npm test` — 696/696 green (24 new: 7 ledger tests — true before/after for
+- `npm test` — 709/709 green (24 new: 7 ledger tests — true before/after for
   PI/SI/SR/PR rows, the three cancel mirror builders, the `RETURNING` contracts;
   17 CDR↔serial_log sync tests — status mapping, exchange disposition, sync SQL
   shape, demo-mode mirror flip. Existing placeholder-shape tests updated to the
   14-bind layout).
-- Docs-count gate — all current-state test counts match 696.
+- Docs-count gate — all current-state test counts match 701.
 - `npm run build` — vite + esbuild succeed (pre-existing `import.meta` cjs warning in
   dbBoot unchanged).
 
 ## Known remaining gaps (noted, not fixed here)
 
-- Demo-mode (no-PG) invoice/return creates still don't write ledger rows — only the PG
-  path does for the finance module. Stock operations and transfers are now demo-complete.
-- `unit_cost` on SI/PR rows is the document unit price, not the product cost price; the
-  matrix values use `costPrice`, so per-row Movement Value can differ from the matrix's
-  valuation basis.
-- Legacy pre-fix ledger rows in existing databases keep their placeholder 0/N balances;
-  only new rows carry true balances.
+- ~~Demo-mode (no-PG) invoice/return creates still don't write ledger rows~~ — FIXED:
+  all six paths (SI/PI/SR/PR create, SR/PR cancel) now append mirror rows via
+  `server/src/models/txnLogRows.ts` + `findOrCreateDemoStock`, covered by
+  `tests/demoFinanceLedger.test.ts`. SI-cancel stays PG-only by design (the 503 guard
+  predates this work: an invoice cancel needs live payment/return checks), so it has no
+  demo builder.
+- ~~`unit_cost` on SI/PR rows is the document unit price, not the product cost price~~ —
+  FIXED: `resolveLedgerUnitCost` (server/src/utils/money.ts) prefers the product's
+  `costPrice` and falls back to the document unit price, used by every ledger-row path.
+- ~~Legacy pre-fix ledger rows in existing databases keep their placeholder 0/N balances~~
+  — FIXED: the audit's original "can't be recomputed without the original before-state"
+  premise was wrong — `quantity_changed` is a faithful signed delta for every row, so the
+  true balances are recoverable by replaying deltas per (product, branch) in chronological
+  order. `replayLedgerBalances` (`server/src/models/txnLogRows.ts`) maintains a running
+  usable-QOH and damaged-pool balance per group and attributes each row to the pool its
+  `change_type` moves (DAMAGE subtracts QOH; DISPOSAL/damage-register rows carry the
+  damaged-pool delta). Exposed as `POST /api/admin/recalculate/ledger-balances`
+  (`requireRole('SUPER_ADMIN')`) — idempotent, PG-only, safe to re-run. Covered by the
+  `replayLedgerBalances` block in `tests/demoFinanceLedger.test.ts` (reconstruction,
+  pool routing, idempotence, zero-clamp, per-group independence, no input mutation).

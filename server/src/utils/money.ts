@@ -28,6 +28,19 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Movement-ledger valuation basis for a sales/purchase line: the product
+ * master's costPrice — the SAME basis the financial matrices value stock at
+ * — falling back to the document's unit price only when the product is
+ * unknown or carries no cost. Without this, an SI/PR ledger row recorded the
+ * selling/credit price as unit_cost, so per-row Movement Value silently
+ * disagreed with the matrix's stock valuation (audit gap).
+ */
+export function resolveLedgerUnitCost(products: readonly any[], item: any): number {
+  const cost = Number(products.find((p) => p && p.id === item?.productId)?.costPrice);
+  return Number.isFinite(cost) && cost >= 0 ? cost : Number(item?.unitPrice) || 0;
+}
+
+/**
  * Total value of a stock operation: the sum over items of quantity × unit
  * cost, where each unit cost is resolved with the SAME chain the movement
  * ledger uses (item.unitCost → item.costPerUnit → op costPerUnit → product

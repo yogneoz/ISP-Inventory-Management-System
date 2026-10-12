@@ -15,6 +15,10 @@ export async function recalculateLiveStock(): Promise<{ message: string; updated
   return fetchJson('/api/admin/recalculate/live-stock', { method: 'POST' });
 }
 
+export async function recalculateLedgerBalances(): Promise<{ message: string; updated: number; skipped: number }> {
+  return fetchJson('/api/admin/recalculate/ledger-balances', { method: 'POST' });
+}
+
 export async function rebuildBsDayRecords(): Promise<{ success: boolean; pgSynced: boolean; years: number; regeneratedRecords: number; message: string }> {
   return fetchJson('/api/admin/recalculate/bs-day-records', { method: 'POST' });
 }

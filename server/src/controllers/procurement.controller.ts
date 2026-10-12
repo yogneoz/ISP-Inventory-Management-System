@@ -6,9 +6,10 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns } from '../app';
-import { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
-import { computeBillTotals, defaultVatRateFor } from '../utils/money';
+import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs } from '../app';
+import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
+import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
+import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
 import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
 import {
@@ -412,25 +413,39 @@ try {
     const billLinkedPO = purchaseOrders.find((p) => p.id === billPoRef || p.poNumber === billPoRef);
     if (billLinkedPO) billLinkedPO.status = 'RECEIVED';
 
-    if (!invoiceAlreadyExists) items.forEach((item: any) => {
-      let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
-      if (!stk) {
-        stk = {
-          id: `stk-${targetBranchId.toLowerCase()}-${item.productId}`,
-          productId: item.productId,
-          branchId: targetBranchId,
-          quantityOnHand: 0,
-          damagedQty: 0,
-          reservedQty: 0,
-          incomingQty: 0,
-          minReorderLevel: 5,
-          lastUpdated: new Date().toISOString(),
-        };
-        setInventoryStock(withAppended(inventoryStock, stk));
-      }
-      stk.quantityOnHand += Number(item.quantity) || 0;
-      stk.lastUpdated = new Date().toISOString();
-    });
+    if (!invoiceAlreadyExists) {
+      const demoTxns: TransactionLog[] = [];
+      items.forEach((item: any, itemIdx: number) => {
+        let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
+        if (!stk) {
+          stk = {
+            id: `stk-${targetBranchId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: targetBranchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            minReorderLevel: 5,
+            lastUpdated: new Date().toISOString(),
+          };
+          setInventoryStock(withAppended(inventoryStock, stk));
+        }
+        const before = Number(stk.quantityOnHand) || 0;
+        const qty = Number(item.quantity) || 0;
+        stk.quantityOnHand = before + qty;
+        stk.lastUpdated = new Date().toISOString();
+        // PURCHASE_INVOICE ledger row at the document's unit price (the cost
+        // the business actually paid), mirroring the PG path's before/after.
+        demoTxns.push(demoPurchaseInvoiceTxn(itemIdx, {
+          productId: item.productId, productSku: item.sku, productName: item.productName,
+          branchId: targetBranchId, quantityBefore: before, quantityChanged: qty,
+          unitCost: Number(item.unitPrice) || 0, referenceDocId: newInv.invoiceNumber,
+          timestampAD: newInv.invoiceDateAD, timestampBS: newInv.invoiceDateBS,
+        }));
+      });
+      if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
+    }
     logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
     res.status(201).json(newInv);
   } catch (err: any) {
@@ -1363,6 +1378,27 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
           await applyPurchaseReturnEffects(client, newRet, items, targetBranchId);
         }
       });
+    } else {
+      // Demo mode (no PG): persist the return and, when POSTED, mirror the
+      // stock deduction + PURCHASE_RETURN ledger rows in memory (the PG
+      // transaction above is skipped entirely when the DB is down).
+      setPurchaseReturns(withPrepended(purchaseReturns, newRet));
+      if (newRet.status === 'POSTED') {
+        const demoTxns: TransactionLog[] = [];
+        items.forEach((item: any, itemIdx: number) => {
+          const qty = Math.abs(Number(item.quantity)) || 0;
+          const { stock, before } = findOrCreateDemoStock(inventoryStock, setInventoryStock, item.productId, targetBranchId);
+          stock.quantityOnHand = Math.max(0, before - qty);
+          stock.lastUpdated = new Date().toISOString();
+          demoTxns.push(demoPurchaseReturnTxn(itemIdx, {
+            productId: item.productId, productSku: item.sku, productName: item.productName,
+            branchId: targetBranchId, quantityBefore: before, quantityChanged: -qty,
+            unitCost: resolveLedgerUnitCost(products, item), referenceDocId: returnNumber,
+            timestampAD: newRet.returnDateAD, timestampBS: newRet.returnDateBS,
+          }));
+        });
+        if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
+      }
     }
 
     if (newRet.status === 'DRAFT') {
@@ -1439,6 +1475,25 @@ export async function post_purchaseReturnCancel(req: any, res: Response): Promis
           }
         }
       });
+    } else if (ret.status === 'POSTED') {
+      // Demo mode (no PG): mirror the POSTED-cancel effects in memory — restore
+      // stock and append compensating PURCHASE_RETURN_CANCELLED rows. DRAFT
+      // cancels had no stock effect, so there is nothing to restore.
+      const demoTxns: TransactionLog[] = [];
+      let cancelLineIdx = 0;
+      (ret.items || []).forEach((item: any) => {
+        const restoreQty = Math.abs(Number(item.quantity)) || 0;
+        const { stock, before } = findOrCreateDemoStock(inventoryStock, setInventoryStock, item.productId, ret.branchId);
+        stock.quantityOnHand = before + restoreQty;
+        stock.lastUpdated = new Date().toISOString();
+        demoTxns.push(demoPurchaseReturnCancelTxn(cancelLineIdx++, {
+          productId: item.productId, productSku: item.sku, productName: item.productName,
+          branchId: ret.branchId, quantityBefore: before, quantityChanged: restoreQty,
+          unitCost: resolveLedgerUnitCost(products, item), referenceDocId: ret.returnNumber,
+          timestampAD: prCancelAD, timestampBS: prCancelBS,
+        }));
+      });
+      if (demoTxns.length > 0) setTransactionLogs([...demoTxns, ...transactionLogs]);
     }
 
     logAuditEvent(req, 'CANCEL_PURCHASE_RETURN', 'PROCUREMENT', `Cancelled ${ret.status === 'DRAFT' ? 'draft ' : ''}Purchase Return #${ret.returnNumber}${reason ? ` — ${reason}` : ''}`);
