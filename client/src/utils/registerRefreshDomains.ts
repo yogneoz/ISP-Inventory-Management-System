@@ -41,6 +41,12 @@ export type RegisterRefreshKey =
  * - returnsRegister: the shared Returns Register — purchase-return
  *   documents (PROCUREMENT) and sales-return documents (SALES).
  * - salesInvoices: sales invoice/payment events (SALES).
+ * - customerDevices: the Customer Device Serials register. CPE mutations
+ *   (CUSTOMER_DEVICES) and fixed-asset events (ASSETS) both move it: the
+ *   deploy-from-stock endpoint creates the rental-CPE row inside the same
+ *   transaction as the asset, and reversing a deployment closes that row. The
+ *   register reads its own paged GET, so neither the asset nor the CPE event
+ *   alone can leave it current.
  */
 export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   STOCK: ['serialLog'],
@@ -50,7 +56,7 @@ export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   SALES: ['serialLog', 'salesInvoices', 'returnsRegister'],
   SHIPMENTS: ['purchaseOrders'],
   CUSTOMER_DEVICES: ['serialLog', 'customerDevices'],
-  ASSETS: ['serialLog'],
+  ASSETS: ['serialLog', 'customerDevices'],
 };
 
 /**

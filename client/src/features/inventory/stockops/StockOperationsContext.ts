@@ -25,6 +25,7 @@ import type {
   LocationRecord,
   CustomerRecord,
   CustomerDeviceRecord,
+  SerialLog,
   User,
   ShipmentItem,
 } from '../../../types';
@@ -110,6 +111,13 @@ export interface StockOperationsCtx {
   pulloutOperations: StockOperation[];
   saleOperations: StockOperation[];
   selectedBranchId: any;
+  /**
+   * The serial register (`serial_log`) as the host fetched it (mount-once):
+   * the authority for IN_STOCK units since the purchase bill registers them
+   * transactionally (serial-register audit, Slice 1). Panels validate pairs
+   * and branch/status against this instead of fetching their own copy.
+   */
+  serialRegister: SerialLog[];
   setBranchFilter: (v: any) => void;
   setExchangeCustomerDevices: (v: any) => void;
   shipments: Shipment[];

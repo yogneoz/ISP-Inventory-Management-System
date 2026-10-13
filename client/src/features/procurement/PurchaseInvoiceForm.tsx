@@ -85,6 +85,15 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   // Suppliers list strictly sourced from master supplier directory
   const availableSuppliers = suppliers && suppliers.length > 0 ? suppliers : [];
 
+  /**
+   * Shared serial-tracking rule (same one the server applies): QUANTITY_ONLY
+   * products carry no serials, and a product is tracked unless it explicitly
+   * opts out. PON + MAC are mandatory only for SERIAL_MAC_PON hardware.
+   */
+  const isSerialTracked = (product?: Product): boolean =>
+    product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : true;
+  const requiresPonAndMac = (product?: Product): boolean => product?.trackingType === 'SERIAL_MAC_PON';
+
   // Link Purchase Order State
   const [selectedPoId, setSelectedPoId] = useState<string>('');
   const [isPoSelectModalOpen, setIsPoSelectModalOpen] = useState<boolean>(false);
@@ -228,7 +237,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
 
   // Search/Scan Product Add or Duplicate Quantity Increment
   const handleAddOrIncrementProduct = (prod: Product) => {
-    const isSerialized = prod.requiresSerialTracking !== false;
+    const isSerialized = isSerialTracked(prod);
     let targetLineIdx = 0;
     let targetSerialIdx = 0;
 
@@ -300,15 +309,15 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     const qty = Math.max(1, newQty);
     updated[index].quantity = qty;
     const prod = products.find((p) => p.id === updated[index].productId);
-    const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
+    const isSerialized = isSerialTracked(prod);
 
     if (isSerialized) {
+      // Empty slots only: the register is created from what the operator scans
+      // off the box. A generated serial would register hardware the business
+      // never received (serial-register audit, Slice 1).
       const currentSerials = [...(updated[index].deviceSerials || [])];
       while (currentSerials.length < qty) {
-        currentSerials.push({
-          deviceSerial: `SN-${updated[index].sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-        });
+        currentSerials.push({ deviceSerial: '', ponSerial: '', macAddress: '' });
       }
       updated[index].deviceSerials = currentSerials.slice(0, qty);
     } else {
@@ -419,6 +428,60 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     if (!vendorBillBs) {
       alertDialog(`BS date is not available for ${vendorBillDateAD}. Please contact your system administrator for BS month seeding.`);
       return;
+    }
+
+    // Serial validation (serial-register audit, Slice 1): this bill CREATES the
+    // serial register, so every serial-tracked unit must carry a real device
+    // serial. A blank or duplicated serial is refused here as well as on the
+    // server — the register has no second writer to fall back on.
+    const seenDevice = new Set<string>();
+    const seenPon = new Set<string>();
+    const seenMac = new Set<string>();
+    const serialKey = (value?: string) => (value || '').trim().toUpperCase();
+    for (const line of lines) {
+      const product = products.find((p) => p.id === line.productId);
+      if (!isSerialTracked(product)) continue;
+      const qty = Math.max(1, Number(line.quantity) || 0);
+      const slots = line.deviceSerials || [];
+      if (slots.filter((s) => serialKey(s.deviceSerial)).length !== qty) {
+        setSaveMessage(
+          `Enter a device serial for all ${qty} unit(s) of "${line.productName}" — the serial register is created from this bill.`
+        );
+        return;
+      }
+      const strict = requiresPonAndMac(product);
+      for (let s = 0; s < qty; s++) {
+        const device = serialKey(slots[s]?.deviceSerial);
+        const pon = serialKey(slots[s]?.ponSerial);
+        const mac = serialKey(slots[s]?.macAddress);
+        if (!device) {
+          setSaveMessage(`Device serial is required for "${line.productName}" (unit #${s + 1}).`);
+          return;
+        }
+        if (strict && !pon) {
+          setSaveMessage(`PON serial is required for "${line.productName}" (unit #${s + 1}).`);
+          return;
+        }
+        if (strict && !mac) {
+          setSaveMessage(`MAC address is required for "${line.productName}" (unit #${s + 1}).`);
+          return;
+        }
+        if (seenDevice.has(device)) {
+          setSaveMessage(`Duplicate device serial ${slots[s].deviceSerial} on this bill.`);
+          return;
+        }
+        if (pon && seenPon.has(pon)) {
+          setSaveMessage(`Duplicate PON serial ${slots[s].ponSerial} on this bill.`);
+          return;
+        }
+        if (mac && seenMac.has(mac)) {
+          setSaveMessage(`Duplicate MAC address ${slots[s].macAddress} on this bill.`);
+          return;
+        }
+        seenDevice.add(device);
+        if (pon) seenPon.add(pon);
+        if (mac) seenMac.add(mac);
+      }
     }
 
     const items: PurchaseInvoiceItem[] = calculatedLines.map((l, idx) => ({
@@ -846,7 +909,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                               })()}
                               {(() => {
                                 const prod = products.find((p) => p.id === line.productId);
-                                const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
+                                const isSerialized = isSerialTracked(prod);
                                 return isSerialized ? (
                                   <div className={`text-[10px] font-medium mt-0.5 text-blue-600 dark:text-blue-400`}>
                                     Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
@@ -896,7 +959,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                           {/* Device Serial, PON Serial & MAC Row per Unit or Consumable Notice */}
                           {(() => {
                             const prod = products.find((p) => p.id === line.productId);
-                            const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
+                            const isSerialized = isSerialTracked(prod);
 
                             if (!isSerialized) {
                               return (

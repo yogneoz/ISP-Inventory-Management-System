@@ -1,6 +1,145 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 712/712 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-05 · Branch: main · Tests: 771/771 green with a DB (all run in CI too — no skips since the PG service container landed)_
+
+## ⭐ Serial register Slice 2 DELIVERED (2026-10-13) — one gate, no silent skips
+
+Every endpoint that draws a unit out of branch stock now resolves its serials through ONE server-enforced
+rule — [serialGate.service.ts](server/src/services/serialGate.service.ts) — against `serial_log`, under the
+operation's own row lock. Unknown serial, unit already sold/assigned/damaged, or held at another branch →
+typed refusal (`SerialGateError` → `400`) naming the register's own reason. Wired:
+
+- **sales** — stopped being its own second implementation of the rule (keeps its claim `SI_CLAIM_SERIAL_SQL`,
+  because Sales Returns flips it back symmetrically);
+- **fixed-asset deploy-from-stock** — used to look the serial up and **silently skip** the register flip when
+  it was absent, deploying against branch stock anyway;
+- **stock operations** (DAMAGE / PULLOUT / STOCK_OUT / CONSUMABLE_ISSUE) — used to match the **in-memory
+  `customer_device_records` mirror outside the transaction**; now the register, locked, and the demo-mode
+  (PG-down) path runs the same rule against the register mirror so both modes refuse identically.
+
+Deliberate boundary: the gate owns **resolution and refusal**; the lifecycle transition stays with its owner
+so reversals stay symmetric. Pullout / consumable issue / product stock-out resolve but flip no status — the
+register vocabulary has no such state and neither reversal path restores a serial, so flipping them now would
+strand a unit as permanently unsellable. That transition + its reversal is the next step.
+
+Also fixed: the deploy path wrote the asset into the in-memory register **before** its transaction, so a
+now-refused deploy would leave a phantom asset — the mirror write moved after the commit.
+
+Evidence: [tests/serialGate.service.test.ts](tests/serialGate.service.test.ts) (16 pure rules tests, no DB) and
+[tests/serialGateHttp.test.ts](tests/serialGateHttp.test.ts) (5 HTTP checks against real PostgreSQL: unknown
+serial refused and moves **no** stock / records **no** operation; `CUSTOMER_ASSIGNED` refused by state;
+other-branch refused by branch; valid `IN_STOCK` posts and consumes; deploy-from-stock with an unknown serial
+refused instead of silently deploying).
+
+## ⭐ Serial register Slice 1 DELIVERED (2026-10-13) — purchases write the register
+
+`POST /api/purchase-invoices` is now the live writer of `serial_log`: one row per received unit, in
+the invoice's own transaction, so a unit bought this session is `IN_STOCK` and **sellable without a
+restart**. What else shipped:
+
+- **Rejections before any write** (`400`, nothing posts): blank device serial, a serial-tracked line
+  whose serial count ≠ quantity, `SERIAL_MAC_PON` without PON or MAC, and repeated device serial /
+  PON / MAC inside one bill. A unit already registered is `409` — except a `RETURNED_TO_VENDOR` row,
+  which is re-activated in place keeping its id and history.
+- **The register's uniqueness now matches CDR.** `uq_serial_log_pon_serial` and
+  `uq_serial_log_mac_address` (partial, non-empty only) were added in [scripts/schema.sql](scripts/schema.sql)
+  inside a guarded `DO $$` block — a legacy DB with duplicates logs a WARNING and still boots. This
+  closes the check-then-write race the owner probes alone cannot; `23505` now maps to a readable `409`.
+- **The purchase form stopped inventing identity.** The random `SN-<SKU>-<random>` serial and random
+  PON are gone; quantity changes seed empty per-unit rows, and posting is blocked until each slot has
+  a real device serial (plus PON/MAC for `SERIAL_MAC_PON`).
+- **Deleting a bill takes its register rows with it**, keyed on the bill's own serials — never on
+  `source_type`/`source_id`, which a later sale/deploy rewrites — and returns `409` if a unit has
+  since moved.
+
+Live evidence (real HTTP API, dev server + PostgreSQL 16): **15/15 acceptance checks**, including the
+headline "buy it and sell it without restarting"; concurrency probe — five simultaneous bills sharing
+one PON → exactly 1 posted, 4 clean `400`s, 0 `500`s, 1 register row. Suite 771/771.
+
+Also fixed while verifying: `scripts/schema.sql` had an **earlier** `transaction_logs_change_type_check`
+rewrite whose list omitted the cancellation types, so an ALTER that validates existing rows aborted the
+whole file — and since `dbBoot` applies the file verbatim at **every** start, a database that had merely
+deleted a purchase invoice could not boot at all. All rewrites now carry the identical value set, and
+`tests/schemaSource.parity.test.ts` guards that they never diverge again. `setup_db.js` also reset in
+the wrong order (wipe before the schema ALTERs).
+
+Slices 2–5 (one server-enforced branch/status gate, transfer integrity, the shared pick-only serial
+input, backfill demoted to a maintenance action) are still open — see
+[docs/serial-register-audit.md](docs/serial-register-audit.md#6a-slice-1--delivered-2026-10-13).
+
+## ⭐ Serial register: audit + agreed 5-slice plan (2026-10-13, read-only)
+
+A read-only audit of where device serials are really created —
+[docs/serial-register-audit.md](docs/serial-register-audit.md). Headline findings, all
+code- and API-evidenced and **not yet fixed**:
+
+- **`serial_log` is a boot-time projection, not a live ledger.** The only row-creating
+  paths are `backfillSerialLog()` (boot), the serial-rename service and the demo seed;
+  `SERIAL_LOG_INSERT_SQL` / `SERIAL_LOG_UPDATE_SQL` are exported and imported but have no
+  call site. Every other writer flips a row it assumes exists.
+- **Purchasing does not register serials.** `POST /api/purchase-invoices` stores the pairs
+  in `items` JSONB and receives stock; nothing writes `serial_log`, so a unit bought this
+  session is invisible to the sales gate ("only IN_STOCK units can be sold") until restart.
+  The purchase form is also the only serial surface with no validation, and it invents
+  `SN-<SKU>-<random>` + a random PON.
+- **Assign Fixed Asset validates the (serial, PON) pair client-side only**; `post_assets`
+  accepts an unknown serial and silently skips the register flip. The panel still pre-fills
+  a random serial and a constant MAC, and its existing-asset branch still fabricates a
+  serial and fires a second `createCustomerDevice`.
+- **Transfers are register-blind** — `shipments.controller.ts` has no serial handling at
+  all; `IN_TRANSIT` / received serial states exist only via the boot backfill.
+
+Agreed contract (confirmed with the user): PI is the **only** writer, every other screen is
+pick-only against an `IN_STOCK` row at the acting branch, `tracking_type` drives which
+fields are required, and no form may invent identity. Delivery is sliced — (1) PI upserts
+register rows transactionally, (2) one server-enforced branch/status gate, (3) dispatch
+claims `IN_STOCK → IN_TRANSIT` and receive lands it, (4) shared serial picker across the 13
+screens + a read-only lookup usable by branch roles, (5) backfill demoted to an explicit
+maintenance action. Slice 1 is the first move: it unblocks selling freshly purchased stock.
+
+## ⭐ CPE register: deploy-from-stock writes the customer row atomically + Actions audit (2026-10-13)
+
+The Customer Device Serials "Actions" audit
+([docs/cpe-actions-audit.md](docs/cpe-actions-audit.md)) — every button traced through the code
+AND driven live in the browser. Six defects fixed, five round trips executed:
+
+- **Deploy-from-stock now creates the rental-CPE row server-side, in the same
+  transaction** as the stock deduction and the serial flip. The Assign Fixed Asset
+  panel used to fire a SECOND request (`createCustomerDevice`) after `POST
+  /api/assets` committed, so a failure or race left `serial_log` saying
+  `CUSTOMER_ASSIGNED` with no row in the customer directory. The panel instead
+  forwards `devicePonSerial` / `deviceMacAddress` (columns only the endpoint can
+  store) and makes one request. Verified live: one `POST /api/assets` produced both
+  registers agreeing.
+- **A plain INSERT cannot re-rent a unit.** `uq_customer_device_device_serial`
+  rejected the second row for the same serial and rolled back the whole deployment
+  (`500 duplicate key …`) — caught by running the browser round trip, not by reading
+  the code. Deploy and exchange now write serial-keyed (`CDR_SERIAL_ROW_SQL` +
+  `CDR_REDEPLOY_BY_SERIAL_SQL`: no row → insert, closed row → re-activate in place
+  keeping the row id, active row → leave alone), with `upsertCdrMirror` as the
+demo-mode twin.
+- **Exchange moved no stock at all**, though the form promises "Restock to Branch
+  (+1 Stock)" and "Quarantined RMA Stock": restocked units vanished from branch
+  inventory and RMA units never reached the damaged bucket. Both dispositions now
+  credit the right bucket and write a ledger row (verified live: RESTOCK →
+  `quantity_on_hand` +1; DAMAGE → `damaged_qty` +1).
+- **The Exchange form pre-filled a random serial and a constant MAC**, so the
+  second exchange from the form died on `uq_customer_device_mac_address`. Both
+  fields start empty (🎲 Auto-Gen stays as an explicit opt-in); a serial/PON owned
+  by another device now returns 409 before any state is touched.
+- **The customer-device register never re-fetched**: `registerRefresh.customerDevices`
+  was bumped by the SSE handler but no consumer received it, so an approved
+  disconnect left the row on its pre-approval `RENTAL` badge until a page reload.
+  Both consumers (the register and the customer master directory counts) are wired,
+  and `ASSETS` events refresh the register too (that endpoint writes it now).
+- **Multi-unit serialized bin lines duplicated one physical device** (same serial on
+  every unit + fabricated serials for the extra CDR rows); only the first unit
+  carries the identity now.
+
+Residual gaps are listed in the audit doc — the biggest is that the Exchange
+replacement unit's own stock is neither validated nor deducted (a 1-for-1 swap is
+assumed within the fulfilling branch), and `PATCH /api/customer-devices/:id/status`
+carries no role guard while the sibling exchange route does.
 
 ## ⭐ UX fixes from the damage walkthrough: central API-failure toast + real `inert` (2026-10-10)
 
@@ -1048,7 +1187,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 712 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 771 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1615,7 +1754,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 712 tests, 0 fail). Live-verified:
+  key coverage; suite now 771 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1673,7 +1812,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 712 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 771 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1738,7 +1877,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 712 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 771 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1776,7 +1915,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 712 tests, 0 fail.
+  failures, then reverted). Suite now 771 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1791,7 +1930,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 712 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 771 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

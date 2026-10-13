@@ -6,10 +6,13 @@
 //      the server will use; explicit environment variables still win.
 //   1. Ensure the PostgreSQL server is reachable (falls back to the shell
 //      installer script on Linux/macOS when it is not).
-//   2. Apply scripts/schema.sql (idempotent - safe to re-run).
-//   3. CLEAR all existing data EXCEPT the Nepali BS calendar reference
+//   2. CLEAR all existing data EXCEPT the Nepali BS calendar reference
 //      tables (bs_calendar_years, bs_day_records) so seeding always starts
-//      from a clean slate. Use --keep-data to skip this step.
+//      from a clean slate. Use --keep-data to skip this step. This runs
+//      BEFORE the schema pass: schema.sql rewrites CHECK constraints with
+//      ADD CONSTRAINT, which validates existing rows, so a stale row would
+//      otherwise abort the reset.
+//   3. Apply scripts/schema.sql (idempotent - safe to re-run).
 //   4. Seed master data (fiscal years, BS calendar, UOMs, doc number configs,
 //      company profile, branches, example users) – the seeded branches,
 //      users and fiscal years are flagged is_demo = TRUE so the clear-demo
@@ -895,16 +898,19 @@ async function runSetup() {
 
   const client = await pool.connect();
   try {
-    // 2. Schema (idempotent).
-    console.log('📋 Applying database schema from scripts/schema.sql...');
-    await applySchema(client);
-    await ensureEnterpriseColumns(client);
-
-    // 3. Wipe all operational data (except Nepali BS calendar tables)
-    //    so seeding always starts from a clean slate.  Tables are truncated
+    // 2. Wipe all operational data (except Nepali BS calendar tables) so
+    //    seeding always starts from a clean slate.  Tables are truncated
     //    with CASCADE (FK ordering is handled automatically).
     //    Pass --keep-data to skip the wipe (useful when the database holds
     //    real data that must not be touched).
+    //
+    //    ORDER MATTERS: the wipe runs BEFORE the schema pass. schema.sql
+    //    rewrites CHECK constraints with `ALTER TABLE ... ADD CONSTRAINT`,
+    //    which validates the rows already present — so a stale row holding a
+    //    value some intermediate rewrite no longer lists would abort the
+    //    whole reset (and, because dbBoot.ts applies the same file at
+    //    startup, the server boot too). On a clean slate the rewrite always
+    //    validates against an empty table.
     //
     //    IMPORTANT: fiscal_years must NOT be TRUNCATEd – bs_day_records has
     //    a FK to it and PostgreSQL TRUNCATE ... CASCADE does not honour the
@@ -931,6 +937,11 @@ async function runSetup() {
       await client.query('DELETE FROM fiscal_years');
       console.log('🗑  Removed all fiscal years (Nepali calendar rows preserved, will re-link).');
     }
+
+    // 3. Schema (idempotent) on the clean slate.
+    console.log('📋 Applying database schema from scripts/schema.sql...');
+    await applySchema(client);
+    await ensureEnterpriseColumns(client);
 
     // 4. Master data (real, is_demo = FALSE).
     console.log('📅 Seeding fiscal years & Bikram Sambat calendar...');

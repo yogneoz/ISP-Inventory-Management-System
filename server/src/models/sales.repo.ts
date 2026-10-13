@@ -182,18 +182,9 @@ export function siTxnLogParams(inv: Record<string, any>, item: Record<string, an
 // Sales invoice serial claim (serial_log IN_STOCK → CUSTOMER_ASSIGNED)
 // ---------------------------------------------------------------------------
 
-/**
- * Locks the serial_log rows a sales invoice is about to sell. The partial
- * unique index on lower(trim(device_serial)) makes that key single-valued, so
- * FOR UPDATE pins each unit's row against a concurrent sale of the same
- * serial. `key` is the normalized match key so callers can line the rows up
- * with their own parsed serial pairs.
- */
-export const SI_LOCK_SERIAL_SQL = `SELECT lower(trim(device_serial)) AS key,
- device_serial, pon_serial, mac_address, product_id, branch_id, status
- FROM serial_log
- WHERE lower(trim(device_serial)) = ANY($1::text[])
- FOR UPDATE`;
+// The resolution lock the sales claim used to own (`SI_LOCK_SERIAL_SQL`) moved
+// to the shared serial gate (Slice 2): SERIAL_GATE_LOCK_SQL in
+// ../models/inventory.repo.ts, driven by ../services/serialGate.service.ts.
 
 /** History entry appended to every claimed serial (mirrors SR_SERIAL_FLIP_SQL). */
 export function siClaimSerialParams(

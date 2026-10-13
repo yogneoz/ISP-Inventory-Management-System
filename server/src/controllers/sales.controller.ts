@@ -31,11 +31,12 @@ import {
   SR_POST_DRAFT_SQL, SR_CANCEL_DRAFT_SQL,
   CP_INSERT_SQL, cpInsertParams, CP_LOCK_STATUS_SQL, CP_REVERSE_SQL,
   SI_RECORD_PAYMENT_SQL, SI_UNDO_PAYMENT_SQL, LEDGER_CUSTOMER_PAYMENTS_SQL,
-  SI_LOCK_SERIAL_SQL, SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
+  SI_CLAIM_SERIAL_SQL, siClaimSerialParams,
   SI_FIND_ONE_SQL, SI_LOCK_FOR_CANCEL_SQL, SI_CANCEL_SQL,
   SI_BLOCKING_PAYMENTS_SQL, SI_BLOCKING_RETURNS_SQL,
   SI_CLAIMED_SERIALS_SQL, SI_RELEASE_SERIAL_SQL, siCancelTxnLogParams,
 } from '../models/sales.repo';
+import { planSerialGateEntries, resolveSerialGateInDb, serialGateKey } from '../services/serialGate.service';
 import { intFromEnv } from '../utils/envGuard';
 
 /**
@@ -203,69 +204,24 @@ async function claimInvoiceSerials(
   targetBranchId: string,
   invDate: string
 ): Promise<void> {
-  const pairs: { item: any; device: string; pon: string; mac: string }[] = [];
+  // Slice 2: resolution and refusal are the SHARED gate's job, not this
+  // controller's. Sales was the one endpoint that already resolved against
+  // serial_log; it now enforces byte-for-byte the same rule as deploy, damage
+  // and the stock operations, so "is this unit real, in stock and mine?" has a
+  // single answer everywhere. Sales keeps its own claim transition below
+  // (SI_CLAIM_SERIAL_SQL) because Sales Returns flips it back symmetrically.
+  const plan = planSerialGateEntries(items, products as any[], { requirePon: true });
+  if (plan.error) throw new Error(plan.error);
+  if (plan.entries.length === 0) return;
 
-  for (const item of items) {
-    const product = products.find((p) => p.id === item.productId);
-    const serialized =
-      !!product && product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
-    const raw = Array.isArray(item.deviceSerials) ? item.deviceSerials : [];
-    const itemPairs = raw
-      .map((s: any) => ({
-        item,
-        device: String(typeof s === 'string' ? s : s?.deviceSerial || '').trim(),
-        pon: String(typeof s === 'string' ? '' : s?.ponSerial || '').trim(),
-        mac: String(typeof s === 'string' ? '' : s?.macAddress || '').trim(),
-      }))
-      .filter((p: { device: string }) => p.device.length > 0);
-
-    if (!serialized && itemPairs.length === 0) continue;
-
-    const qty = Math.abs(Number(item.quantity)) || 0;
-    if (serialized && itemPairs.length !== qty) {
-      throw new Error(
-        `${item.productName || item.productId} is serial-tracked: ${qty} serial(s) required, ${itemPairs.length} provided.`
-      );
-    }
-    pairs.push(...itemPairs);
-  }
-
-  if (pairs.length === 0) return;
-
-  const keys = [...new Set(pairs.map((p) => p.device.toLowerCase()))];
-  const lock = await client.query(SI_LOCK_SERIAL_SQL, [keys]);
-  const byKey = new Map<string, any>(lock.rows.map((r: any) => [String(r.key), r]));
+  const keys = [...new Set(plan.entries.map((e) => serialGateKey(e.deviceSerial)))];
   const atBranch = branches.find((b) => b.id === targetBranchId)?.name || targetBranchId;
-
-  const seen = new Set<string>();
-  for (const p of pairs) {
-    const key = p.device.toLowerCase();
-    if (seen.has(key)) throw new Error(`Duplicate device serial ${p.device} on this invoice.`);
-    seen.add(key);
-
-    const row = byKey.get(key);
-    if (!row) {
-      throw new Error(
-        `Device serial ${p.device} is not in inventory at ${atBranch} for "${p.item.productName}" — only IN_STOCK units can be sold.`
-      );
-    }
-    if (String(row.status) !== 'IN_STOCK') {
-      throw new Error(`Device serial ${p.device} is ${row.status} (not IN_STOCK) — it cannot be sold.`);
-    }
-    if (String(row.branch_id) !== String(targetBranchId)) {
-      throw new Error(`Device serial ${p.device} is held at branch ${row.branch_id}, not ${targetBranchId}.`);
-    }
-    if (row.product_id && row.product_id !== p.item.productId) {
-      throw new Error(`Device serial ${p.device} belongs to a different product than "${p.item.productName}".`);
-    }
-    if (!p.pon) throw new Error(`PON serial is required for device serial ${p.device}.`);
-    if (String(row.pon_serial || '').trim().toUpperCase() !== p.pon.toUpperCase()) {
-      throw new Error(`PON serial ${p.pon} does not match inventory for device serial ${p.device}.`);
-    }
-    if (p.mac && String(row.mac_address || '').trim().toUpperCase() !== p.mac.toUpperCase()) {
-      throw new Error(`MAC address ${p.mac} does not match inventory for device serial ${p.device}.`);
-    }
-  }
+  await resolveSerialGateInDb(
+    client,
+    plan.entries,
+    { branchId: targetBranchId, branchLabel: atBranch, requirePon: true, matchMac: true, matchProduct: true },
+    { action: 'sold', productName: (e) => e.productName }
+  );
 
   const history = [
     {

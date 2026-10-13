@@ -87,9 +87,10 @@ Chosen approach (**validate + mark serials sold**):
   `serialLogs` state is left alone — it feeds other screens), passed to the form as `inventorySerials`.
   `getSerialLogs` learned a `status` param so the payload is only sellable rows.
   `SalesInvoices` keeps its pinned api surface of `['getSalesInvoices']` — no screen-level fetch added.
-- **Server gate (authoritative)** — `claimInvoiceSerials()` inside `POST /api/sales-invoices`'s transaction:
-  `SI_LOCK_SERIAL_SQL` (`SELECT … FOR UPDATE` on `lower(trim(device_serial))`, which has a partial unique index),
-  validate status/branch/product/PON/MAC and duplicates, then `SI_CLAIM_SERIAL_SQL` flips
+- **Server gate (authoritative)** — `claimInvoiceSerials()` inside `POST /api/sales-invoices`'s transaction.
+  Since Slice 2 the lock/validate half is the SHARED gate (`SERIAL_GATE_LOCK_SQL`, a `SELECT … FOR UPDATE` on
+  `lower(trim(device_serial))`, which has a partial unique index, driven by `services/serialGate.service.ts`) —
+  sales stopped being a second implementation of that rule. `SI_CLAIM_SERIAL_SQL` then flips
   `IN_STOCK → CUSTOMER_ASSIGNED` and stamps the buyer + invoice number, asserting `rowCount === serials`.
   A miss throws → the transaction rolls back → HTTP 400.
 

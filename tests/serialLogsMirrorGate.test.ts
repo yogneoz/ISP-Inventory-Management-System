@@ -49,7 +49,7 @@ const assertGated = (source: string, anchor: string, lookBehind: number): void =
 };
 
 describe('mirror retirement step 4 — serialLogs mirror is demo-mode only', () => {
-  test('inventory controller gates all four serialLogs mirror sites', () => {
+  test('inventory controller gates every serialLogs mirror site', () => {
     const src = read('server/src/controllers/inventory.controller.ts');
     // 1. post_assets deploy flip (IN_STOCK → CUSTOMER/POP_ASSIGNED)
     assertGated(
@@ -67,6 +67,9 @@ describe('mirror retirement step 4 — serialLogs mirror is demo-mode only', () 
     );
     // 4. damage reverse restore
     assertGated(src, 'restoreInMemorySerials(\n        mutable(serialLogs),', 400);
+    // 5. Slice 2: the shared serial gate's demo-mode twin, which resolves the
+    //    deployable unit against the mirror register before any flip.
+    assertGated(src, 'resolveSerialGateInMemory(\n          serialLogs,', 700);
   });
 
   test('serialEdit gates the mirror clash pre-check and rename sync', () => {

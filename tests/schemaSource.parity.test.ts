@@ -102,4 +102,55 @@ describe('dbBoot.ts ↔ scripts/schema.sql single-source-of-truth guard', () => 
     );
     assert.equal(tables.size, 36, `schema.sql should declare exactly 36 tables, found ${tables.size}`);
   });
+
+  test('serial_log carries the register-wide uniqueness (device serial + PON + MAC)', () => {
+    // The register is the authority the pick-only screens read PON/MAC from,
+    // so it must enforce the same invariant customer_device_records does.
+    // Each new index must be GUARDED (dbBoot applies this file verbatim at
+    // every start): an unguarded CREATE UNIQUE INDEX aborts the boot of a
+    // legacy database that merely holds a duplicate.
+    const normalized = schemaSql.replace(/\s+/g, ' ');
+    for (const [index, column] of [
+      ['uq_serial_log_pon_serial', 'pon_serial'],
+      ['uq_serial_log_mac_address', 'mac_address'],
+    ]) {
+      assert.ok(
+        normalized.includes(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON serial_log ((lower(trim(${column})))) WHERE trim(coalesce(${column}, '')) <> ''`),
+        `schema.sql must declare ${index} on serial_log(${column})`
+      );
+      assert.ok(
+        normalized.includes(`GROUP BY lower(trim(${column})) HAVING count(*) > 1`),
+        `${index} must be guarded by a duplicate pre-check (dbBoot runs this file verbatim at every start)`
+      );
+    }
+  });
+
+  test('every change_type CHECK rewrite lists the same values (no narrowing rewrite)', () => {
+    // schema.sql rewrites transaction_logs_change_type_check several times as
+    // new ledger event types ship. `ALTER TABLE ... ADD CONSTRAINT ... CHECK`
+    // VALIDATES THE ROWS ALREADY PRESENT, and dbBoot.ts applies this file
+    // verbatim at every server start — so an intermediate rewrite listing
+    // fewer values than a later one aborts the whole file (and the boot) on a
+    // database that merely deleted a purchase invoice. Every rewrite must
+    // therefore carry the full, identical set.
+    const blocks = [...schemaSql.matchAll(
+      /ADD CONSTRAINT transaction_logs_change_type_check CHECK \(([\s\S]*?)\);/g
+    )];
+    assert.ok(blocks.length >= 2, `expected several change_type CHECK rewrites, found ${blocks.length}`);
+    const valueSets = blocks.map((b) => new Set([...b[1].matchAll(/'([A-Z_]+)'/g)].map((m) => m[1])));
+    const [first, ...rest] = valueSets;
+    for (const [i, set] of rest.entries()) {
+      const missing = [...first].filter((v) => !set.has(v));
+      const extra = [...set].filter((v) => !first.has(v));
+      assert.deepEqual(
+        { missing, extra },
+        { missing: [], extra: [] },
+        `rewrite #${i + 2} differs from the first — a narrower rewrite aborts schema application (and server boot)`
+      );
+    }
+    // The compensating ledger types the app writes must be in every rewrite.
+    for (const value of ['PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED', 'SALES_INVOICE_CANCELLED']) {
+      assert.ok(first.has(value), `change_type CHECK must accept ${value}`);
+    }
+  });
 });

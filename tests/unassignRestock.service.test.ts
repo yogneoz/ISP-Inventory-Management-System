@@ -251,6 +251,19 @@ describe('restoreInMemorySerial', () => {
     assert.ok(register[0].updatedAt);
   });
 
+  it('clears the customer attribution on restore (IN_STOCK never keeps a customer)', () => {
+    const register = makeRegister([
+      { deviceSerial: 'SN-CAR004-0002', status: 'CUSTOMER_ASSIGNED' },
+    ]);
+    (register[0] as any).customerId = 'CUS-10291';
+    (register[0] as any).customerName = 'Example Customer 1';
+    const ok = restoreInMemorySerial(register, ASSET);
+    assert.equal(ok, true);
+    assert.equal(register[0].status, 'IN_STOCK');
+    assert.equal((register[0] as any).customerId, undefined);
+    assert.equal((register[0] as any).customerName, undefined);
+  });
+
   it('leaves already-IN_STOCK rows untouched and reports no restore', () => {
     const register = makeRegister([{ deviceSerial: 'SN-CAR004-0002', status: 'IN_STOCK' }]);
     const ok = restoreInMemorySerial(register, ASSET);

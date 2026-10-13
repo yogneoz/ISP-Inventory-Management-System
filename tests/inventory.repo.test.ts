@@ -53,6 +53,11 @@ import {
   pulloutReceiveStockParams,
   buildCustomerDeviceListQuery,
   CDR_DUPLICATE_CHECK_SQL,
+  CDR_SERIAL_ROW_SQL,
+  CDR_REDEPLOY_BY_SERIAL_SQL,
+  cdrRedeployParams,
+  CUSTOMER_FOR_CDR_INSERT_SQL,
+  CDR_ASSIGNMENT_DAMAGED_RETURN_SQL,
   CDR_FIND_NARROW_SQL,
   CDR_UPDATE_STATUS_SQL,
   CDR_UPSERT_SQL,
@@ -60,6 +65,8 @@ import {
   customerDeviceInsertParams,
   CDR_ASSIGNMENT_STOCK_SQL,
   cdrAssignmentStockParams,
+  CDR_ASSIGNMENT_STOCK_RETURN_SQL,
+  cdrAssignmentReturnParams,
   CDR_CUSTOMER_COUNT_UPSERT_SQL,
   customerCountUpsertParams,
   buildSerialLookupSql,
@@ -71,6 +78,12 @@ import {
   serialLogUpdateParams,
   SERIAL_LOG_INSERT_SQL,
   serialLogInsertParams,
+  SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
+  SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
+  SERIAL_LOG_PON_OWNER_SQL,
+  SERIAL_LOG_MAC_OWNER_SQL,
+  SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL,
+  SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL,
 } from '../server/src/models/inventory.repo';
 import { MISC_PULLOUT_TXN_SQL } from '../server/src/models/misc.repo';
 import type { TransactionLog } from '../client/src/types';
@@ -349,6 +362,65 @@ describe('customer devices (CPE)', () => {
     assert.deepEqual(cdrAssignmentStockParams(-1, 'p1', 'WH001', 0), [-1, 'p1', 'WH001', 0]);
   });
 
+  test('serial probe reads the row status case-insensitively — one row per serial decides insert vs re-activate', () => {
+    // customer_device_records is unique per serial
+    // (uq_customer_device_device_serial), so a deployment must know whether
+    // this serial has no row yet (insert) or a closed one to re-activate.
+    assert.match(CDR_SERIAL_ROW_SQL, /SELECT id, status FROM customer_device_records/);
+    assert.match(CDR_SERIAL_ROW_SQL, /WHERE lower\(trim\(device_serial\)\) = lower\(trim\(\$1\)\)/);
+    assert.equal(maxPlaceholder(CDR_SERIAL_ROW_SQL), 1);
+    assert.match(CDR_SERIAL_ROW_SQL, /LIMIT 1$/);
+  });
+
+  test('re-deploy updates the serial-keyed row in place instead of inserting a duplicate', () => {
+    // A plain INSERT for an already-registered serial violates the partial
+    // unique index and rolls back the whole deployment transaction (stock
+    // deduction + ledger row + serial flip). The re-activation keeps the row
+    // id and refreshes every rented-device field.
+    for (const col of ['customer_id = $2', 'customer_name = $3', 'status = $11', 'issued_date_ad = $12', 'notes = $15']) {
+      assert.ok(CDR_REDEPLOY_BY_SERIAL_SQL.includes(col), `re-deploy SQL must set ${col}`);
+    }
+    assert.match(CDR_REDEPLOY_BY_SERIAL_SQL, /WHERE lower\(trim\(device_serial\)\) = lower\(trim\(\$1\)\)/);
+    assert.match(CDR_REDEPLOY_BY_SERIAL_SQL, /updated_at = CURRENT_TIMESTAMP/);
+    assert.match(CDR_REDEPLOY_BY_SERIAL_SQL, /RETURNING id, status$/);
+    assert.equal(maxPlaceholder(CDR_REDEPLOY_BY_SERIAL_SQL), 15);
+    // No id write: the register row keeps its identity (audit references).
+    assert.ok(!/SET[\s\S]*?\bid = \$/.test(CDR_REDEPLOY_BY_SERIAL_SQL));
+    assert.deepEqual(
+      cdrRedeployParams({
+        id: 'cdr-asset-1', customerId: 'CUS-1', customerName: 'Ram', customerCode: 'CUS-1',
+        branchId: 'BR01', productName: 'ONU', deviceSerial: 'SN1', ponSerial: 'PON1',
+        macAddress: 'AA:BB', status: 'RENTAL', issuedDateAD: '2026-10-13', issuedDateBS: '2083-06-27 BS',
+        notes: '[RENTAL CPE ASSET - Tag: FA-1] redeployed',
+      } as any),
+      ['SN1', 'CUS-1', 'Ram', 'CUS-1', '', '', 'BR01', 'ONU', 'PON1', 'AA:BB', 'RENTAL', '2026-10-13', '2083-06-27 BS', null, '[RENTAL CPE ASSET - Tag: FA-1] redeployed']
+    );
+    // Serial is $1 (the match key) while the insert builder writes it at $9.
+    assert.equal(customerDeviceInsertParams({ id: 'x', deviceSerial: 'SN1', ponSerial: 'PON1' } as any)[8], 'SN1');
+  });
+
+  test('deploy customer lookup accepts either the primary key or the customer code', () => {
+    assert.match(CUSTOMER_FOR_CDR_INSERT_SQL, /SELECT customer_id, customer_name, contact_number, address/);
+    assert.match(CUSTOMER_FOR_CDR_INSERT_SQL, /FROM customer_records WHERE id = \$1 OR customer_id = \$1 LIMIT 1/);
+    assert.equal(maxPlaceholder(CUSTOMER_FOR_CDR_INSERT_SQL), 1);
+  });
+
+  test('damaged-return credit shares the release param shape and returns the damaged balance', () => {
+    // Exchange → DAMAGE routes the old unit into the damaged pool instead of
+    // quantity_on_hand, keeping the two buckets separate.
+    assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /INSERT INTO inventory_stock \(id, product_id, branch_id, damaged_qty\)/);
+    assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /damaged_qty = inventory_stock\.damaged_qty \+ \$1/);
+    assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /ON CONFLICT \(product_id, branch_id\) DO UPDATE SET/);
+    assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /RETURNING damaged_qty$/);
+    assert.equal(maxPlaceholder(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL), 4);
+    assert.ok(!CDR_ASSIGNMENT_DAMAGED_RETURN_SQL.includes('quantity_on_hand'));
+    // Same $1/$2/$3/$4 ordering as the usable-stock release builder, so both
+    // call sites can share cdrAssignmentReturnParams.
+    assert.deepEqual(cdrAssignmentReturnParams(1, 'p1', 'WH001'), [1, 'p1', 'WH001', 'stk-wh001-p1']);
+    assert.match(CDR_ASSIGNMENT_STOCK_RETURN_SQL, /VALUES \(\$4, \$2, \$3, \$1\)/);
+    assert.match(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, /VALUES \(\$4, \$2, \$3, \$1\)/);
+  });
+
   test('customer counter upserts GREATEST(0, count + delta) on customer_id conflict', () => {
     assert.match(CDR_CUSTOMER_COUNT_UPSERT_SQL, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, 'ACTIVE', \$8\)/);
     assert.match(CDR_CUSTOMER_COUNT_UPSERT_SQL, /ON CONFLICT \(customer_id\) DO UPDATE SET\s*\n\s*assigned_devices_count = GREATEST\(0, customer_records\.assigned_devices_count \+ \$8\);/);
@@ -437,11 +509,42 @@ describe('serial log register', () => {
     assert.deepEqual(statusCount.params, ['WH001', 'DAMAGED']);
   });
 
-  test('upsert probe matches lower(trim(device_serial)) for one-row-per-serial semantics', () => {
+  test('upsert probe matches lower(trim(device_serial)) and carries the row status for the purchase decision', () => {
     assert.equal(
       SERIAL_LOG_FIND_BY_DEVICE_SQL,
-      'SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))'
+      'SELECT id, status, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))'
     );
+  });
+
+  // Slice 1 of the serial-register plan (docs/serial-register-audit.md): the
+  // purchase invoice is the only writer of brand-new registers, so these are
+  // the statements that keep a duplicate PON/MAC out and let a deleted bill
+  // take its still-in-stock rows with it.
+  test('PON and MAC owner probes exclude the serial being received', () => {
+    assert.match(SERIAL_LOG_PON_OWNER_SQL, /lower\(trim\(COALESCE\(pon_serial, ''\)\)\) = lower\(trim\(\$1\)\)/);
+    assert.match(SERIAL_LOG_PON_OWNER_SQL, /lower\(trim\(device_serial\)\) <> lower\(trim\(\$2\)\)/);
+    assert.match(SERIAL_LOG_MAC_OWNER_SQL, /lower\(trim\(COALESCE\(mac_address, ''\)\)\) = lower\(trim\(\$1\)\)/);
+    assert.match(SERIAL_LOG_MAC_OWNER_SQL, /lower\(trim\(device_serial\)\) <> lower\(trim\(\$2\)\)/);
+  });
+
+  test('purchase deletion keys on the bill\u2019s own serials, never on rewritten source_* columns', () => {
+    // A sale/deploy rewrites source_type + source_id on the very row the bill
+    // created, so provenance must come from the bill's serials instead.
+    //
+    // Matching is case/whitespace-insensitive on BOTH sides: an unnest + a
+    // normalized element comparison, not `col = ANY($1)` — the latter compares
+    // a lowercased column to a raw, still-uppercase array element and so never
+    // matches the bill's real serials (caught by the live purchase test, which
+    // the old shape-only assertion could not see).
+    for (const sql of [SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL]) {
+      assert.match(sql, /EXISTS \(SELECT 1 FROM unnest\(\$1::text\[\]\) AS inv\(serial\)/);
+      assert.match(sql, /lower\(trim\(inv\.serial\)\) = lower\(trim\(serial_log\.device_serial\)\)/);
+      assert.doesNotMatch(sql, /ANY\(\$1::text\[\]\)/, 'must normalize each array element, not the raw array');
+      assert.doesNotMatch(sql, /source_type/);
+    }
+    assert.match(SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, /WHERE status = 'IN_STOCK'/);
+    assert.match(SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL, /WHERE status <> 'IN_STOCK'/);
+    assert.match(SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL, /LIMIT 1/);
   });
 
   test('update COALESCEs optional columns and takes 13 binds with id last', () => {
@@ -457,8 +560,8 @@ describe('serial log register', () => {
     );
   });
 
-  test('insert writes 15 binds with is_demo pinned FALSE in SQL', () => {
-    assert.match(SERIAL_LOG_INSERT_SQL, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15, FALSE\)/);
+  test('insert writes 15 binds with is_demo pinned FALSE and a race-safe conflict clause', () => {
+    assert.match(SERIAL_LOG_INSERT_SQL, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15, FALSE\) ON CONFLICT DO NOTHING/);
     assert.deepEqual(
       serialLogInsertParams({
         id: 'sl-1', deviceSerial: 'SN', ponSerial: null, macAddress: null, productId: null,
@@ -467,6 +570,25 @@ describe('serial log register', () => {
       }),
       ['sl-1', 'SN', null, null, null, null, null, null, null, 'IN_STOCK', 'PURCHASE', null, '[]', 'now', 'now']
     );
+  });
+
+  test('deploy flip records the asset customer attribution ($6/$7) with COALESCE-safe binds', () => {
+    // The asset created by deployFromStock carries assignedCustomerId/Name;
+    // the flip must write them onto the register row so the Serial Log
+    // Register and the Customer Device Serials page agree. COALESCE keeps
+    // location/POP deployments (null customer) from wiping attribution.
+    assert.match(SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL, /customer_id = COALESCE\(\$6, customer_id\)/);
+    assert.match(SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL, /customer_name = COALESCE\(\$7, customer_name\)/);
+    assert.match(SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL, /WHERE id = \$5/);
+    assert.equal(maxPlaceholder(SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL), 7);
+  });
+
+  test('unassign flip clears the customer attribution it previously wrote', () => {
+    // IN_STOCK clears attribution (same semantics as SERIAL_LOG_SYNC_ON_CDR_SQL
+    // on IN_STOCK), so an unassigned unit never lingers as a customer device.
+    assert.match(SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL, /status = 'IN_STOCK'/);
+    assert.match(SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL, /customer_id = NULL, customer_name = NULL/);
+    assert.match(SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL, /status IN \('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED'\)/);
   });
 });
 

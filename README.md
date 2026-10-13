@@ -9,6 +9,9 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 - **Clean Production Readiness**: Zero hardcoded mock operational data at runtime. Demo data is seeded only by the setup scripts (`is_demo = TRUE`), keeping real rows untouched.
 - **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking, reorder levels, and inter-branch shipments.
 - **Serial Log Register**: One row per physical device serial (Device Serial / PON Serial / MAC Address) with full lifecycle history, converged from purchases, shipments, stock operations and customer assignments. Includes:
+  - **Live registration at purchase** — posting a purchase invoice writes the register row for every received unit inside the same transaction, so a unit bought this session is `IN_STOCK` and sellable immediately (no restart). Blank serials, duplicates, and a missing PON/MAC for `SERIAL_MAC_PON` products are refused before anything posts, and the purchase form no longer invents serials or PON values.
+  - **Register-wide uniqueness** — case-insensitive unique indexes on device serial, PON serial and MAC address (non-empty values only), matching `customer_device_records`, so a duplicate identity can never enter the register even from two concurrent bills.
+  - **One server-enforced gate** — every endpoint that draws a unit out of branch stock (sales, fixed-asset deploy-from-stock, damage, pullout, consumable issue, product stock-out) resolves its serials through the same rule against `serial_log`, under the operation's own row lock. An unknown serial, a unit already sold/assigned/damaged, or one held at another branch is refused with the register's own reason — never silently skipped, and never decided by a stale in-memory mirror.
   - **Authoritative duplicate prevention** — a serial that exists on another device (checked case-insensitively across `serial_log`, `customer_device_records` and `fixed_assets`) can never be saved.
   - **Dual-panel conflict resolution** — typing a conflicting serial expands the edit modal side-by-side so both devices can be corrected in one pass (full A↔B swaps supported, applied atomically park-then-apply on the server).
   - **Cross-table cascade** — a correction propagates to every table holding the serial (customer devices, purchase invoices, shipments, stock operations).
@@ -629,7 +632,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 712-test suite against a PostgreSQL 16 service container (zero skips) →
+  full 771-test suite against a PostgreSQL 16 service container (zero skips) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough

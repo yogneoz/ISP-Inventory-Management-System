@@ -28,6 +28,56 @@
  */
 import type { TransactionLog } from '../../../client/src/types';
 
+/**
+ * CDR statuses that mean the customer currently holds the device. These are
+ * the statuses a re-deployment must NOT overwrite: the register already
+ * tracks that unit as out with a customer.
+ */
+export const ACTIVE_CDR_STATUSES = ['ACTIVE', 'RENTAL', 'SUSPENDED', 'SOLD'] as const;
+
+/**
+ * Result of a register write keyed on the device serial.
+ *
+ * - INSERTED the register had never seen this serial.
+ * - REACTIVATED a closed row (collected / exchanged / refunded / in stock) was
+ *   re-rented or took over an exchange, so its row was updated in place.
+ * - ALREADY_ACTIVE an active row already tracks this serial; nothing changed.
+ */
+export type CdrRegisterAction = 'INSERTED' | 'REACTIVATED' | 'ALREADY_ACTIVE';
+
+/** True when the status means a customer currently holds the device. */
+export function isActiveCdrStatus(status: unknown): boolean {
+  return (ACTIVE_CDR_STATUSES as readonly string[]).includes(
+    String(status || '').trim().toUpperCase()
+  );
+}
+
+/**
+ * In-memory twin of the serial-keyed register write (demo mode / PG-down).
+ * Mirrors CDR_SERIAL_ROW_SQL + CDR_REDEPLOY_BY_SERIAL_SQL + the plain insert:
+ * a closed row for the same serial is replaced in place (customer_device_records
+ * keeps one row per serial — a second row would fail the unique index), an
+ * absent serial is prepended, and an active row is left alone.
+ *
+ * Returns a NEW array plus the action taken, so the demo path reports exactly
+ * what the transactional path did.
+ */
+export function upsertCdrMirror<T extends { deviceSerial?: string; status?: string }>(
+  rows: readonly T[],
+  row: T
+): { rows: T[]; action: CdrRegisterAction } {
+  const key = String(row.deviceSerial || '').trim().toLowerCase();
+  const idx = rows.findIndex(
+    (r) => String(r.deviceSerial || '').trim().toLowerCase() === key
+  );
+  if (idx < 0) return { rows: [row, ...rows], action: 'INSERTED' };
+  if (isActiveCdrStatus(rows[idx].status)) return { rows: [...rows], action: 'ALREADY_ACTIVE' };
+  const next = [...rows];
+  // Keep the register row's identity: only the rented-device state changes.
+  next[idx] = { ...rows[idx], ...row, id: (rows[idx] as any).id ?? (row as any).id };
+  return { rows: next, action: 'REACTIVATED' };
+}
+
 /** CDR status → serial_log status, or null when no automatic flip applies. */
 export function serialStatusForCdrStatus(cdrStatus: string): string | null {
   switch (String(cdrStatus || '').toUpperCase()) {

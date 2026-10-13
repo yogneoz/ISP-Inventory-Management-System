@@ -49,6 +49,14 @@ interface CustomersManagementProps {
   onRequestApproval?: (request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>) => Promise<void>;
   onCancelApproval?: (id: string) => Promise<void>;
   onNavigateToMaster?: () => void;
+  /**
+   * Register-refresh counter for this screen's own server-paged device read.
+   * The device register is fed by its own paged GET, so a bootstrap-slice
+   * refresh does not move it: without this key an approved disconnect (or any
+   * CPE mutation made elsewhere) left the row showing its pre-mutation status
+   * until a full page reload.
+   */
+  sseRefreshKey?: number;
 }
 
 export const CustomersManagement: React.FC<CustomersManagementProps> = ({
@@ -67,6 +75,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   onRequestApproval,
   onCancelApproval,
   onNavigateToMaster,
+  sseRefreshKey = 0,
 }) => {
   const { alert: alertDialog } = useDialog();
   const canManageCustomers = isOperationAllowed('customers-manage', currentUser?.role);
@@ -107,21 +116,25 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     [devicesPage, devicesPageSize]
   );
 
-  // Server-side read (page+pageSize forwarded to GET /api/customer-devices),
+  // Server-side read (branch + search forwarded to GET /api/customer-devices),
   // so the register never renders a bootstrap slice.
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        const envelope = await api.getCustomerDevices(
+        const rows = await api.getCustomerDevices(
           selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
           searchQuery.trim() || undefined
         );
 
         if (!cancelled) {
-          setCustomerDevicesRows((envelope as { data?: CustomerDeviceRecord[] }).data || []);
-          setCustomerDevicesTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+          // The endpoint returns a bare array (res.json(r.rows)). An earlier
+          // { data, totalItems } envelope cast made every response read as
+          // [] and emptied the register while the stat cards — reading the
+          // App-level customerDevices prop — kept showing the real count.
+          setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
+          setCustomerDevicesTotalItems(Array.isArray(rows) ? rows.length : 0);
           setDevicesLoadError(false);
         }
       } catch {
@@ -133,7 +146,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchId, searchQuery, devicesPage, devicesPageSize]);
+  }, [selectedBranchId, searchQuery, devicesPage, devicesPageSize, sseRefreshKey]);
 
   // Device Exchange Modal State
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
@@ -150,9 +163,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const handleOpenExchangeModal = (record: CustomerDeviceRecord) => {
     setSelectedDeviceForExchange(record);
     setExchangeProductName(record.productName);
-    setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-    setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-    setExchangeNewMac('00:1A:2B:3C:4D:5E');
+    // Empty, NOT pre-filled: the replacement unit's identity has to be typed or
+    // scanned off the physical device. Pre-filling a random serial fabricated
+    // register rows for serials the business never received, and the pasted
+    // constant MAC (00:1A:2B:3C:4D:5E) collided with the previous exchange's row
+    // on the unique MAC index — the second exchange from this form died with a
+    // 500. MAC stays optional; serial and PON are required and validated.
+    setExchangeNewSerial('');
+    setExchangeNewPon('');
+    setExchangeNewMac('');
     setExchangeReason('Defective / Hardware Fault (No Power / Optical Loss)');
     setOldDeviceAction('DAMAGE');
     setExchangeNotes('');

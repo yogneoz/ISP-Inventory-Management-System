@@ -6,7 +6,7 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs } from '../app';
+import { getPgConnected, pgPool, purchaseOrders, issueNextDocNumber, setPurchaseOrders, withReplaced, withPrepended, inventoryStock, logAuditEvent, purchaseInvoices, withTransaction, branches, products, companyProfile, setPurchaseInvoices, suppliers, setInventoryStock, withAppended, customerDeviceRecords, setCustomerDeviceRecords, vendorPayments, getUserFromReq, broadcastChange, VENDOR_PAYMENT_SELECT, providerSupplierIdFromName, findBsDayRecordForAdDate, setVendorPayments, purchaseReturns, setPurchaseReturns, transactionLogs, setTransactionLogs, serialLogs, setSerialLogs } from '../app';
 import { VendorPayment, VendorPaymentMethod, TransactionLog } from '../../../client/src/types';
 import { computeBillTotals, defaultVatRateFor, resolveLedgerUnitCost } from '../utils/money';
 import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancelTxn, findOrCreateDemoStock } from '../models/txnLogRows';
@@ -32,6 +32,16 @@ import {
   PR_CANCEL_TXN_LOG_SQL, prCancelTxnLogParams,
   PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
 } from '../models/procurement.repo';
+import {
+  SERIAL_LOG_FIND_BY_DEVICE_SQL, SERIAL_LOG_PON_OWNER_SQL, SERIAL_LOG_MAC_OWNER_SQL,
+  SERIAL_LOG_INSERT_SQL, serialLogInsertParams, SERIAL_LOG_UPDATE_SQL, serialLogUpdateParams,
+  SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL,
+} from '../models/inventory.repo';
+import {
+  applyRegisterEntryToMirror, findMirrorRowBySerial, planPurchaseSerialEntries,
+  purchaseRegisterHistoryEntry, SerialRegisterError,
+} from '../services/serialRegister.service';
+import type { PurchaseSerialEntry } from '../services/serialRegister.service';
 /** Forwarded from procurement.routes.ts (get_purchaseOrders). */
 export async function get_purchaseOrders(req: any, res: Response): Promise<any> {
 const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize, all } = req.query;
@@ -298,6 +308,97 @@ const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pa
 }
 
 /** Forwarded from procurement.routes.ts (post_purchaseInvoices). */
+/**
+ * Writes one register row per received unit, inside the caller's invoice
+ * transaction (Slice 1 of the serial-register plan — docs/serial-register-audit.md).
+ *
+ * The purchase invoice is the ONLY writer of brand-new serials: the register is
+ * created here, live, so the sales and stock gates see the unit immediately
+ * instead of after a server restart.
+ *
+ * Sequence per unit — PON/MAC owner probe, then the device serial:
+ *   unseen serial          → INSERT (ON CONFLICT DO NOTHING; 0 rows = race)
+ *   RETURNED_TO_VENDOR row → re-activate in place (the vendor had taken it back)
+ *   anything else          → SerialRegisterError: the invoice posts nothing.
+ */
+async function registerPurchaseSerials(
+  client: any,
+  entries: PurchaseSerialEntry[],
+  inv: { id: string; invoiceNumber?: string; invoiceDateAD?: string },
+  branchId: string
+): Promise<void> {
+  const history = purchaseRegisterHistoryEntry(
+    { id: inv.id, invoiceNumber: inv.invoiceNumber },
+    inv.invoiceDateAD || new Date().toISOString()
+  );
+  for (const entry of entries) {
+    if (entry.ponSerial) {
+      const ponOwner = await client.query(SERIAL_LOG_PON_OWNER_SQL, [entry.ponSerial, entry.deviceSerial]);
+      if (ponOwner.rowCount) {
+        throw new SerialRegisterError(400, `PON serial ${entry.ponSerial} already belongs to device serial ${ponOwner.rows[0].deviceSerial}.`);
+      }
+    }
+    if (entry.macAddress) {
+      const macOwner = await client.query(SERIAL_LOG_MAC_OWNER_SQL, [entry.macAddress, entry.deviceSerial]);
+      if (macOwner.rowCount) {
+        throw new SerialRegisterError(400, `MAC address ${entry.macAddress} already belongs to device serial ${macOwner.rows[0].deviceSerial}.`);
+      }
+    }
+    const existing = await client.query(SERIAL_LOG_FIND_BY_DEVICE_SQL, [entry.deviceSerial]);
+    const timestamp = new Date().toISOString();
+    if (!existing.rowCount) {
+      const inserted = await client.query(SERIAL_LOG_INSERT_SQL, serialLogInsertParams({
+        id: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        deviceSerial: entry.deviceSerial,
+        ponSerial: entry.ponSerial,
+        macAddress: entry.macAddress,
+        productId: entry.productId || null,
+        productName: entry.productName,
+        branchId,
+        customerId: null,
+        customerName: null,
+        status: 'IN_STOCK',
+        sourceType: 'PURCHASE',
+        sourceId: inv.id,
+        historyJson: JSON.stringify([history]),
+        timestamp,
+      }));
+      if (!inserted.rowCount) {
+        // ON CONFLICT DO NOTHING now also covers the register's PON/MAC
+        // unique indexes (schema.sql): a concurrent bill took the device
+        // serial, the PON or the MAC first. Either way this unit is refused
+        // and the whole invoice is rolled back.
+        throw new SerialRegisterError(409, `Device serial ${entry.deviceSerial} was registered by another transaction — nothing was posted.`);
+      }
+      continue;
+    }
+    const row = existing.rows[0];
+    if (String(row.status) !== 'RETURNED_TO_VENDOR') {
+      throw new SerialRegisterError(409, `Device serial ${entry.deviceSerial} is already in the serial register (${row.status}) — a unit cannot be received twice.`);
+    }
+    let rowHistory: any[] = [];
+    try {
+      rowHistory = typeof row.history_json === 'string' ? JSON.parse(row.history_json || '[]') : (row.history_json || []);
+    } catch { rowHistory = []; }
+    await client.query(SERIAL_LOG_UPDATE_SQL, serialLogUpdateParams({
+      ponSerial: entry.ponSerial,
+      macAddress: entry.macAddress,
+      productId: entry.productId || null,
+      productName: entry.productName,
+      branchId,
+      customerId: null,
+      customerName: null,
+      status: 'IN_STOCK',
+      sourceType: 'PURCHASE',
+      sourceId: inv.id,
+      historyJson: JSON.stringify([...rowHistory, history]),
+      updatedAt: timestamp,
+      id: row.id,
+    }));
+  }
+}
+
+/** Forwarded from procurement.routes.ts (post_purchaseInvoices). */
 export async function post_purchaseInvoices(req: any, res: Response): Promise<any> {
 try {
     const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
@@ -368,7 +469,26 @@ try {
       invoiceAlreadyExists = existing.rowCount === 1;
     }
     const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
-    setPurchaseInvoices(idx >= 0 ? withReplaced(purchaseInvoices, idx, newInv) : withPrepended(purchaseInvoices, newInv));
+
+    // Slice 1 (serial register): plan and validate the units this bill will
+    // register. Runs before ANY write, so an invalid bill posts nothing at all.
+    const serialPlan = planPurchaseSerialEntries(items, products as any[], targetBranchId);
+    if (serialPlan.error) {
+      res.status(400).json({ message: serialPlan.error });
+      return;
+    }
+    // Demo mode (PG down) has no register transaction below, so the duplicate
+    // rule is checked against the in-memory register before anything mutates.
+    if (!getPgConnected() && !invoiceAlreadyExists && serialPlan.entries.length > 0) {
+      const clash = serialPlan.entries.find((entry) => {
+        const existingRow = findMirrorRowBySerial(serialLogs, entry.deviceSerial);
+        return Boolean(existingRow) && String((existingRow as any).status || '') !== 'RETURNED_TO_VENDOR';
+      });
+      if (clash) {
+        res.status(409).json({ message: `Device serial ${clash.deviceSerial} is already in the serial register — a unit cannot be received twice.` });
+        return;
+      }
+    }
 
     // Resolve supplierId from the selected supplier name for the sub-ledger FK
     const supplierId = req.body.supplierId || undefined;
@@ -401,11 +521,39 @@ try {
           await client.query(PI_TXN_LOG_SQL, piTxnLogParams(newInv, item, targetBranchId, itemIdx, stockBefore));
         }
 
+        // Slice 1: the register rows for this bill, in the SAME transaction as
+        // the stock receive and the ledger rows — either the units are
+        // registered or nothing posts.
+        if (!invoiceAlreadyExists && serialPlan.entries.length > 0) {
+          await registerPurchaseSerials(client, serialPlan.entries, newInv, targetBranchId);
+        }
+
         const poRef = newInv.poReferenceId || req.body.poId;
         if (poRef) {
           await client.query(PO_MARK_STATUS_SQL, ['RECEIVED', poRef]);
         }
       });
+    }
+
+    // The invoice joins the in-memory mirror only after the transaction
+    // committed: a refusal (duplicate serial, stock race) must not leave a
+    // phantom invoice behind.
+    setPurchaseInvoices(idx >= 0 ? withReplaced(purchaseInvoices, idx, newInv) : withPrepended(purchaseInvoices, newInv));
+
+    // Demo mode (PG down) twin of the register write above.
+    if (!getPgConnected() && !invoiceAlreadyExists && serialPlan.entries.length > 0) {
+      const timestamp = new Date().toISOString();
+      const history = purchaseRegisterHistoryEntry(newInv, newInv.invoiceDateAD);
+      let rows: readonly any[] = serialLogs;
+      for (const entry of serialPlan.entries) {
+        rows = applyRegisterEntryToMirror(rows, entry, {
+          id: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          timestamp,
+          history,
+          sourceId: newInv.id,
+        }).rows;
+      }
+      setSerialLogs(rows);
     }
 
     // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory mirror for non-DB mode; DB mode is updated above)
@@ -449,6 +597,19 @@ try {
     logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber}`);
     res.status(201).json(newInv);
   } catch (err: any) {
+    // A refused serial is a caller error, not a server fault: report the exact
+    // reason with its own status instead of a generic 500.
+    if (err instanceof SerialRegisterError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
+    // A unique-index violation here is a duplicate identity, not a server
+    // fault: the register's device-serial/PON/MAC indexes (schema.sql) tripped
+    // on a row another transaction committed between check and write.
+    if (err?.code === '23505') {
+      res.status(409).json({ message: 'A device serial, PON serial or MAC address in this bill was just registered by another transaction — nothing was posted.' });
+      return;
+    }
     console.error('Error creating purchase invoice:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
@@ -509,6 +670,17 @@ try {
         if (serials.length > 0 && purchaseRefs.length > 0) {
           await client.query(CDR_IN_STOCK_DELETE_SQL, [serials, purchaseRefs]);
         }
+        // Slice 1: the register rows this bill received leave with it. Keyed on
+        // the bill's OWN serials, because a sale/deploy rewrites source_*; a
+        // unit that has since moved keeps its row, and the deletion is refused
+        // rather than orphaning that history.
+        if (serials.length > 0) {
+          const movedSerial = await client.query(SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL, [serials]);
+          if (movedSerial.rowCount) {
+            throw new Error(`This invoice registered device serial ${movedSerial.rows[0].deviceSerial}, which has since moved (sold, assigned or damaged) — it cannot be deleted.`);
+          }
+          await client.query(SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL, [serials]);
+        }
         await client.query(PI_DELETE_SQL, [id]);
         if (invoice.poReferenceId) {
           await client.query(PO_MARK_STATUS_SQL, ['APPROVED', invoice.poReferenceId]);
@@ -535,6 +707,12 @@ try {
     });
     setCustomerDeviceRecords(customerDeviceRecords.filter(
       (record) => !(serials.includes(record.deviceSerial) && purchaseRefs.includes(record.purchaseBillRef || '') && record.status === 'IN_STOCK')
+    ));
+    // Mirror of the transactional register cleanup (still-IN_STOCK rows only),
+    // keyed the same way: this bill's own serials, never source_type/source_id.
+    const invoiceSerialKeys = new Set(serials.map((s: string) => String(s).trim().toUpperCase()));
+    setSerialLogs(serialLogs.filter(
+      (record) => !(invoiceSerialKeys.has(String(record.deviceSerial || '').trim().toUpperCase()) && String(record.status || '') === 'IN_STOCK')
     ));
     const linkedPO = purchaseOrders.find((entry) => entry.id === invoice.poReferenceId || entry.poNumber === invoice.poReferenceId);
     if (linkedPO) linkedPO.status = 'APPROVED';

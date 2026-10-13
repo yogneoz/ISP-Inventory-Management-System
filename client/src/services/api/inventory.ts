@@ -71,6 +71,10 @@ export async function createAsset(
     deployFromStock?: boolean;
     /** Serial of the IN_STOCK unit this asset consumes (serial_log flip). */
     deviceSerial?: string;
+    /** PON serial / MAC of that unit — the deploy transaction writes them onto
+     *  the rental-CPE customer_device_records row it creates. */
+    devicePonSerial?: string;
+    deviceMacAddress?: string;
   }
 ): Promise<Asset> {
   return fetchJson('/api/assets', {

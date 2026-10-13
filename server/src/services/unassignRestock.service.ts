@@ -148,6 +148,10 @@ export function restoreInMemorySerial(
   );
   if (!sl) return false;
   sl.status = 'IN_STOCK';
+  // IN_STOCK clears the customer attribution (same semantics as the CDR
+  // sync and SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL).
+  sl.customerId = undefined;
+  sl.customerName = undefined;
   sl.updatedAt = new Date().toISOString();
   return true;
 }

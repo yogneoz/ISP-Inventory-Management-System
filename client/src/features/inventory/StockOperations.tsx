@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
   StockOperation,
@@ -11,6 +11,7 @@ import {
   LocationRecord,
   CustomerRecord,
   CustomerDeviceRecord,
+  SerialLog,
   ApprovalRequest,
 } from '../../types';
 import { hasExactBSDayRecord } from '../../utils/nepaliCalendar';
@@ -135,6 +136,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   sseRefreshKey,
 }) => {
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
+
+  // The serial register (`serial_log`) is the authority for IN_STOCK units: the
+  // purchase bill registers them inside its own transaction, so this cache
+  // replaces the customer-device rows that used to carry purchased stock. The
+  // bootstrap payload excludes serialLogs, so this mount-once fetch IS the
+  // register the gate below validates against (serial-register audit, Slice 1).
+  const [serialRegister, setSerialRegister] = useState<SerialLog[]>([]);
+  const serialRegisterLoaded = useRef(false);
+  useEffect(() => {
+    if (serialRegisterLoaded.current) return;
+    serialRegisterLoaded.current = true;
+    api.getSerialLogs({ all: true })
+      .then((res) => setSerialRegister(Array.isArray(res) ? res : res.data || []))
+      .catch(() => setSerialRegister([]));
+  }, []);
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -310,13 +326,16 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }
           seenSerials.add(cleanSerial);
 
-          const match = customerDevices.find(
-            (cd) =>
-              cd.deviceSerial?.trim().toUpperCase() === cleanSerial &&
-              (!cleanPon || cd.ponSerial?.trim().toUpperCase() === cleanPon) &&
-              cd.branchId === branchId &&
-              cd.status === 'IN_STOCK' &&
-              (!cd.productName || cd.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
+          // Match against the serial register: an IN_STOCK row for this branch
+          // and product is what a purchased unit now has (the customer-device
+          // table no longer carries stock units at all).
+          const match = serialRegister.find(
+            (entry) =>
+              entry.deviceSerial?.trim().toUpperCase() === cleanSerial &&
+              (!cleanPon || entry.ponSerial?.trim().toUpperCase() === cleanPon) &&
+              entry.branchId === branchId &&
+              entry.status === 'IN_STOCK' &&
+              (!entry.productName || entry.productName.trim().toLowerCase() === item.productName.trim().toLowerCase())
           );
           if (!match) {
             // Serial-tracked products are HARD-BLOCKED here on purpose: a
@@ -325,8 +344,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             // rule, so this is not a client-side limitation to route around.
             // The dialog therefore states the requirement and the exact next
             // step instead of a bare "must match" dead end.
-            const known = customerDevices.find(
-              (cd) => cd.deviceSerial?.trim().toUpperCase() === cleanSerial
+            const known = serialRegister.find(
+              (entry) => entry.deviceSerial?.trim().toUpperCase() === cleanSerial
             );
             const where = known
               ? `it is registered at "${branches.find((b) => b.id === known.branchId)?.name || known.branchId}" with status "${known.status}"`
@@ -334,7 +353,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             alertDialog(
               `Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} cannot be used for "${item.productName}" at ${branchName} — ${where}.\n\n` +
                 `This product is serial-tracked, so the serial must already be in "${branchName}"'s register with status IN_STOCK before stock can move.\n\n` +
-                `Next step: open Inventory & Stock ➔ Customer Device Serials and receive this unit into "${branchName}" (scan the serial, confirm the product), then retry this operation.`
+                `Next step: receive the unit on a Purchase Bill (Procurement ➔ Purchase Invoices) into "${branchName}", then retry this operation.`
             );
             return false;
           }
@@ -390,6 +409,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     currentUser,
     customers,
     customerDevices,
+    serialRegister,
     dateMode,
     damageOperations,
     ensureBsDateAvailable,

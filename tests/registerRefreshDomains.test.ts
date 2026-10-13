@@ -158,7 +158,10 @@ describe('SSE domain → register refresh mapping', () => {
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog', 'salesInvoices', 'returnsRegister']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['purchaseOrders']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.CUSTOMER_DEVICES, ['serialLog', 'customerDevices']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.ASSETS, ['serialLog']);
+    // ASSETS also moves the customer-device register: the deploy-from-stock
+    // endpoint writes the rental-CPE row in the same transaction as the asset,
+    // and reversing a deployment closes it.
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.ASSETS, ['serialLog', 'customerDevices']);
   });
 
   test('consumableRegister is refreshed only by stock-operation events', () => {
@@ -585,6 +588,47 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assertEveryRenderSiteWired('SerialLogRegister', /refreshKey=\{registerRefresh\.serialLog\}/);
   });
 
+  test('customer-device registers: the CDR refresh key reaches both consumers of the device list', () => {
+    // Two screens read GET /api/customer-devices: the device register
+    // (CustomersManagement) owns the rows, and the customer master directory
+    // derives its per-customer counts from the same endpoint. Both are wired
+    // to registerRefresh.customerDevices — the counter DOMAIN_REGISTER_KEYS
+    // bumps on the CUSTOMER_DEVICES domain and bumpAllRegisterRefresh bumps on
+    // every full refresh. Before this wiring, approving a Disconnect Request
+    // in the Approval Center executed the status change server-side while the
+    // register row kept rendering its pre-approval RENTAL badge (and the
+    // "N Rental / N Collected" cards kept their old counts) until a full page
+    // reload — the drift the CDR↔serial_log audit exists to prevent.
+    const register = readFeatureSource('sales/CustomersManagement.tsx');
+    assert.match(register, /sseRefreshKey\?: number;/);
+    // The device fetch effect re-runs when the counter bumps.
+    assert.match(
+      register,
+      /\}, \[selectedBranchId, searchQuery, devicesPage, devicesPageSize, sseRefreshKey\]\);/,
+      'the customer-device fetch effect must depend on sseRefreshKey'
+    );
+    assertNoRawFetch(register, 'CustomersManagement.tsx');
+    assertEveryRenderSiteWired(
+      'CustomersManagement',
+      /sseRefreshKey=\{registerRefresh\.customerDevices\}/
+    );
+
+    const directory = readFeatureSource('sales/CustomerMasterDirectory.tsx');
+    // This one names its prop refreshKey (the historical App.tsx prop) and
+    // falls back to sseRefreshKey, so either prop name stays wired.
+    assert.match(directory, /refreshKey\?: number;/);
+    assert.match(directory, /sseRefreshKey\?: number;/);
+    assert.match(
+      directory,
+      /\}, \[selectedBranchFilter, searchQuery, devicesPage, devicesPageSize, sseRefreshKey\]\);/,
+      'the directory device fetch effect must depend on its refresh key'
+    );
+    assertEveryRenderSiteWired(
+      'CustomerMasterDirectory',
+      /refreshKey=\{registerRefresh\.customerDevices\}/
+    );
+  });
+
   test('StockOperations: host api surface pinned; the assign panel keeps the mount-once serialLog cache', () => {
     const source = readFeatureSource('inventory/StockOperations.tsx');
     // §G commit 2 relocated every submit handler — and with it 10 of the
@@ -594,30 +638,37 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.deepEqual(serverCallsIn(source), [
       'getBsDayRecordByAdDate',
       'getCustomerDevices',
+      'getSerialLogs',
     ]);
     assertNoRawFetch(source, 'StockOperations.tsx');
 
-    // The serialLog pair-validation cache moved WITH the assign form into
-    // AssignAssetPanel: EXACTLY ONE getSerialLogs there, still a mount-once
-    // ([] deps) fetch behind the assignSerialLogLoaded guard. Deliberately
-    // NOT sse-wired: the bootstrap payload excludes serialLogs, so the
-    // IN_STOCK pair-validation cache fills when the panel first mounts and
-    // is refreshed by remount. The host must host NONE — a serial-log fetch
-    // reappearing here, giving the effect deps, or adding a second fetch in
-    // the panel fails these assertions and forces an explicit decision.
+    // The serial register cache lives in the HOST (serial-register audit,
+    // Slice 1): the host's own stock-out gate validates serials against
+    // `serial_log` — the customer-device table no longer carries stock units,
+    // because the purchase bill registers every received unit in its own
+    // transaction — and the panels read that same cache through the context.
+    // EXACTLY ONE fetch for the screen: mount-once ([] deps) behind
+    // serialRegisterLoaded, deliberately NOT sse-wired (the bootstrap payload
+    // excludes serialLogs). A second fetch in a panel, an effect with deps, or
+    // a dropped fetch fails these assertions and forces an explicit decision.
     const hostSerialFetches = source.match(/api\.getSerialLogs/g) || [];
     assert.equal(
       hostSerialFetches.length,
-      0,
-      'StockOperations must no longer host a serial-log fetch — it lives in AssignAssetPanel'
+      1,
+      'StockOperations hosts exactly one serial-register fetch, shared with its panels'
+    );
+    assert.match(
+      source,
+      /useEffect\(\(\) => \{\s*if \(serialRegisterLoaded\.current\) return;\s*serialRegisterLoaded\.current = true;\s*api\.getSerialLogs\(\{ all: true \}\)/,
+      'the host register cache must stay mount-once behind serialRegisterLoaded'
     );
     const assignSource = readFeatureSource('inventory/stockops/AssignAssetPanel.tsx');
     const serialFetches = assignSource.match(/api\.getSerialLogs/g) || [];
-    assert.equal(serialFetches.length, 1, 'AssignAssetPanel must host exactly one serial-log fetch');
+    assert.equal(serialFetches.length, 0, 'AssignAssetPanel must read the context cache, not fetch its own copy');
     assert.match(
       assignSource,
-      /useEffect\(\(\) => \{\s*if \(assignSerialLogLoaded\.current\) return;\s*assignSerialLogLoaded\.current = true;\s*api\.getSerialLogs\(\{ all: true \}\)[\s\S]*?\}, \[\]\);/,
-      'the assignSerialLogCache fetch must stay mount-once ([] deps) behind assignSerialLogLoaded'
+      /serialRegister\.some\(/,
+      'the assign panel must validate its serial pair against the context register cache'
     );
   });
 });
@@ -686,9 +737,11 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   into a thin host (header, tab bar, manifest viewer, toast — zero
     //   server calls) plus ShipmentRegister (the three cancel/receive
     //   fallbacks moved with their flows) and CreateShipmentForm (submits
-    //   through App callbacks only — must stay fetch-free, like
-    //   PurchaseInvoiceForm / PurchaseOrderForm).
-    'procurement/CreateShipmentForm.tsx': [],
+    //   through App callbacks, and reads the serial register once to refuse a
+    //   dispatch of a serial that is not an IN_STOCK unit of the source branch
+    //   — serial-register audit, Slice 1; PurchaseInvoiceForm / PurchaseOrderForm
+    //   must stay fetch-free).
+    'procurement/CreateShipmentForm.tsx': ['getSerialLogs'],
     'procurement/Shipments.tsx': [],
     'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
     'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices'],
@@ -740,7 +793,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   keeps its own getCustomerDevices for the tab-bar counter).
     //   StockOperationsTabBar.tsx is the §G-commit-2 chrome extraction:
     //   the sub-tab strip, zero server calls of its own.
-    'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice', 'getSerialLogs'],
+    // No getSerialLogs: the panel validates against the HOST's register cache
+    // (serial-register audit, Slice 1) instead of fetching its own copy.
+    'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice'],
     'inventory/stockops/ConsumableIssuePanel.tsx': [],
     'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],

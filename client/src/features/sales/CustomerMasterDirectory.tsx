@@ -308,14 +308,16 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
     const load = async () => {
       try {
-        const envelope = await api.getCustomerDevices(
+        const rows = await api.getCustomerDevices(
           selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
           searchQuery.trim() || undefined
         );
 
         if (!cancelled) {
-          setCustomerDevicesRows((envelope as { data?: CustomerDeviceRecord[] }).data || []);
-          setCustomerDevicesTotalItems((envelope as { totalItems?: number }).totalItems || 0);
+          // Bare array response (see CustomersManagement): the old envelope
+          // cast silently rendered [] here too.
+          setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
+          setCustomerDevicesTotalItems(Array.isArray(rows) ? rows.length : 0);
           setDevicesLoadError(false);
         }
       } catch {

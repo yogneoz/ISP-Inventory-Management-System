@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Shipment,
   ShipmentItem,
@@ -7,6 +7,7 @@ import {
   InventoryStock,
   User,
   CustomerDeviceRecord,
+  SerialLog,
 } from '../../types';
 import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
@@ -15,6 +16,7 @@ import { Plus, Send, Barcode, Boxes, Trash2 } from 'lucide-react';
 import { FormCard } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
+import { api } from '../../services/api';
 
 export interface ShipmentFormLine {
   productId: string;
@@ -62,6 +64,20 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
 }) => {
   const { isDarkMode } = useDarkMode();
   const { alert: alertDialog } = useDialog();
+
+  // Serial register (`serial_log`) cache: purchases register every received
+  // unit transactionally, so the register — not the customer-device table — is
+  // where a dispatched serial's branch/status is answered (serial-register
+  // audit, Slice 1). customerDevices stays as a legacy fallback below.
+  const [serialRegister, setSerialRegister] = useState<SerialLog[]>([]);
+  const serialRegisterLoaded = useRef(false);
+  useEffect(() => {
+    if (serialRegisterLoaded.current) return;
+    serialRegisterLoaded.current = true;
+    api.getSerialLogs({ all: true })
+      .then((res) => setSerialRegister(Array.isArray(res) ? res : res.data || []))
+      .catch(() => setSerialRegister([]));
+  }, []);
 
   // Form State - Strict Inter-Branch Stock Transfer
   const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'WH001');
@@ -205,8 +221,24 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
           }
           seenSerials.add(cleanSerial);
 
-          if (customerDevices.length > 0) {
-            const match = customerDevices.find(
+          // The register first, legacy customer-device rows second — a serial
+          // must be a real IN_STOCK unit of the source branch to be dispatched.
+          const knownSerials = [
+            ...serialRegister.map((entry) => ({
+              deviceSerial: entry.deviceSerial,
+              ponSerial: entry.ponSerial || '',
+              branchId: entry.branchId,
+              status: entry.status,
+            })),
+            ...customerDevices.map((cd) => ({
+              deviceSerial: cd.deviceSerial,
+              ponSerial: cd.ponSerial || '',
+              branchId: cd.branchId,
+              status: cd.status,
+            })),
+          ];
+          if (knownSerials.length > 0) {
+            const match = knownSerials.find(
               (cd) =>
                 cd.deviceSerial.trim().toUpperCase() === cleanSerial ||
                 (cleanPon && cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanPon)
@@ -223,7 +255,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
                 return;
               }
             } else {
-              const branchInStockSerials = customerDevices.filter(
+              const branchInStockSerials = knownSerials.filter(
                 (cd) => cd.branchId === sourceBranchId && cd.status === 'IN_STOCK'
               );
               if (branchInStockSerials.length > 0) {

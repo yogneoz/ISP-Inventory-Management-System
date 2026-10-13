@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 712 tests; CI runs
+                                        #   drift/concurrency guards — 771 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -434,7 +434,9 @@ ISP-Inventory-Management-System/
 
 ### 5.2 Serial Log Uniqueness
 
-The `serial_log` register enforces uniqueness with case-insensitive unique indexes on `lower(device_serial)`, `lower(pon_serial)` and `lower(mac_address)`. The same case-insensitive rule is applied at application level across `serial_log`, `customer_device_records` and `fixed_assets.tag_number` before any serial correction is saved (see section 11).
+The `serial_log` register enforces uniqueness with case-insensitive unique indexes on `lower(device_serial)`, `lower(pon_serial)` and `lower(mac_address)`; the PON and MAC indexes are partial (`WHERE trim(col) <> ''`), so only non-empty values are governed and `NULL`/blank stays legal. The same case-insensitive rule is applied at application level across `serial_log`, `customer_device_records` and `fixed_assets.tag_number` before any serial correction is saved (see section 11).
+
+All three are declared in [schema.sql](scripts/schema.sql) (the single schema source of truth applied verbatim at boot); the PON/MAC pair sits in a guarded `DO $$` block so a legacy database that still holds duplicate rows logs a WARNING and keeps booting. The register is written live by posting a purchase invoice — see section 10.1 — so a unit bought this session is sellable without a restart.
 
 ### 5.3 Key Foreign Key Relationships
 
@@ -728,7 +730,8 @@ The `Sidebar` component defines `NAV_TABS` — navigation entries organized into
 Create PO (DRAFT)
     ↓ Approve → PO (APPROVED) → Send (SENT)
     ↓ Create Purchase Invoice
-Invoice (UNPAID) ──→ Auto-provisions device serials as IN_STOCK in serial_log
+Invoice (UNPAID) ──→ Registers each received unit as IN_STOCK in serial_log (same transaction;
+                    rejects blank/duplicate serials and duplicate PON/MAC — see section 11)
     ↓ Record Payment (partial/full) — vendor_payments sub-ledger
 Invoice (PAID)
     ↓ Create Shipment from PO items
@@ -805,6 +808,55 @@ The Serial Log Register (`src/features/inventory/SerialLogRegister.tsx`) is the 
 - If the typed value belongs to **another device**, the modal **expands to two side-by-side panels**: the edited device (left) and the conflicting device (right, prefilled, tagged with its source: REGISTER / CUSTOMER DEVICE / FIXED ASSET).
 - A **⇄ Swap** button exchanges the two devices' serial triples in one click.
 - Save stays disabled until every conflict is resolved; server 409 responses surface inline as the final gate.
+
+### 11.1a Purchase Invoice Registers the Units (live writer)
+
+`POST /api/purchase-invoices` is the **only** path that creates a register row. Inside the invoice's
+stock-receive transaction it calls `registerPurchaseSerials`, which for each received unit:
+
+- probes `serial_log` for an existing **PON owner** (`SERIAL_LOG_PON_OWNER_SQL`) and **MAC owner**
+  (`SERIAL_LOG_MAC_OWNER_SQL`), excluding the unit being received;
+- inserts the row (`IN_STOCK`, `source_type='PURCHASE'`, `source_id=<invoice id>`, history seeded with
+  the receipt) using `SERIAL_LOG_INSERT_SQL` with `ON CONFLICT DO NOTHING`, so a concurrent bill that
+took the same identity loses cleanly;
+- re-activates an existing `RETURNED_TO_VENDOR` row in place via `SERIAL_LOG_UPDATE_SQL` (keeping its
+  id and history), because the vendor had taken that unit back;
+- refuses anything else — the invoice posts nothing at all.
+
+Planning and validation live in [serialRegister.service.ts](server/src/services/serialRegister.service.ts)
+(`planPurchaseSerialEntries`): one device serial per unit on a serial-tracked line, PON **and** MAC for
+`SERIAL_MAC_PON` products, and no repeated device serial / PON / MAC within one bill. `tracking_type`
+decides which fields are required; `QUANTITY_ONLY` lines are skipped entirely. The purchase form seeds
+**empty** per-unit rows when quantity changes — it never invents a serial or a PON.
+
+Deleting the bill (role-gated `DELETE /api/purchase-invoices/:id`) removes the rows that bill created
+and restores the PO — in the same transaction — but refuses (`409`) when any of those units has since
+moved. Provenance is keyed on the **bill's own serials**, not on `source_type`/`source_id`, because a
+sale, deploy or damage flips those columns on the very row the purchase created.
+
+### 11.1b The Shared Serial Gate (every consumer resolves here)
+
+[serialGate.service.ts](server/src/services/serialGate.service.ts) is the single server-enforced answer to
+**"is this unit real, in stock, at my branch, and the right product?"** Every endpoint that draws a unit out
+of branch stock resolves through it — sales, fixed-asset deploy-from-stock, and the serial-validated stock
+operations (DAMAGE, PULLOUT, STOCK_OUT, CONSUMABLE_ISSUE):
+
+- `planSerialGateEntries` — shape/count planning: one device serial per unit on a serial-tracked line, PON for
+  `SERIAL_MAC_PON`, no repeated serial across the request.
+- `findGateViolation` — the rule, as data: `UNKNOWN`, `WRONG_STATUS`, `WRONG_BRANCH`, `WRONG_PRODUCT`,
+  `PON_REQUIRED`, `PON_MISMATCH`, `MAC_MISMATCH`, `DUPLICATE` (in that priority order).
+- `describeGateViolation` — the operator-readable refusal, in the calling screen's terms ("…only IN_STOCK
+  units can be **deployed**").
+- `resolveSerialGateInDb` / `resolveSerialGateInMemory` — the two enforcement twins. Both run the *same rule*;
+  the DB twin locks the register rows (`SERIAL_GATE_LOCK_SQL`, `FOR UPDATE`) inside the caller's transaction, the
+  in-memory twin serves PostgreSQL-down demo mode. A refusal throws `SerialGateError` (`status` + message).
+
+Boundary: the gate owns **resolution and refusal**. The lifecycle transition stays with the module that owns
+it, so each keeps a symmetric reversal — the sales claim (`SI_CLAIM_SERIAL_SQL`), the deploy flip
+(`SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL`), the damage quarantine. Pullout, consumable issue and product stock-out
+resolve but flip no status: the register vocabulary has no state for them and neither reversal path restores a
+serial, so a flip today would strand the unit. CDR-side flows (exchange, returns) stay downstream: they flip
+rows that exist and never create one (section 11.2).
 
 ### 11.2 Server-Side Guarantees (`handleUpdateSerials` + dual endpoint)
 
@@ -1100,7 +1152,7 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 712 tests against a real PostgreSQL 16 service container
+2. `npm test` — 771 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero skips — no-DB skips are history.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)

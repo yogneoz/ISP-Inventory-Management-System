@@ -3,7 +3,6 @@ import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   Asset,
   Product,
-  SerialLog,
 } from '../../../types';
 import type { AssignBinLine } from './StockOperationsContext';
 import { api } from '../../../services/api';
@@ -28,7 +27,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onUpdateAssetStatus, products, stock, userBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
 
   const [, setIsBarcodeScannerOpen] = useState(false);
 
@@ -37,21 +36,10 @@ export const AssignAssetPanel: React.FC = () => {
   const [assignProductSearch, setAssignProductSearch] = useState<string>('');
   const [isAssignProductDropdownOpen, setIsAssignProductDropdownOpen] = useState<boolean>(false);
   const assignProductDropdownRef = useRef<HTMLDivElement | null>(null);
-  // Serial-log cache for IN_STOCK serial-pair validation. The bootstrap
-  // payload excludes serialLogs, so this mount-once fetch IS the register
-  // this form validates against.
-  const [assignSerialLogCache, setAssignSerialLogCache] = useState<SerialLog[]>([]);
-  const assignSerialLogLoaded = useRef(false);
-  useEffect(() => {
-    if (assignSerialLogLoaded.current) return;
-    assignSerialLogLoaded.current = true;
-    api.getSerialLogs({ all: true })
-      .then((res) => {
-        const rows = Array.isArray(res) ? res : res.data;
-        setAssignSerialLogCache(rows || []);
-      })
-      .catch(() => setAssignSerialLogCache([]));
-  }, []);
+  // IN_STOCK serial-pair validation reads the HOST's serial register cache
+  // (context), which is the single mount-once fetch for this screen — the
+  // register is the authority now that the purchase bill writes it
+  // transactionally (serial-register audit, Slice 1).
 
   // Catalog candidates: productGroup 'Fixed Asset' plus ONU/Router/STB hardware.
   const assignableCatalogProducts = useMemo(
@@ -202,7 +190,7 @@ export const AssignAssetPanel: React.FC = () => {
             pon: (pon || '').trim().toUpperCase(),
           });
           const want = pair(item.deviceSerial, item.ponSerial);
-          const inStockInSerialLog = assignSerialLogCache.some((log) => {
+          const inStockInSerialLog = serialRegister.some((log) => {
             const got = pair(log.deviceSerial, log.ponSerial);
             return (
               got.sn === want.sn &&
@@ -237,6 +225,11 @@ export const AssignAssetPanel: React.FC = () => {
         const prodMeta = products.find((p) => p.id === item.productId);
         for (let unitIdx = 0; unitIdx < item.quantity; unitIdx++) {
           const unitTag = `FA-${item.sku.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10)}-${Math.floor(1000 + Math.random() * 9000)}`;
+          // A serialized bin line holds ONE serial pair, so only the first unit
+          // carries the device identity; further units of the same line are
+          // quantity-only assets. Sending the same serial for every unit used
+          // to register N assets against one physical device.
+          const unitIdentity = unitIdx === 0;
           await api.createAsset({
             tagNumber: unitTag,
             name: item.productName,
@@ -258,35 +251,15 @@ export const AssignAssetPanel: React.FC = () => {
             assignmentDateBS: todayBS,
             assignmentNotes: item.remarks,
             deployFromStock: true,
-            deviceSerial: item.deviceSerial || undefined,
+            deviceSerial: unitIdentity ? (item.deviceSerial || undefined) : undefined,
+            // PON/MAC are customer_device_records columns: the deploy endpoint
+            // creates that rental-CPE row itself, inside the same transaction
+            // as the stock deduction and the serial flip, so no second request
+            // can leave the two registers disagreeing.
+            devicePonSerial: unitIdentity ? (item.ponSerial || undefined) : undefined,
+            deviceMacAddress: unitIdentity ? (item.macAddress || undefined) : undefined,
           });
           createdTags.push(unitTag);
-
-          if (item.usedAtType === 'CUSTOMER' && item.usedAtCustomerId) {
-            const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
-            if (custObj) {
-              await api.createCustomerDevice({
-                customerId: custObj.id,
-                customerName: custObj.customerName,
-                customerCode: custObj.customerId,
-                contactPhone: custObj.contactNumber || '9800000000',
-                installationAddress: custObj.address || 'Nepal',
-                branchId: assignBranchId,
-                productName: item.productName,
-                deviceSerial: unitIdx === 0
-                  ? (item.deviceSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)
-                  : `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
-                ponSerial: unitIdx === 0
-                  ? (item.ponSerial || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`)
-                  : `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-                macAddress: unitIdx === 0 ? (item.macAddress || undefined) : undefined,
-                status: 'RENTAL',
-                issuedDateAD: todayAD,
-                issuedDateBS: todayBS,
-                notes: `[RENTAL CPE ASSET - Tag: ${unitTag}] ${item.remarks}`,
-              });
-            }
-          }
         }
       } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
         const ledgerAsset = assets.find((x) => x.id === item.assetId);

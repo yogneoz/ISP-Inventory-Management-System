@@ -712,6 +712,70 @@ export function buildCustomerDeviceListQuery(branchId?: unknown, query?: unknown
 export const CDR_DUPLICATE_CHECK_SQL = `SELECT 1 FROM customer_device_records
          WHERE id <> $1 AND (UPPER(TRIM(device_serial)) = $2 OR UPPER(TRIM(pon_serial)) = $3) LIMIT 1`;
 
+/**
+ * CDR_SERIAL_ROW_SQL — the register row (if any) already tracking a serial,
+ * whatever its status. customer_device_records holds at most ONE row per
+ * serial (uq_customer_device_device_serial), so a deployment must know which
+ * of the two mutually exclusive cases it is in: no row (insert) or a closed
+ * row that has to be re-activated (update). Reading the status is what
+ * decides; an ACTIVE row means the deployment is already registered.
+ */
+export const CDR_SERIAL_ROW_SQL = `SELECT id, status FROM customer_device_records
+         WHERE lower(trim(device_serial)) = lower(trim($1))
+         LIMIT 1`;
+
+/**
+ * CDR_REDEPLOY_BY_SERIAL_SQL — re-activates the register row a previously
+ * collected / refunded / exchanged unit still owns, for a re-rental or an
+ * exchange INTO a serial the register has seen before.
+ *
+ * A plain INSERT is not an option there: the partial unique index
+ * uq_customer_device_device_serial rejects a second row for the same serial
+ * and rolls back the whole deployment transaction — including the stock
+ * deduction and the serial flip. Only the rented-device state is refreshed;
+ * the row's id (and any audit reference to it) is preserved.
+ */
+export const CDR_REDEPLOY_BY_SERIAL_SQL = `UPDATE customer_device_records SET
+   customer_id = $2, customer_name = $3, customer_code = $4, contact_phone = $5,
+   installation_address = $6, branch_id = $7, product_name = $8, pon_serial = $9,
+   mac_address = $10, status = $11, issued_date_ad = $12, issued_date_bs = $13,
+   purchase_bill_ref = $14, notes = $15, updated_at = CURRENT_TIMESTAMP
+ WHERE lower(trim(device_serial)) = lower(trim($1))
+ RETURNING id, status`;
+
+/**
+ * Params for CDR_REDEPLOY_BY_SERIAL_SQL: the insert column order with the
+ * serial hoisted to $1 (it is the match key, not a written column).
+ */
+export function cdrRedeployParams(r: CustomerDeviceRecord): unknown[] {
+  return [
+    r.deviceSerial,
+    r.customerId,
+    r.customerName,
+    r.customerCode,
+    r.contactPhone || '',
+    r.installationAddress || '',
+    r.branchId || 'WH001',
+    r.productName,
+    r.ponSerial || r.deviceSerial,
+    r.macAddress || null,
+    r.status,
+    r.issuedDateAD,
+    r.issuedDateBS,
+    r.purchaseBillRef || null,
+    r.notes || '',
+  ];
+}
+
+/**
+ * CUSTOMER_FOR_CDR_INSERT_SQL — customer metadata (code / phone / address)
+ * stamped onto the rental-CPE row the deploy-from-stock transaction creates.
+ * Matched by primary key OR customer code so the assignment payload may carry
+ * either form.
+ */
+export const CUSTOMER_FOR_CDR_INSERT_SQL = `SELECT customer_id, customer_name, contact_number, address
+         FROM customer_records WHERE id = $1 OR customer_id = $1 LIMIT 1`;
+
 export const CDR_EXISTING_STATUS_SQL = 'SELECT status FROM customer_device_records WHERE id = $1';
 
 /** CDR_FIND_NARROW_SQL — narrow column set for the status-patch lookup. */
@@ -748,6 +812,18 @@ export const CDR_NOTES_BY_ID_SQL = 'SELECT notes FROM customer_device_records WH
 export const CDR_EXCHANGE_INSERT_SQL = `INSERT INTO customer_device_records (
      id, customer_id, customer_name, customer_code, contact_phone, installation_address, branch_id, product_name, device_serial, pon_serial, mac_address, status, issued_date_ad, issued_date_bs, purchase_bill_ref, notes
    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);`;
+
+/**
+ * CDR_ASSIGNMENT_DAMAGED_RETURN_SQL — an exchanged unit returned as
+ * defective/RMA lands in the damaged bucket (mirrors
+ * CDR_ASSIGNMENT_STOCK_RETURN_SQL, which credits usable stock).
+ */
+export const CDR_ASSIGNMENT_DAMAGED_RETURN_SQL = `INSERT INTO inventory_stock (id, product_id, branch_id, damaged_qty)
+ VALUES ($4, $2, $3, $1)
+ ON CONFLICT (product_id, branch_id) DO UPDATE SET
+   damaged_qty = inventory_stock.damaged_qty + $1,
+   last_updated = CURRENT_TIMESTAMP
+ RETURNING damaged_qty`;
 
 /** Assignment upsert: status / branch / notes are refreshed on conflict. */
 export const CDR_UPSERT_SQL = `INSERT INTO customer_device_records (
@@ -928,14 +1004,24 @@ export const SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL =
   `SELECT id, history_json AS "historyJson" FROM serial_log
    WHERE lower(trim(device_serial)) = lower(trim($1)) AND status = 'IN_STOCK' LIMIT 1`;
 
-/** SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL — flips an IN_STOCK unit to its deployed status. */
+/**
+ * SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL — flips an IN_STOCK unit to its deployed
+ * status and records the customer attribution carried by the deploying asset
+ * ($6/$7). COALESCE keeps location/POP deployments (null customer) from
+ * wiping an existing attribution.
+ */
 export const SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL =
-  `UPDATE serial_log SET status = $1, source_type = 'FIXED_ASSET', source_id = $2, history_json = $3, updated_at = $4
+  `UPDATE serial_log SET status = $1, source_type = 'FIXED_ASSET', source_id = $2, history_json = $3, updated_at = $4,
+          customer_id = COALESCE($6, customer_id), customer_name = COALESCE($7, customer_name)
    WHERE id = $5`;
 
-/** SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL — flips a deployed unit back to IN_STOCK (unassign restock). */
+/**
+ * SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL — flips a deployed unit back to IN_STOCK
+ * (unassign restock). IN_STOCK clears the customer attribution, matching the
+ * CDR-sync semantics (SERIAL_LOG_SYNC_ON_CDR_SQL clears on IN_STOCK).
+ */
 export const SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL =
-  `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, updated_at = $2
+  `UPDATE serial_log SET status = 'IN_STOCK', source_type = 'FIXED_ASSET', source_id = $1, customer_id = NULL, customer_name = NULL, updated_at = $2
    WHERE lower(trim(device_serial)) = lower(trim($3)) AND status IN ('POP_LOCATION_ASSIGNED', 'CUSTOMER_ASSIGNED')`;
 
 /**
@@ -1067,9 +1153,76 @@ export function buildSerialLogStatusCountQuery(opts: SerialLogQueryOptions): { s
 export const SERIAL_LOG_LOCK_HISTORY_SQL =
   'SELECT history_json FROM serial_log WHERE id = $1 FOR UPDATE';
 
-/** Idempotent upsert probe: one serial = one row (case/trim-insensitive). */
+/**
+ * One serial = one row (case/trim-insensitive). Carries the row's status and
+ * existing history so the purchase-registration path can decide between
+ * inserting, re-activating a unit the vendor took back, and refusing a
+ * duplicate — without a second round trip.
+ */
 export const SERIAL_LOG_FIND_BY_DEVICE_SQL =
-  'SELECT id, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))';
+  'SELECT id, status, history_json FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1))';
+
+/**
+ * PON owner probe: does a DIFFERENT device serial already hold this PON?
+ * `serial_log` has no PON unique index (only CDR does), so the purchase path is
+ * what keeps a duplicate PON out of the register — it would otherwise fail
+ * later, on the first customer assignment.
+ */
+export const SERIAL_LOG_PON_OWNER_SQL = `SELECT device_serial AS "deviceSerial" FROM serial_log
+  WHERE lower(trim(COALESCE(pon_serial, ''))) = lower(trim($1))
+    AND trim(COALESCE(pon_serial, '')) <> ''
+    AND lower(trim(device_serial)) <> lower(trim($2)) LIMIT 1`;
+
+/** MAC owner probe — the MAC twin of SERIAL_LOG_PON_OWNER_SQL. */
+export const SERIAL_LOG_MAC_OWNER_SQL = `SELECT device_serial AS "deviceSerial" FROM serial_log
+  WHERE lower(trim(COALESCE(mac_address, ''))) = lower(trim($1))
+    AND trim(COALESCE(mac_address, '')) <> ''
+    AND lower(trim(device_serial)) <> lower(trim($2)) LIMIT 1`;
+
+/**
+ * Deletes the register rows a purchase bill received, keyed on the bill's OWN
+ * serials — never on `source_type`/`source_id`, which every later lifecycle op
+ * rewrites (a sale stamps SALES_INVOICE + its invoice number, a deploy stamps
+ * FIXED_ASSET). Only IN_STOCK rows are removed: a unit that has since moved on
+ * keeps its row (its history is real) and the guard below blocks the deletion.
+ */
+export const SERIAL_LOG_DELETE_BY_INVOICE_SERIALS_SQL = `DELETE FROM serial_log
+  WHERE status = 'IN_STOCK'
+    AND EXISTS (SELECT 1 FROM unnest($1::text[]) AS inv(serial)
+                WHERE lower(trim(inv.serial)) = lower(trim(serial_log.device_serial)))`;
+
+/** Units of this bill that are no longer IN_STOCK (the deletion guard). */
+export const SERIAL_LOG_MOVED_BY_INVOICE_SERIALS_SQL = `SELECT device_serial AS "deviceSerial" FROM serial_log
+  WHERE status <> 'IN_STOCK'
+    AND EXISTS (SELECT 1 FROM unnest($1::text[]) AS inv(serial)
+                WHERE lower(trim(inv.serial)) = lower(trim(serial_log.device_serial)))
+  LIMIT 1`;
+
+/**
+ * Shared serial gate — one resolve path for every serial-touching endpoint
+ * (Slice 2 of the serial-register plan). Every consumer that draws a physical
+ * unit out of branch stock (sale, deploy, damage, pullout, consumable issue,
+ * product stock-out) resolves its serials through this pair instead of
+ * consulting its own copy of the register.
+ *
+ * Locks the register rows an operation is about to consume. The partial unique
+ * index on lower(trim(device_serial)) makes the key single-valued, so FOR UPDATE
+ * pins each unit against a concurrent consumer of the same serial; `key` is the
+ * normalized match key so the caller can line rows up with its parsed entries.
+ */
+export const SERIAL_GATE_LOCK_SQL = `SELECT lower(trim(device_serial)) AS key,
+ device_serial AS "deviceSerial", pon_serial AS "ponSerial", mac_address AS "macAddress",
+ product_id AS "productId", branch_id AS "branchId", status
+ FROM serial_log
+ WHERE lower(trim(device_serial)) = ANY($1::text[])
+ FOR UPDATE`;
+
+/**
+ * The states a serial-touching operation may draw a unit from. A unit that has
+ * already moved on (sold, assigned, damaged, in transit) is never consumable
+ * twice, and the refusal names the state it actually holds.
+ */
+export const SERIAL_GATE_CONSUMABLE_STATUSES = ['IN_STOCK'] as const;
 
 export const SERIAL_LOG_UPDATE_SQL = `UPDATE serial_log SET pon_serial = COALESCE($1, pon_serial), mac_address = COALESCE($2, mac_address),
   product_id = COALESCE($3, product_id), product_name = COALESCE($4, product_name),
@@ -1109,8 +1262,13 @@ export function serialLogUpdateParams(rec: {
   ];
 }
 
+/**
+ * Register insert. `ON CONFLICT DO NOTHING` makes a concurrent second receipt
+ * of the same serial a no-op instead of a raw duplicate-key 500; the caller
+ * treats a 0-row insert as "already registered" and refuses the invoice.
+ */
 export const SERIAL_LOG_INSERT_SQL = `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, customer_id, customer_name, status, source_type, source_id, history_json, created_at, updated_at, is_demo)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE)`;
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE) ON CONFLICT DO NOTHING`;
 
 export function serialLogInsertParams(rec: {
   id: string;

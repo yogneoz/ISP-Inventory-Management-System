@@ -1192,34 +1192,12 @@ export default function App() {
   const handleCreateInvoice = async (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>
   ) => {
-    const created = await api.createPurchaseInvoice(inv);
-    
-    // Automatically provision device serial inventory records for hardware assets purchased
-    if (inv.items) {
-      for (const item of inv.items) {
-        if (item.deviceSerials && item.deviceSerials.length > 0) {
-          for (const sPair of item.deviceSerials) {
-            await api.createCustomerDevice({
-              customerId: `CUST-STOCK-${Date.now()}`,
-              customerName: 'Unassigned Stock',
-              customerCode: 'STOCK-INV',
-              contactPhone: '-',
-              installationAddress: 'Warehouse / Branch Stock',
-              branchId: inv.branchId,
-              productName: item.productName,
-              deviceSerial: sPair.deviceSerial,
-              ponSerial: sPair.ponSerial || '-',
-              macAddress: sPair.macAddress || '',
-              status: 'IN_STOCK',
-              issuedDateAD: inv.invoiceDateAD,
-              issuedDateBS: inv.invoiceDateBS,
-              purchaseBillRef: created.vendorBillNumber || created.invoiceNumber,
-            });
-          }
-        }
-      }
-    }
-
+    // The server registers every received serial in the serial register inside
+    // the invoice's own transaction (serial-register audit, Slice 1). The old
+    // client-side loop that wrote "Unassigned Stock" customer-device rows is
+    // gone: it was a SECOND writer of the same units, and its rows made stock
+    // operations validate against the customer table instead of the register.
+    await api.createPurchaseInvoice(inv);
     refreshAllData();
   };
 
@@ -1990,6 +1968,7 @@ export default function App() {
                 <CustomerMasterDirectory
                   branches={branches}
                   currentUser={currentUser}
+                  refreshKey={registerRefresh.customerDevices}
                   onCustomersChanged={refreshAllData}
                   onNavigateToImport={() => setActiveTab('import-customers')}
                   onSelectTab={(tab, filter) => {
@@ -2021,6 +2000,7 @@ export default function App() {
                   onRequestApproval={handleCreateApprovalRequest}
                   onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToMaster={() => setActiveTab('customers')}
+                  sseRefreshKey={registerRefresh.customerDevices}
                 />
               </KeepMounted>
 

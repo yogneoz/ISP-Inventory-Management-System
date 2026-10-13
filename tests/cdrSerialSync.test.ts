@@ -16,11 +16,70 @@ import {
   cdrHistoryEntry,
   parseHistoryJson,
   flipSerialMirror,
+  isActiveCdrStatus,
+  upsertCdrMirror,
 } from '../server/src/services/cdrSerialSync';
 import {
   SERIAL_LOG_SYNC_ON_CDR_SQL,
   serialLogCdrSyncParams,
 } from '../server/src/models/inventory.repo';
+
+describe('upsertCdrMirror (one register row per serial)', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'cdr-new', customerName: 'Example Customer 1', deviceSerial: 'SN-ONU002-0004',
+    ponSerial: 'PON-SN-ONU002-0004', status: 'RENTAL', notes: '[RENTAL CPE ASSET - Tag: FA-1]',
+    ...over,
+  });
+
+  test('isActiveCdrStatus recognises every customer-holding status', () => {
+    for (const status of ['ACTIVE', 'RENTAL', 'SUSPENDED', 'SOLD', ' rental ']) {
+      assert.equal(isActiveCdrStatus(status), true, status);
+    }
+    for (const status of ['ROUTER_COLLECTED', 'EXCHANGED', 'REFUND', 'RETURNED', 'IN_STOCK', 'DISCONNECTED', '', null, undefined]) {
+      assert.equal(isActiveCdrStatus(status), false, String(status));
+    }
+  });
+
+  test('an unseen serial is prepended', () => {
+    const { rows, action } = upsertCdrMirror([row({ deviceSerial: 'SN-OTHER' })], row());
+    assert.equal(action, 'INSERTED');
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].deviceSerial, 'SN-ONU002-0004');
+  });
+
+  test('a collected row is re-activated in place, keeping the register identity', () => {
+    // Re-renting a collected unit must NOT add a second row for the same
+    // serial: the live table rejects that (uq_customer_device_device_serial)
+    // and would roll back the deployment transaction.
+    const collected = row({ id: 'cdr-old', status: 'ROUTER_COLLECTED', customerName: 'Previous Customer' });
+    const { rows, action } = upsertCdrMirror([collected], row({ customerName: 'Example Customer 2' }));
+    assert.equal(action, 'REACTIVATED');
+    assert.equal(rows.length, 1, 'the serial must never own two rows');
+    assert.equal(rows[0].id, 'cdr-old', 'the original row id is preserved');
+    assert.equal(rows[0].status, 'RENTAL');
+    assert.equal(rows[0].customerName, 'Example Customer 2');
+    assert.equal((collected as any).status, 'ROUTER_COLLECTED', 'input array is never mutated');
+  });
+
+  test('an active row already tracking the serial is left untouched', () => {
+    const active = row({ id: 'cdr-active', status: 'RENTAL', customerName: 'Example Customer 1' });
+    const { rows, action } = upsertCdrMirror([active], row({ customerName: 'Someone Else' }));
+    assert.equal(action, 'ALREADY_ACTIVE');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].customerName, 'Example Customer 1');
+  });
+
+  test('matching is case/trim-insensitive, like the unique index', () => {
+    const { action } = upsertCdrMirror([row({ deviceSerial: ' sn-onu002-0004 ' })], row());
+    assert.equal(action, 'ALREADY_ACTIVE');
+  });
+
+  test('a blank serial never matches an existing row', () => {
+    const { rows, action } = upsertCdrMirror([row()], row({ deviceSerial: '' }));
+    assert.equal(action, 'INSERTED');
+    assert.equal(rows.length, 2);
+  });
+});
 
 describe('serialStatusForCdrStatus', () => {
   test('customer-holding statuses map to CUSTOMER_ASSIGNED', () => {

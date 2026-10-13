@@ -7,12 +7,14 @@
  */
 import type { Request, Response } from 'express';
 import { bsDateOr400 } from '../utils/bsDate';
-import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, setDataVersion, getDataVersion } from '../app';
+import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations,  serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, setDataVersion, getDataVersion, customerMasterRecords } from '../app';
 import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
+import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory } from '../services/serialGate.service';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
+import { isActiveCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
 import {
@@ -73,6 +75,11 @@ import {
   pulloutReceiveStockParams,
   buildCustomerDeviceListQuery,
   CDR_DUPLICATE_CHECK_SQL,
+  CDR_SERIAL_ROW_SQL,
+  CDR_REDEPLOY_BY_SERIAL_SQL,
+  cdrRedeployParams,
+  CUSTOMER_FOR_CDR_INSERT_SQL,
+  CDR_ASSIGNMENT_DAMAGED_RETURN_SQL,
   CDR_EXISTING_STATUS_SQL,
   CDR_FIND_NARROW_SQL,
   CDR_UPDATE_STATUS_SQL,
@@ -110,6 +117,37 @@ import {
   cdrHistoryEntry,
   flipSerialMirror,
 } from '../services/cdrSerialSync';
+
+/**
+ * Register write for a deployment or exchange, keyed on the device serial.
+ *
+ * customer_device_records holds at most one row per serial (the partial
+ * unique index uq_customer_device_device_serial), so a serial the register has
+ * seen before can never be INSERTed again: re-renting a collected ONU has to
+ * re-activate its existing row, or the insert fails and rolls back the whole
+ * deployment transaction — stock deduction, ledger row and serial flip
+ * included. An ACTIVE row means the register already tracks that unit out with
+ * a customer, so nothing is written.
+ */
+/** Human branch label for serial-gate refusals (falls back to the id). */
+function branchLabelFor(branchId: string): string {
+  return branches.find((b) => b.id === branchId)?.name || branchId;
+}
+
+async function registerCustomerDeviceRow(
+  client: any,
+  row: CustomerDeviceRecord
+): Promise<'INSERTED' | 'REACTIVATED' | 'ALREADY_ACTIVE'> {
+  const existing = await client.query(CDR_SERIAL_ROW_SQL, [String(row.deviceSerial)]);
+  if (!existing.rowCount) {
+    await client.query(CDR_EXCHANGE_INSERT_SQL, customerDeviceInsertParams(row));
+    return 'INSERTED';
+  }
+  if (isActiveCdrStatus(existing.rows[0]?.status)) return 'ALREADY_ACTIVE';
+  await client.query(CDR_REDEPLOY_BY_SERIAL_SQL, cdrRedeployParams(row));
+  return 'REACTIVATED';
+}
+
 /** Forwarded from inventory.routes.ts (get_stock). */
 export async function get_stock(req: any, res: Response): Promise<any> {
 const { branchId } = req.query;
@@ -662,6 +700,10 @@ try {
       assignmentNotes: req.body.assignmentNotes || null,
       // Serial of the IN_STOCK unit consumed from branch stock (deploy-from-stock flow).
       deviceSerial: req.body.deviceSerial || null,
+      // Optional device identity forwarded to the rental-CPE row this flow
+      // now creates atomically (PON / MAC are CDR columns, not asset columns).
+      devicePonSerial: req.body.devicePonSerial || null,
+      deviceMacAddress: req.body.deviceMacAddress || null,
     };
 
     const linkedInvoice = newAsset.purchaseInvoiceId
@@ -697,9 +739,6 @@ try {
     });
     newAsset.accumulatedDepreciation = computedValues.accumulatedDepreciation;
     newAsset.netBookValue = computedValues.netBookValue;
-    const idx = assetRegister.findIndex((a) => a.id === newAsset.id);
-    setAssetRegister(idx >= 0 ? withReplaced(assetRegister, idx, newAsset as any) : withPrepended(assetRegister, newAsset as any));
-
     // Deploy-from-stock deduction: an asset created straight into deployment
     // (ASSIGNED_TO_*) from a catalog product consumes one unit of that
     // product's quantity_on_hand at the fulfilling branch. This mirrors the
@@ -753,9 +792,31 @@ try {
           }
           await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
 
-          // Flip the deployed unit's serial_log row so the register reflects
-          // the deployment without waiting for a refresh.
+          // Slice 2: the SHARED gate resolves the unit before any of it moves.
+          // This used to be a bare lookup whose `if (rowCount)` silently
+          // skipped the register flip when the serial was absent — so a unit
+          // that was never received, or one already sold / in transit /
+          // damaged / held elsewhere, could be deployed against branch stock
+          // anyway, and the register quietly disagreed with the ledger. Now an
+          // unresolvable serial refuses the whole request with the register's
+          // own reason.
+          //
+          // MAC is deliberately not matched yet: the Assign Fixed Asset panel
+          // still pre-fills a placeholder MAC (removed in Slice 4), so matching
+          // it here would refuse genuine deployments.
           if (newAsset.deviceSerial) {
+            await resolveSerialGateInDb(
+              client,
+              [{
+                deviceSerial: String(newAsset.deviceSerial),
+                ponSerial: String(newAsset.devicePonSerial || ''),
+                macAddress: '',
+                productId: String(newAsset.productId || ''),
+                productName: String(newAsset.name || ''),
+              }],
+              { branchId: String(newAsset.branchId), branchLabel: branchLabelFor(String(newAsset.branchId)), matchProduct: true, matchMac: false },
+              { action: 'deployed' }
+            );
             const histRes = await client.query(
               SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
               [String(newAsset.deviceSerial)]
@@ -778,8 +839,47 @@ try {
               });
               await client.query(
                 SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
-                [newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED', newAsset.id, JSON.stringify(hist), new Date().toISOString(), histRes.rows[0].id]
+                [newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED', newAsset.id, JSON.stringify(hist), new Date().toISOString(), histRes.rows[0].id,
+                 newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? (newAsset.assignedCustomerId || null) : null,
+                 newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? (newAsset.assignedCustomerName || null) : null]
               );
+            }
+          }
+
+          // Rental-CPE row, same transaction as the deploy (drift guard):
+          // the Assign Fixed Asset panel used to fire a SECOND request
+          // (createCustomerDevice) after this one committed — if it failed
+          // or raced, serial_log said CUSTOMER_ASSIGNED while the Customer
+          // Device Serials directory had no row. One transaction = the two
+          // registers cannot disagree.
+          if (newAsset.status === 'ASSIGNED_TO_CUSTOMER' && newAsset.deviceSerial) {
+            {
+              const custMeta = await client.query(CUSTOMER_FOR_CDR_INSERT_SQL, [newAsset.assignedCustomerId || '']);
+              const cust = (custMeta.rows || [])[0];
+              const issuedAD = String(newAsset.assignmentDateAD || newAsset.acquisitionDateAD).split('T')[0];
+              const cdrRow: CustomerDeviceRecord = {
+                id: `cdr-asset-${newAsset.id}`,
+                customerId: newAsset.assignedCustomerId || undefined,
+                // The customer master is authoritative for the name: the panel's
+                // label carries the code too ("Example Customer 2 (CUS-10292)").
+                customerName: cust?.customer_name || newAsset.assignedCustomerName || 'Unknown Customer',
+                customerCode: cust?.customer_id || newAsset.assignedCustomerId || 'N/A',
+                contactPhone: cust?.contact_number || '',
+                installationAddress: cust?.address || '',
+                branchId: newAsset.branchId,
+                productName: newAsset.name,
+                deviceSerial: newAsset.deviceSerial,
+                ponSerial: newAsset.devicePonSerial || String(newAsset.deviceSerial),
+                macAddress: newAsset.deviceMacAddress || undefined,
+                status: 'RENTAL',
+                issuedDateAD: issuedAD,
+                issuedDateBS: newAsset.assignmentDateBS || newAsset.acquisitionDateBS,
+                purchaseBillRef: undefined,
+                // Tag-stamped notes: the unassign reversal closes this row via
+                // cpeFindPatterns(asset.tagNumber) — keep the marker intact.
+                notes: `[RENTAL CPE ASSET - Tag: ${newAsset.tagNumber}]${newAsset.assignmentNotes ? ' ' + newAsset.assignmentNotes : ''}`,
+              };
+              await registerCustomerDeviceRow(client, cdrRow);
             }
           }
         });
@@ -795,14 +895,65 @@ try {
       // from PG truth before the response is sent (mirror step 4).
       if (newAsset.deviceSerial && !getPgConnected()) {
         const sl = serialLogs.find((e) => String(e.deviceSerial || '').trim().toLowerCase() === String(newAsset.deviceSerial).trim().toLowerCase() && e.status === 'IN_STOCK');
+        // Slice 2 (demo mode: PostgreSQL down): the SAME gate rule against the
+        // in-memory register, so this path refuses exactly what the database
+        // path refuses instead of silently skipping an unknown serial. Runs
+        // before any mirror mutation below.
+        resolveSerialGateInMemory(
+          serialLogs,
+          [{
+            deviceSerial: String(newAsset.deviceSerial),
+            ponSerial: String(newAsset.devicePonSerial || ''),
+            macAddress: '',
+            productId: String(newAsset.productId || ''),
+            productName: String(newAsset.name || ''),
+          }],
+          { branchId: String(newAsset.branchId), branchLabel: branchLabelFor(String(newAsset.branchId)), matchProduct: true, matchMac: false },
+          { action: 'deployed' }
+        );
         if (sl) {
           sl.status = newAsset.status === 'ASSIGNED_TO_CUSTOMER' ? 'CUSTOMER_ASSIGNED' : 'POP_LOCATION_ASSIGNED';
           sl.sourceType = 'FIXED_ASSET';
           sl.sourceId = newAsset.id;
+          if (newAsset.status === 'ASSIGNED_TO_CUSTOMER') {
+            sl.customerId = newAsset.assignedCustomerId || undefined;
+            sl.customerName = newAsset.assignedCustomerName || undefined;
+          }
           sl.updatedAt = new Date().toISOString();
+        }
+        // Demo-mode twin of the transactional rental-CPE write above.
+        if (newAsset.status === 'ASSIGNED_TO_CUSTOMER') {
+          {
+            const custObj = customerMasterRecords.find((c) => c.id === newAsset.assignedCustomerId || c.customerId === newAsset.assignedCustomerId);
+            const cdrRow: CustomerDeviceRecord = {
+              id: `cdr-asset-${newAsset.id}`,
+              customerId: newAsset.assignedCustomerId || undefined,
+              customerName: custObj?.customerName || newAsset.assignedCustomerName || 'Unknown Customer',
+              customerCode: custObj?.customerId || newAsset.assignedCustomerId || 'N/A',
+              contactPhone: custObj?.contactNumber || '',
+              installationAddress: custObj?.address || '',
+              branchId: newAsset.branchId,
+              productName: newAsset.name,
+              deviceSerial: newAsset.deviceSerial,
+              ponSerial: newAsset.devicePonSerial || String(newAsset.deviceSerial),
+              macAddress: newAsset.deviceMacAddress || undefined,
+              status: 'RENTAL',
+              issuedDateAD: String(newAsset.assignmentDateAD || newAsset.acquisitionDateAD).split('T')[0],
+              issuedDateBS: newAsset.assignmentDateBS || newAsset.acquisitionDateBS,
+              purchaseBillRef: undefined,
+              notes: `[RENTAL CPE ASSET - Tag: ${newAsset.tagNumber}]${newAsset.assignmentNotes ? ' ' + newAsset.assignmentNotes : ''}`,
+            };
+            setCustomerDeviceRecords(upsertCdrMirror(customerDeviceRecords, cdrRow).rows);
+          }
         }
       }
     }
+
+    // The in-memory register write happens only AFTER the deploy transaction
+    // committed (and after the demo-mode path completed): a deploy the serial
+    // gate refuses must not leave a phantom asset behind in the register.
+    const idx = assetRegister.findIndex((a) => a.id === newAsset.id);
+    setAssetRegister(idx >= 0 ? withReplaced(assetRegister, idx, newAsset as any) : withPrepended(assetRegister, newAsset as any));
 
     if (getPgConnected()) {
       await pgPool.query(ASSET_UPSERT_SQL, assetUpsertParams(newAsset));
@@ -810,6 +961,12 @@ try {
     logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber} (${newAsset.name}) at branch ${newAsset.branchId}${deployFromStock ? ` — deducted ${1} unit of ${newAsset.productId} from branch stock` : ''}`);
     res.status(201).json(newAsset);
   } catch (err: any) {
+    // A serial the register does not know (or has already moved on) is a
+    // caller error: report the register's own reason instead of a 500.
+    if (err instanceof SerialGateError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
     console.error('Error creating fixed asset:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
@@ -1018,20 +1175,13 @@ try {
             res.status(400).json({ message: `Serial/PON details are required for every unit of ${item.productName || item.productId}.` });
             return;
           }
-          for (let index = 0; index < quantity; index += 1) {
-            const serial = serialEntries[index];
-            const device = customerDeviceRecords.find((entry) =>
-              entry.deviceSerial?.trim().toUpperCase() === serial.deviceSerial?.trim().toUpperCase() &&
-              entry.ponSerial?.trim().toUpperCase() === serial.ponSerial?.trim().toUpperCase() &&
-              entry.branchId === req.body.branchId &&
-              entry.status === 'IN_STOCK' &&
-              (!product || entry.productName?.trim().toLowerCase() === product.name.trim().toLowerCase())
-            );
-            if (!device) {
-              res.status(400).json({ message: `Device Serial/PON must match an IN_STOCK inventory record for ${item.productName || item.productId}.` });
-              return;
-            }
-          }
+          // Slice 2: the RESOLUTION used to happen here against
+          // `customerDeviceRecords` — an in-memory mirror, read outside the
+          // transaction, that no longer carries stock units at all (the
+          // register does). The shared gate below resolves each serial against
+          // `serial_log` under the operation's own lock instead, so a stale
+          // mirror can no longer accept or refuse a unit. Only the cheap shape
+          // gate stays here; it needs no database.
         }
       }
     }
@@ -1094,6 +1244,35 @@ try {
       destinationWarehouseId: destWarehouseObj?.id || req.body.destinationWarehouseId || 'WH001',
       destinationWarehouseName: destWarehouseObj?.name || req.body.destinationWarehouseName || 'Headquarters Warehouse',
       status: req.body.status || (opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED'),
+    };
+
+    // Slice 2: plan the units this operation draws and resolve them through the
+    // ONE shared gate — under the transaction's own row lock below, so the
+    // unit cannot change between "is it ours?" and "consume it". A refusal
+    // names the register's own reason and the operation posts nothing.
+    const serialGatePlan = serialValidatedType
+      ? planSerialGateEntries(operationItems as Array<Record<string, any>>, products as any[])
+      : { entries: [], error: null as string | null };
+    if (serialGatePlan.error) {
+      res.status(400).json({ message: serialGatePlan.error });
+      return;
+    }
+    const gateAction = opType === 'DAMAGE'
+      ? 'marked damaged'
+      : opType === 'PULLOUT'
+        ? 'pulled out'
+        : opType === 'STOCK_OUT'
+          ? 'sold'
+          : 'issued';
+    const gateRules = {
+      branchId: String(newOp.branchId || opBranchId),
+      branchLabel: branchLabelFor(String(newOp.branchId || opBranchId)),
+      matchProduct: true,
+      // A PON the operator typed is always checked against the register; a
+      // blank one is not demanded here, because PON is mandatory only for
+      // SERIAL_MAC_PON products.
+      matchPonWhenProvided: true,
+      matchMac: false,
     };
 
     // Keep the movement ledger authoritative for stock operations as well as
@@ -1191,6 +1370,15 @@ try {
           }
         }
 
+        // Slice 2: resolve every unit this operation consumes against the
+        // register, inside the same transaction that moves the stock. Locks the
+        // register rows, so a serial sold/assigned/damaged since the mirror was
+        // read is refused here rather than consumed twice.
+        await resolveSerialGateInDb(client, serialGatePlan.entries, gateRules, {
+          action: gateAction,
+          productName: (entry) => entry.productName,
+        });
+
         await client.query(
           STOCK_OPERATION_INSERT_SQL,
           stockOperationInsertParams(newOp, opType, totalValue, JSON.stringify(items))
@@ -1260,6 +1448,14 @@ try {
           await quarantineSerialsInDb(client, operationItems as any, newOp as any, new Date().toISOString());
         }
       });
+    } else if (serialGatePlan.entries.length > 0) {
+      // Slice 2 (demo mode: PostgreSQL down): the SAME rule against the
+      // in-memory register, so both modes refuse identically instead of the
+      // demo path accepting what the database path rejects.
+      resolveSerialGateInMemory(serialLogs, serialGatePlan.entries, gateRules, {
+        action: gateAction,
+        productName: (entry) => entry.productName,
+      });
     }
     const idx = stockOperations.findIndex((o) => o.id === newOp.id);
     setStockOperations(idx >= 0 ? withReplaced(stockOperations, idx, newOp) : withPrepended(stockOperations, newOp));
@@ -1327,6 +1523,12 @@ try {
     logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber}`);
     res.status(201).json(newOp);
   } catch (err: any) {
+    // A refused serial is a caller error, not a server fault: report the
+    // register's own reason with its own status instead of a generic 500.
+    if (err instanceof SerialGateError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
     console.error('Error creating stock operation:', err);
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
@@ -2283,6 +2485,25 @@ try {
 
     if (!oldRecord) return res.status(404).json({ message: 'Old customer device record not found' });
 
+    // The register holds one row per serial (and per PON serial), so a
+    // replacement identity that another device already owns can never be
+    // written. Checked BEFORE any state is touched (mirror row included) so a
+    // conflict is a clean 409 rather than a half-applied exchange that ends in
+    // a unique-index 500 and a rolled-back stock movement.
+    if (getPgConnected() && newDeviceSerial) {
+      const dupDevice = await pgPool.query(CDR_DUPLICATE_CHECK_SQL, [
+        String(newDeviceSerial),
+        String(newDeviceSerial).trim().toUpperCase(),
+        String(newPonSerial || '').trim().toUpperCase(),
+      ]);
+      if (dupDevice.rowCount) {
+        res.status(409).json({
+          message: 'That device serial or PON serial is already registered to another device. Enter the replacement unit\'s own serial.',
+        });
+        return;
+      }
+    }
+
     const dateStrAD = new Date().toISOString().split('T')[0];
 
     oldRecord.status = 'EXCHANGED';
@@ -2313,13 +2534,59 @@ try {
       notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
     };
 
-    setCustomerDeviceRecords(withPrepended(customerDeviceRecords, newRecord));
+    setCustomerDeviceRecords(upsertCdrMirror(customerDeviceRecords, newRecord).rows);
+
+    // Stock maintenance for the OLD unit's disposition (exchange audit fix):
+    // the Exchange form promises "RESTOCK → +1 Stock" and "DAMAGE →
+    // Quarantined RMA Stock", but the handler never touched inventory_stock,
+    // so restocked units vanished from branch inventory and RMA units never
+    // reached the damaged bucket. Product resolved by name (CDR carries the
+    // product name only, same pattern as the approval restock in misc).
+    const exchProd = products.find((p) => p.name.trim().toLowerCase() === String(oldRecord.productName || '').trim().toLowerCase());
+    const exchBranchId = String(branchId || oldRecord.branchId || '');
+    const exchAction = String(oldDeviceAction || '').toUpperCase();
+    const exchQty = 1;
+    const exchStockTxn = (changeType: 'PULLOUT' | 'DAMAGE', before: number, after: number): TransactionLog => ({
+      id: `txn-exchange-${oldDeviceId}-${Date.now()}`,
+      transactionNumber: `EXC-${oldDeviceId}-${Date.now()}`,
+      productId: exchProd?.id || '',
+      productSku: exchProd?.sku || '',
+      productName: oldRecord.productName,
+      branchId: exchBranchId,
+      changeType,
+      quantityBefore: before,
+      quantityChanged: 1,
+      quantityAfter: after,
+      unitCost: exchProd?.costPrice || 0,
+      referenceDocId: newRecord.id,
+      timestampAD: dateStrAD,
+      timestampBS: newRecord.issuedDateBS,
+    });
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
         await client.query(CDR_EXCHANGE_STATUS_SQL, ['EXCHANGED', oldRecord.notes, oldDeviceId]);
 
-        await client.query(CDR_EXCHANGE_INSERT_SQL, customerDeviceInsertParams(newRecord));
+        // Replacement row, serial-keyed: a serial the register has seen before
+        // (e.g. a unit swapped back in) is re-activated instead of inserted.
+        await registerCustomerDeviceRow(client, newRecord);
+
+        // +1 usable stock (RESTOCK) or +1 damaged stock (DAMAGE) at the
+        // fulfilling branch; DISPOSED is scrap and correctly adds nothing.
+        if (exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE')) {
+          const returnParams = cdrAssignmentReturnParams(exchQty, exchProd.id, exchBranchId);
+          const stockRes = exchAction === 'RESTOCK'
+            ? await client.query(CDR_ASSIGNMENT_STOCK_RETURN_SQL, returnParams)
+            : await client.query(CDR_ASSIGNMENT_DAMAGED_RETURN_SQL, returnParams);
+          const col = exchAction === 'RESTOCK' ? 'quantity_on_hand' : 'damaged_qty';
+          const quantityAfter = Number(stockRes.rows[0]?.[col]);
+          if (Number.isFinite(quantityAfter)) {
+            await client.query(
+              TXN_INSERT_ON_CONFLICT_SQL,
+              txnInsertOnConflictParams(exchStockTxn(exchAction === 'RESTOCK' ? 'PULLOUT' : 'DAMAGE', quantityAfter - exchQty, quantityAfter))
+            );
+          }
+        }
 
         // Sync the Serial Log Register with BOTH halves of the exchange:
         // the old unit's disposition (restock → IN_STOCK, damage/disposal →
@@ -2392,8 +2659,38 @@ try {
         )
       );
       setSerialLogs(nextSerials);
+      // Demo-mode twin of the stock maintenance above.
+      if (exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE')) {
+        let stk = inventoryStock.find((s) => s.productId === exchProd.id && s.branchId === exchBranchId);
+        if (!stk) {
+          stk = {
+            id: `stk-${exchBranchId.toLowerCase()}-${exchProd.id}`,
+            productId: exchProd.id,
+            branchId: exchBranchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          setInventoryStock(withAppended(inventoryStock, stk));
+        }
+        const exchQohBefore = stk.quantityOnHand || 0;
+        const exchDamagedBefore = stk.damagedQty || 0;
+        if (exchAction === 'RESTOCK') stk.quantityOnHand = exchQohBefore + exchQty;
+        else stk.damagedQty = exchDamagedBefore + exchQty;
+        stk.lastUpdated = new Date().toISOString();
+        setTransactionLogs(withPrepended(
+          transactionLogs,
+          exchStockTxn(
+            exchAction === 'RESTOCK' ? 'PULLOUT' : 'DAMAGE',
+            exchAction === 'RESTOCK' ? exchQohBefore : exchDamagedBefore,
+            exchAction === 'RESTOCK' ? exchQohBefore + exchQty : exchDamagedBefore + exchQty
+          )
+        ));
+      }
     }
-    logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}`, oldRecord.branchId);
+    logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}${exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE') ? ` — old unit ${exchAction === 'RESTOCK' ? 'restocked to branch inventory' : 'quarantined as damaged stock'}` : ''}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
   } catch (err: any) {
     console.error('Error exchanging customer device:', err);

@@ -1016,13 +1016,20 @@ ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50)
 -- modules (Stock Operations, Damage Disposal, Product Stock-Out). Fresh
 -- installs already get the new list from the CREATE TABLE above; this is a
 -- no-op rewrite on databases created before the extended set shipped.
+--
+-- NOTE: every rewrite of this CHECK must be a SUPERSET of the values the app
+-- can already have written. `ADD CONSTRAINT ... CHECK` validates existing
+-- rows, so an intermediate list that is narrower than a later one aborts the
+-- whole file on a database that merely holds such a row — taking the server
+-- boot with it, because dbBoot.ts executes this file verbatim on startup.
 ALTER TABLE transaction_logs DROP CONSTRAINT IF EXISTS transaction_logs_change_type_check;
 ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check CHECK (
   change_type IN ('INBOUND_PO', 'PURCHASE_INVOICE', 'SALES_INVOICE', 'PURCHASE_RETURN', 'SALES_RETURN',
     'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
     'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
     'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
-    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED',
+    'PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED')
 );
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE customer_records ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
@@ -1081,7 +1088,8 @@ ALTER TABLE transaction_logs ADD CONSTRAINT transaction_logs_change_type_check C
     'STOCK_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
     'DAMAGE', 'DAMAGE_REVERSED', 'DISPOSAL', 'PHYSICAL_AUDIT_EXCESS', 'PHYSICAL_AUDIT_SHORTAGE', 'PULLOUT',
     'CONSUMABLE_ISSUE', 'STOCK_OUT', 'TRANSFER_OUT', 'TRANSFER_IN', 'SALE', 'RETURN',
-    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED')
+    'TRANSFER_CANCELLED', 'TRANSFER_RECEIPT_CANCELLED', 'SALES_INVOICE_CANCELLED',
+    'PURCHASE_INVOICE_CANCELLED', 'PURCHASE_RETURN_CANCELLED', 'SALES_RETURN_CANCELLED')
 );
 
 
@@ -1353,6 +1361,54 @@ ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
 ALTER TABLE serial_log ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_serial_log_device_serial ON serial_log((lower(trim(device_serial))));
+
+-- ---------------------------------------------------------------------------
+-- serial_log PON/MAC uniqueness (2026-10-13, Slice 1 of the serial-register
+-- plan). The register is the mirror-and-verify of customer_device_records,
+-- which has enforced unique PON and unique MAC since v3.2
+-- (uq_customer_device_pon_serial / uq_customer_device_mac_address). The
+-- register never did, and it is now the authority the pick-only screens read
+-- PON/MAC from, so the same invariant has to hold here.
+--
+-- Partial indexes rather than table constraints because both columns are
+-- nullable: only non-empty values are governed (a manual row or a
+-- QUANTITY_ONLY receive carries neither). The application already refuses
+-- every duplicate on both sides — the purchase owner probes and the serial
+-- rename clash checks — so this closes the check-then-write race those reads
+-- cannot: two invoices posting the same PON concurrently.
+--
+-- Applied conditionally (same degrade-gracefully pattern as the status
+-- hardening below): dbBoot applies this file verbatim at EVERY start, so a
+-- legacy database already holding duplicate PON/MAC rows logs a WARNING and
+-- keeps booting instead of refusing to start; the app-level checks still
+-- refuse every new duplicate. Deduplicate such a database, then restart to
+-- apply the index.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM serial_log
+    WHERE trim(coalesce(pon_serial, '')) <> ''
+    GROUP BY lower(trim(pon_serial)) HAVING count(*) > 1
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_pon_serial
+      ON serial_log ((lower(trim(pon_serial)))) WHERE trim(coalesce(pon_serial, '')) <> '';
+  ELSE
+    RAISE WARNING 'serial_log holds duplicate PON serials - skipping uq_serial_log_pon_serial (deduplicate, then restart to apply it).';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM serial_log
+    WHERE trim(coalesce(mac_address, '')) <> ''
+    GROUP BY lower(trim(mac_address)) HAVING count(*) > 1
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_log_mac_address
+      ON serial_log ((lower(trim(mac_address)))) WHERE trim(coalesce(mac_address, '')) <> '';
+  ELSE
+    RAISE WARNING 'serial_log holds duplicate MAC addresses - skipping uq_serial_log_mac_address (deduplicate, then restart to apply it).';
+  END IF;
+END $$;
+
 
 -- ---------------------------------------------------------------------------
 -- serial_log.status vocabulary hardening (2026-10-11): the CDR side already
