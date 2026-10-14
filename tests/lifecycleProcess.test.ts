@@ -18,6 +18,24 @@
  * the probe's stdin via `process.emit`, which invokes exactly the listeners a
  * real signal would; the one test that uses real OS delivery is skipped on
  * Windows, where Node cannot deliver a POSIX signal to a child at all.
+ *
+ * Two pieces of this file's own machinery kept node's test RUNNER alive after
+ * every test had passed — measured in CI, where the npm test step sat for 86
+ * minutes (run 100) on an otherwise green file:
+ *
+ *   1. the parent's end of the child's stdin pipe. On Linux it outlives the
+ *      child (a later write fails with EPIPE, but the fd stays open and
+ *      active), so spawnProbe destroys it on exit. Windows tears the pipe down
+ *      with the child, which is why this file always exited locally. This file
+ *      is the only test here that holds a child stdin pipe at all.
+ *   2. SIGKILL cleanup in the two development tests. Killing the survivor that
+ *      way left the runner with an unresolved promise — "Promise resolution is
+ *      still pending but the event loop has already resolved" — and the file
+ *      never exited. Both tests now stop the survivor with SIGTERM and assert
+ *      exit 0, which is what pm2/Docker actually do and is the stronger claim:
+ *      a process that cannot be stopped gracefully is exactly the corpse a
+ *      supervisor reports as healthy. Isolated in CI by running each test alone
+ *      under --test-name-pattern: only the two SIGKILL tests failed to exit.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -78,6 +96,14 @@ function spawnProbe(mode: string, env: NodeJS.ProcessEnv): Probe {
     const failSafe = setTimeout(() => child.kill('SIGKILL'), EXIT_TIMEOUT_MS);
     child.on('exit', (code, signal) => {
       clearTimeout(failSafe);
+      // Close the parent's end of the signal pipe. On Linux an open stdin pipe
+      // outlives the child (the read end goes away, so a later write fails with
+      // EPIPE, but the fd stays open and ACTIVE) — every test in this file then
+      // passes while `tsx --test` itself never exits, which is how CI burned 86
+      // minutes in the npm test step. Windows tears the pipe object down with
+      // the child, so the leak is invisible there. Nothing is written after
+      // this point: `signal()` is only ever called while the probe is running.
+      child.stdin?.destroy();
       exited = true;
       resolve({ code, signal, ms: Date.now() - startedAt });
     });
@@ -179,8 +205,29 @@ describe('runtime fatality in a real process', () => {
         'a surviving process must be told its state is suspect, not just that something failed'
       );
 
-      probe.child.kill('SIGKILL');
-      await probe.exited;
+      // Clean up through the path a supervisor actually uses — SIGTERM and a
+      // deliberate exit 0. Two reasons, both measured: a survivor that cannot
+      // be stopped gracefully is exactly the corpse pm2/Docker report as
+      // healthy, so this is the stronger claim; and SIGKILLing the probe left
+      // node's test runner with an unresolved promise, so `tsx --test` never
+      // exited even though all 8 tests reported a pass (the suite then hung and
+      // CI burned the npm-test step for 86 minutes).
+      if (process.platform === 'win32') {
+        // Windows cannot deliver a POSIX signal to a child at all: Node
+        // terminates it instead of running the handlers, so the survivor is
+        // hard-killed here and the graceful-stop assertion is made on POSIX.
+        probe.child.kill('SIGKILL');
+        await probe.exited;
+        return;
+      }
+      probe.child.kill('SIGTERM');
+      const exit = await probe.exited;
+      assert.equal(
+        exit.code,
+        0,
+        `a survivor must still stop on SIGTERM, got code ${exit.code} (signal ${exit.signal})\n` +
+          probe.output().slice(-2_000)
+      );
     });
   }
 });

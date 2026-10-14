@@ -110,6 +110,37 @@ before. Verified both ways: with the variable on this Windows box the check exit
 PostgreSQL with exit 0 unset but failed with `connect ECONNREFUSED 127.0.0.1:59999` when set. Full suite
 after the change: `tsc` 0, **797/195, 795 pass, 2 skipped, 0 fail**, docs gate green at 797.
 
+**Ran it on Linux, which is the only place it counts.** The real-signal path had only ever been *argued*;
+`gh` does not exist here, Docker and WSL2 do not work on this machine, and CI job logs need authentication.
+A throwaway branch (`diag/ci-logs`, deleted afterwards) ran the suite on ubuntu-latest and committed the
+output back into that branch, where plain `git` can read it — the whole job log, no token, no truncation.
+Result: `✔ a real SIGTERM lets an in-flight request complete, then the process exits 0 (2474ms)` — the check
+RUNS and PASSES on Linux against the PostgreSQL service container with `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1`,
+which is precisely the claim this session could not make before.
+
+**That run also exposed why CI had never been green since Oct 5.** `npm test` never finished: all 8 tests in
+[tests/lifecycleProcess.test.ts](tests/lifecycleProcess.test.ts) passed and `tsx --test` still had not exited
+150s later, so run 100 sat in the npm test step for 86 minutes and could never report anything. Isolating the
+file with `--test-name-pattern`, one test per run, named the culprit exactly: the two *development* tests,
+which SIGKILLed the probe. Two fixes, both measured in CI: the parent's end of the child's stdin pipe is
+now destroyed on exit (on Linux it outlives the child and stays active; this file is the only one holding
+such a pipe, and my own live-drain check uses `stdio: ['ignore', ...]` — which is why it always exited), and
+the survivor is stopped with SIGTERM + `assert exit 0` instead of SIGKILL (a stronger claim than "we killed
+it", and it removes the unresolved promise that held the runner). Windows keeps the hard kill, because it
+cannot deliver a POSIX signal at all. Verified in CI: every one-test run exits 0, the file exits 0 in 5.5s,
+and `npm test` exits on its own with its real result. `ci.yml` also gained `timeout-minutes: 30` so a future
+wedge fails in minutes instead of burning the 360-minute default.
+
+The same Linux logs show the suite is still RED for reasons that predate this work (first failing run: #84,
+Oct 5). 14 tests across 5 files fail because they expect state that exists in a seeded development database
+but not in CI's fresh one: `bs_day_records` is empty (so the BS date gate 400s every dated operation —
+salesInvoiceCancel 7, shipmentAuthz 1) and the demo branches `WH001`/`BRH01` are absent (an
+`inventory_stock.branch_id` FK violation aborts receiveLane403's whole `before` hook). serialGateHttp
+already knows it cannot run without a seeded BS day, sets `skippable`, but returns before it listens while
+its tests only honour `skipNoDb`, so they fail with `ECONNREFUSED` on port 0 instead of skipping; and
+bootstrapTrim gets a 503 from the bootstrap controller while the app's pool has no established connection in
+that process. Recorded here rather than fixed in place: it is its own piece of work.
+
 ## ⭐ dist/server.cjs boot fix, junk/dead-code sweep, ledger dedup (2026-10-14)
 
 **+270 / −1,131** tracked lines across 43 code files, plus two new files

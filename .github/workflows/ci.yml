@@ -8,6 +8,14 @@ on:
 jobs:
   typecheck-and-test:
     runs-on: ubuntu-latest
+    # A bound on the whole job. Without it a wedged step burns the GitHub
+    # default (360 minutes) per push: the suite sat in the npm test step for 86
+    # minutes with every test green, because the lifecycle process tests left
+    # node's runner unable to exit (fixed in tests/lifecycleProcess.test.ts).
+    # 30 minutes is ~6x the real runtime (measured: ~5 min here), so this can
+    # only ever fire on a genuine hang — where a fast, visible failure beats six
+    # hours of nothing.
+    timeout-minutes: 30
 
     # PostgreSQL service container: lets the DB-dependent integration tests
     # run in CI instead of skipping (real-PG concurrency proofs, schema drift

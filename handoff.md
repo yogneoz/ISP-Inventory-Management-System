@@ -1159,7 +1159,20 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 
 ### 15.11 CI Gate Pipeline
 
-Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
+Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass.
+The job is bounded by `timeout-minutes: 30` (~6x the measured runtime) — a wedged step used to burn the
+360-minute default per push, which is how an 86-minute hang in the npm test step (all tests green, the
+lifecycle process tests left node's runner unable to exit; fixed) went unnoticed as "still running".
+
+**Known red (2026-10-14, predates the current work):** the suite fails 14 tests in 5 files because they
+expect data a fresh CI database does not have — an empty `bs_day_records` (the BS date gate rejects every
+dated operation: salesInvoiceCancel, shipmentAuthz), the absent demo branches `WH001`/`BRH01`
+(`inventory_stock.branch_id` FK aborts receiveLane403's `before` hook), serialGateHttp returning before it
+listens when its BS precondition is unmet (its tests honour `skipNoDb` but not `skippable`, so they fail with
+`ECONNREFUSED` on port 0 instead of skipping), and a 503 from the bootstrap controller in bootstrapTrim.
+First failing run is #84 (2026-10-05); everything before it was green. Fixing this means giving those tests
+their own fixtures (BS day rows, branch rows) the way tests/lifecycleLiveDrain.test.ts provisions its own
+login account, or seeding the reference data in the CI step.
 
 1. `npx tsc --noEmit` — type errors
 2. `npm test` — 797 tests against a real PostgreSQL 16 service container
