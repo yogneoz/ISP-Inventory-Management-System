@@ -15,7 +15,7 @@ import {
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, purchaseOrders, purchaseInvoices, shipments, stockOperations, transactionLogs, approvalRequests, vendorPayments, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, damageRecords, serialLogs, getDataVersion, setPgConnected, setIsPgConnected, inventoryStock, assetRegister, customerDeviceRecords, customerMasterRecords, auditTrail, locationRecords, getUserFromReq } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;

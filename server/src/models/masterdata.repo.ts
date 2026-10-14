@@ -7,12 +7,6 @@
  * updates, audit logging, response bodies); query text and column lists are
  * defined once in this layer.
  */
-import type { QueryResult } from 'pg';
-
-/** Minimal query interface satisfied by the pg Pool (and test doubles). */
-export interface QueryExecutor {
-  query(text: string, values?: unknown[]): Promise<QueryResult<any>>;
-}
 
 // ---------------------------------------------------------------------------
 // Unit of Measure
@@ -77,10 +71,6 @@ export function locationParams(loc: {
     JSON.stringify(loc.coordinates), loc.contactPerson, loc.contactPhone, loc.notes, loc.activeAssetsCount,
   ];
 }
-
-export const LOCATION_UPDATE_SQL = `UPDATE locations SET
-   name = $1, type = $2, branch_id = $3, address = $4, coordinates = $5, contact_person = $6, contact_phone = $7, notes = $8, active_assets_count = $9
- WHERE id = $10;`;
 
 export const LOCATION_DELETE_SQL = 'DELETE FROM locations WHERE id = $1';
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { API_TOAST_EVENT, type ApiToastIntent } from '../../services/api/http';
 

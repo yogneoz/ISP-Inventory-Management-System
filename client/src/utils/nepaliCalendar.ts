@@ -973,30 +973,6 @@ export function formatBSDate(dateStr?: string | null): string {
 }
 
 /**
- * Standard uniform BS Date & Time formatter in (YYYY-MM-DD HH:mm:ss) format.
- */
-export function formatBSDateTime(dateStr?: string | null): string {
-  if (!dateStr) return '-';
-  const cleaned = String(dateStr).trim();
-  if (!cleaned || cleaned === '-') return '-';
-
-  try {
-    const d = new Date(cleaned);
-    let timePart = '';
-    if (!isNaN(d.getTime())) {
-      const hours = String(d.getHours()).padStart(2, '0');
-      const mins = String(d.getMinutes()).padStart(2, '0');
-      const secs = String(d.getSeconds()).padStart(2, '0');
-      timePart = ` ${hours}:${mins}:${secs}`;
-    }
-    const bsDate = formatBSDate(cleaned);
-    return bsDate !== '-' ? `${bsDate}${timePart}` : '-';
-  } catch {
-    return formatBSDate(cleaned);
-  }
-}
-
-/**
  * Gets today's BS date string in uniform (YYYY-MM-DD) format.
  */
 export function getTodayBS(): string {

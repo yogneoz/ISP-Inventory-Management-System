@@ -6,27 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_status, get_transactionLogs, get_approvalRequests, post_approvalRequests, post_process, post_cancel } from '../controllers/misc.controller';
-import {
-  approvalRequests,
-  auditTrail,
-  branches,
-  customerDeviceRecords,
-  getPgConnected,
-  getUserFromReq,
-  inventoryStock,
-  logAuditEvent,
-  products,
-  requireRole,
-  setApprovalRequests,
-  setInventoryStock,
-  setPgConnected,
-  setTransactionLogs,
-  shipments,
-  transactionLogs,
-  withAppended,
-  withPrepended,
-  withTransaction,
-} from '../app';
+import { requireRole } from '../app';
 import { ensurePostgresConnection, pgPool, realPoolInstance, setIsPgConnected } from '../app';
 import type { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 

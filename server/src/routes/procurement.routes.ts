@@ -6,34 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_purchaseOrders, post_purchaseOrders, put_Id, delete_Id, patch_status, get_purchaseInvoices, post_purchaseInvoices, delete_Id2, post_pay, post_reversePayments, get_vendorPayments, get_payments, post_vendorPayments, post_reverse, get_ledger, get_purchaseReturns, post_purchaseReturns, post_purchaseReturnCancel, post_purchaseReturnApprove } from '../controllers/procurement.controller';
-import {
-  branches,
-  broadcastChange,
-  customerDeviceRecords,
-  findBsDayRecordForAdDate,
-  getPgConnected,
-  getUserFromReq,
-  inventoryStock,
-  issueNextDocNumber,
-  logAuditEvent,
-  products,
-  providerSupplierIdFromName,
-  purchaseInvoices,
-  purchaseOrders,
-  requirePermission,
-  requireRole,
-  setCustomerDeviceRecords,
-  setInventoryStock,
-  setPurchaseInvoices,
-  setPurchaseOrders,
-  setVendorPayments,
-  suppliers,
-  vendorPayments,
-  withAppended,
-  withPrepended,
-  withReplaced,
-  withTransaction,
-} from '../app';
+import { requirePermission, requireRole } from '../app';
 import { VENDOR_PAYMENT_SELECT, pgPool } from '../app';
 import type { VendorPayment, VendorPaymentMethod } from '../../../client/src/types';
 

@@ -18,7 +18,6 @@ import {
   purchaseInvoices,
   stockOperations,
 } from '../app';
-import { pgPool } from '../app';
 
 export function registerReportsRoutes(app: Express) {
 app.get('/api/reports/financial-summary', async (req, res, next) => { get_financialSummary(req as any, res as any).catch(next); });

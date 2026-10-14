@@ -7,7 +7,7 @@
  * the same non-DB code path the C1 recompute lives in — and withTransaction
  * is never reached, keeping the test hermetic).
  */
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {

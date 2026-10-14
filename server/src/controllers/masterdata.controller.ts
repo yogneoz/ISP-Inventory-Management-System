@@ -22,7 +22,7 @@ function taxRateOrDefault(submitted: unknown): number {
 import { UnitOfMeasure, LocationRecord, Supplier, Category, CustomerRecord } from '../../../client/src/types';
 import {
   UOM_SELECT, UOM_UPSERT_SQL, upsertUomParams, UOM_UPDATE_SQL, updateUomParams, UOM_DELETE_SQL,
-  buildLocationSelectSql, LOCATION_UPSERT_SQL, locationParams, LOCATION_UPDATE_SQL, LOCATION_DELETE_SQL,
+  buildLocationSelectSql, LOCATION_UPSERT_SQL, locationParams, LOCATION_DELETE_SQL,
   SUPPLIER_SELECT, SUPPLIER_UPSERT_SQL, supplierUpsertParams, SUPPLIER_UPDATE_SQL, supplierUpdateParams, SUPPLIER_DELETE_SQL,
   PRODUCT_SELECT, PRODUCT_UPSERT_SQL, productUpsertParams, PRODUCT_UPDATE_SQL, productUpdateParams, PRODUCT_DELETE_SQL, STOCK_INIT_SQL, stockInitParams,
   CATEGORY_SELECT, CATEGORY_UPSERT_SQL, categoryUpsertParams, CATEGORY_UPDATE_SQL, categoryUpdateParams, CATEGORY_DELETE_SQL,

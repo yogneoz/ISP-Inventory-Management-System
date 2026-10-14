@@ -1,6 +1,3 @@
-import type { DocumentNumberConfig } from '../types/index';
-import { fetchJson } from '../services/api/http';
-
 /**
  * documentNumbering.ts
  * Universal document-numbering helpers for the Freebuff Desktop inventory ERP.
@@ -14,7 +11,7 @@ import { fetchJson } from '../services/api/http';
  *     date_ad, the next number to issue. Maintained by the server only.
  *
  *   - The client NEVER fabricates a sequence. It only:
- *       1. Reads config from the DB (getDocumentNumberConfigs)
+ *       1. Reads config from the DB (api.getDocumentNumberConfigs in services/api)
  *       2. Formats a *display sample* (formatNumber) using the config's prefix + digits
  *       3. Calls the server to issue the real number (issueDocNumber, done in the
  *          transaction controllers).
@@ -23,11 +20,6 @@ import { fetchJson } from '../services/api/http';
  *   because they fabricated a number client-side, which broke the "server is
  *   authoritative" contract. They are not part of this file.
  */
-
-/** Fetch document-numbering configs straight from the database (server-side). */
-export async function getDocumentNumberConfigs(): Promise<DocumentNumberConfig[]> {
-  return fetchJson<DocumentNumberConfig[]>('/api/document-number-configs');
-}
 
 /**
  * Format a *display sample* of a document number using the configured prefix

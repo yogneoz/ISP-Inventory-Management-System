@@ -7,7 +7,6 @@
  * handling, response bodies); query text and column lists are defined once
  * in this layer.
  */
-import type { User } from '../../../client/src/types';
 
 /** Column list every users row read must return (camelCase aliased). */
 export const USER_SELECT_COLUMNS =
@@ -78,9 +77,3 @@ export const USER_FIND_BY_ID_OR_EMAIL_SQL =
 export function userUpdatePasswordParams(passwordHash: string, userId: string): unknown[] {
   return [passwordHash, userId];
 }
-
-/** Row shape produced by the RETURNING clause of the super-admin statements. */
-export type UserRow = Pick<
-  User,
-  'id' | 'email' | 'password' | 'name' | 'role' | 'branchId' | 'allowedBranchIds' | 'canSwitchUser'
->;

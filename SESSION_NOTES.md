@@ -1,6 +1,142 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-05 · Branch: main · Tests: 771/771 green with a DB (all run in CI too — no skips since the PG service container landed)_
+_Date: 2026-10-14 · Branch: main · Tests: 796/796 green with a DB (all run in CI too; the ONE unconditional skip is a Windows-only real-OS-SIGTERM test that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ Failed boot now exits 1 — a dead instance can no longer look "online" (2026-10-14)
+
+[server/index.ts](server/index.ts) (+34 / −5) and a new guard,
+[tests/bootFailureExit.test.ts](tests/bootFailureExit.test.ts).
+
+The boot handler ended with `console.error(...); process.exitCode = 1;`. Setting the exit code only
+*asks* Node to exit once the event loop drains — and after a failure that happens past the connect
+(`client = await pgPool.connect()` is never released, so the pool holds a live socket and its idle
+timer), the loop never drains: the process stayed ALIVE with a pending exit code. pm2 reported that
+instance `online` and `docker run --restart always` kept the container `Up` while every request was
+refused, so neither supervisor ever restarted it.
+
+Measured A/B on the same failure (a post-connect boot failure, injected through an env-gated probe line
+that was removed again), same build pipeline: old handler → still alive at the 25s mark (`timeout` killed
+it, exit 124); new handler → `FATAL: server failed to start — exiting with code 1` and exit **1** in under
+a second. The reason is written with `fs.writeSync(2, …)` instead of `console.error`, because stderr to a
+pipe (pm2 logs, docker logs) is asynchronous and `process.exit` can drop a queued write — a crash-loop
+with no reason attached is worse than no log. A listen failure (EADDRINUSE, EACCES) now routes through the
+same handler instead of surfacing as a bare uncaught `error` event.
+
+Guard (3 tests, ~4s): boots the real entry (`tsx server/index.ts`) against a closed port and asserts the
+process exits BY ITSELF with code 1 and says why, plus a source pin that the boot entry may never go back
+to an exit-code-only handler (parsed, not grepped, so the explanatory comment cannot self-trip). Honest
+scope note: a *pre-connect* failure (refused connection) exits by itself even under the OLD handler, so the
+behavioural test discriminates through the FATAL line while the source pin carries the linger regression —
+both were verified to FAIL with the old handler reinstated.
+
+Deliberate trade-off: with a dead database the instance now restarts forever instead of sitting alive while
+serving nothing. That is the point — `pm2 status` / `docker ps` should show the truth — and it matches the
+fail-closed posture the HTTP layer already enforces (`requirePostgres` → 503).
+
+### Follow-up — the same terminal path now covers runtime fatalities and signals (2026-10-14)
+
+The boot fix left two other ways this process could end badly. Both now route through one lifecycle
+module, [server/src/boot/lifecycle.ts](server/src/boot/lifecycle.ts), with [server/index.ts](server/index.ts)
+reduced to wiring (the hard-exit pins in [tests/bootFailureExit.test.ts](tests/bootFailureExit.test.ts) moved
+with the code — same assertions, new home, plus a new pin that the entry funnels into the shared path).
+
+**1. Runtime fatalities.** `uncaughtException` / `unhandledRejection` had no handler, so the process died on
+Node's default dump (exit 1, raw stack, no say in when). They now write the same synchronously-written
+`FATAL: <phase> — exiting with code 1` line first and exit 1 **in production**. In development the same
+failure is logged loudly and the process KEEPS SERVING — measured before choosing it, not assumed:
+`tsx watch` does not restart a crashed child (probe: one crash, no second start within the timeout), so
+exiting there would leave `npm run dev` dead until a file changes. The dev line says the state may be
+inconsistent and to restart before trusting the instance.
+
+**2. SIGTERM/SIGINT.** There was no signal handling anywhere in `server/`: every `pm2 reload`,
+`docker stop` and Ctrl-C killed the process outright, cutting responses mid-flight. Measured A/B on an
+otherwise identical server: in-flight response `ECONNRESET`, process exit `{code: null, signal: SIGTERM}`.
+Now `shutdown()` stops accepting immediately (so the drain can actually reach zero), ends live SSE streams
+(they never complete on their own), lets in-flight responses finish, closes the pool and exits 0. What keeps
+the drain correct rather than slow: in-flight requests are COUNTED (`request` → `finish`/`close`, attached
+at boot) instead of waiting on `server.close`'s callback, which never fires while a client keeps a socket
+pooled — so a healthy shutdown exits in ~70ms with a browser tab connected, and only a request that genuinely
+never completes waits out `SHUTDOWN_TIMEOUT_MS` (default 10s, env-tunable), after which the leftover sockets
+are force-closed and the exit is still 0. A second signal during a stuck drain exits 1 immediately instead of
+waiting for pm2's SIGKILL; a fatality during the drain is still reported as a crash; a signal during boot
+(before the listener exists) exits 0 without pretending to drain. `ecosystem.config.js` sets
+`kill_timeout: 15000`, because pm2's default (1600ms) SIGKILLs before the drain can finish.
+
+**Guards (18 tests, ~9s, no database).** [tests/lifecycleShutdown.test.ts](tests/lifecycleShutdown.test.ts)
+drives the module through injected seams (a fake exit that throws, captured writer/logger) against real http
+servers: in-flight response completes + new connections refused + exit 0, a hung request force-closed at the
+configured bound, SSE streams ended, second signal exits 1, boot-window signal exits 0.
+[tests/lifecycleProcess.test.ts](tests/lifecycleProcess.test.ts) runs
+[tests/fixtures/lifecycleProbe.ts](tests/fixtures/lifecycleProbe.ts) as a real child process (bare http
+server + the lifecycle, still no PostgreSQL): production exits 1 by itself with the reason on stderr for both
+fatality kinds, development stays alive, SIGTERM finishes the in-flight response and exits 0, a second signal
+exits 1, `SHUTDOWN_TIMEOUT_MS` bounds the drain. Signals reach the probe over stdin as `process.emit`,
+because Windows cannot deliver a POSIX signal to a child at all; the single test that uses real OS delivery
+is skipped on Windows and runs in Linux CI. Discrimination was checked against the old behaviour: plain Node
+exits 1 in development (so "keeps serving" fails without the handler), prints no `FATAL:` line (so the format
+assertion fails), and the old server's in-flight response is cut with `ECONNRESET` with the exit reported as a
+signal (so the drain assertions fail).
+
+## ⭐ dist/server.cjs boot fix, junk/dead-code sweep, ledger dedup (2026-10-14)
+
+**+270 / −1,131** tracked lines across 43 code files, plus two new files
+([LedgerView.tsx](client/src/components/common/LedgerView.tsx) and the boot guard test) and four doc edits;
+closed by the usual gates: `tsc` 0, **796/796 + docs gate**, `npm run build`, `check:no-inline-sql`,
+`check:no-raw-dialogs`.
+
+**The production bundle could not boot at all — now it does.** `dist/server.cjs` (what `npm start`, pm2's
+`ecosystem.config.js` and the Dockerfile run) died during startup with
+`PostgreSQL startup failed: The "path" argument must be of type string or an instance of URL. Received
+undefined`, thrown by `loadSchemaSql()`: esbuild lowers `import.meta` to an **empty object** in cjs output,
+so `fileURLToPath(import.meta.url)` was `fileURLToPath(undefined)` — and it threw while COMPUTING the
+candidate list, before the loader's `process.cwd()` candidate could be tried, so the boot could not recover.
+`npm run dev` stayed healthy (tsx is real ESM), which is exactly why nothing here caught it: every test
+imports the sources and none of them ever boots the bundle. dbBoot now resolves its directory through
+`__dirname` in the bundle and the started script under tsx/ESM, with `process.cwd()` still first. Proven on
+the built artifact, both directions: the pre-fix bundle printed the TypeError and never listened; the fixed
+one logs the schema sync + seeds/caches/permission matrix, listens on :3000 and answers `/api/health` 200
+and `/` 200 text/html. The esbuild `"import.meta" is not available with the "cjs" output format` warning is
+gone with it. New guard: [serverBundleBoot.guard.test.ts](tests/serverBundleBoot.guard.test.ts) — four
+source pins (no server source may read `import.meta`; both runtime resolvers; the cwd-first candidate order;
+and "the start command is still the CJS bundle" so the premise stays honest) — verified to FAIL with the
+original line reinstated.
+
+**Nothing unreachable is left.** A type-checker pass over all 1,463 module exports now reports **zero**
+exports that no other file references (was 8). Removed: three SQL constants no code executed
+(`STOCK_RETURN_QOH_SQL` — already superseded by `STOCK_RETURN_QOH_BATCH_SQL` — plus
+`SERIAL_LOG_LOCK_HISTORY_SQL` and `LOCATION_UPDATE_SQL`), the `QueryExecutor` interface duplicated into
+three repos where nothing used it (only `bootstrap.repo.ts`'s copy is live, so their `QueryResult`
+imports went too), the duplicate `getDocumentNumberConfigs` in
+[documentNumbering.ts](client/src/utils/documentNumbering.ts) (the live one is `services/api/inventory.ts`
+→ `api.getDocumentNumberConfigs`), and the vestigial `INVENTORY_OPERATIONS` operation-id registry in
+`permissionMatrixData.ts`. That last one is the interesting one: the DB seed walks
+`Object.entries(DEFAULT_PERMISSIONS_MATRIX)`, so a parallel id list could only drift out of sync with
+nothing to notice — the register-audience guard now pins the seed loop in `dbBoot.ts` instead and asserts
+the list never comes back. The earlier pass in this sweep removed 228 unused import specifiers (the route
+files still imported the in-memory state and `pgPool` they stopped reading when the controllers took over),
+the unreferenced `isOperationAllowedForRole` / `isBranchAllowedForUser` copies, the deprecated `nprFormat`
+aliases and the damage-service leftovers. A whitespace-only tidy pass followed, so the reformatted import
+blocks carry no filler lines.
+
+**The duplicate *.tsx pair is one document now.** `CustomerLedger.tsx` (330) and `VendorLedger.tsx` (327)
+were ~80% the same file — same filter card, same four score cards, same seven-column table with an opening
+and a closing row, same CSV export — differing only in vocabulary and color direction (a receivable is
+healthy positive, a payable healthy negative). Both are now 142-line configs rendering
+[LedgerView.tsx](client/src/components/common/LedgerView.tsx) (395 lines), placed under components/common
+so it stays out of the screen-count and screen-surface tables. Each screen keeps its own
+`useActivationKey('customer-ledger' | 'vendor-ledger')` and its own `api.getCustomerLedger` /
+`api.getVendorLedger` call, so the register-refresh pins still point at real code. Both also stopped
+accepting a `selectedBranchId` prop they ignored, and App no longer passes one. Verified as rendered output,
+not just types: both configurations, both screens and the vendor empty state were rendered through
+`react-dom/server` — party code, Invoice-vs-Bill badge, AD/BS date column, opening/closing rows, score-card
+labels and export labels all match the old markup.
+
+**Junk docs and artifacts.** `docs/audit-report-2026-09-30.md` (orphan snapshot quoting 470/470 tests and a
+recommendation `run_tests.mjs` has since implemented), `NOTE-merge-sales-form.md` (status DONE; every open
+follow-up has since closed — the old product-sale block is gone, the SSE token is read inside `connect()`,
+and `App.tsx` no longer carries the dead `serialLogs` state) and 143 KB of `.freebuff/preview.log*` tool
+artifacts are gone. `UPDATEPROCESS.md`'s no-inline-SQL sample output no longer quotes a controller count
+that drifts every time a domain moves. Nothing deleted here was still referenced by a file or a test.
 
 ## ⭐ Serial register Slice 2 DELIVERED (2026-10-13) — one gate, no silent skips
 
@@ -1187,7 +1323,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 771 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 796 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1754,7 +1890,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 771 tests, 0 fail). Live-verified:
+  key coverage; suite now 796 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1812,7 +1948,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 771 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 796 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -1877,7 +2013,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 771 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 796 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -1915,7 +2051,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 771 tests, 0 fail.
+  failures, then reverted). Suite now 796 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -1930,7 +2066,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 771 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 796 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

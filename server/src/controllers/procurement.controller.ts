@@ -13,9 +13,9 @@ import { demoPurchaseInvoiceTxn, demoPurchaseReturnTxn, demoPurchaseReturnCancel
 import { bsDateOr400 } from '../utils/bsDate';
 import { intFromEnv } from '../utils/envGuard';
 import {
-  buildPoListSql, PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
+   PO_UPSERT_SQL, poUpsertParams, PO_UPDATE_SQL, poUpdateParams, PO_FIND_FOR_DELETE_SQL, PO_DELETE_SQL,
   PO_FIND_BY_REF_SQL, PO_MARK_STATUS_SQL, PO_INCOMING_STOCK_SQL, poIncomingStockParams, PO_RELEASE_INCOMING_SQL,
-  buildPiListSql, PI_UPSERT_SQL, piUpsertParams, PI_RECEIVE_STOCK_SQL, piReceiveStockParams,
+   PI_UPSERT_SQL, piUpsertParams, PI_RECEIVE_STOCK_SQL, piReceiveStockParams,
   PI_TXN_LOG_SQL, piTxnLogParams, PI_DELETE_SQL, PI_RECORD_PAYMENT_SQL, PI_RESET_PAYMENT_SQL, PI_UNDO_PAYMENT_SQL,
   PI_LOCK_FOR_UPDATE_SQL, PI_BALANCE_AFTER_SQL, VP_LOCK_STATUS_SQL,
   PI_REVERSE_STOCK_SQL, PI_CANCEL_TXN_LOG_SQL, piCancelTxnLogParams, CDR_ASSIGNED_CHECK_SQL, CDR_IN_STOCK_DELETE_SQL, PI_FIND_FOR_PAYMENT_SQL,
@@ -28,7 +28,7 @@ import {
   buildPurchaseReturnListSql, buildPurchaseReturnCountQuery, buildPurchaseReturnPagedQuery,
   PR_INSERT_SQL, prInsertParams, PR_EXISTS_SQL, PR_LOCK_INVOICE_SQL,
   PR_RETURNED_QTY_SQL, PR_DEDUCT_STOCK_SQL, PR_RESTORE_STOCK_SQL, PR_CANCEL_SQL,
-  PR_TXN_LOG_SQL, prTxnLogParams, PR_SELECT_COLUMNS, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
+  PR_TXN_LOG_SQL, prTxnLogParams, PR_FIND_ONE_SQL, LEDGER_RETURNS_SQL,
   PR_CANCEL_TXN_LOG_SQL, prCancelTxnLogParams,
   PR_SERIAL_FLIP_SQL, PR_CANCEL_DRAFT_SQL, PR_POST_DRAFT_SQL,
 } from '../models/procurement.repo';

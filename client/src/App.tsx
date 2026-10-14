@@ -2824,23 +2824,13 @@ export default function App() {
 
               <KeepMounted visible={visible['vendor-ledger'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
-                  <VendorLedger
-                    suppliers={suppliers}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
+                  <VendorLedger suppliers={suppliers} branches={branches} dateMode={dateMode} />
                 </React.Suspense>
               </KeepMounted>
 
               <KeepMounted visible={visible['customer-ledger'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
-                  <CustomerLedger
-                    customers={customers}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
+                  <CustomerLedger customers={customers} branches={branches} dateMode={dateMode} />
                 </React.Suspense>
               </KeepMounted>
 

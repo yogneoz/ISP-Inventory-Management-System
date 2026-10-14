@@ -158,7 +158,8 @@ The convention is enforced so it cannot regress:
 - **Locally**: run the same check any time:
   ```bash
   npm run check:no-inline-sql
-  # ✅ No raw SQL literals in 11 controller file(s).
+  # ✅ No raw SQL literals in <N> controller file(s).
+  #    (the count grows as domains are extracted — it is a file tally, not a target)
   ```
 - **When it fails**: the output lists `file:line` for each SQL-looking literal. Move the statement (and its param builder) into the matching `server/src/models/<domain>.repo.ts`, import it in the controller, and re-run the check.
 

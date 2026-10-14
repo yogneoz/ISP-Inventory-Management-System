@@ -7,12 +7,6 @@
  * updates, audit logging, response bodies); query text and column lists are
  * defined once in this layer.
  */
-import type { QueryResult } from 'pg';
-
-/** Minimal query interface satisfied by the pg Pool (and test doubles). */
-export interface QueryExecutor {
-  query(text: string, values?: unknown[]): Promise<QueryResult<any>>;
-}
 
 // ---------------------------------------------------------------------------
 // Purchase Orders
@@ -362,8 +356,6 @@ export function piTxnLogParams(inv: Record<string, any>, item: Record<string, an
     inv.invoiceDateBS || (() => { throw new Error('purchase-invoice insert requires invoiceDateBS resolved from bs_day_records'); })(),
   ];
 }
-
-export const PI_TXN_CHANGE_TYPE = 'PURCHASE_INVOICE';
 
 export const PI_DELETE_SQL = 'DELETE FROM purchase_invoices WHERE id = $1';
 

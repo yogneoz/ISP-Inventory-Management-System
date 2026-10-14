@@ -7,8 +7,8 @@
  */
 import type { Request, Response } from 'express';
 import { bsDateOr400 } from '../utils/bsDate';
-import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations,  serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, setDataVersion, getDataVersion, customerMasterRecords } from '../app';
-import { DamageRecord, TransactionLog, CustomerDeviceRecord, SerialLog } from '../../../client/src/types';
+import { getPgConnected, pgPool, inventoryStock, products, setTransactionLogs, withPrepended, transactionLogs, getUserFromReq, damageRecords, setDamageRecords, withReplaced, branches, setInventoryStock, withAppended, broadcastChange, withTransaction, logAuditEvent, assetRegister, purchaseInvoices, setAssetRegister, stockOperations, customerDeviceRecords, detectDateTypeMismatch, findBsDayRecordForAdDate, issueNextDocNumber, getFiscalYearCodeForDate, getFiscalYearIdForDate, setStockOperations, serialLogs, mutable, setCustomerDeviceRecords, runSerialEditCapture, setSerialLogs, customerMasterRecords } from '../app';
+import { DamageRecord, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
@@ -47,8 +47,6 @@ import {
   damageAdjustmentParams,
   DAMAGE_RECORD_AUDIT_SHORTAGE_SQL,
   damageAuditShortageParams,
-  DAMAGE_RECORD_CANCEL_SQL,
-  buildAssetListQuery,
   ASSET_UPSERT_SQL,
   assetUpsertParams,
   ASSET_SET_ASSIGNMENT_SQL,
@@ -56,7 +54,6 @@ import {
   CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL,
   CDR_CLOSE_ON_ASSET_REVERSAL_SQL,
   CDR_NOTES_BY_ID_SQL,
-  buildStockOperationListQuery,
   buildStockOperationCountQuery,
   buildStockOperationStatusCountQuery,
   buildStockOperationPagedQuery,
@@ -65,8 +62,6 @@ import {
   STOCK_DAMAGE_APPLY_SQL,
   STOCK_RELEASE_DAMAGED_SQL,
   STOCK_CONSUME_QOH_SQL,
-  STOCK_REVERSE_DAMAGE_SQL,
-  STOCK_RETURN_QOH_SQL,
   STOCK_OPERATION_CANCEL_SQL,
   STOCK_OPERATION_FIND_BY_ID_SQL,
   STOCK_OPERATION_FIND_FOR_RECEIVE_SQL,
@@ -99,12 +94,6 @@ import {
   buildSerialLogQuery,
   buildSerialLogCountQuery,
   buildSerialLogStatusCountQuery,
-  SERIAL_LOG_FIND_BY_DEVICE_SQL,
-  SERIAL_LOG_LOCK_HISTORY_SQL,
-  SERIAL_LOG_UPDATE_SQL,
-  serialLogUpdateParams,
-  SERIAL_LOG_INSERT_SQL,
-  serialLogInsertParams,
   SERIAL_LOG_FIND_IN_STOCK_BY_SERIAL_SQL,
   SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL,
   SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,

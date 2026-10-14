@@ -344,48 +344,6 @@ export function buildDamagePoolLedgerChange(
 }
 
 /**
- * Pure builder for the DAMAGE_REVERSED ledger entries (one per item).
- * `unitCostFor` lets the caller supply the cost-resolution policy; server.ts
- * passes `item.unitCost ?? item.costPerUnit ?? op.costPerUnit || product.costPrice`.
- */
-export function buildReversalLedger(
-  op: { id: string; referenceNumber: string; branchId?: string; costPerUnit?: number },
-  items: DamageItem[],
-  opts: {
-    reversalDateAD: string;
-    reversalDateBS: string;
-    products: Array<{ id: string; sku?: string; name?: string; costPrice?: number }>;
-    resolveUnitCost: (item: DamageItem) => number;
-  }
-): TransactionLog[] {
-  const ledger: TransactionLog[] = [];
-  for (const item of items) {
-    const qty = Number(item.quantity) || 0;
-    if (qty <= 0) continue;
-    const product = opts.products.find((p) => p.id === item.productId);
-    const unitCost = opts.resolveUnitCost(item) || product?.costPrice || 0;
-    const quantityBefore = 0; // resolved per-item by the caller when stock is known
-    ledger.push({
-      id: `txn-${op.id}-rev-${item.productId}`,
-      transactionNumber: `${op.referenceNumber}-REV`,
-      productId: item.productId,
-      productSku: item.sku || product?.sku || '',
-      productName: product?.name || item.productName || 'Product',
-      branchId: op.branchId,
-      changeType: 'DAMAGE_REVERSED',
-      quantityBefore,
-      quantityChanged: qty,
-      quantityAfter: quantityBefore + qty,
-      unitCost,
-      referenceDocId: op.referenceNumber,
-      timestampAD: new Date(`${opts.reversalDateAD}T00:00:00.000Z`).toISOString(),
-      timestampBS: opts.reversalDateBS,
-    } as TransactionLog);
-  }
-  return ledger;
-}
-
-/**
  * Reversal ledger with quantityBefore resolved from the rows the reversal
  * transaction itself just updated (STOCK_REVERSE_DAMAGE_BATCH_SQL ...
  * RETURNING product_id, quantity_on_hand). Because quantity_on_hand is read

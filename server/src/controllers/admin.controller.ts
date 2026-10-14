@@ -7,18 +7,16 @@
  */
 import type { Request, Response } from 'express';
 import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, setInMemoryBsDayRecords, broadcastChange } from '../app';
-import { Branch, Asset, DocumentNumberConfig, CompanyProfile, FiscalYear, User } from '../../../client/src/types';
+import { Branch, Asset, DocumentNumberConfig, CompanyProfile, User } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import {
   DEMO_DATA_TABLES,
   demoDataDeleteSql,
-  DEMO_FY_PRESERVED_TABLES,
   DEMO_FY_REFERENCE_COUNT_SQL,
   DEMO_FY_VENDOR_OB_COUNT_SQL,
   DEMO_FY_IDS_SELECT_SQL,
   DEMO_FY_DELETE_SQL,
   DEMO_FY_RELINK_DAY_RECORDS_SQL,
-  COMPANY_PROFILE_SELECT_SQL,
   COMPANY_PROFILE_UPSERT_SQL,
   companyProfileUpsertParams,
   BRANCH_SELECT_SQL,
@@ -27,7 +25,6 @@ import {
   BRANCH_UPDATE_SQL,
   branchUpdateParams,
   BRANCH_DELETE_SQL,
-  USER_SELECT_SQL,
   USER_EXISTS_SQL,
   USER_UPSERT_SQL,
   userUpsertParams,
@@ -54,7 +51,6 @@ import {
   buildFiscalYearLinkRepairSql,
   DOC_NUMBER_CONFIGS_SELECT_SQL,
   DOC_NUMBER_CONFIG_BY_ID_SQL,
-  DOC_NUMBER_CONFIG_UPDATE_SQL,
   DOC_NUMBER_CONFIG_UPSERT_SQL,
   docNumberConfigUpsertParams,
   DOC_NUMBER_CONFIG_INCREMENT_SQL,
@@ -65,7 +61,6 @@ import {
   fiscalYearInsertParams,
   FY_SET_CURRENT_CLEAR_SQL,
   FY_SET_CURRENT_SQL,
-  FY_UPDATE_SQL,
   FY_CLOSE_SQL,
   FY_END_DATE_SQL,
   FY_REOPEN_SQL,

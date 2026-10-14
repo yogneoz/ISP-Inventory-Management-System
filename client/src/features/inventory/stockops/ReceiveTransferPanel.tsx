@@ -9,7 +9,6 @@ import { formatNPR } from '../../../utils/nprFormat';
 import { isOperationAllowed } from '../../../utils/permissions';
 import { useReceiveVerification, ReceiveVerificationModal } from '../../../components/common/ReceiveVerificationModal';
 import {
-  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   ChevronDown,

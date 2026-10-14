@@ -93,11 +93,6 @@ export function setCurrencyConfig(partial: Partial<CurrencyConfig>): CurrencyCon
   return activeConfig;
 }
 
-/** Reset back to the NPR default (e.g. on logout / test teardown). */
-export function resetCurrencyConfig(): void {
-  activeConfig = { ...DEFAULT_CURRENCY_CONFIG };
-}
-
 /** Read the currently active currency configuration. */
 export function getCurrencyConfig(): CurrencyConfig {
   return activeConfig;
@@ -177,51 +172,6 @@ export function formatNumber(value: number | string | null | undefined, decimals
   return `${sign}${toLocale(Math.abs(num), decimals, decimals)}`;
 }
 
-/**
- * Format raw number for table cells (no currency prefix, for export/sorting).
- */
-export function formatRawNumber(value: number | string | null | undefined): number {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
-}
-
-/**
- * Format number as compact string (e.g., "1.23 L" for lakhs, "1.23 Cr" for crores).
- * Useful for dashboard summary cards with limited space.
- */
-export function formatMoneyCompact(value: number | string | null | undefined): string {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return applySymbol(toLocale(0, 0, 0), false);
-
-  const sign = num < 0 ? '-' : '';
-  const absNum = Math.abs(num);
-  const base = `${activeConfig.symbol} `;
-  if (absNum >= 1e7) {
-    return `${sign}${base}${(absNum / 1e7).toFixed(2)} Cr`;
-  }
-  if (absNum >= 1e5) {
-    return `${sign}${base}${(absNum / 1e5).toFixed(2)} L`;
-  }
-  if (absNum >= 1e3) {
-    return `${sign}${base}${(absNum / 1e3).toFixed(1)} K`;
-  }
-  return formatMoney(num);
-}
-
-/**
- * Parse a string that might be in money format back to a number.
- * Strips any currency symbol/code, commas, and whitespace.
- */
-export function parseMoney(value: string): number {
-  if (!value) return 0;
-  const cleaned = value
-    .replace(/,/g, '')
-    .replace(/[^\d.\-+]/g, '')
-    .trim();
-  const num = Number(cleaned);
-  return Number.isFinite(num) ? num : 0;
-}
-
 // ---------------------------------------------------------------------------
 // Backwards-compatible aliases (deprecated but widely referenced)
 // ---------------------------------------------------------------------------
@@ -232,7 +182,3 @@ export const formatNPR = formatMoney;
 export const formatNPRPrecise = formatMoneyPrecise;
 /** @deprecated Use `formatMoneyInteger` — honours the active currency config. */
 export const formatNPRInteger = formatMoneyInteger;
-/** @deprecated Use `formatMoneyCompact` — honours the active currency config. */
-export const formatNPRCompact = formatMoneyCompact;
-/** @deprecated Use `parseMoney` — honours the active currency config. */
-export const parseNPR = parseMoney;

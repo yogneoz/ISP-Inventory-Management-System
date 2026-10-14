@@ -22,10 +22,8 @@ import {
   withPrepended,
   withReplaced,
 } from '../app';
-import { pgPool } from '../app';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
 import { login as forwardLogin } from '../controllers/auth.controller';
-import { ApiError } from '../errors/ApiError';
 import type { AuditLog, User } from '../../../client/src/types';
 
 export function registerAuthRoutes(app: Express) {

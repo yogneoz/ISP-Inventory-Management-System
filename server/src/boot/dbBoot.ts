@@ -11,7 +11,6 @@
 import pg from 'pg';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { pgPool, realPoolInstance, setIsPgConnected } from '../../db';
 import { setPgConnected as setPgConnectedFlag } from '../state/runtimeState';
 import { hydrateBsCalendarFromDb } from '../config/bsCalendar';
@@ -30,38 +29,57 @@ import { DEFAULT_PERMISSIONS_MATRIX } from '../../../client/src/utils/permission
 import { hashPassword } from '../middleware/auth';
 
 import {
-companyProfile, docNumberConfigs, users, suppliers, uomList, locationRecords,
-branches, fiscalYears, products, categories, inventoryStock, assetRegister,
-purchaseOrders, purchaseInvoices, shipments, stockOperations, auditTrail,
-transactionLogs, customerMasterRecords, customerDeviceRecords, vendorPayments,
-serialLogs, permissionMatrix, getPgConnected,
-setCompanyProfile, setDocNumberConfigs, setUsers, setSuppliers, setUomList,
-setLocationRecords, setBranches, setFiscalYears, setProducts, setCategories,
-setInventoryStock, setAssetRegister, setPurchaseOrders, setPurchaseInvoices,
-setShipments, setStockOperations, setAuditTrail, setTransactionLogs,
-setCustomerMasterRecords, setCustomerDeviceRecords, setVendorPayments,
-setSerialLogs, setPermissionMatrix, CACHE_LOADS, hydrateOperationalData,
-refreshOperationalCache,
+  setDocNumberConfigs,
+  setSerialLogs,
+  setPermissionMatrix,
+  hydrateOperationalData,
 } from '../state/runtimeState';
 
+
+/**
+ * This module's own directory, for both runtimes the server is started in:
+ *
+ *   - ESM sources (`npm run dev` → `tsx server/index.ts`, `tsx --test`) have no
+ *     `__dirname`, so the started script's directory is the closest anchor.
+ *   - The production bundle (`dist/server.cjs` — `npm start`, pm2, the
+ *     Dockerfile) is CommonJS, where `__dirname` is the real value.
+ *
+ * `import.meta.url` is deliberately NOT read here: esbuild lowers `import.meta`
+ * to an EMPTY OBJECT in cjs output, so `fileURLToPath(import.meta.url)` threw
+ * `The "path" argument must be of type string` at boot — before the
+ * process.cwd() candidate below was ever tried, which made `node
+ * dist/server.cjs` (and therefore `pm2 reload`) unable to start at all.
+ */
+function resolveModuleDir(): string | null {
+  if (typeof __dirname === 'string') return __dirname;
+  const entry = process.argv[1];
+  if (!entry) return null;
+  try {
+    return path.dirname(path.resolve(entry));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve scripts/schema.sql from the repo root. Tries, in order:
  *   1. process.cwd()/scripts/schema.sql  — `npm run dev` / `npm test` / CI
  *      always run from the repo root.
- *   2. module-relative walk up          — bundled `dist/server.cjs` (esbuild
- *      keeps this module's __dirname-style location) or any other cwd.
- * Cached after the first successful read; throws a clear error if the file
- * cannot be located.
+ *   2. module-relative walk up          — the bundled `dist/server.cjs` (whose
+ *      `__dirname` is the dist folder) or any other cwd.
+ * Cached after the first successful read; throws a clear error listing every
+ * candidate if the file cannot be located.
  */
 let schemaSqlCache: string | null = null;
 function loadSchemaSql(): string {
   if (schemaSqlCache) return schemaSqlCache;
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    path.resolve(process.cwd(), 'scripts/schema.sql'),
-    ...Array.from({ length: 6 }, (_, i) => path.resolve(moduleDir, '../'.repeat(i), 'scripts/schema.sql')),
-  ];
+  const candidates = [path.resolve(process.cwd(), 'scripts/schema.sql')];
+  const moduleDir = resolveModuleDir();
+  if (moduleDir) {
+    for (let i = 0; i < 6; i++) {
+      candidates.push(path.resolve(moduleDir, '../'.repeat(i), 'scripts/schema.sql'));
+    }
+  }
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       schemaSqlCache = readFileSync(candidate, 'utf8');

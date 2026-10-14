@@ -33,8 +33,6 @@ export const USER_PREFERENCE_UPSERT_SQL =
   'INSERT INTO user_preferences (user_id, pref_key, pref_value) VALUES ($1, $2, $3) ' +
   'ON CONFLICT (user_id, pref_key) DO UPDATE SET pref_value = EXCLUDED.pref_value, updated_at = CURRENT_TIMESTAMP';
 
-export const USER_PREFERENCE_DELETE_SQL = 'DELETE FROM user_preferences WHERE user_id = $1 AND pref_key = $2';
-
 // ---------------------------------------------------------------------------
 // Whitelists — the ONLY keys the two tables may ever contain
 // ---------------------------------------------------------------------------

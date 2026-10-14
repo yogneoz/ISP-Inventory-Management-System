@@ -26,7 +26,6 @@
  * business actually received, so a CDR row naming a serial the register has
  * never seen must not fabricate a register entry.
  */
-import type { TransactionLog } from '../../../client/src/types';
 
 /**
  * CDR statuses that mean the customer currently holds the device. These are

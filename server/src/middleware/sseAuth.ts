@@ -39,9 +39,3 @@ export function requireSseAuth(req: Request, res: Response, next: NextFunction) 
   (req as any).user = user;
   next();
 }
-
-/**
- * Standard (non-SSE) sync endpoints, e.g. GET /api/sync/version: same token
- * rules, so polling clients can authenticate via header or query parameter.
- */
-export const requireSseAuthPlain = requireSseAuth;

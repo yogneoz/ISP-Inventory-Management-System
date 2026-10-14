@@ -1,9 +1,3 @@
-export type DepreciationMethod =
-  | 'STRAIGHT_LINE'
-  | 'REDUCING_BALANCE'
-  | 'DECLINING_BALANCE'
-  | 'WRITTEN_DOWN_VALUE';
-
 export interface FixedAssetDepreciationInput {
   acquisitionCost?: number;
   acquisitionDateAD?: string;

@@ -6,34 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_uom, post_uom, put_Id, delete_Id, get_locations, post_locations, delete_Id2, get_suppliers, post_suppliers, put_Id3, delete_Id3, get_products, post_products, put_Id4, delete_Id4, get_categories, post_categories, put_Id5, delete_Id5, get_customers, post_customers, post_bulk, put_Id6, delete_Id6 } from '../controllers/masterdata.controller';
-import {
-  branches,
-  broadcastChange,
-  categories,
-  customerDeviceRecords,
-  customerMasterRecords,
-  getPgConnected,
-  inventoryStock,
-  locationRecords,
-  logAuditEvent,
-  products,
-  requirePermission,
-  requireRole,
-  setCategories,
-  setCustomerMasterRecords,
-  setInventoryStock,
-  setLocationRecords,
-  setProducts,
-  setSuppliers,
-  setUomList,
-  suppliers,
-  uomList,
-  withAppended,
-  withPrepended,
-  withReplaced,
-  withTransaction,
-} from '../app';
-import { pgPool } from '../app';
+import { requirePermission, requireRole } from '../app';
 import type { Category, CustomerRecord, LocationRecord, Supplier, UnitOfMeasure } from '../../../client/src/types';
 
 export function registerMasterdataRoutes(app: Express) {

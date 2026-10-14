@@ -6,50 +6,8 @@
  */
 import type { Express } from 'express';
 import { post_clearDemoData, put_companyProfile, get_branches, post_branches, put_Id, delete_Id, post_users, put_Id2, delete_Id2, post_resetPassword, post_fixedAssets, post_liveStock, post_ledgerBalances, post_bsDayRecords, post_fiscalYearLinks, get_documentNumberConfigs, put_documentNumberConfigs, post_generateNext, post_resetCounter, get_fiscalYears, post_fiscalYears, post_setCurrent, post_close, post_reopen, post_initializeOpeningStock, delete_Id3, get_years, get_day, get_days, post_seed, post_seedBulk, put_YearBS, post_syncRange } from '../controllers/admin.controller';
-import {
-  assetRegister,
-  branches,
-  broadcastChange,
-  buildBsDayRecordsForYear,
-  categories,
-  companyProfile,
-  docNumberConfigs,
-  findBsDayRecordForAdDate,
-  fiscalYears,
-  generateInMemoryBsDayRecords,
-  getDataVersion,
-  getPgConnected,
-  getUserFromReq,
-  hashPassword,
-  inMemoryBsCalendarYears,
-  inMemoryBsDayRecords,
-  inventoryStock,
-  logAuditEvent,
-  products,
-  requirePermission,
-  requireRole,
-  setBranches,
-  setCompanyProfile,
-  setDataVersion,
-  setDocNumberConfigs,
-  setFiscalYears,
-  setInMemoryBsCalendarYears,
-  setInMemoryBsDayRecords,
-  setUsers,
-  shipments,
-  sseClients,
-  suppliers,
-  transactionLogs,
-  users,
-  validateRole,
-  verifySuperAdminCredentials,
-  withAppended,
-  withReplaced,
-  withSorted,
-  withTransaction,
-} from '../app';
+import { requirePermission, requireRole } from '../app';
 import { DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, hydrateOperationalData, pgPool } from '../app';
-import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import type { Asset, Branch, DocumentNumberConfig } from '../../../client/src/types';
 
 export function registerAdminRoutes(app: Express) {

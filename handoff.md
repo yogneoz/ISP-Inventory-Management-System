@@ -226,12 +226,13 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 771 tests; CI runs
+                                        #   drift/concurrency guards — 796 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
-                                        #   service container lets ALL tests run in CI —
-                                        #   no skips.
+                                        #   service container lets ALL tests run in CI; the
+                                        #   single unconditional skip is a Windows-only
+                                        #   real-OS-signal test, so CI is skip-free.
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
@@ -1042,10 +1043,19 @@ module.exports = {
     name: 'inventory-erp',
     script: 'dist/server.cjs',
     instances: 1,  // Single instance (PostgreSQL connection pool)
-    env: { NODE_ENV: 'production', PORT: 3000 }
+    env: { NODE_ENV: 'production', PORT: 3000 },
+    kill_timeout: 15000  // must exceed SHUTDOWN_TIMEOUT_MS so the drain can finish
   }]
 };
 ```
+
+On `SIGTERM`/`SIGINT` the server stops accepting, ends live SSE streams, lets in-flight requests
+finish (bounded by `SHUTDOWN_TIMEOUT_MS`, default 10s), closes the pool and exits 0 — see
+`server/src/boot/lifecycle.ts`. `kill_timeout` must stay above that bound, or pm2's `SIGKILL` cuts
+the drain mid-response. A failed boot, an uncaught exception and an unhandled rejection all exit 1
+through the same path, with the reason written synchronously to fd 2 (pm2/docker log pipes are
+async, so an unflushed write can be lost). In development a runtime fatality is logged and the
+process keeps serving, because `tsx watch` does not restart a crashed child.
 
 ### 14.3 Database Setup Options
 
@@ -1152,9 +1162,11 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 771 tests against a real PostgreSQL 16 service container
+2. `npm test` — 796 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
-   drift-guard baseline). Zero skips — no-DB skips are history.
+   drift-guard baseline). Zero DB skips — no-DB skips are history. The suite's
+   one unconditional skip is Windows-only (tests/lifecycleProcess.test.ts: a
+   real OS SIGTERM cannot be delivered to a child there); CI runs it.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
 4. `npm run build` — production bundles (vite + esbuild). Catches
    bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.

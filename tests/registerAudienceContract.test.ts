@@ -99,12 +99,19 @@ describe('register audience contract', () => {
   test('pullout-report-view is a manageable matrix operation', () => {
     const matrix = read('client/src/utils/permissionMatrixData.ts');
     assert.ok(
-      matrix.includes("'pullout-report-view',"),
-      'operation id must be listed in INVENTORY_OPERATIONS'
-    );
-    assert.ok(
       matrix.includes("'pullout-report-view': {"),
       'operation must have a default role row so it seeds into the DB'
+    );
+    // The DB seed walks the default matrix's own keys; that is what enrolls a
+    // new operation, so a separate operation-id list must never be reintroduced.
+    const boot = read('server/src/boot/dbBoot.ts');
+    assert.ok(
+      boot.includes('of Object.entries(DEFAULT_PERMISSIONS_MATRIX)'),
+      'the permission seed must iterate the default matrix keys'
+    );
+    assert.ok(
+      !matrix.includes('INVENTORY_OPERATIONS'),
+      'no vestigial operation-id registry: the matrix keys are the single source'
     );
     const management = read('client/src/features/settings/PermissionManagement.tsx');
     assert.ok(

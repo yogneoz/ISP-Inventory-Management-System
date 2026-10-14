@@ -1,6 +1,6 @@
 export { DEFAULT_PERMISSIONS_MATRIX };
 import { UserRole, User, Branch, FiscalYear } from '../types';
-import { APP_ROLES, INVENTORY_OPERATIONS, DEFAULT_PERMISSIONS_MATRIX } from './permissionMatrixData';
+import { DEFAULT_PERMISSIONS_MATRIX } from './permissionMatrixData';
 
 // In-memory copy of the server's permission matrix. Filled ONLY by
 // applyServerMatrix() (bootstrap payload or a confirmed PUT /api/permissions) —
@@ -39,18 +39,6 @@ export const getAllowedBranches = (user: User | null | undefined, branches: Bran
   }
   const allowedIds = getAllowedBranchIds(user, branches);
   return branches.filter((b) => allowedIds.includes(b.id));
-};
-
-export const isBranchAllowedForUser = (
-  branchId: string,
-  user: User | null | undefined,
-  branches: Branch[]
-): boolean => {
-  if (!user) return false;
-  if (canUserSeeAllBranches(user)) return true;
-  if (branchId === 'ALL') return false;
-  const allowedIds = getAllowedBranchIds(user, branches);
-  return allowedIds.includes(branchId);
 };
 
 /**
@@ -112,55 +100,6 @@ export const isOperationAllowed = (
 
   return Boolean(opMap[userRole as string]);
 };
-
-export function isOperationAllowedForRole(
-  opId: string,
-  role: string,
-  branchAllowProcurement?: boolean,
-  branchAllowWarehouseTransfer?: boolean
-): boolean {
-  if (!role) return false;
-
-  if (role === 'SUPER_ADMIN') {
-    if (
-      branchAllowProcurement === false &&
-      (opId === 'po-create' || opId === 'po-receive' || opId === 'inv-create' || opId === 'inv-pay')
-    ) {
-      return false;
-    }
-    if (
-      branchAllowWarehouseTransfer === false &&
-      (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  const matrix = getPermissionsMatrix();
-  const opMap = matrix[opId] || DEFAULT_PERMISSIONS_MATRIX[opId];
-  if (!opMap) return false;
-
-  const allowed = Boolean(opMap[role]);
-  if (!allowed) return false;
-
-  if (
-    branchAllowProcurement === false &&
-    (opId === 'po-create' || opId === 'po-receive' || opId === 'inv-create' || opId === 'inv-pay')
-  ) {
-    return false;
-  }
-  if (
-    branchAllowWarehouseTransfer === false &&
-    (opId === 'wh-restrict-transfer' || opId === 'branch-transfer-create')
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export const APP_ROLES_EXPORT = APP_ROLES;
-export const INVENTORY_OPERATIONS_EXPORT = INVENTORY_OPERATIONS;
 
 export const canUserSwitchProfiles = (
   user: User | null | undefined,

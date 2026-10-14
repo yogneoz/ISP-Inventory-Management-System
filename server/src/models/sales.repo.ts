@@ -7,12 +7,6 @@
  * updates, audit logging, response bodies); query text and column lists are
  * defined once in this layer.
  */
-import type { QueryResult } from 'pg';
-
-/** Minimal query interface satisfied by the pg Pool (and test doubles). */
-export interface QueryExecutor {
-  query(text: string, values?: unknown[]): Promise<QueryResult<any>>;
-}
 
 // ---------------------------------------------------------------------------
 // Sales Invoices (INV-…)

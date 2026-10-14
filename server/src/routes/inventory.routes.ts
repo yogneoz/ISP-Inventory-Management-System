@@ -7,48 +7,11 @@
 import type { Express } from 'express';
 import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
 import {
-  assetRegister,
-  branches,
-  broadcastChange,
-  customerDeviceRecords,
-  damageRecords,
-  detectDateTypeMismatch,
-  findBsDayRecordForAdDate,
-  getDataVersion,
-  getFiscalYearCodeForDate,
-  getFiscalYearIdForDate,
-  getPgConnected,
-  getUserFromReq,
   handleUpdateSerials,
-  inventoryStock,
-  issueNextDocNumber,
-  logAuditEvent,
-  mutable,
-  products,
-  purchaseInvoices,
   requirePermission,
   requireRole,
   requireStockOperationPermission,
-  runSerialEditCapture,
-  serialLogs,
-  setAssetRegister,
-  setCustomerDeviceRecords,
-  setDamageRecords,
-  setDataVersion,
-  setInventoryStock,
-  setSerialLogs,
-  setStockOperations,
-  setTransactionLogs,
-  stockOperations,
-  transactionLogs,
-  users,
-  withAppended,
-  withPrepended,
-  withReplaced,
-  withTransaction,
 } from '../app';
-import { pgPool } from '../app';
-import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, buildReversalLedgerWithStock, deriveDamageItems, mirrorReversal, quarantineInMemorySerials, quarantineSerialsInDb, restoreInMemorySerials, restoreSerialsInDb, validateReversalAvailability } from '../services/damage.service';
 import { applyDualEdit, generateParkTag, validateDualEditPayload } from '../services/serialEditCapture.service';
 import type { CustomerDeviceRecord, DamageRecord, SerialLog, TransactionLog } from '../../../client/src/types';

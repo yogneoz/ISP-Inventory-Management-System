@@ -6,20 +6,7 @@
  */
 import type { Express } from 'express';
 import { get_shipments, post_shipments, post_receive, post_cancel, post_cancelReceive } from '../controllers/shipments.controller';
-import {
-  branches,
-  detectDateTypeMismatch,
-  findBsDayRecordForAdDate,
-  getPgConnected,
-  inventoryStock,
-  issueNextDocNumber,
-  logAuditEvent,  requirePermission, requirePermissionAny, requireAuth, setShipments,
-  shipments,
-  withPrepended,
-  withReplaced,
-  withTransaction,
-} from '../app';
-import { pgPool } from '../app';
+import { requirePermission, requirePermissionAny, requireAuth } from '../app';
 
 export function registerShipmentsRoutes(app: Express) {
 app.get('/api/shipments', requireAuth, async (req, res, next) => { get_shipments(req as any, res as any).catch(next); });

@@ -326,8 +326,9 @@ export function stockReverseDamageBatchParams(deltas: ReversalStockDelta[], bran
 
 /**
  * Batched consumable-issue return: adds each quantity back to quantity_on_hand
- * for every (product, branch) pair in one statement — the multi-row equivalent
- * of STOCK_RETURN_QOH_SQL. Rows with no existing inventory_stock record are
+ * for every (product, branch) pair in one statement — the multi-row
+ * replacement for the old per-item return update. Rows with no existing
+ * inventory_stock record are
  * skipped, exactly as the old per-item loop silently did. Returns the number
  * of rows updated.
  */
@@ -650,8 +651,6 @@ export const STOCK_CONSUME_QOH_SQL = `UPDATE inventory_stock SET quantity_on_han
 /** Reversal of a damage op: damaged units return to usable stock. */
 export const STOCK_REVERSE_DAMAGE_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`;
 
-/** Reversal of a consumable issue: issued units return to usable stock. */
-export const STOCK_RETURN_QOH_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`;
 
 export const STOCK_OPERATION_CANCEL_SQL = `UPDATE stock_operations SET status = 'CANCELLED', updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`;
 
@@ -1149,9 +1148,6 @@ export function buildSerialLogStatusCountQuery(opts: SerialLogQueryOptions): { s
   return { sql: SERIAL_LOG_STATUS_COUNT_SQL + whereSql + ' GROUP BY status', params };
 }
 
-/** Locks a serial_log history row (FOR UPDATE) for the upsert read-modify-write. */
-export const SERIAL_LOG_LOCK_HISTORY_SQL =
-  'SELECT history_json FROM serial_log WHERE id = $1 FOR UPDATE';
 
 /**
  * One serial = one row (case/trim-insensitive). Carries the row's status and

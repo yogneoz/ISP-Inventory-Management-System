@@ -21,7 +21,6 @@ import {
   PR_POST_DRAFT_SQL,
   PR_CANCEL_DRAFT_SQL,
   PR_RESTORE_STOCK_SQL,
-  PR_CANCEL_TXN_LOG_SQL,
   prCancelTxnLogParams,
 } from '../server/src/models/procurement.repo';
 import {
@@ -51,7 +50,6 @@ import {
   SR_TXN_LOG_SQL,
   SR_SELECT_COLUMNS,
   SR_REDEDUCT_STOCK_SQL,
-  SR_CANCEL_TXN_LOG_SQL,
   srCancelTxnLogParams,
   LEDGER_CUSTOMER_INVOICES_SQL,
   LEDGER_CUSTOMER_RETURNS_SQL,

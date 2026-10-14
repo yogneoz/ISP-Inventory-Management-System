@@ -105,8 +105,3 @@ export function createAuthRateLimit(options: AuthRateLimitOptions) {
     }
   };
 }
-
-/** Test/ops access to the live limiters. */
-export function getAuthLimiters(): { ipLimiter: RateLimiter; accountLimiter: RateLimiter; windowMs: number; maxAttempts: number } {
-  return { ipLimiter, accountLimiter, windowMs: WINDOW_MS, maxAttempts: MAX_ATTEMPTS };
-}

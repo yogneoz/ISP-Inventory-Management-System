@@ -6,12 +6,11 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, auditTrail, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
   DB_STATUS_PROBE_SQL,
-  buildAuditTrailQuery,
   buildTransactionLogQuery,
   buildApprovalRequestQuery,
   AR_INSERT_SQL,

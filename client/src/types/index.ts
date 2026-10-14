@@ -688,12 +688,6 @@ export interface CustomerRecord {
   assignedDevicesCount?: number;
 }
 
-export interface SystemState {
-  currentUser: User | null;
-  selectedBranchId: string; // 'ALL' or branch.id
-  dateDisplayMode: 'BS' | 'AD';
-}
-
 export interface ApprovalRequest {
   id: string;
   requestNumber: string; // e.g. APR-2083-101

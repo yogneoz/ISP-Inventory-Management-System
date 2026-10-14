@@ -7,9 +7,9 @@
 import type { Request, Response } from 'express';
 import {
   getPgConnected, pgPool, issueNextDocNumber, inventoryStock, logAuditEvent,
-  withTransaction, branches, products, suppliers, setInventoryStock, withAppended, withPrepended,
+  withTransaction, branches, products, setInventoryStock, withPrepended,
   transactionLogs, setTransactionLogs,
-  getUserFromReq, purchaseReturns, customerMasterRecords, findBsDayRecordForAdDate,
+  getUserFromReq, customerMasterRecords,
   customerPayments, companyProfile,
 } from '../app';
 import { salesInvoices, salesReturns, setSalesInvoices, setSalesReturns } from '../state/runtimeState';
@@ -24,7 +24,7 @@ import {
   buildSalesReturnListSql, buildSalesReturnCountQuery, buildSalesReturnPagedQuery,
   SR_INSERT_SQL, srInsertParams, SR_EXISTS_SQL, SR_LOCK_INVOICE_SQL,
   SR_RETURNED_QTY_SQL, SR_RESTOCK_SQL, srRestockParams, SR_REDEDUCT_STOCK_SQL, SR_CANCEL_SQL,
-  SR_TXN_LOG_SQL, srTxnLogParams, SR_SELECT_COLUMNS, SR_FIND_ONE_SQL,
+  SR_TXN_LOG_SQL, srTxnLogParams, SR_FIND_ONE_SQL,
   SR_CANCEL_TXN_LOG_SQL, srCancelTxnLogParams,
   LEDGER_CUSTOMER_INVOICES_SQL, LEDGER_CUSTOMER_RETURNS_SQL,
   SR_SERIAL_FLIP_SQL, SR_DAMAGE_INSERT_SQL, srDamageInsertParams, SR_DAMAGE_CANCEL_SQL,
