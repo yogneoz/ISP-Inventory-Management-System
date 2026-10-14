@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-14 · Branch: main · Tests: 796/796 green with a DB (all run in CI too; the ONE unconditional skip is a Windows-only real-OS-SIGTERM test that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-14 · Branch: main · Tests: 797/797 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 ## ⭐ Failed boot now exits 1 — a dead instance can no longer look "online" (2026-10-14)
 
@@ -77,11 +77,44 @@ exits 1 in development (so "keeps serving" fails without the handler), prints no
 assertion fails), and the old server's in-flight response is cut with `ECONNRESET` with the exit reported as a
 signal (so the drain assertions fail).
 
+**The live check that closes the loop (CI, 2026-10-14).** The seams above prove the *decisions*; nothing
+proved them on the real entry under a real signal. [tests/lifecycleLiveDrain.test.ts](tests/lifecycleLiveDrain.test.ts)
+(1 test, ~6s, Linux CI only, and required to run there — see the skip-as-failure note below) creates its own
+throwaway database (`inventory_drain_test`, dropped after), boots
+[server/index.ts](server/index.ts) against it in the deployment's own shape (`NODE_ENV=production`, with the
+discrete `POSTGRES_*` options pinned to the throwaway so no precedence question can aim the boot at the
+application database — measured on pg 8.23: `connectionString` wins over them), provisions its own login
+account (CI databases are FRESH — the suite may never assume seeded users), and then sends a REAL `SIGTERM`.
+
+Overlap is proven, not slept: the login POST declares its `Content-Length` and withholds the last bytes, so
+express's body parser is still waiting and the handler has not run. The child's own shutdown line must
+therefore read `draining 1 in-flight request(s)` — that count IS the proof — and the withheld bytes are
+released only AFTER the signal, so the login (scrypt verify plus a real `users` query) must still answer:
+asserted 200 with a usable token, which doubles as proof that the pool stays usable during the drain. The
+process must then have exited 0 by itself (not by signal, not by the test's fail-safe) with the port
+released.
+
+Discrimination was measured, not assumed: completing the body ahead of the signal makes the child log
+`draining 0 in-flight request(s)` and the test fails on exactly that line; aiming the child's boot at a
+second bootable database makes the isolation query fail with `relation "users" does not exist`, so the check
+cannot quietly degrade into asserting against the application database. Both probes ran in temporary copies
+that were deleted afterwards.
+
+The check's remaining hole was that its only real-signal run lived in Linux CI, where nothing forced it to
+actually *run*: a runner-image change, a missing service container or a user without `CREATEDB` would have
+turned the proof into a green skip that nobody reads. `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` is now set on the
+`npm test` step, and under it every skip in this file becomes a failure naming the unmet precondition
+(platform, `DATABASE_URL`, reachability, `CREATE DATABASE`); local and dev runs leave it unset and skip as
+before. Verified both ways: with the variable on this Windows box the check exits 1 with
+`process.platform is "win32"`, and a temporary copy that pretends to be POSIX-capable skipped an unreachable
+PostgreSQL with exit 0 unset but failed with `connect ECONNREFUSED 127.0.0.1:59999` when set. Full suite
+after the change: `tsc` 0, **797/195, 795 pass, 2 skipped, 0 fail**, docs gate green at 797.
+
 ## ⭐ dist/server.cjs boot fix, junk/dead-code sweep, ledger dedup (2026-10-14)
 
 **+270 / −1,131** tracked lines across 43 code files, plus two new files
 ([LedgerView.tsx](client/src/components/common/LedgerView.tsx) and the boot guard test) and four doc edits;
-closed by the usual gates: `tsc` 0, **796/796 + docs gate**, `npm run build`, `check:no-inline-sql`,
+closed by the usual gates: `tsc` 0, **797/797 + docs gate**, `npm run build`, `check:no-inline-sql`,
 `check:no-raw-dialogs`.
 
 **The production bundle could not boot at all — now it does.** `dist/server.cjs` (what `npm start`, pm2's
@@ -1323,7 +1356,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 796 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 797 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -1890,7 +1923,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 796 tests, 0 fail). Live-verified:
+  key coverage; suite now 797 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -1948,7 +1981,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 796 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 797 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2013,7 +2046,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 796 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 797 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2051,7 +2084,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 796 tests, 0 fail.
+  failures, then reverted). Suite now 797 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2066,7 +2099,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 796 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 797 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

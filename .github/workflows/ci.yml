@@ -52,7 +52,23 @@ jobs:
       - name: Fresh-install proof — boot server on empty DB and assert schema parity
         run: node scripts/verify_fresh_install.mjs
       - run: npx tsc --noEmit
+      # npm test includes the live graceful-drain check
+      # (tests/lifecycleLiveDrain.test.ts). It creates its own throwaway database
+      # (inventory_drain_test), boots the REAL entry (server/index.ts) against it,
+      # sends a real SIGTERM while an authenticated request is genuinely in flight
+      # and asserts that response completes and the process exits 0 by itself.
+      # Like the concurrency tests it needs CREATEDB — which the service
+      # superuser has — and it never touches the application database.
+      #
+      # LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1 turns the check's skips into failures:
+      # this job is the only place the real-signal drain is proven, so a runner
+      # image without POSIX signals, a missing service container or a user
+      # without CREATEDB must fail the build rather than leave the proof as a
+      # green no-op. (Skipping stays normal for local/dev runs, which do not
+      # set the variable.)
       - run: npm test
+        env:
+          LIVE_DRAIN_REQUIRE_REAL_SIGNAL: '1'
       - name: Enforce repo-layer convention (no raw SQL in controllers)
         run: npm run check:no-inline-sql
       # The window.alert monkey-patch was removed when all ~100 raw call

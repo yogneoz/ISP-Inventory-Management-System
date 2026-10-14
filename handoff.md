@@ -226,13 +226,13 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 796 tests; CI runs
+                                        #   drift/concurrency guards — 797 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
                                         #   service container lets ALL tests run in CI; the
-                                        #   single unconditional skip is a Windows-only
-                                        #   real-OS-signal test, so CI is skip-free.
+                                        #   two unconditional skips are Windows-only
+                                        #   real-signal checks, so CI is skip-free.
 │
 ├── src/
 │   ├── App.tsx                        # Root React component (~2,200 lines)
@@ -1162,11 +1162,20 @@ The convention is enforced by `scripts/check_no_inline_sql.ts` (`npm run check:n
 Every push/PR runs five gates in order (`.github/workflows/ci.yml`); all must pass:
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 796 tests against a real PostgreSQL 16 service container
+2. `npm test` — 797 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
-   drift-guard baseline). Zero DB skips — no-DB skips are history. The suite's
-   one unconditional skip is Windows-only (tests/lifecycleProcess.test.ts: a
-   real OS SIGTERM cannot be delivered to a child there); CI runs it.
+   drift-guard baseline). Zero DB skips — no-DB skips are history. The two
+   unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
+   cannot be delivered to a child there); CI runs both. The suite includes the
+   live drain check (tests/lifecycleLiveDrain.test.ts): it creates its own
+   throwaway database, boots the REAL entry against it, sends a real SIGTERM
+   while an authenticated request is genuinely in flight, and asserts that
+   response completes and the process exits 0 on its own. That step also sets
+   `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1`, which makes the check's preconditions
+   mandatory: on CI a platform that cannot deliver the signal, a missing
+   service container or a user without CREATEDB FAILS the build instead of
+   quietly skipping the only real-signal proof. Unset locally, so dev runs
+   keep skipping it on Windows.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
 4. `npm run build` — production bundles (vite + esbuild). Catches
    bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.

@@ -632,8 +632,10 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 796-test suite against a PostgreSQL 16 service container (zero DB skips;
-  the one unconditional skip is a Windows-only real-OS-signal test, which CI runs) →
+  full 797-test suite against a PostgreSQL 16 service container (zero DB skips;
+  the two unconditional skips are Windows-only real-signal checks, which CI runs,
+  and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
+  preconditions cannot silently skip it) →
   no-inline-SQL guard → production build (`vite build` + server bundle) →
   `npm audit --omit=dev` (fails on any production-dependency advisory).
 - **HTTP security**: helmet headers on every response, JSON body limit with 413 passthrough
