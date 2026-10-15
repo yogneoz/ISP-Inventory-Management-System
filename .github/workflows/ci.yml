@@ -40,6 +40,16 @@ jobs:
 
     env:
       DATABASE_URL: postgres://inventory_user:securepassword@localhost:5432/inventory_db
+      # Test-only signing secret. Without it every test process that imports
+      # server/src/middleware/auth.ts logs "AUTH_TOKEN_SECRET is not set — using
+      # an ephemeral in-memory secret" — a warning about a DEPLOYMENT's secret
+      # that cannot apply to this job (each process is a throwaway, nothing
+      # restarts, nothing runs multi-instance). The warning itself stays
+      # exactly as it is for real installs; this only stops CI from repeating a
+      # notice about an environment that does not exist here. A test that forges
+      # a token (tests/sseAuth.guard.test.ts) then signs it with the same secret
+      # the module loaded, which is what it does on a developer machine too.
+      AUTH_TOKEN_SECRET: ci-test-only-secret-do-not-use-in-production
 
     steps:
       - uses: actions/checkout@v5

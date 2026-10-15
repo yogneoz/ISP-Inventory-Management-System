@@ -496,6 +496,26 @@ and pagination, so the client loads exactly one page of rows at a time.
 > `tests/registerRefreshDomains.test.ts` until it is wired to a register
 > refresh key (see **Targeted Real-Time Refresh** below).
 
+### `GET /api/bootstrap` refuses honestly when it cannot scope to a fiscal year
+
+The payload is scoped to one fiscal year, and an unusable fiscal-year master is a
+configuration problem — never a database outage:
+
+| Situation | Status | Signal |
+| :--- | :--- | :--- |
+| explicit `?fiscalYearId=` naming a year that does not exist | **400** | `fiscalYearNotFound: true`, the id echoed back |
+| `fiscal_years` is empty | **409** | `noCurrentFiscalYear: true`, "No fiscal year is configured…" |
+| rows exist but none is flagged `is_current` | **409** | `noCurrentFiscalYear: true`, "No fiscal year is flagged as current…" |
+| the connection genuinely failed | **503** | database-unavailable message |
+
+It never falls back to a different year (that would serve a view nobody asked for)
+and never answers an unscoped 200 (every-year figures in an accounting system are
+silently wrong numbers). The client renders the server's own message through
+`client/src/components/common/BootstrapBlockedBanner.tsx` instead of the
+"PostgreSQL Offline" setup banner, which infers reachability from the very payload
+the refusal blocked. Proof: `tests/bootstrapFiscalYearHonesty.test.ts` (four
+fiscal-year states over real HTTP against a database built from `schema.sql` alone).
+
 ### Request parameters (all optional)
 
 | Parameter | Meaning |
@@ -632,7 +652,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 811-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 817-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

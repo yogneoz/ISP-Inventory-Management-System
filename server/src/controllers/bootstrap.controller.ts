@@ -15,7 +15,7 @@ import {
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -30,11 +30,37 @@ const { branchId, fiscalYearId } = req.query;
       // Default view: the active fiscal year, so the app always shows records
       // from the current fiscal year. An explicit fiscalYearId query param
       // overrides this and filters the data to that fiscal year.
-      const selectedFiscalYear = fId
-        ? pgFiscalYears.find((fiscalYear: any) => fiscalYear.id === fId)
-        : pickCurrentFiscalYear(pgFiscalYears);
-      const fyStartAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.startDateAD) : '';
-      const fyEndAD = selectedFiscalYear ? toCalendarDate(selectedFiscalYear.endDateAD) : '';
+      //
+      // A fiscal year is a PRECONDITION of this payload, and failing to resolve
+      // one is a configuration problem: answer it with a status and a message
+      // that name the real cause. Before this, an unresolvable year fell
+      // through to `selectedFiscalYear.id` and threw a TypeError that the catch
+      // below retold as "PostgreSQL became unavailable" — a 503 blaming the
+      // database for an empty fiscal_years table.
+      const fiscalYearScope = selectBootstrapFiscalYear(pgFiscalYears, fId);
+      if (!fiscalYearScope.ok) {
+        if (fiscalYearScope.reason === 'not-found') {
+          return res.status(400).json({
+            message:
+              `Fiscal year '${fiscalYearScope.requestedId}' does not exist. ` +
+              'Pick a fiscal year that is configured (GET /api/fiscal-years) and reload.',
+            fiscalYearNotFound: true,
+          });
+        }
+        return res.status(409).json({
+          message:
+            fiscalYearScope.reason === 'none-configured'
+              ? 'No fiscal year is configured, so there is nothing to scope application data to. ' +
+                'Create a fiscal year in Fiscal Year Management, then reload.'
+              : 'No fiscal year is flagged as current, so there is no default view to load. ' +
+                'Open Fiscal Year Management, flag one year as current, then reload.',
+          noCurrentFiscalYear: true,
+        });
+      }
+      // Established above: from here on the year exists, so it is safe to read.
+      const selectedFiscalYear = fiscalYearScope.fiscalYear;
+      const fyStartAD = toCalendarDate(selectedFiscalYear.startDateAD);
+      const fyEndAD = toCalendarDate(selectedFiscalYear.endDateAD);
 
       const data = await fetchOperationalData(pgPool, {
         branchId: bId,
@@ -44,7 +70,7 @@ const { branchId, fiscalYearId } = req.query;
       });
 
       let pgStock = data.stock;
-      if (selectedFiscalYear && !selectedFiscalYear.isCurrent) {
+      if (!selectedFiscalYear.isCurrent) {
         pgStock = await fetchOpeningStock(pgPool, selectedFiscalYear.id, bId);
       }
       // Fiscal-year and branch scoping is applied in the repository queries
@@ -89,6 +115,9 @@ const { branchId, fiscalYearId } = req.query;
       const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments - postedPurchaseReturns;
       const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
       const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
+      // The current year's CODE is reported separately from the view scope: an
+      // explicit past-year request still reports which year is current, and ''
+      // when none is flagged (never a stale hard-coded default).
       const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
 
       // Trading summary — sales revenue + COGS derived from the same priced

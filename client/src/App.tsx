@@ -190,6 +190,7 @@ const HelpDocumentationLazy = React.lazy(() =>
 import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
+import { BootstrapBlockedBanner } from './components/common/BootstrapBlockedBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
 import { setDefaultTaxRate } from './utils/taxConfig';
 import { useDarkMode } from './contexts/DarkModeContext';
@@ -510,6 +511,14 @@ export default function App() {
     user: 'inventory_user',
   });
 
+  // Set when the server REFUSED the bootstrap payload (see the catch in
+  // refreshAllData): the API's own reason and status, shown verbatim so a
+  // configuration problem is not retold as "PostgreSQL Offline" by
+  // DatabaseSetupBanner — which infers reachability from the very payload the
+  // refusal blocked. Null while the last load succeeded, so fixing the cause
+  // and retrying clears it without a reload.
+  const [bootstrapBlocked, setBootstrapBlocked] = useState<{ message: string; status?: number } | null>(null);
+
   // Hydrate state from recent cache for instant 0ms load speed
   const applyBootstrapData = (data: any) => {
     if (data.branches) setBranches(data.branches);
@@ -649,6 +658,8 @@ export default function App() {
       if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
         applyBootstrapData(data);
+        // The refusal is cleared only by a payload that actually arrived.
+        setBootstrapBlocked(null);
         // The three ledgers trimmed from the payload load in parallel with
         // the sellable-serials fetch below — see hydrateDeferredSlices.
         hydrateDeferredSlices(requestBranchId, requestFiscalYearId || undefined);
@@ -679,8 +690,30 @@ export default function App() {
           console.error('Error fetching sellable serials:', err);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching data from backend:', err);
+      // Ignore a refusal that belongs to a view the user has already left. The
+      // server's message is shown as-is: re-wording it here is how the cause
+      // gets lost (a 409 "no fiscal year is flagged current" became "PostgreSQL
+      // Offline" on screen while the database was up the whole time).
+      if (requestSeq === refreshSequenceRef.current) {
+        const status = typeof err?.status === 'number' ? err.status : undefined;
+        // 401 belongs to the expired-session flow (http.ts dispatches
+        // inventory_auth_expired for it), including the bootstrap attempt the
+        // login screen makes with no token — not a data-load failure to report.
+        if (status !== 401) {
+          setBootstrapBlocked({
+            message: err?.message || 'The server could not load application data.',
+            status,
+          });
+        }
+        // A structured 4xx came FROM the application, so PostgreSQL is
+        // reachable and the setup banner must stop claiming otherwise. A 503
+        // is the opposite case and keeps it: that one really is the database.
+        if (status === 400 || status === 409) {
+          setPostgresStatus((prev) => (prev.isConnected ? prev : { ...prev, isConnected: true }));
+        }
+      }
     } finally {
       if (requestSeq === refreshSequenceRef.current) setLoading(false);
     }
@@ -1664,6 +1697,16 @@ export default function App() {
           errorDetails: postgresStatus.errorDetails,
         }}
       />
+
+      {/* Refused bootstrap: the server's own reason, not a database alarm. */}
+      {bootstrapBlocked && (
+        <BootstrapBlockedBanner
+          message={bootstrapBlocked.message}
+          status={bootstrapBlocked.status}
+          onRetry={refreshAllData}
+          onDismiss={() => setBootstrapBlocked(null)}
+        />
+      )}
 
       {/* Main Workspace Layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">

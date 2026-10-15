@@ -39,6 +39,46 @@ export function pickCurrentFiscalYear(years: any[]): any | undefined {
   return currentYears.find(containsToday) || currentYears[0];
 }
 
+/**
+ * Why a requested/default fiscal year could not be resolved. The two failures
+ * are DIFFERENT problems with different HTTP answers (see
+ * selectBootstrapFiscalYear), and neither of them is a database outage —
+ * conflating them with one was what made GET /api/bootstrap report a 503
+ * "PostgreSQL became unavailable" whenever the fiscal-year master was
+ * unusable, pointing operators at the wrong subsystem entirely.
+ */
+export type FiscalYearScopeFailure =
+  /** The caller named a fiscal-year id that does not exist. */
+  | { ok: false; reason: 'not-found'; requestedId: string }
+  /** fiscal_years is empty: nothing is configured at all. */
+  | { ok: false; reason: 'none-configured' }
+  /** Rows exist, but none carries is_current: there is no default view. */
+  | { ok: false; reason: 'none-current' };
+
+/** The resolved fiscal year, or the reason none could be resolved. */
+export type FiscalYearScope = { ok: true; fiscalYear: any } | FiscalYearScopeFailure;
+
+/**
+ * Resolves the fiscal year the bootstrap payload is scoped to.
+ *
+ * An explicit request is honored only when it EXISTS: silently falling back to
+ * another year would serve a view the caller did not ask for, and a crash on
+ * `undefined.id` would be reported as a database failure. With no explicit
+ * request the current fiscal year is the default (pickCurrentFiscalYear), and
+ * when no year is flagged current the caller must be told so instead of being
+ * handed an unscoped, every-year payload.
+ */
+export function selectBootstrapFiscalYear(years: any[], requestedId?: string): FiscalYearScope {
+  if (requestedId) {
+    const requested = (years || []).find((fy: any) => fy && fy.id === requestedId);
+    if (!requested) return { ok: false, reason: 'not-found', requestedId };
+    return { ok: true, fiscalYear: requested };
+  }
+  const current = pickCurrentFiscalYear(years);
+  if (current) return { ok: true, fiscalYear: current };
+  return { ok: false, reason: years && years.length === 0 ? 'none-configured' : 'none-current' };
+}
+
 // Returns the fiscal-year code (e.g. '2083-84') whose AD range contains the
 // given date, or '' when no fiscal year covers it. Used to stamp records with
 // the correct fiscal year at write time instead of a stale hard-coded default.

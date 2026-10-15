@@ -1,6 +1,64 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-15 · Branch: main · Tests: 811/811 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-15 · Branch: main · Tests: 817/817 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ An unusable fiscal-year master is not a database outage (2026-10-15)
+
+**The defect the last arc recorded instead of fixing is now closed at the source.** `GET /api/bootstrap`
+resolved the fiscal year it scopes the payload to and then read `selectedFiscalYear.id` unguarded. With no
+fiscal year flagged current — or with an explicit `?fiscalYearId=` naming a year that does not exist — that
+read threw a `TypeError` into the handler's own `catch`, which answered
+`503 {"message":"PostgreSQL became unavailable while loading application data. Restart the database and try
+again."}`. The database was up the entire time, and an operator following that message restarts PostgreSQL,
+re-checks DSNs and reads connection logs for a fault that is really one checkbox in Fiscal Year Management.
+
+**The rule now, and it is three different answers for three different problems.**
+`selectBootstrapFiscalYear()` ([server/src/utils/fiscalYear.ts](server/src/utils/fiscalYear.ts)) resolves the
+year or says *why* it could not:
+
+- explicit `fiscalYearId` that does not exist → **400** `fiscalYearNotFound` naming the id. Deliberately not a
+  silent fall-back to another year: serving a view the caller did not ask for is the same class of lie;
+- `fiscal_years` empty → **409** "No fiscal year is configured…", naming Fiscal Year Management as the fix;
+- rows exist but none carries `is_current` → **409** "No fiscal year is flagged as current…". Not an unscoped
+  200: an every-year payload in an accounting system is silently wrong numbers, which is worse than a refusal;
+- **503 stays for the case it describes** — a connection that genuinely failed.
+
+**The client was telling the same lie.** `DatabaseSetupBanner` infers reachability from the bootstrap payload
+itself, so ANY refusal that stopped that payload rendered as "PostgreSQL Database Setup Required … PostgreSQL
+Offline": a connected database blamed for a configuration problem. The client now shows the server's own
+message in [client/src/components/common/BootstrapBlockedBanner.tsx](client/src/components/common/BootstrapBlockedBanner.tsx)
+(verbatim, with the HTTP status, a Retry and a dismiss), forces the setup banner's `isConnected` only on the
+400/409 that prove the application answered, keeps 503 on the database, leaves 401 to the expired-session
+flow, and clears the whole thing on the next successful load.
+
+**Verified on the interface, not just in the handler.**
+[tests/bootstrapFiscalYearHonesty.test.ts](tests/bootstrapFiscalYearHonesty.test.ts) (6 tests) drives the real
+app over real HTTP against a throwaway database built from `scripts/schema.sql` alone, walking four states:
+schema-only → 409 + 400, master with none current → 409, one flagged current → 200, explicit non-current year
+→ 200 that still reports which year IS current. Every non-200 body is asserted free of the outage claim. Run
+against the PRE-fix controller it reproduces the lie exactly — `expected the honest 409, got 503:
+{"message":"PostgreSQL became unavailable while loading application data…"}` on all four cases — so the test
+can actually fail. Then end-to-end in a browser: a dev server booted against its own throwaway database with
+`is_current` cleared, logged in as `superadmin@example.com`, showed
+"Application data is not loading (HTTP 409) — No fiscal year is flagged as current, so there is no default
+view to load. Open Fiscal Year Management, flag one year as current, then reload." with the PostgreSQL setup
+banner ABSENT; flagging `fy-3` and pressing Retry cleared the banner and loaded FY 2082-83 from the live read.
+
+**Also in this arc.** CI now sets a test-only `AUTH_TOKEN_SECRET`, so the per-process warning that opens every
+test process
+stops firing for an environment that cannot have the problem it describes (nothing restarts, nothing is
+multi-instance); the warning itself is untouched for real installs. [handoff.md](handoff.md) claimed a secret
+is "generated and stored on first boot" — nothing in the repo writes one, so that now says what the code does
+(per-process random secret, every restart invalidates all login tokens, set it in `.env`).
+
+**Branch audit (reported, nothing deleted).** All four local branches — `ISP-Inventory-Management-System-b1`,
+`-b2`, `refactor/psql-only-reads`, `agents/hi-what-is-your-skill` — and all three of their remote counterparts
+are strict ANCESTORS of `main` (`git merge-base --is-ancestor` = yes, 0 commits not in `main`), i.e. `main`
+contains every commit they have; `b2`'s local tip (`d681b3d`) and its remote tip (`4eedc43`) are both
+contained. No stashes, one worktree, `main` level with `origin/main`.
+
+**Gates.** `tsc` 0; **817 tests / 205 suites / 815 pass / 2 skipped / 0 fail** with the docs-count gate green at
+817; build, bundle budget, no-inline-SQL and no-raw-dialogs all clean.
 
 ## ⭐ CI is green on a FRESH database, and a red run now annotates itself (2026-10-15)
 
@@ -38,6 +96,8 @@ use is `pickCurrentFiscalYear(...)?.code` — with no fiscal year configured it 
 fiscal years. Left as-is deliberately (the fixture seeds the fiscal-year master, so CI no longer reaches it)
 and recorded rather than silently "fixed": the honest behaviour there — 200 unscoped, or an explicit "no
 fiscal year configured" — is a product decision, and it is the kind of thing that should get its own test.
+**→ That decision was taken and shipped the same day: see the entry at the top of this file (400 for a
+nonexistent `fiscalYearId`, 409 for an unusable master, 503 only for a real outage).**
 
 **A red CI run is now diagnosable without authentication.** Job logs need an authenticated API request,
 which is what made the last red build unreadable from an ordinary `git`/HTTP workflow. `npm test` already
@@ -1460,7 +1520,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 811 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 817 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2027,7 +2087,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 811 tests, 0 fail). Live-verified:
+  key coverage; suite now 817 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2085,7 +2145,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 811 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 817 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2150,7 +2210,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 811 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 817 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2188,7 +2248,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 811 tests, 0 fail.
+  failures, then reverted). Suite now 817 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2203,7 +2263,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 811 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 817 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
