@@ -1,6 +1,70 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-15 · Branch: main · Tests: 817/817 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-15 · Branch: main · Tests: 838/838 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ A refused BS date now names the screen that fixes it — and warns before it bites (2026-10-15)
+
+**Before:** every unseeded-date refusal ended at "please contact your system administrator for BS
+month seeding"; the two screens that named a destination pointed at *System Settings*, a menu this
+app does not have (the real group is Administration & Governance); and **nothing** warned that
+calendar coverage was running out. The first sign of an unseeded BS year was a refused invoice on
+the day the last mapped BS day passed — with an admin who never knew to seed it.
+
+**Now — four layers, pinned by `tests/bsCalendarCoverageGuidance.test.ts` (+16 tests):**
+1. `bsDateOr400` classifies the refusal (`bsDateReason`: `DAY_NOT_SEEDED` vs
+   `BEFORE_/AFTER_CALENDAR_COVERAGE`) and quotes the span it measured, so a gap (re-seed the
+   months) is no longer answered with the instructions for an expired calendar (seed the next BS
+   year). The payload carries `calendarCoverage`. Both inline gates — shipment dispatch and
+   stock-op create — route through the shared resolver, so no call site can drop the context.
+2. `fetchJson` turns `bsDateMissing` into a toast **with an action button**: Super Admin →
+   BS Calendar Utility, Head Office Admin → Nepali Fiscal Management (the same seeder, on the tab
+   that role can actually reach). `App` validates the target through `canAccessTab` before
+   switching, so a toast can never land someone on a screen their role cannot open.
+3. `getBsCalendarCoverage()` (client) derives days-remaining + status
+   (OK / WARNING ≤180d / CRITICAL ≤30d / EXPIRED / UNSEEDED) from the synced mirror. The
+   Dashboard shows the countdown card with a **Seed BS Calendar** button, and the notification
+   bell carries the same alert (dismissible, and cleared by Clear All). Memoized on a calendar
+   store revision, so the per-render callers are O(1) rather than rebuilding ~2,900 day rows.
+4. The menu path is one exported constant (`BS_SEEDING_MENU_PATH`), so the seven screens that
+   block on an unseeded date cannot drift apart again.
+
+**Also fixed in passing:** `getCalendarBounds()`'s empty-store fallback claimed the calendar ends
+2029-04-12; the last mapped AD day is 2029-04-13 (BS 2085-12-31). The docs also said *System
+Settings → Maintenance & Data Management* for the demo-data clear; it is **Administration &
+Governance → Data Recalculation & Repair**.
+
+### The client calendar mirror listed one more day than the database (2026-10-15)
+
+The dashboard badge said **2,923 days pre-mapped** while `bs_day_records` held **2,922 rows**.
+Cause, measured against the live DB rather than reasoned about: `generateCalendarDatabase()`
+emitted a record per (year, day) and concatenated the years, so a year whose month array overruns
+its successor produced two records for one AD date.
+
+```
+BS 2084 = [31,31,31,32,31,31,30,29,30,30,30,30] = 366 days from 2027-04-14
+BS 2085 starts                                             2028-04-13
+→ 2028-04-13 claimed as 2084-12-30 AND 2085-01-01
+```
+
+The database never had the ambiguity — `bs_day_records.ad_date` is the PRIMARY KEY and every seed
+path inserts `ON CONFLICT (ad_date) DO UPDATE` year by year, so the later year wins and the table
+stores 2085-01-01. Both sides now apply that same rule: the mirror is keyed by AD date (later BS
+year replaces the earlier claim, keeping chronological order) and the overlap is `console.warn`ed
+once per calendar revision with the exact dates and years, so the underlying bad data stays visible
+instead of being silently swallowed. Pinned by `tests/bsCalendarMirrorInvariant.test.ts`
+(+5 tests) — the mirror holds one record per AD date, overlaps resolve to the later year, the client
+generator and the server's in-memory calendar agree day for day, and the mirror built from
+`bs_calendar_years` (exactly as App.tsx bootstraps it) equals `bs_day_records` in both count and
+per-date content against a live PostgreSQL.
+
+**The data error behind it is NOT fixed** (no authoritative source consulted, so no month length was
+guessed): BS 2084's array claims 366 days, one more than the 2027-04-14 → 2028-04-13 gap. Either
+Chaitra 2084 is 29 days (array → 365, the likely fix) or BS 2085 starts 2028-04-14. Until an admin
+corrects it in BS Calendar Utility, 2084-12-30 does not exist and every consumer agrees on that.
+
+**Still operator-owned, not code:** somebody must seed each new BS year before Baisakh 1 of that
+year — with the shipped calendar that is **14 April 2029**, now visible on the dashboard months
+before it arrives instead of discovered on the day.
 
 ## ⭐ An unusable fiscal-year master is not a database outage (2026-10-15)
 
@@ -1520,7 +1584,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 817 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 838 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2087,7 +2151,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 817 tests, 0 fail). Live-verified:
+  key coverage; suite now 838 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2145,7 +2209,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 817 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 838 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2210,7 +2274,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 817 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 838 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2248,7 +2312,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 817 tests, 0 fail.
+  failures, then reverted). Suite now 838 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2263,7 +2327,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 817 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 838 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

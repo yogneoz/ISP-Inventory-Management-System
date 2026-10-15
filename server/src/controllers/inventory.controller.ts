@@ -1196,13 +1196,10 @@ try {
       return;
     }
     const opDateAD = String(rawOpDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
-    const bsDayForOp = await findBsDayRecordForAdDate(opDateAD);
-    if (!bsDayForOp.found) {
-      return res.status(400).json({
-        message: `BS date is not available for ${opDateAD}. Please contact your system administrator for BS month seeding.`,
-        bsDateMissing: true,
-      });
-    }
+    // Shared derive-or-400 resolver: the refusal carries bsDateReason +
+    // calendarCoverage so the client can offer the seeding screen.
+    const opDateBS = await bsDateOr400(res, opDateAD);
+    if (!opDateBS) return;
 
     const opBranchId = req.body.branchId || 'WH001';
     // Map operation type to document type code for numbering:
@@ -1226,7 +1223,7 @@ try {
       // date. A client-supplied dateBS can never override it (prevents
       // BS-in-AD / AD-in-BS mismatches from reaching the database).
       dateAD: opDateAD,
-      dateBS: `${bsDayForOp.record.bsDate} BS`,
+      dateBS: opDateBS,
       totalValue,
       fiscalYear: req.body.fiscalYear || getFiscalYearCodeForDate(opDateAD),
       branchName: branchObj?.name || req.body.branchName || 'Branch',

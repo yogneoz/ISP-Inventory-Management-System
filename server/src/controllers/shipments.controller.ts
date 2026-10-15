@@ -154,13 +154,11 @@ try {
       return;
     }
     const dispatchDateAD = String(rawDispatchDateAD || new Date().toISOString().split('T')[0]).split('T')[0];
-    const bsDayForShipment = await findBsDayRecordForAdDate(dispatchDateAD);
-    if (!bsDayForShipment.found) {
-      return res.status(400).json({
-        message: `BS date is not available for ${dispatchDateAD}. Please contact your system administrator for BS month seeding.`,
-        bsDateMissing: true,
-      });
-    }
+    // Same derive-or-400 resolver the receipt path uses, so the refusal carries
+    // bsDateReason + calendarCoverage and the UI can route the operator to the
+    // BS Calendar screen instead of only printing a message.
+    const dispatchDateBS = await bsDateOr400(res, dispatchDateAD);
+    if (!dispatchDateBS) return;
 
     const sourceBranchId = effectiveSourceBranchId;
     const trackingCode = req.body.trackingCode || (await issueNextDocNumber(sourceBranchId, 'ST', dispatchDateAD));
@@ -179,7 +177,7 @@ try {
       // date is ALWAYS derived from the seeded bs_day_records DB record. A
       // client-supplied dispatchDateBS can never override it.
       dispatchDateAD,
-      dispatchDateBS: `${bsDayForShipment.record.bsDate} BS`,
+      dispatchDateBS,
       status: req.body.status || 'IN_TRANSIT',
       items: req.body.items || [],
     };

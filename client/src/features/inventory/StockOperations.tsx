@@ -14,7 +14,7 @@ import {
   SerialLog,
   ApprovalRequest,
 } from '../../types';
-import { hasExactBSDayRecord } from '../../utils/nepaliCalendar';
+import { hasExactBSDayRecord, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
@@ -184,7 +184,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // ---------------------------------------------------------------------------
   // BS Calendar Gate: stock operations are only allowed when today's AD date
   // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
-  // seeded/updated by the admin from System Settings -> BS Calendar Utility.
+  // seeded/updated by the admin from Administration & Governance -> BS Calendar Utility.
   // ---------------------------------------------------------------------------
   const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
   const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -213,7 +213,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         'BS date is not available. Stock operations are locked.\n\n' +
           `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
           'Please contact your system administrator for BS month seeding.\n\n' +
-          'Admin path: System Settings -> BS Calendar Utility -> Seed / Update BS month.'
+          `Admin path: ${BS_SEEDING_MENU_PATH} -> Seed / Update BS month.`
       );
       return false;
     }
@@ -466,7 +466,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <p className="text-xs mt-1 opacity-90">
                 Today ({bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records),
                 so all stock operations (pullouts, sales, damage logs, transfers, asset assignments) are temporarily
-                locked. Seed the missing BS month from <strong>System Settings &rarr; BS Calendar Utility</strong>, then re-check.
+                locked. Seed the missing BS month from <strong>{BS_SEEDING_MENU_PATH}</strong>, then re-check.
               </p>
             </div>
           </div>

@@ -6,7 +6,7 @@ import {
 } from '../../../types';
 import type { AssignBinLine } from './StockOperationsContext';
 import { api } from '../../../services/api';
-import { ensureBSDayForAD } from '../../../utils/nepaliCalendar';
+import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
@@ -160,7 +160,7 @@ export const AssignAssetPanel: React.FC = () => {
     // send an empty or estimated BS date).
     const todayBS = ensureBSDayForAD(todayAD);
     if (!todayBS) {
-      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
 

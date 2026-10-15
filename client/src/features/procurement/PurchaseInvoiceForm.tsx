@@ -33,7 +33,7 @@ import { formCardClass } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { DateField } from '../../components/DateField';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
-import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
@@ -421,12 +421,12 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     // calendar and block the bill when either has no exact record.
     const invBs = ensureBSDayForAD(purchaseDateAD);
     if (!invBs) {
-      alertDialog(`BS date is not available for ${purchaseDateAD}. Please contact your system administrator for BS month seeding.`);
+      alertDialog(`BS date is not available for ${purchaseDateAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
     const vendorBillBs = ensureBSDayForAD(vendorBillDateAD);
     if (!vendorBillBs) {
-      alertDialog(`BS date is not available for ${vendorBillDateAD}. Please contact your system administrator for BS month seeding.`);
+      alertDialog(`BS date is not available for ${vendorBillDateAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
 

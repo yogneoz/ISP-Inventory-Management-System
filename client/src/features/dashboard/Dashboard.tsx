@@ -12,7 +12,7 @@ import {
   ApprovalRequest,
   Category,
 } from '../../types';
-import { formatDualDate } from '../../utils/nepaliCalendar';
+import { formatDualDate, BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
 import { getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../../utils/permissions';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
@@ -38,6 +38,7 @@ import {
   SlidersHorizontal,
   Tag,
   ShieldCheck,
+  CalendarClock,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -64,6 +65,11 @@ interface DashboardProps {
   onSelectBranch?: (branchId: string) => void;
   onGroupLowStockPO?: () => void;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
+  /** BS (Nepali) calendar coverage countdown. Non-null only for roles that can
+   *  seed the calendar; the card renders only when action is due. */
+  bsCalendarCoverage?: BsCalendarCoverageStatus | null;
+  /** Tab that seeds the calendar for this user's role. */
+  bsCalendarSeedTab?: string;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -86,7 +92,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectBranch,
   onGroupLowStockPO,
   onUpdateStockLevel,
+  bsCalendarCoverage = null,
+  bsCalendarSeedTab = 'bs-calendar',
 }) => {
+  // BS calendar coverage: the seeded Nepali calendar must always run AHEAD of
+  // the dates operations use — the day the last mapped BS day passes, every
+  // dated operation (invoice, receipt, payment, stock op) is refused until an
+  // admin seeds the next BS year. Warn while there is still time to act.
+  const coverageNeedsAttention = Boolean(bsCalendarCoverage && bsCalendarCoverage.status !== 'OK');
+  const coverageHeadline = !bsCalendarCoverage
+    ? ''
+    : bsCalendarCoverage.status === 'UNSEEDED'
+    ? 'No BS calendar days are seeded'
+    : bsCalendarCoverage.status === 'EXPIRED'
+    ? 'BS calendar coverage has ended — dated operations are blocked'
+    : `BS calendar coverage ends in ${bsCalendarCoverage.daysRemaining} day${
+        bsCalendarCoverage.daysRemaining === 1 ? '' : 's'
+      }`;
+  const coverageDetail = !bsCalendarCoverage
+    ? ''
+    : `Covers BS ${bsCalendarCoverage.minBS} to ${bsCalendarCoverage.maxBS} (AD ${bsCalendarCoverage.minAD} to ${bsCalendarCoverage.maxAD}, ${bsCalendarCoverage.mappedYearsCount} years). Once the last mapped day passes, every dated operation refuses until the next BS year is seeded — seed it from ${BS_SEEDING_MENU_PATH}.`;
   // Quick Stock Adjustment Modal State
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [selectedStockId, setSelectedStockId] = useState('');
@@ -304,6 +329,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* BS Calendar Coverage Countdown — the pre-emptive warning. Without it
+          the first sign of an unseeded BS year is a refused invoice on the day
+          coverage ends, with no notice while there was still time to seed. */}
+      {coverageNeedsAttention && (
+        <div
+          className={`rounded-2xl border p-3.5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            bsCalendarCoverage!.status === 'EXPIRED' || bsCalendarCoverage!.status === 'CRITICAL'
+              ? 'bg-rose-50 border-rose-300 dark:bg-rose-950/40 dark:border-rose-800/70'
+              : 'bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-800/70'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl border bg-white/70 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800">
+              <CalendarClock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-900 dark:text-white">{coverageHeadline}</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">{coverageDetail}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateTab(bsCalendarSeedTab)}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer shrink-0 bg-amber-600 text-white border-amber-600 hover:bg-amber-700 dark:bg-amber-600 dark:border-amber-500 dark:hover:bg-amber-500"
+          >
+            <span>Seed BS Calendar</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats Grid — shared StatCard 'hero' variant (serif display
           numerals) so the dashboard keeps its intentional display style

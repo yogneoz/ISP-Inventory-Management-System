@@ -9,7 +9,7 @@ import {
   CustomerDeviceRecord,
   SerialLog,
 } from '../../types';
-import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import { Plus, Send, Barcode, Boxes, Trash2 } from 'lucide-react';
@@ -181,7 +181,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     // and block the dispatch when it has no exact record for today.
     const dispatchDateBS = ensureBSDayForAD(todayAD);
     if (!dispatchDateBS) {
-      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
     const srcBranch = branches.find((b) => b.id === sourceBranchId);

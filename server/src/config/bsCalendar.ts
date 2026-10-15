@@ -268,6 +268,64 @@ export function buildBsDayRecordsForYear(yearBS: number, daysInMonths: number[],
 // Audit Trail & Transaction Logs
 
 
+/**
+ * The AD/BS span the calendar can currently date. `bs_day_records` is
+ * authoritative; the in-memory cache answers while PostgreSQL is unreachable
+ * (callers there are already 503'd by requirePostgres, so this is only a
+ * best-effort hint for diagnostics).
+ *
+ * Used to tell the two unseeded-date cases apart, which need opposite
+ * instructions: a date INSIDE the covered span is a gap (re-seed / rebuild the
+ * month arrays), while a date PAST the end means the next BS year was never
+ * seeded and every dated operation will keep failing until an admin seeds it.
+ */
+export interface BsCalendarCoverage {
+  minAD: string | null;
+  maxAD: string | null;
+  minBS: string | null;
+  maxBS: string | null;
+  totalDays: number;
+}
+
+const EMPTY_BS_CALENDAR_COVERAGE: BsCalendarCoverage = {
+  minAD: null, maxAD: null, minBS: null, maxBS: null, totalDays: 0,
+};
+
+function coverageFromRecords(records: any[]): BsCalendarCoverage {
+  if (records.length === 0) return { ...EMPTY_BS_CALENDAR_COVERAGE };
+  const adDates = records.map((r) => String(r.adDate || '')).filter(Boolean).sort();
+  const bsDates = records.map((r) => String(r.bsDate || '')).filter(Boolean).sort();
+  if (adDates.length === 0 || bsDates.length === 0) return { ...EMPTY_BS_CALENDAR_COVERAGE };
+  return {
+    minAD: adDates[0],
+    maxAD: adDates[adDates.length - 1],
+    minBS: bsDates[0],
+    maxBS: bsDates[bsDates.length - 1],
+    totalDays: records.length,
+  };
+}
+
+export async function getBsCalendarCoverage(): Promise<BsCalendarCoverage> {
+  try {
+    const result = await pgPool.query(
+      `SELECT MIN(ad_date)::text AS "minAD", MAX(ad_date)::text AS "maxAD",
+              MIN(bs_date) AS "minBS", MAX(bs_date) AS "maxBS", COUNT(*)::int AS "totalDays"
+       FROM bs_day_records`
+    );
+    const row = result.rows[0];
+    if (!row || !row.minAD || !row.maxAD) return { ...EMPTY_BS_CALENDAR_COVERAGE };
+    return {
+      minAD: row.minAD,
+      maxAD: row.maxAD,
+      minBS: row.minBS ?? null,
+      maxBS: row.maxBS ?? null,
+      totalDays: Number(row.totalDays) || 0,
+    };
+  } catch (_err) {
+    return coverageFromRecords(inMemoryBsDayRecords);
+  }
+}
+
 // Customer Device & Serial Number Lookup
 
 export function setInMemoryBsCalendarYears(value: any) { inMemoryBsCalendarYears = value as any; }

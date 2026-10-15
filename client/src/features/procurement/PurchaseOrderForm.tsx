@@ -27,7 +27,7 @@ import {
 import { formCardClass } from '../../components/common/FormCard';
 import { DateField } from '../../components/DateField';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
-import { ensureBSDayForAD } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
@@ -325,7 +325,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     // and block the order when it has no exact record for today.
     const orderDateBS = ensureBSDayForAD(todayAD);
     if (!orderDateBS) {
-      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding.`);
+      alertDialog(`BS date is not available for ${todayAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
     const appliedBillDiscount = Math.min(grossSubtotal, Math.max(0, billWiseDiscount));

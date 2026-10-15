@@ -144,6 +144,13 @@ const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = {
 let calendarStore: Record<number, BSYearData> | null = null;
 
 /**
+ * Bumped every time the store changes, so derived artifacts (the generated
+ * day-by-day database) can be memoized without any caller having to know a
+ * re-seed happened.
+ */
+let calendarStoreRevision = 0;
+
+/**
  * Returns a snapshot of the calendar (bundled defaults until the server seed
  * lands, then the server-seeded data).
  */
@@ -154,6 +161,7 @@ export function getBsCalendarData(): Record<number, BSYearData> {
 /** Replaces the in-memory calendar snapshot. */
 function saveBsCalendarData(data: Record<number, BSYearData>): void {
   calendarStore = { ...data };
+  calendarStoreRevision += 1;
 }
 
 /**
@@ -163,6 +171,7 @@ function saveBsCalendarData(data: Record<number, BSYearData>): void {
  */
 export function resetBsCalendarData(): void {
   calendarStore = null;
+  calendarStoreRevision += 1;
 }
 
 /**
@@ -508,13 +517,91 @@ export function getNepaliQuarter(monthBS: number): string {
 }
 
 /**
- * Generates full day-by-day lookup table records (`BSDayRecord[]`)
- * for all mapped BS years.
+ * One AD date claimed by TWO BS years. Overlaps are DATA errors — a month
+ * array or a Baisakh-1 start date is off by a day — and the live calendar has
+ * exactly one: BS 2084's array sums to 366 days from 2027-04-14, so its 366th
+ * day lands on 2028-04-13, the very day BS 2085 begins.
+ *
+ * The conversion must stay deterministic regardless, so both sides resolve it
+ * the same way: the later BS year wins (this is also what the database does —
+ * `bs_day_records.ad_date` is the PRIMARY KEY inserted `ON CONFLICT (ad_date)
+ * DO UPDATE` year by year, so 2028-04-13 holds BS 2085-01-01 and the table has
+ * 2,922 rows while the generator used to emit 2,923).
  */
+export interface CalendarOverlap {
+  adDate: string;
+  earlierYearBS: number;
+  earlierBs: string;
+  laterYearBS: number;
+  laterBs: string;
+}
+
+/**
+ * Every AD date claimed by more than one seeded BS year ([] = clean data).
+ * Pure: expands the given year data without touching the store, so it can
+ * audit a candidate seed before it is applied.
+ */
+export function findCalendarOverlaps(data: Record<number, BSYearData>): CalendarOverlap[] {
+  const claimed = new Map<string, { yearBS: number; bsDate: string }>();
+  const overlaps: CalendarOverlap[] = [];
+  for (const yData of Object.values(data).sort((a, b) => a.yearBS - b.yearBS)) {
+    const runningDate = new Date(yData.startAD);
+    for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+      const monthBS = monthIdx + 1;
+      const daysInMonth = yData.daysInMonths[monthIdx] || 30;
+      for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+        const adDate = runningDate.toISOString().split('T')[0];
+        const bsDate = `${yData.yearBS}-${monthBS < 10 ? `0${monthBS}` : `${monthBS}`}-${
+          dayBS < 10 ? `0${dayBS}` : `${dayBS}`
+        }`;
+        const existing = claimed.get(adDate);
+        if (existing) {
+          overlaps.push({
+            adDate,
+            earlierYearBS: existing.yearBS,
+            earlierBs: existing.bsDate,
+            laterYearBS: yData.yearBS,
+            laterBs: bsDate,
+          });
+        } else {
+          claimed.set(adDate, { yearBS: yData.yearBS, bsDate });
+        }
+        runningDate.setDate(runningDate.getDate() + 1);
+      }
+    }
+  }
+  return overlaps;
+}
+
+/**
+ * Generates the day-by-day AD → BS lookup for all mapped BS years.
+ *
+ * ONE record per AD date, always. Every consumer resolves BY AD date
+ * (lookupBSDayRecord, hasExactBSDayRecord, ensureBSDayForAD, and the server's
+ * bs_day_records primary key), so a list that could hold two records for the
+ * same day made the answer depend on array order — and made this mirror claim
+ * one more day than the database actually stores. Overlapping years are
+ * collapsed to the later year (identical to bs_day_records) and reported once,
+ * so the underlying bad month array stays visible instead of silently
+ * swallowing a day.
+ */
+let cachedDayDatabase: BSDayRecord[] = [];
+let cachedDayDatabaseRevision = -1;
+let warnedOverlapRevision = -1;
+
 export function generateCalendarDatabase(): BSDayRecord[] {
+  // Memoized on the store revision: this builds ~2,900 records and is called
+  // on every render that shows calendar bounds (the dashboard coverage card,
+  // the notification center, and both calendar screens' refresh). The returned
+  // array is shared — treat it as read-only.
+  if (cachedDayDatabaseRevision === calendarStoreRevision && cachedDayDatabase.length > 0) {
+    return cachedDayDatabase;
+  }
   const calendarData = getBsCalendarData();
   const sortedYears = Object.values(calendarData).sort((a, b) => a.yearBS - b.yearBS);
-  const records: BSDayRecord[] = [];
+  // Keyed by AD date: a repeated day REPLACES its earlier claim, keeping the
+  // original (chronological) position in the map.
+  const byAdDate = new Map<string, BSDayRecord>();
 
   for (const yData of sortedYears) {
     const startADDate = new Date(yData.startAD);
@@ -535,7 +622,7 @@ export function generateCalendarDatabase(): BSDayRecord[] {
         const fyCode = formatNepaliFiscalYearCode(yData.yearBS, monthBS);
         const qtr = getNepaliQuarter(monthBS);
 
-        records.push({
+        byAdDate.set(adDateStr, {
           adDate: adDateStr,
           bsDate: bsDateStr,
           bsYear: yData.yearBS,
@@ -556,18 +643,47 @@ export function generateCalendarDatabase(): BSDayRecord[] {
     }
   }
 
-  return records;
+  if (warnedOverlapRevision !== calendarStoreRevision) {
+    warnedOverlapRevision = calendarStoreRevision;
+    const overlaps = findCalendarOverlaps(calendarData);
+    if (overlaps.length > 0) {
+      const shown = overlaps
+        .slice(0, 3)
+        .map((o) => `${o.adDate} = ${o.earlierBs} (BS ${o.earlierYearBS}) vs ${o.laterBs} (BS ${o.laterYearBS})`)
+        .join('; ');
+      console.warn(
+        `BS calendar: ${overlaps.length} AD date(s) are claimed by two seeded BS years — ${shown}` +
+          `${overlaps.length > 3 ? ' …' : ''}. The later BS year wins (the same rule bs_day_records enforces), ` +
+          'so conversions are unambiguous, but fix the overlapping year in BS Calendar Utility — its month '
+          + 'array (or Baisakh 1 start date) is one day off.'
+      );
+    }
+  }
+
+  cachedDayDatabase = Array.from(byAdDate.values());
+  cachedDayDatabaseRevision = calendarStoreRevision;
+  return cachedDayDatabase;
 }
 
 /**
  * Retrieves the current bounds of the mapped Nepali Calendar database
  */
+let cachedBounds: CalendarBounds | null = null;
+let cachedBoundsRevision = -1;
+
 export function getCalendarBounds(): CalendarBounds {
+  // Same memo as generateCalendarDatabase: callers include per-render paths
+  // (dashboard card, notification bell, both calendar screens), and the bounds
+  // only change when the store does.
+  if (cachedBounds && cachedBoundsRevision === calendarStoreRevision) return cachedBounds;
+
   const db = generateCalendarDatabase();
   if (db.length === 0) {
     return {
       minAD: '2021-04-14',
-      maxAD: '2029-04-12',
+      // Last mapped AD day = BS 2085-12-31 (2028-04-13 + 365 days). Was one
+      // day short, which understated coverage in the empty-store fallback.
+      maxAD: '2029-04-13',
       minBS: '2078-01-01',
       maxBS: '2085-12-31',
       totalDaysMapped: 0,
@@ -583,7 +699,7 @@ export function getCalendarBounds(): CalendarBounds {
 
   const yearsSet = Array.from(new Set(db.map((r) => r.bsYear))).sort((a, b) => a - b);
 
-  return {
+  cachedBounds = {
     minAD,
     maxAD,
     minBS,
@@ -592,6 +708,8 @@ export function getCalendarBounds(): CalendarBounds {
     mappedYearsCount: yearsSet.length,
     mappedYears: yearsSet,
   };
+  cachedBoundsRevision = calendarStoreRevision;
+  return cachedBounds;
 }
 
 /**
@@ -616,6 +734,63 @@ export function isDateInBounds(adDateStr: string): {
   }
 
   return { inBounds: true, bounds };
+}
+
+/**
+ * Where an administrator actually seeds a missing BS month/year. Named exactly
+ * as the sidebar shows it (Administration & Governance group). The messages
+ * used to name a menu this app does not have, so an operator following them
+ * could not find the screen.
+ */
+export const BS_SEEDING_MENU_PATH =
+  'Administration & Governance → BS Calendar Utility';
+
+/**
+ * Coverage-warning thresholds, in days from today to the last seeded AD day.
+ * The calendar must ALWAYS be seeded ahead of the dates operations use: once
+ * the last mapped day passes, every dated operation refuses (bsDateMissing)
+ * until an admin seeds the next BS year, so the warning has to arrive with
+ * time to act (~two quarters).
+ */
+export const BS_COVERAGE_WARNING_DAYS = 180;
+export const BS_COVERAGE_CRITICAL_DAYS = 30;
+
+export type BsCoverageStatus = 'UNSEEDED' | 'OK' | 'WARNING' | 'CRITICAL' | 'EXPIRED';
+
+export interface BsCalendarCoverageStatus extends CalendarBounds {
+  /** Whole days from `asOf` (today by default) to the last mapped AD day.
+   *  Negative once coverage has already ended. */
+  daysRemaining: number;
+  status: BsCoverageStatus;
+}
+
+/**
+ * How far the seeded BS calendar reaches, as of a given day. `status` is the
+ * single decision every consumer branches on (dashboard card, notification
+ * bell, "is this refusal about coverage or a gap?" checks).
+ */
+export function getBsCalendarCoverage(asOfAD?: string): BsCalendarCoverageStatus {
+  const bounds = getCalendarBounds();
+  const asOf = String(asOfAD || new Date().toISOString()).split('T')[0];
+  if (bounds.totalDaysMapped <= 0 || !bounds.maxAD) {
+    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED' };
+  }
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const daysRemaining = Math.floor(
+    (Date.parse(`${bounds.maxAD}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`)) / DAY_MS
+  );
+  if (!Number.isFinite(daysRemaining)) {
+    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED' };
+  }
+  const status: BsCoverageStatus =
+    daysRemaining < 0
+      ? 'EXPIRED'
+      : daysRemaining <= BS_COVERAGE_CRITICAL_DAYS
+      ? 'CRITICAL'
+      : daysRemaining <= BS_COVERAGE_WARNING_DAYS
+      ? 'WARNING'
+      : 'OK';
+  return { ...bounds, daysRemaining, status };
 }
 
 /**

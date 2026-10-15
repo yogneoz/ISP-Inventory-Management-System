@@ -8,7 +8,7 @@
  * that one day (C4).
  */
 
-import { findBsDayRecordForAdDate, getInMemoryBsDayRecords } from '../config/bsCalendar';
+import { findBsDayRecordForAdDate, getInMemoryBsDayRecords, getBsCalendarCoverage, type BsCalendarCoverage } from '../config/bsCalendar';
 
 /** Last-resort display value, used only when no day record could be found. */
 export const BS_DATE_FALLBACK = '2083-04-16 BS';
@@ -52,12 +52,68 @@ export function todayBs(): string {
 }
 
 /**
+ * The screen that can actually fix an unseeded BS date, named the way the
+ * sidebar shows it (Administration & Governance group). The previous wording
+ * named a menu this app does not have, so an operator following the message
+ * could not find the screen.
+ */
+export const BS_SEEDING_SCREEN_PATH = 'Administration & Governance → BS Calendar Utility (Super Admin)';
+
+/**
+ * Why a dated operation was refused. The two coverage cases need OPPOSITE
+ * instructions from the gap case: a gap is repairable by re-seeding/rebuilding
+ * the existing months, while a date past the end of the calendar means the next
+ * BS year has never been seeded and every dated operation keeps failing until
+ * somebody seeds it.
+ */
+export type BsDateFailureReason =
+  | 'DAY_NOT_SEEDED'
+  | 'BEFORE_CALENDAR_COVERAGE'
+  | 'AFTER_CALENDAR_COVERAGE';
+
+/** Classifies an AD date against the seeded calendar span. Pure, so the
+ *  message text and the reason are unit-testable without a database. */
+export function classifyBsDateFailure(adDate: string, coverage: BsCalendarCoverage): BsDateFailureReason {
+  if (!adDate) return 'DAY_NOT_SEEDED';
+  if (coverage.maxAD && adDate > coverage.maxAD) return 'AFTER_CALENDAR_COVERAGE';
+  if (coverage.minAD && adDate < coverage.minAD) return 'BEFORE_CALENDAR_COVERAGE';
+  return 'DAY_NOT_SEEDED';
+}
+
+/** Builds the operator-facing 400 message: what failed, the exact coverage
+ *  span, and the screen that fixes it. */
+export function bsDateFailureMessage(
+  adDate: string,
+  reason: BsDateFailureReason,
+  coverage: BsCalendarCoverage
+): string {
+  const span = coverage.minAD && coverage.maxAD
+    ? `The seeded BS calendar currently covers ${coverage.minBS ?? '?'} to ${coverage.maxBS ?? '?'} BS (AD ${coverage.minAD} to ${coverage.maxAD}).`
+    : 'No BS calendar days are seeded yet.';
+  if (reason === 'AFTER_CALENDAR_COVERAGE') {
+    return `BS date is not available for ${adDate}: it is past the end of the seeded BS calendar. ${span} Seed the next BS year from ${BS_SEEDING_SCREEN_PATH}.`;
+  }
+  if (reason === 'BEFORE_CALENDAR_COVERAGE') {
+    return `BS date is not available for ${adDate}: it is before the start of the seeded BS calendar. ${span} Seed the earlier BS year from ${BS_SEEDING_SCREEN_PATH}.`;
+  }
+  if (!adDate) {
+    return `BS date is not available for the requested date. ${span} Seed the missing BS month from ${BS_SEEDING_SCREEN_PATH}.`;
+  }
+  return `BS date is not available for ${adDate}: that date is inside the seeded range but has no BS day record. ${span} Re-seed or rebuild the BS month arrays from ${BS_SEEDING_SCREEN_PATH}.`;
+}
+
+/**
  * Mandatory-BS resolver for persisted operation dates: derives the BS date
  * for the operation's OWN AD date from bs_day_records and, when that
  * calendar day is unseeded, sends a 400 (bsDateMissing) and returns null.
  * Persisted rows must never carry an empty, estimated, or fallback BS date;
  * client-supplied BS values cannot override the derived one (same rule the
  * dispatch/receipt date gates already follow).
+ *
+ * The 400 carries machine-readable context so the UI can route the operator to
+ * the seeding screen instead of only printing instructions:
+ *   bsDateReason    — DAY_NOT_SEEDED | BEFORE_CALENDAR_COVERAGE | AFTER_CALENDAR_COVERAGE
+ *   calendarCoverage — the covered AD/BS span at the moment of refusal
  */
 export async function bsDateOr400(res: any, adDate: unknown): Promise<string | null> {
   const ad = String(adDate || '').split('T')[0];
@@ -69,9 +125,14 @@ export async function bsDateOr400(res: any, adDate: unknown): Promise<string | n
   } catch (_err) {
     // handled by the 400 below
   }
+  const coverage = await getBsCalendarCoverage();
+  const reason = classifyBsDateFailure(ad, coverage);
   res.status(400).json({
-    message: `BS date is not available for ${ad || 'the requested date'}. Please contact your system administrator for BS month seeding.`,
+    message: bsDateFailureMessage(ad, reason, coverage),
     bsDateMissing: true,
+    bsDateReason: reason,
+    adDate: ad || null,
+    calendarCoverage: coverage,
   });
   return null;
 }

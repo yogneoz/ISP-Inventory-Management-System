@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Asset, Branch, User } from '../../types';
-import { ensureBSDayForAD, formatDualDate } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, formatDualDate, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
 import { exportToCSV } from '../../utils/exportUtils';
 import { isOperationAllowed } from '../../utils/permissions';
@@ -93,7 +93,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     // block the save when it has no exact record for the acquisition date.
     const acquisitionDateBS = ensureBSDayForAD(acquisitionDateAD);
     if (!acquisitionDateBS) {
-      setBsError(`BS date is not available for ${acquisitionDateAD}. Please contact your system administrator for BS month seeding.`);
+      setBsError(`BS date is not available for ${acquisitionDateAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
       return;
     }
     setBsError(null);

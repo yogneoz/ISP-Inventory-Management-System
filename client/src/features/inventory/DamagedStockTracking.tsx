@@ -5,7 +5,7 @@ import { api } from '../../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
-import { ensureBSDayForAD, hasExactBSDayRecord, getNepaliFiscalYear } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, hasExactBSDayRecord, getNepaliFiscalYear, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import {
@@ -92,7 +92,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   // ---------------------------------------------------------------------------
   // BS Calendar Gate: stock operations are only allowed when today's AD date
   // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
-  // seeded/updated by the admin from System Settings -> BS Calendar Utility.
+  // seeded/updated by the admin from Administration & Governance -> BS Calendar Utility.
   // ---------------------------------------------------------------------------
   const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
   const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -121,7 +121,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         'BS date is not available. Stock operations are locked.\n\n' +
           `Today (${bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records).\n` +
           'Please contact your system administrator for BS month seeding.\n\n' +
-          'Admin path: System Settings -> BS Calendar Utility -> Seed / Update BS month.'
+          `Admin path: ${BS_SEEDING_MENU_PATH} -> Seed / Update BS month.`
       );
       return false;
     }
@@ -415,7 +415,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       // block the write-off when it has no exact record (never send ''/hardcode).
       const disposalDateBS = ensureBSDayForAD(disposalDateAD);
       if (!disposalDateBS) {
-        alertDialog(`BS date is not available for ${disposalDateAD}. Please contact your system administrator for BS month seeding.`);
+        alertDialog(`BS date is not available for ${disposalDateAD}. Please contact your system administrator for BS month seeding — ${BS_SEEDING_MENU_PATH}.`);
         setIsSubmittingDisposal(false);
         return;
       }
@@ -490,7 +490,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               <p className="text-xs mt-1 opacity-90">
                 Today ({bsDateCheckedFor}) has no Nepali (BS) date record in the BS calendar database (bs_day_records),
                 so damaged stock adjustments and disposals are temporarily locked. Seed the missing BS month from
-                <strong> System Settings &rarr; BS Calendar Utility</strong>, then re-check.
+                <strong> {BS_SEEDING_MENU_PATH}</strong>, then re-check.
               </p>
             </div>
           </div>

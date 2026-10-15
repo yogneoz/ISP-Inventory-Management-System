@@ -28,7 +28,8 @@ import {
   LocationRecord,
 } from './types';
 import { api, setAuthToken, setFiscalYearContext, setUserContext, subscribeToSyncStream, getSyncVersion, broadcastLogoutToOtherTabs } from './services/api';
-import { seedBSYearCalendar } from './utils/nepaliCalendar';
+import { seedBSYearCalendar, getBsCalendarCoverage, type BsCalendarCoverageStatus } from './utils/nepaliCalendar';
+import { NAVIGATE_TAB_EVENT } from './services/api/http';
 import {
   saveUserSession,
   loadUserSession,
@@ -347,6 +348,26 @@ export default function App() {
     if (Array.isArray(perm)) return perm.some((op) => isOperationAllowed(op, currentUser?.role));
     return isOperationAllowed(perm, currentUser?.role);
   };
+
+  // Bumped once the server-seeded calendar lands in the client mirror, so the
+  // coverage memo below recomputes against the authoritative data instead of
+  // the bundled defaults.
+  const [bsCalendarSyncVersion, setBsCalendarSyncVersion] = useState(0);
+
+  // BS calendar coverage — how long the seeded Nepali calendar lasts. Only the
+  // roles that can seed it (Super Admin on the BS Calendar Utility, Head Office
+  // Admin on Nepali Fiscal Management) get the countdown, because a warning
+  // nobody can act on is just noise.
+  const canManageBsCalendar = canAccessTab('bs-calendar') || canAccessTab('nepali-fiscal');
+  // Which screen actually seeds for this user: the BS Calendar Utility is
+  // Super-Admin-only in the sidebar, while Nepali Fiscal Management carries the
+  // same seeder and is the one a Head Office Admin can reach by navigation.
+  const bsCalendarSeedTab: NavTab = currentUser?.role === 'SUPER_ADMIN' ? 'bs-calendar' : 'nepali-fiscal';
+  const bsCalendarCoverage: BsCalendarCoverageStatus | null = React.useMemo(
+    () => (canManageBsCalendar ? getBsCalendarCoverage() : null),
+    [canManageBsCalendar, bsCalendarSyncVersion]
+  );
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
@@ -373,6 +394,24 @@ export default function App() {
     };
     window.addEventListener('inventory_auth_expired', handleAuthExpired);
     return () => window.removeEventListener('inventory_auth_expired', handleAuthExpired);
+  }, []);
+
+  // Tab-navigation requests from non-React surfaces (the API-failure toast's
+  // "Open BS Calendar Utility" button). Read through a ref so the listener can
+  // stay subscription-stable while always seeing the current permissions, and
+  // validate the target: a toast must never land a user on a screen their role
+  // cannot open.
+  const canAccessTabRef = React.useRef(canAccessTab);
+  canAccessTabRef.current = canAccessTab;
+  useEffect(() => {
+    const handleNavigateTab = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
+      if (!tab || !canAccessTabRef.current(tab as NavTab)) return;
+      setActiveTab(tab as NavTab);
+      setIsNotificationOpen(false);
+    };
+    window.addEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
+    return () => window.removeEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
   }, []);
 
   useEffect(() => {
@@ -773,6 +812,9 @@ export default function App() {
             seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
           }
         }
+        // The mirror now reflects the server, so the coverage countdown must be
+        // re-derived from it (the memo above holds the pre-sync value).
+        setBsCalendarSyncVersion((v) => v + 1);
       } catch (err) {
         console.error('Failed to sync BS calendar years from server:', err);
       }
@@ -1559,6 +1601,9 @@ export default function App() {
       ...purchaseOrders
         .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
         .map((po) => `po-${po.id}`),
+      // The BS calendar coverage warning is a notification too, so "Clear All"
+      // must dismiss it (otherwise it reappears on the next render).
+      ...(getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']),
     ];
     setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...activeIds])));
   };
@@ -1783,6 +1828,8 @@ export default function App() {
                   onSelectBranch={handleSelectBranch}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
+                  bsCalendarCoverage={bsCalendarCoverage}
+                  bsCalendarSeedTab={bsCalendarSeedTab}
                 />
               </KeepMounted>
 
@@ -3068,6 +3115,8 @@ export default function App() {
         dismissedIds={dismissedNotificationIds}
         onDismiss={handleDismissNotification}
         onClearAll={handleClearAllNotifications}
+        bsCalendarCoverage={bsCalendarCoverage}
+        bsCalendarSeedTab={bsCalendarSeedTab}
       />
 
       {/* User Profile Info & Profile Switching Modal */}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment, Branch } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
+import { BS_SEEDING_MENU_PATH, type BsCalendarCoverageStatus } from '../../utils/nepaliCalendar';
 import {
   Bell,
   AlertTriangle,
@@ -8,6 +9,7 @@ import {
   Truck,
   ShoppingCart,
   CheckCircle2,
+  CalendarClock,
   X,
   ExternalLink,
 } from 'lucide-react';
@@ -27,6 +29,11 @@ interface NotificationCenterProps {
   dismissedIds?: string[];
   onDismiss?: (id: string) => void;
   onClearAll?: () => void;
+  /** BS calendar coverage countdown. App passes it only for roles that can seed
+   *  the calendar, and null while coverage is healthy. */
+  bsCalendarCoverage?: BsCalendarCoverageStatus | null;
+  /** Tab that seeds the calendar for this user's role. */
+  bsCalendarSeedTab?: string;
 }
 
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({
@@ -43,6 +50,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   dismissedIds = [],
   onDismiss,
   onClearAll,
+  bsCalendarCoverage = null,
+  bsCalendarSeedTab = 'bs-calendar',
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'REORDER' | 'APPROVAL' | 'SHIPMENT' | 'PO'>('ALL');
 
@@ -185,10 +194,52 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       actionTab: 'po-list',
     }));
 
+  // 5. BS calendar coverage countdown. Ranked first among the alerts because,
+  //    unlike a reorder or a pending approval, expiry blocks EVERY dated
+  //    operation at once (invoices, receipts, payments, stock ops) until an
+  //    admin seeds the next BS year.
+  const calendarAlerts: {
+    id: string;
+    type: 'CALENDAR';
+    title: string;
+    subtitle: string;
+    branchName: string;
+    date: string;
+    severity: 'CRITICAL' | 'WARNING';
+    actionLabel: string;
+    actionTab: string;
+  }[] = [];
+
+  if (bsCalendarCoverage && bsCalendarCoverage.status !== 'OK') {
+    const { status, daysRemaining, minBS, maxBS, minAD, maxAD, mappedYearsCount } = bsCalendarCoverage;
+    const expired = status === 'EXPIRED';
+    calendarAlerts.push({
+      id: 'bs-calendar-coverage',
+      type: 'CALENDAR',
+      title: expired
+        ? 'BS calendar coverage has ended — dated operations are blocked'
+        : status === 'UNSEEDED'
+        ? 'No BS calendar days are seeded'
+        : `BS calendar coverage ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`,
+      subtitle: expired
+        ? `The calendar ends at BS ${maxBS} (AD ${maxAD}). Every dated operation refuses until the next BS year is seeded.`
+        : `Seeded range: BS ${minBS} to ${maxBS} (AD ${minAD} to ${maxAD}, ${mappedYearsCount} years). Seed the next BS year from ${BS_SEEDING_MENU_PATH} before the last mapped day passes.`,
+      branchName: 'All Branches',
+      date: expired || status === 'CRITICAL' ? 'Action Required' : 'Before coverage ends',
+      severity: expired || status === 'CRITICAL' ? 'CRITICAL' : 'WARNING',
+      actionLabel: 'Seed BS Calendar',
+      actionTab: bsCalendarSeedTab,
+    });
+  }
+
   // Combine all active alerts
-  const allNotifications = [...lowStockAlerts, ...approvalAlerts, ...shipmentAlerts, ...poAlerts].filter(
-    (n) => !dismissedIds.includes(n.id)
-  );
+  const allNotifications = [
+    ...calendarAlerts,
+    ...lowStockAlerts,
+    ...approvalAlerts,
+    ...shipmentAlerts,
+    ...poAlerts,
+  ].filter((n) => !dismissedIds.includes(n.id));
 
   const filteredNotifications = allNotifications.filter((n) => {
     if (activeFilter === 'ALL') return true;
@@ -333,7 +384,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               <div
                 key={item.id}
                 className={`p-3.5 rounded-2xl border transition-all relative group ${
-                  item.type === 'REORDER'
+                  item.type === 'CALENDAR'
+                    ? item.severity === 'CRITICAL'
+                      ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/30'
+                      : 'border-amber-300 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/30'
+                    : item.type === 'REORDER'
                     ? 'border-rose-200/80 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20'
                     : item.type === 'APPROVAL'
                     ? 'border-amber-200/80 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20'
@@ -362,6 +417,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     {item.type === 'PO' && (
                       <div className="p-2 rounded-xl bg-purple-500 text-white shrink-0 mt-0.5">
                         <ShoppingCart className="h-4 w-4" />
+                      </div>
+                    )}
+                    {item.type === 'CALENDAR' && (
+                      <div
+                        className={`p-2 rounded-xl text-white shrink-0 mt-0.5 ${
+                          item.severity === 'CRITICAL' ? 'bg-rose-500' : 'bg-amber-500'
+                        }`}
+                      >
+                        <CalendarClock className="h-4 w-4" />
                       </div>
                     )}
                     <div className="space-y-1">
@@ -396,7 +460,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       onClose();
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-xs flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 ${
-                      item.type === 'REORDER'
+                      item.type === 'CALENDAR'
+                        ? item.severity === 'CRITICAL'
+                          ? 'bg-rose-600 hover:bg-rose-700'
+                          : 'bg-amber-600 hover:bg-amber-700'
+                        : item.type === 'REORDER'
                         ? 'bg-rose-600 hover:bg-rose-700'
                         : item.type === 'APPROVAL'
                         ? 'bg-amber-600 hover:bg-amber-700'

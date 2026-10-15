@@ -283,7 +283,7 @@ The application seeds **example master branches only** (Branch 1 `WH001`, Branch
 
 ### Clearing Demo Data
 If demo data was previously loaded or tested, you can clear all demo records at any time (including demo branches, demo users, and all demo operational records):
-1. Navigate to **System Settings** → **Maintenance & Data Management**.
+1. Navigate to **Administration & Governance** → **Data Recalculation & Repair** (Super Admin).
 2. Click **"Clear Demo Data"**.
 3. All mock products, stock balances, test customer devices, invoices, audit records, demo branches, and demo users will be purged.
 4. The cleanup persists directly in PostgreSQL, guaranteeing that demo data will not reload on server restarts.
@@ -652,7 +652,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 817-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 838-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →
