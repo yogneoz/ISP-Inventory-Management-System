@@ -1223,9 +1223,15 @@ decision that deserves its own test.
    audits but do not block CI.
 
 Dependency policy: `package.json` `overrides` pin `uuid@^11.1.1` (exceljs
-transitive) and `qs@6.16.0` (express/body-parser transitive); `npm audit`
-reports 0 vulnerabilities. If you add a dependency, run `npm audit` locally —
-CI will fail the push otherwise.
+transitive), `qs@6.16.0` (express/body-parser transitive) and `source-map-js@^1.2.2`
+(@tailwindcss/vite + postcss transitive — GHSA-68fv-2mgg-jv7q, which reached
+CI's `--omit=dev` gate because tailwindcss/vite is a PRODUCTION dependency);
+`npm audit` reports 0 vulnerabilities in both scopes. An override is the fix here,
+not a dependency bump: the vulnerable package is nobody's direct dependency. If you
+add a dependency, run `npm audit` locally — CI will fail the push otherwise, and a
+newly *published* advisory turns the gate red on a main nobody touched (exactly how
+this one arrived: the test step had been failing ahead of it since run 84, so the
+audit gate was never reached until the fixtures fixed the suite).
 
 ### 15.12 Source Guards — every screen's fetch surface is pinned
 

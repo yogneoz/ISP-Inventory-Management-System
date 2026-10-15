@@ -53,6 +53,17 @@ problem costs diagnostics, never a masked or invented failure. Node ships no `gi
 (`node:test/reporters` exports only dot/junit/spec/tap/lcov; `--test-reporter=github` tries to import a
 *package* named `github` and crashes) — a test pins that assumption so a future Node can retire the parser.
 
+**Green in real CI, and the last red step was not the tests.** The pushed commit ran on
+ubuntu-latest with the PostgreSQL 16 service container: `npm test` (`LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1`, real
+SIGTERM, fresh database) passed, as did typecheck, both convention guards, the build and the bundle budget.
+The one red step was `npm audit --omit=dev`, for a `source-map-js` advisory
+(GHSA-68fv-2mgg-jv7q) published against a `main` nobody had touched — it had never been reached before,
+because the suite failed ahead of it since run 84. Fixed the way this repo's dependency policy says to fix
+a transitive: an `overrides` entry (`source-map-js@^1.2.2`), not a dependency bump. The vulnerable package
+is nobody's direct dependency — it arrives through `@tailwindcss/vite` and `postcss`, and it counts as
+production because tailwindcss/vite is a production dependency. `npm audit` is now clean in both scopes
+and the lockfile moved by exactly those six lines.
+
 **That layer found its own bug, in CI, on the first push — and the failure was readable.** One test failed
 on Linux and nothing else: the TAP fixture is a verbatim Windows capture, whose ABSOLUTE path cannot be
 relativized against the Linux workspace, so the parser correctly left it absolute while the assertion
