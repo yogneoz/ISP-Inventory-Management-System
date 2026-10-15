@@ -30,6 +30,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -72,6 +73,13 @@ describe('cancel sales invoice (POST /api/sales-invoices/:id/cancel)', () => {
 
   before(async () => {
     if (!dbReachable) return;
+
+    // Every write here is dated `todayAD`, and the cancel path derives the BS
+    // date from bs_day_records (a schema-only CI database has no calendar, so
+    // each create answered 400 bsDateMissing and the payment fixture violated
+    // customer_payments.payment_date_bs NOT NULL). Provision the reference data
+    // a booted install has — branch master, fiscal-year master, today's BS row.
+    await ensureReferenceData(pool!);
 
     // Clear leftovers from aborted runs, then seed idempotently.
     await pool!.query("DELETE FROM customer_payments WHERE id LIKE 'sivtest-%' OR invoice_id LIKE 'sivtest-%'");

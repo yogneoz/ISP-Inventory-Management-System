@@ -45,6 +45,7 @@ import { createApp, registerAllRoutes, shipments, setShipments } from '../server
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -110,6 +111,13 @@ describe('receive lane 403s (route gate + handler lane gate)', () => {
 
   before(async () => {
     if (!dbReachable) return;
+
+    // The destinations below are the real demo branches and every receipt is
+    // dated by the server, so provision the reference data a booted install has
+    // (branch master + the BS day row for today). Without it a schema-only CI
+    // database aborts this whole hook: inventory_stock.branch_id has an FK to
+    // branches, and bsDateOr400() refuses a receipt with no BS day row.
+    await ensureReferenceData(pool!);
 
     // Clear leftovers from aborted runs, then seed idempotently.
     await pool!.query("DELETE FROM stock_operations WHERE id LIKE 'rlt-%'");

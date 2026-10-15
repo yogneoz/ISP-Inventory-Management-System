@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 797 tests; CI runs
+                                        #   drift/concurrency guards — 810 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1164,18 +1164,31 @@ The job is bounded by `timeout-minutes: 30` (~6x the measured runtime) — a wed
 360-minute default per push, which is how an 86-minute hang in the npm test step (all tests green, the
 lifecycle process tests left node's runner unable to exit; fixed) went unnoticed as "still running".
 
-**Known red (2026-10-14, predates the current work):** the suite fails 14 tests in 5 files because they
-expect data a fresh CI database does not have — an empty `bs_day_records` (the BS date gate rejects every
-dated operation: salesInvoiceCancel, shipmentAuthz), the absent demo branches `WH001`/`BRH01`
-(`inventory_stock.branch_id` FK aborts receiveLane403's `before` hook), serialGateHttp returning before it
-listens when its BS precondition is unmet (its tests honour `skipNoDb` but not `skippable`, so they fail with
-`ECONNREFUSED` on port 0 instead of skipping), and a 503 from the bootstrap controller in bootstrapTrim.
-First failing run is #84 (2026-10-05); everything before it was green. Fixing this means giving those tests
-their own fixtures (BS day rows, branch rows) the way tests/lifecycleLiveDrain.test.ts provisions its own
-login account, or seeding the reference data in the CI step.
+**Fresh-database fixtures (2026-10-15 — the red run is closed).** CI's database is created by applying
+`scripts/schema.sql` and nothing else, while a booted server (`dbBoot`) and a dev install (`npm run setup:pg`)
+seed reference data first: the demo branch master (`WH001`/`BRH01`), the fiscal-year master, and the BS
+calendar in `bs_day_records`. Five suites used to assume that data (14 failures, first red run #84,
+2026-10-05 — an empty `bs_day_records` makes `bsDateOr400()` reject every dated write, an absent `WH001`
+violates `inventory_stock.branch_id` and aborted receiveLane403's whole `before` hook, and an empty
+`fiscal_years` made the bootstrap controller answer 503).
+
+The fix lives in the tests, not in the CI step — seeding CI instead would hide the same gap from every
+future suite. [tests/fixtures/referenceData.ts](tests/fixtures/referenceData.ts) is the shared provider:
+`ensureDemoBranches()` inserts the rows `dbBoot` inserts, `ensureFiscalYearMaster()` the fiscal-year master,
+and `ensureBsDayRecords()` / `ensureReferenceData()` DERIVE the BS day row from the bundled
+`DEFAULT_BS_YEARS_SERVER` calendar via `buildBsDayRecordsForYear()` (the same mapping `setup_db.js` writes),
+so no fixture carries a hardcoded BS literal. All statements are idempotent (`ON CONFLICT DO
+NOTHING/UPDATE`); a date outside the bundled calendar throws rather than skipping. Two defects surfaced on
+the way: serialGateHttp's `skippable` latch was evaluated when `test()` was called (during collection, before
+`before()` ran), so it never skipped and failed with `ECONNREFUSED` on port 0 — the always-resolving fixture
+replaced it; and the bootstrap controller dereferences `selectedFiscalYear.id` unguarded (its own later use
+is `pickCurrentFiscalYear(...)?.code`), so with no fiscal year flagged current it throws and reports
+*"PostgreSQL is unavailable"* — knowingly left unfixed here (the fixture seeds the master, so CI cannot reach
+it), because the right answer (unscoped 200 vs. an explicit "no fiscal year configured") is a product
+decision that deserves its own test.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 797 tests against a real PostgreSQL 16 service container
+2. `npm test` — 810 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1188,7 +1201,20 @@ login account, or seeding the reference data in the CI step.
    mandatory: on CI a platform that cannot deliver the signal, a missing
    service container or a user without CREATEDB FAILS the build instead of
    quietly skipping the only real-signal proof. Unset locally, so dev runs
-   keep skipping it on Windows.
+   keep skipping it on Windows. The suite is green against a schema-only
+   database: the five suites that used to assume seeded reference data now
+   provision their own (tests/fixtures/referenceData.ts).
+
+   A failing run is diagnosable WITHOUT downloading the job log (job logs need
+   an authenticated API request). On a non-zero exit with `GITHUB_ACTIONS` set,
+   scripts/run_tests.mjs hands the reporter output it captured to
+   scripts/ciTestAnnotations.ts, which prints one `::error file=…,line=…`
+   annotation per failing test (rendered on the run page and the Summary tab)
+   and appends a job-summary table listing every failure. It never changes the
+   exit status, and its parser is pinned to real reporter output (spec and TAP)
+   in tests/ciTestAnnotations.test.ts. Node ships no `github` reporter
+   (`node:test/reporters` exports only dot/junit/spec/tap/lcov), which is why
+   this is hand-rolled.
 3. `npm run check:no-inline-sql` — repository-layer convention (§15.8)
 4. `npm run build` — production bundles (vite + esbuild). Catches
    bundling-only breakage (bad imports, chunk misconfig) that typecheck misses.

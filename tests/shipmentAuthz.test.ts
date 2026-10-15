@@ -39,6 +39,7 @@ import { createApp, registerAllRoutes, shipments, setShipments } from '../server
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { setPermissionMatrix } from '../server/src/state/runtimeState';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
+import { ensureBsDayRecords, todayAd } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -78,7 +79,7 @@ const HQ_WIDE_USER = {
 describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
   let port = 0;
   let close: (() => Promise<void>) | null = null;
-  let bsDate: string | null = null;
+  let bsDate = '';
   let createdId = '';
   const fdToken = issueAuthToken(FD_USER);
   const acctToken = issueAuthToken(ACCT_USER);
@@ -148,9 +149,14 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
     // the same defaults the boot inserts (requirePermissionAny reads it).
     setPermissionMatrix(JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS_MATRIX)));
 
-    // The create flow requires a BS day record for its dispatch date.
-    const bs = await pool!.query('SELECT ad_date::text AS d FROM bs_day_records ORDER BY ad_date LIMIT 1');
-    bsDate = bs.rows[0]?.d || null;
+    // The create flow requires a BS day record for its dispatch date, and a
+    // schema-only CI database ships no calendar at all — provision today's row
+    // from the bundled one rather than looking for a row that may not exist
+    // (receiving stamps today, so this is the same day the server derives).
+    // `bsDate` is the seeded day's AD date: it is what the dispatch payload
+    // sends, and the server derives the BS half from the row itself.
+    await ensureBsDayRecords(pool!, [todayAd()]);
+    bsDate = todayAd();
 
     const app = createApp();
     registerAllRoutes(app);
@@ -199,8 +205,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
     return r.rows[0] || { quantityOnHand: 0, incomingQty: 0 };
   }
 
-  test('VULN-001 create: omitted sourceBranchId defaults to the caller\'s branch and deducts it', { skip: skipPositive }, async (t) => {
-    if (!bsDate) return t.skip('needs bs_day_records');
+  test('VULN-001 create: omitted sourceBranchId defaults to the caller\'s branch and deducts it', { skip: skipPositive }, async () => {
     const before_src = await stock('aztest-prod1', 'aztest-dst');
     const before_dst = await stock('aztest-prod1', 'aztest-mid');
 
@@ -224,7 +229,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
   });
 
   test('VULN-001 receive: receipt credits only a dispatch that actually deducted stock', { skip: skipPositive }, async (t) => {
-    if (!bsDate || !createdId) return t.skip('needs the create fixture from the previous test');
+    if (!createdId) return t.skip('needs the create fixture from the previous test');
     const before_dst = await stock('aztest-prod1', 'aztest-mid');
 
     const { status, json } = await post(`/api/shipments/${createdId}/receive`, {
@@ -271,8 +276,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
     assert.equal(after_src.quantityOnHand, before_src.quantityOnHand + 2, 'source stock must be restored on cancel');
   });
 
-  test('VULN-003 overwrite: an id naming a shipment outside the caller\'s scope is rejected', { skip: skipPositive }, async (t) => {
-    if (!bsDate) return t.skip('needs bs_day_records');
+  test('VULN-003 overwrite: an id naming a shipment outside the caller\'s scope is rejected', { skip: skipPositive }, async () => {
     const { status, json } = await post('/api/shipments', {
       id: 'aztest-foreign',                 // exists: source+dest are both aztest-src (out of FD's scope)
       type: 'INTER_BRANCH',
@@ -286,7 +290,7 @@ describe('shipment authorization fixes (VULN-001/2/3, VERIFY-001)', () => {
   });
 
   test('VULN-003 overwrite: in-scope id still updates without double-deducting stock', { skip: skipPositive }, async (t) => {
-    if (!bsDate || !createdId) return t.skip('needs the create fixture from the first test');
+    if (!createdId) return t.skip('needs the create fixture from the first test');
     const before_src = await stock('aztest-prod1', 'aztest-dst');
     const { status } = await post('/api/shipments', {
       id: createdId,                        // the caller's own shipment (aztest-dst -> aztest-mid)

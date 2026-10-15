@@ -25,6 +25,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { createApp, registerAllRoutes } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureReferenceData } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -106,6 +107,11 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
 
     before(async () => {
       if (!dbReachable) return;
+      // GET /api/bootstrap scopes its payload to the active fiscal year, so the
+      // reference data a booted install has (fiscal-year master + branch master)
+      // must exist: against a schema-only CI database the controller had no
+      // fiscal year to scope to and answered 503.
+      await ensureReferenceData(pool!);
       const app = createApp();
       registerAllRoutes(app);
       const server = http.createServer(app);

@@ -16,9 +16,9 @@
  *     fixed_assets row, stock untouched.
  *
  * Fixtures use an "sg-" id prefix / "SG" serials, seeded in BOTH the database and
- * the in-memory mirrors and removed in after(). Skips without a reachable
- * PostgreSQL (DATABASE_URL) or without a seeded BS day record to date the
- * operation with.
+ * the in-memory mirrors and removed in after(). The operation's BS day row is
+ * provisioned from the bundled calendar (tests/fixtures/referenceData.ts), so a
+ * schema-only CI database is enough — only an unreachable PostgreSQL skips.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,6 +36,7 @@ import {
   setInventoryStock,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
+import { ensureBsDayRecords, todayAd } from './fixtures/referenceData';
 
 dotenv.config();
 
@@ -72,7 +73,6 @@ describe('shared serial gate (HTTP layer)', () => {
   let close: (() => Promise<void>) | null = null;
   const token = issueAuthToken(SUPER_USER);
   let opDateAD = '';
-  let skippable: string | undefined;
   const origBranches = [...branches];
   const origProducts = [...products];
   const origStock = [...inventoryStock];
@@ -82,16 +82,15 @@ describe('shared serial gate (HTTP layer)', () => {
     await cleanup();
 
     // The stock-operation controller dates every row through bs_day_records
-    // (the BS gate). Reuse a seeded day rather than inventing one, so the
-    // calendar stays the single source of truth.
-    const day = await pool!.query(
-      "SELECT ad_date FROM bs_day_records WHERE ad_date IS NOT NULL ORDER BY ad_date DESC LIMIT 1"
-    );
-    opDateAD = day.rows[0]?.ad_date ? String(day.rows[0].ad_date).slice(0, 10) : '';
-    if (!opDateAD) {
-      skippable = 'needs a seeded bs_day_records row to date the operation';
-      return;
-    }
+    // (the BS gate). A schema-only CI database has no calendar at all, so this
+    // suite provisions today's row from the bundled BS calendar instead of
+    // reading one that may not exist. This replaced a `skippable` latch that
+    // never worked: the skip option is evaluated when test() is CALLED (during
+    // collection, before this hook runs), so the latch was always undefined and
+    // the suite failed with ECONNREFUSED on port 0 instead of skipping — a
+    // fixture that always resolves removes the need for it.
+    await ensureBsDayRecords(pool!, [todayAd()]);
+    opDateAD = todayAd();
 
     await pool!.query(
       `INSERT INTO branches (id, code, name, location) VALUES
@@ -206,7 +205,7 @@ describe('shared serial gate (HTTP layer)', () => {
     return Number(r.rows[0].n);
   };
 
-  test('unknown serial is refused and moves no stock', { skip: skipNoDb || skippable }, async () => {
+  test('unknown serial is refused and moves no stock', { skip: skipNoDb }, async () => {
     const before = await stockOnHand();
     const opsBefore = await opCount();
     const { status, json } = await call('POST', '/api/stock-operations', pullout('SG-NEVER-RECEIVED'));
@@ -216,19 +215,19 @@ describe('shared serial gate (HTTP layer)', () => {
     assert.equal(await opCount(), opsBefore, 'a refused operation must not be recorded');
   });
 
-  test('a unit that already moved on is refused by state', { skip: skipNoDb || skippable }, async () => {
+  test('a unit that already moved on is refused by state', { skip: skipNoDb }, async () => {
     const { status, json } = await call('POST', '/api/stock-operations', pullout(ASSIGNED));
     assert.equal(status, 400);
     assert.match(String(json?.message), /CUSTOMER_ASSIGNED \(not IN_STOCK\)/);
   });
 
-  test('a unit held at another branch is refused by branch', { skip: skipNoDb || skippable }, async () => {
+  test('a unit held at another branch is refused by branch', { skip: skipNoDb }, async () => {
     const { status, json } = await call('POST', '/api/stock-operations', pullout(OTHER_BRANCH_SERIAL));
     assert.equal(status, 400);
     assert.match(String(json?.message), /held at branch/);
   });
 
-  test('an IN_STOCK unit at the acting branch posts and consumes the stock', { skip: skipNoDb || skippable }, async () => {
+  test('an IN_STOCK unit at the acting branch posts and consumes the stock', { skip: skipNoDb }, async () => {
     const before = await stockOnHand();
     const { status, json } = await call('POST', '/api/stock-operations', pullout(IN_STOCK));
     assert.equal(status, 201);
@@ -236,7 +235,7 @@ describe('shared serial gate (HTTP layer)', () => {
     assert.equal(await stockOnHand(), before - 1, 'the unit must leave branch stock');
   });
 
-  test('deploy-from-stock refuses an unknown serial instead of silently skipping', { skip: skipNoDb || skippable }, async () => {
+  test('deploy-from-stock refuses an unknown serial instead of silently skipping', { skip: skipNoDb }, async () => {
     const before = await stockOnHand();
     const { status, json } = await call('POST', '/api/assets', {
       tagNumber: 'SG-TAG-GHOST',

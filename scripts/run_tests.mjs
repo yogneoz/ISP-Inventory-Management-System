@@ -17,9 +17,18 @@
  * checked against a fresh number — no checked-in count file, no lag of one
  * run. The gate itself is scripts/docsTestCounts.ts; its classification
  * rules are unit-tested in tests/docsCounts.guard.test.ts.
+ *
+ * Why the annotation step lives here: a failing run has to be diagnosable from
+ * the GitHub run page without downloading the job log (job logs need an
+ * authenticated API request). On the runner — and only there — a non-zero suite
+ * exit hands this run's captured output to scripts/ciTestAnnotations.ts, which
+ * prints `::error` annotations per failing test plus a job-summary table. The
+ * exit status stays the suite's own.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,19 +48,60 @@ const suite = spawn(npxCmd, ['tsx', '--test', 'tests/*.test.ts'], {
 });
 
 const chunks = [];
+const stderrChunks = [];
 suite.stdout.on('data', (chunk) => {
   chunks.push(chunk);
   process.stdout.write(chunk);
 });
-suite.stderr.on('data', (chunk) => process.stderr.write(chunk));
+suite.stderr.on('data', (chunk) => {
+  stderrChunks.push(chunk);
+  process.stderr.write(chunk);
+});
 
 suite.on('error', (err) => {
   console.error(err);
   process.exit(1);
 });
 
+/**
+ * Turns a failing run into GitHub annotations + a job summary. Runs only on
+ * GitHub Actions: anywhere else the workflow commands would be terminal noise,
+ * and this machine's reporter output already names every failing test.
+ *
+ * Deliberately never touches the exit status — the caller exits with the
+ * suite's own code, so a parser problem can only cost diagnostics, never mask
+ * or manufacture a failure.
+ */
+function annotateFailures(output) {
+  if (process.env.GITHUB_ACTIONS !== 'true') return;
+  const logPath = path.join(os.tmpdir(), `inventory-test-output-${process.pid}.log`);
+  try {
+    fs.writeFileSync(logPath, output);
+    const result = spawnSync(npxCmd, ['tsx', 'scripts/ciTestAnnotations.ts', logPath], {
+      cwd: root,
+      shell: isWindows,
+      env: process.env,
+      stdio: 'inherit',
+    });
+    if (result.error) {
+      console.error('ci-test-annotations: could not run the annotation step:', result.error.message);
+    }
+  } catch (err) {
+    console.error('ci-test-annotations: could not write this run\'s output:', err?.message || err);
+  } finally {
+    try {
+      fs.unlinkSync(logPath);
+    } catch {
+      /* best effort: a leftover temp file is harmless */
+    }
+  }
+}
+
 suite.on('close', (code) => {
-  if (code !== 0) process.exit(code ?? 1);
+  if (code !== 0) {
+    annotateFailures(Buffer.concat([...chunks, ...stderrChunks]).toString('utf8'));
+    process.exit(code ?? 1);
+  }
 
   // The runner's summary: "ℹ tests N" (spec reporter) or "# tests N" (tap).
   const output = Buffer.concat(chunks)
