@@ -67,6 +67,12 @@ const SPEC_OUTPUT = [
   'ℹ skipped 2',
 ].join('\n');
 
+/** The checkout the capture below was made in. TAP reports ABSOLUTE paths, so
+ *  the parser can only relativize them against the workspace they came from —
+ *  without this the assertion would depend on which machine runs the suite
+ *  (Linux CI found that out the first time). */
+const CAPTURE_WORKSPACE = 'D:\\inventory-dev\\ISP-Inventory-Management-System';
+
 /** Verbatim TAP-reporter output for the same failure (node 24.20), including
  *  the escaped Windows path and the nested suite entry that must NOT be
  *  annotated a second time. Captured 2026-10-15. */
@@ -153,7 +159,7 @@ describe('CI test annotations — spec reporter', () => {
 
 describe('CI test annotations — TAP reporter', () => {
   test('reads the failing test and skips the aggregating suite entry', () => {
-    const failures = parseFailingTests(TAP_OUTPUT);
+    const failures = parseFailingTests(TAP_OUTPUT, CAPTURE_WORKSPACE);
     assert.equal(failures.length, 1, 'the suite entry only aggregates its subtests');
     assert.deepEqual(failures[0], {
       file: 'tests/bootstrapTrim.test.ts',
@@ -161,6 +167,15 @@ describe('CI test annotations — TAP reporter', () => {
       title: 'GET /api/bootstrap omits the three ledgers but keeps financialSummary',
       reason: 'Expected values to be strictly equal: 503 !== 200',
     });
+  });
+
+  test('an absolute path outside the workspace is never passed off as relative', () => {
+    // The discriminator Linux CI caught: TAP prints absolute paths, so a
+    // workspace that does not contain them must leave them alone rather than
+    // invent a relative path (an annotation pointing at the wrong file is worse
+    // than one GitHub cannot link).
+    const [failure] = parseFailingTests(TAP_OUTPUT, '/home/runner/work/repo/repo');
+    assert.equal(failure.file, 'D:/inventory-dev/ISP-Inventory-Management-System/tests/bootstrapTrim.test.ts');
   });
 
   test('totals come from the TAP counters', () => {

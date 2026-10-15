@@ -94,14 +94,20 @@ function toLines(output: string): string[] {
  * reporters the runner can produce: `spec` (the default — `✖ failing tests:`
  * followed by `test at <file>:<line>:<col>` blocks) and `tap` (`not ok N - …`
  * with a `location:` field), because run_tests.mjs accepts either.
+ *
+ * `workspace` only affects how a reported path becomes the annotation's `file`
+ * (annotations must be workspace-relative). It defaults to how the runner
+ * resolves it — $GITHUB_WORKSPACE, else the working directory — and the unit
+ * tests pass it because they parse a capture made on a DIFFERENT machine, whose
+ * absolute paths cannot be relativized against this one.
  */
-export function parseFailingTests(output: string): FailingTest[] {
+export function parseFailingTests(output: string, workspace: string = workspaceRoot()): FailingTest[] {
   const lines = toLines(output);
-  const spec = parseSpecFailures(lines);
-  return spec.length > 0 ? spec : parseTapFailures(lines);
+  const spec = parseSpecFailures(lines, workspace);
+  return spec.length > 0 ? spec : parseTapFailures(lines, workspace);
 }
 
-function parseSpecFailures(lines: string[]): FailingTest[] {
+function parseSpecFailures(lines: string[], workspace: string): FailingTest[] {
   const failures: FailingTest[] = [];
   const summaryStart = lines.findIndex((line) => line.trim() === '✖ failing tests:');
   if (summaryStart === -1) return failures;
@@ -132,7 +138,7 @@ function parseSpecFailures(lines: string[]): FailingTest[] {
 
     const rawTitle = titleLine.trim().slice(1).trim(); // strip the marker
     failures.push({
-      file: normalizePath(location[1]),
+      file: normalizePath(location[1], workspace),
       line: Number(location[2]),
       title: rawTitle.replace(DURATION_SUFFIX, '').trim(),
       reason: condenseReason(body) || 'no reason reported',
@@ -142,7 +148,7 @@ function parseSpecFailures(lines: string[]): FailingTest[] {
   return failures;
 }
 
-function parseTapFailures(lines: string[]): FailingTest[] {
+function parseTapFailures(lines: string[], workspace: string): FailingTest[] {
   const failures: FailingTest[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const fail = lines[index].match(TAP_FAIL);
@@ -186,7 +192,7 @@ function parseTapFailures(lines: string[]): FailingTest[] {
     }
 
     failures.push({
-      file: normalizePath(split[1]),
+      file: normalizePath(split[1], workspace),
       line: Number(split[2]),
       title: stripQuotes(fail[1]).trim(),
       reason: condenseReason(reasonLines) || 'no reason reported',

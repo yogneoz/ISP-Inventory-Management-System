@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-15 · Branch: main · Tests: 810/810 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-15 · Branch: main · Tests: 811/811 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 ## ⭐ CI is green on a FRESH database, and a red run now annotates itself (2026-10-15)
 
@@ -24,8 +24,8 @@ same mapping `setup_db.js` writes. Nothing is a hardcoded BS literal, so a fixtu
 real install or trip the C4 guard, and every statement is `ON CONFLICT DO NOTHING/DO UPDATE` so parallel
 files can provision the same rows. A date outside the bundled calendar THROWS instead of skipping.
 
-Same database, after: 0 failures. Full suite on it: `tsc` 0, **810 tests, 808 pass, 2 skipped, 0 fail**
-(the 2 skips are the Windows-only real-signal checks), docs gate green at 810.
+Same database, after: 0 failures. Full suite on it: `tsc` 0, **811 tests, 809 pass, 2 skipped, 0 fail**
+(the 2 skips are the Windows-only real-signal checks), docs gate green at 811.
 
 **Two real defects were hiding behind the fixture work.** (1) `serialGateHttp` set a `skippable` latch inside
 `before()` and skipped on it in `test()`, but the skip option is evaluated when `test()` is CALLED during
@@ -52,6 +52,17 @@ and it can never change the exit status — the runner still exits with the suit
 problem costs diagnostics, never a masked or invented failure. Node ships no `github` reporter to lean on
 (`node:test/reporters` exports only dot/junit/spec/tap/lcov; `--test-reporter=github` tries to import a
 *package* named `github` and crashes) — a test pins that assumption so a future Node can retire the parser.
+
+**That layer found its own bug, in CI, on the first push — and the failure was readable.** One test failed
+on Linux and nothing else: the TAP fixture is a verbatim Windows capture, whose ABSOLUTE path cannot be
+relativized against the Linux workspace, so the parser correctly left it absolute while the assertion
+expected a relative path. Reproduced locally by pointing `GITHUB_WORKSPACE` at a Linux path (exact same
+actual value as CI), then fixed by letting the caller pin the workspace the capture came from — the parser
+now takes an optional `workspace` and the test passes it, while the CLI keeps resolving
+`$GITHUB_WORKSPACE` vs. cwd. The regression CI hit is pinned as an assertion too: a path outside the
+workspace is never passed off as relative. Worth noting *how* this arrived: the run page named the suite,
+the file, the line and the reason without a job log, and the annotation step reported
+`annotated 1 failure entry` — the thing this session built, diagnosing the thing this session built.
 
 ## ⭐ Failed boot now exits 1 — a dead instance can no longer look "online" (2026-10-14)
 
@@ -159,7 +170,7 @@ turned the proof into a green skip that nobody reads. `LIVE_DRAIN_REQUIRE_REAL_S
 before. Verified both ways: with the variable on this Windows box the check exits 1 with
 `process.platform is "win32"`, and a temporary copy that pretends to be POSIX-capable skipped an unreachable
 PostgreSQL with exit 0 unset but failed with `connect ECONNREFUSED 127.0.0.1:59999` when set. Full suite
-after the change: `tsc` 0, **810 tests, 808 pass, 2 skipped, 0 fail**, docs gate green at 810.
+after the change: `tsc` 0, **811 tests, 809 pass, 2 skipped, 0 fail**, docs gate green at 811.
 
 **Ran it on Linux, which is the only place it counts.** The real-signal path had only ever been *argued*;
 `gh` does not exist here, Docker and WSL2 do not work on this machine, and CI job logs need authentication.
@@ -196,7 +207,7 @@ that process. Recorded here rather than fixed in place: it is its own piece of w
 
 **+270 / −1,131** tracked lines across 43 code files, plus two new files
 ([LedgerView.tsx](client/src/components/common/LedgerView.tsx) and the boot guard test) and four doc edits;
-closed by the usual gates: `tsc` 0, **810/810 + docs gate**, `npm run build`, `check:no-inline-sql`,
+closed by the usual gates: `tsc` 0, **811/811 + docs gate**, `npm run build`, `check:no-inline-sql`,
 `check:no-raw-dialogs`.
 
 **The production bundle could not boot at all — now it does.** `dist/server.cjs` (what `npm start`, pm2's
@@ -1438,7 +1449,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 810 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 811 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2005,7 +2016,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 810 tests, 0 fail). Live-verified:
+  key coverage; suite now 811 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2063,7 +2074,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 810 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 811 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2128,7 +2139,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 810 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 811 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2166,7 +2177,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 810 tests, 0 fail.
+  failures, then reverted). Suite now 811 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2181,7 +2192,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 810 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 811 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
