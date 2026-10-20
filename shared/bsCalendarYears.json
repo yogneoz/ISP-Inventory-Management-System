@@ -1,0 +1,15 @@
+{
+  "_verifiedOn": "2026-10-16",
+  "_source": "Published Nepali patro (Bikram Sambat), month start by month start: Hamro Patro (hamropatro.com/calendar/<year>/<month>), cross-checked against nepcalendar.com, bhitta.app, nepalicalendar.rat32.com and englishtonepali.com/calendar-bs/<year>. Every year below was resolved to its own patro month starts — neighbouring years do NOT share a month-length array (BS 2080, 2084 and 2085 each differ from their neighbours while still tiling the AD calendar).",
+  "_contract": "This is the ONLY hand-maintained copy of the BS calendar in the repo. The client bundle (client/src/utils/nepaliCalendar.ts), the server defaults (server/src/config/bsCalendar.ts) and the database seeder (scripts/setup_db.js) all read this file, and the UI seed presets derive from it, so a year cannot be corrected in one place and stay stale in another. tests/bsCalendarPatroData.test.ts pins every month start below and refuses any second copy.",
+  "years": [
+    { "yearBS": 2078, "daysInMonths": [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], "startAD": "2021-04-14" },
+    { "yearBS": 2079, "daysInMonths": [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], "startAD": "2022-04-14" },
+    { "yearBS": 2080, "daysInMonths": [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 30], "startAD": "2023-04-14" },
+    { "yearBS": 2081, "daysInMonths": [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], "startAD": "2024-04-13" },
+    { "yearBS": 2082, "daysInMonths": [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], "startAD": "2025-04-14" },
+    { "yearBS": 2083, "daysInMonths": [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], "startAD": "2026-04-14" },
+    { "yearBS": 2084, "daysInMonths": [31, 31, 32, 31, 31, 30, 30, 30, 29, 30, 30, 30], "startAD": "2027-04-14" },
+    { "yearBS": 2085, "daysInMonths": [31, 32, 31, 32, 30, 31, 30, 30, 29, 30, 30, 30], "startAD": "2028-04-13" }
+  ]
+}

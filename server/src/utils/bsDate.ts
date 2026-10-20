@@ -10,14 +10,33 @@
 
 import { findBsDayRecordForAdDate, getInMemoryBsDayRecords, getBsCalendarCoverage, type BsCalendarCoverage } from '../config/bsCalendar';
 
-/** Last-resort display value, used only when no day record could be found. */
-export const BS_DATE_FALLBACK = '2083-04-16 BS';
+/**
+ * What a BS column or screen gets when the calendar has no day record for the
+ * date: an explicit marker, never a date.
+ *
+ * This replaces BS_DATE_FALLBACK = '2083-04-16 BS', which was a real (wrong)
+ * date for every day except one — it silently dated ledgers, audit rows and
+ * exports to a day that had nothing to do with the operation, and it made an
+ * unseeded calendar look seeded. The marker is stored in the same columns (they
+ * are VARCHAR(20) and the seeding gap must be visible in exports and reports),
+ * and the client shows it verbatim
+ * (client/src/utils/nepaliCalendar.ts BS_NOT_SEEDED — pinned together by
+ * tests/bsDateMarker.test.ts).
+ */
+export const BS_NOT_SEEDED = 'BS not seeded';
+
+/** True when a stored/derived BS value is the not-seeded marker rather than a
+ *  date. Callers that would otherwise parse the value use this first. */
+export function isBsDateMissing(value?: string | null): boolean {
+  const cleaned = String(value ?? '').trim();
+  return cleaned === '' || cleaned.toLowerCase() === BS_NOT_SEEDED.toLowerCase();
+}
 
 /**
  * Resolve the BS display string ("YYYY-MM-DD BS") for an AD date. When no
- * bs_day_records row exists for the date (unseeded calendar) the fallback is
- * returned so legacy display consumers still receive a shaped value instead
- * of undefined.
+ * bs_day_records row exists for the date (unseeded calendar) the caller gets
+ * BS_NOT_SEEDED: the operator sees that the day is unseeded, instead of a
+ * shaped value that looks like a date nobody can verify.
  */
 export async function resolveBsDateForLedger(adDate?: string | null): Promise<string> {
   const ad = String(adDate || new Date().toISOString().split('T')[0]).split('T')[0];
@@ -27,9 +46,9 @@ export async function resolveBsDateForLedger(adDate?: string | null): Promise<st
       return `${day.record.bsDate} BS`;
     }
   } catch (_err) {
-    // fall through to the fallback below
+    // fall through to the marker below
   }
-  return BS_DATE_FALLBACK;
+  return BS_NOT_SEEDED;
 }
 
 /**
@@ -38,15 +57,16 @@ export async function resolveBsDateForLedger(adDate?: string | null): Promise<st
  * in-memory bs_day_records cache that hydrateBsCalendarFromDb refreshes from
  * PostgreSQL at boot and whenever the DB reconnects — same data as the async
  * path, minus the round-trip. When today's row is missing from the cache
- * (unseeded calendar), the shaped fallback is returned.
+ * (unseeded calendar) the caller gets BS_NOT_SEEDED.
  */
 export function resolveBsDateForLedgerSync(adDate?: string | null): string {
   const ad = String(adDate || new Date().toISOString().split('T')[0]).split('T')[0];
   const record = getInMemoryBsDayRecords().find((r) => r.adDate === ad);
-  return record?.bsDate ? `${record.bsDate} BS` : BS_DATE_FALLBACK;
+  return record?.bsDate ? `${record.bsDate} BS` : BS_NOT_SEEDED;
 }
 
-/** Today's BS display string, resolved synchronously from the cache. */
+/** Today's BS display string, resolved synchronously from the cache. Returns
+ *  BS_NOT_SEEDED when today is not a seeded calendar day. */
 export function todayBs(): string {
   return resolveBsDateForLedgerSync();
 }

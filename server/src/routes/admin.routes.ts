@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { post_clearDemoData, put_companyProfile, get_branches, post_branches, put_Id, delete_Id, post_users, put_Id2, delete_Id2, post_resetPassword, post_fixedAssets, post_liveStock, post_ledgerBalances, post_bsDayRecords, post_fiscalYearLinks, get_documentNumberConfigs, put_documentNumberConfigs, post_generateNext, post_resetCounter, get_fiscalYears, post_fiscalYears, post_setCurrent, post_close, post_reopen, post_initializeOpeningStock, delete_Id3, get_years, get_day, get_days, post_seed, post_seedBulk, put_YearBS, post_syncRange } from '../controllers/admin.controller';
+import { post_clearDemoData, put_companyProfile, get_branches, post_branches, put_Id, delete_Id, post_users, put_Id2, delete_Id2, post_resetPassword, post_fixedAssets, post_liveStock, post_ledgerBalances, post_bsDayRecords, post_fiscalYearLinks, get_documentNumberConfigs, put_documentNumberConfigs, post_generateNext, post_resetCounter, get_fiscalYears, post_fiscalYears, post_setCurrent, post_close, post_reopen, post_initializeOpeningStock, delete_Id3, get_years, get_day, get_days, get_integrity, post_integrityApply, post_seed, post_seedBulk, put_YearBS, post_syncRange } from '../controllers/admin.controller';
 import { requirePermission, requireRole } from '../app';
 import { DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, hydrateOperationalData, pgPool } from '../app';
 import type { Asset, Branch, DocumentNumberConfig } from '../../../client/src/types';
@@ -68,6 +68,14 @@ app.get('/api/bs-calendar/years', async (req, res, next) => { get_years(req as a
 app.get('/api/bs-calendar/day', async (req, res, next) => { get_day(req as any, res as any).catch(next); });
 
 app.get('/api/bs-calendar/days', async (req, res, next) => { get_days(req as any, res as any).catch(next); });
+
+// Integrity audit + repair of the stored BS calendar. Same role rule as every
+// other /bs-calendar/ route (SUPER_ADMIN | HEAD_OFFICE_ADMIN, enforced by
+// enforceOperationalPermissions), and both handlers are read/report-first:
+// apply only ever writes values the audit can DERIVE (see the service header).
+app.get('/api/bs-calendar/integrity', async (req, res, next) => { get_integrity(req as any, res as any).catch(next); });
+
+app.post('/api/bs-calendar/integrity/apply', async (req, res, next) => { post_integrityApply(req as any, res as any).catch(next); });
 
 app.post('/api/bs-calendar/seed', async (req, res, next) => { post_seed(req as any, res as any).catch(next); });
 

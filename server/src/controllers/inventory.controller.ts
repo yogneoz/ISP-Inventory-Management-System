@@ -12,7 +12,8 @@ import { DamageRecord, TransactionLog, CustomerDeviceRecord } from '../../../cli
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
-import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory } from '../services/serialGate.service';
+import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
+import { OperationError, errorResponse } from '../utils/operationError';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { isActiveCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
@@ -99,6 +100,7 @@ import {
   SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
   SERIAL_LOG_SYNC_ON_CDR_SQL,
   serialLogCdrSyncParams,
+  SERIAL_LOG_IDENTITY_BY_SERIAL_SQL,
 } from '../models/inventory.repo';
 import {
   serialStatusForCdrStatus,
@@ -773,7 +775,7 @@ try {
           );
           const row = (locked.rows || [])[0] as LockedStockRow | undefined;
           if (!row || Number(row.quantity_on_hand) < qty) {
-            throw new Error(`Insufficient inventory in the database for ${newAsset.name}. Available: ${row ? Number(row.quantity_on_hand) : 0}, requested: ${qty}.`);
+            throw new OperationError(400, `Insufficient inventory for ${newAsset.name}. Available: ${row ? Number(row.quantity_on_hand) : 0}, requested: ${qty}.`);
           }
           const result = await client.query(STOCK_CONSUME_QOH_SQL, [qty, newAsset.productId, branchId]);
           if (result.rowCount !== 1) {
@@ -957,7 +959,8 @@ try {
       return;
     }
     console.error('Error creating fixed asset:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = errorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }
@@ -1341,17 +1344,33 @@ try {
             txn.quantityBefore = before;
             txn.quantityAfter = Math.max(0, before + txn.quantityChanged);
           }
+          // Availability is aggregated PER PRODUCT (and pool): two lines of the
+          // same product must not each fit inside the same locked balance. The
+          // refusal is an OperationError so the client sees a 400 with the
+          // numbers instead of a generic 500.
+          const requestedUsable = new Map<string, { qty: number; name: string }>();
+          const requestedDamaged = new Map<string, { qty: number; name: string }>();
           for (const item of operationItems) {
-            const row = lockedMap.get(item.productId);
             const manualDelta = manualDeltaOf(item);
             if (opType === 'MANUAL_ADJUSTMENT' && manualDelta >= 0) continue; // credit needs no existing row
             const quantity = opType === 'MANUAL_ADJUSTMENT' ? -manualDelta : Number(item.quantity) || 0;
-            if (usesDamagedPool(item)) {
-              if (!row || Number(row.damaged_qty) < quantity) {
-                throw new Error(`Insufficient damaged stock in the database for ${item.productName || item.productId}. Available: ${row ? Number(row.damaged_qty) : 0}, requested: ${quantity}. Please retry.`);
-              }
-            } else if (!row || Number(row.quantity_on_hand) < quantity) {
-              throw new Error(`Insufficient inventory in the database for ${item.productName || item.productId}. Available: ${row ? Number(row.quantity_on_hand) : 0}, requested: ${quantity}. Please retry.`);
+            const bag = usesDamagedPool(item) ? requestedDamaged : requestedUsable;
+            const entry = bag.get(item.productId) || { qty: 0, name: String(item.productName || item.productId) };
+            entry.qty += quantity;
+            bag.set(item.productId, entry);
+          }
+          for (const [productId, requested] of requestedDamaged) {
+            const row = lockedMap.get(productId);
+            const available = row ? Number(row.damaged_qty) || 0 : 0;
+            if (available < requested.qty) {
+              throw new OperationError(400, `Insufficient damaged stock for ${requested.name}. Available: ${available}, requested: ${requested.qty}.`);
+            }
+          }
+          for (const [productId, requested] of requestedUsable) {
+            const row = lockedMap.get(productId);
+            const available = row ? Number(row.quantity_on_hand) || 0 : 0;
+            if (available < requested.qty) {
+              throw new OperationError(400, `Insufficient inventory for ${requested.name}. Available: ${available}, requested: ${requested.qty}.`);
             }
           }
         }
@@ -1516,7 +1535,8 @@ try {
       return;
     }
     console.error('Error creating stock operation:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = errorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }
@@ -2127,8 +2147,31 @@ try {
       timestampBS: issuedDateBS,
     });
 
+    // Assignment picks a unit out of branch stock: the DEVICE SERIAL must name
+    // an IN_STOCK register row of this branch. Without this gate a CDR row
+    // could name a unit the register never received (or one held elsewhere),
+    // and the UPDATE-if-exists sync below would silently no-op.
+    const assignmentGateEntry = {
+      deviceSerial: normalizedDeviceSerial,
+      ponSerial: '',
+      macAddress: '',
+      productId: product?.id || '',
+      productName: product?.name || String(newRecord.productName || ''),
+    };
+    const assignmentGateRules = { branchId, allowedStatuses: ['IN_STOCK'] as const, matchProduct: false };
+    if (isAssigned && normalizedDeviceSerial && !stockAlreadyConsumedByAsset && !getPgConnected()) {
+      resolveSerialGateInMemory(serialLogs as any, [assignmentGateEntry], assignmentGateRules, {
+        action: 'assigned to a customer',
+      });
+    }
+
     if (getPgConnected()) {
       await withTransaction(async (client) => {
+        if (isAssigned && normalizedDeviceSerial && !stockAlreadyConsumedByAsset) {
+          await resolveSerialGateInDb(client, [assignmentGateEntry], assignmentGateRules, {
+            action: 'assigned to a customer',
+          });
+        }
         if (applyStockChange && product) {
           const stockChange = assignmentDelta < 0 ? 1 : -1;
           // Both directions return the true post-update balance so the ledger
@@ -2258,7 +2301,8 @@ try {
     res.status(201).json(newRecord);
   } catch (err: any) {
     console.error('Error adding customer device:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = errorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }
@@ -2425,6 +2469,10 @@ try {
 
 /** Forwarded from inventory.routes.ts (post_exchange). */
 export async function post_exchange(req: any, res: Response): Promise<any> {
+  // Hoisted so the catch block can undo mirror writes when PG refuses.
+  let mirrorOld: any = null;
+  let cdrMirrorBefore: typeof customerDeviceRecords | null = null;
+  let mirrorStatusBefore: { status: unknown; notes: unknown } | null = null;
 try {
     const {
       oldDeviceId,
@@ -2432,15 +2480,15 @@ try {
       oldDeviceAction,
       newProductName,
       newDeviceSerial,
-      newPonSerial,
-      newMacAddress,
       notes,
       branchId,
     } = req.body;
+    // Hydrated below from the register when blank (one-field UX).
+    let { newPonSerial, newMacAddress } = req.body;
 
     // Mirror step 3: PG-first — the full-row read below used to run only on
     // a mirror miss, so a stale mirror row could seed the exchange response.
-    const mirrorOld = customerDeviceRecords.find((c) => c.id === oldDeviceId);
+    mirrorOld = customerDeviceRecords.find((c) => c.id === oldDeviceId);
     let oldRecord: any;
     if (getPgConnected()) {
       const r = await pgPool.query(CDR_FIND_ALL_BY_ID_SQL, [oldDeviceId]);
@@ -2490,7 +2538,65 @@ try {
       }
     }
 
+    // The replacement unit has to BE stock: this endpoint used to trust the
+    // client's newDeviceSerial outright, so an exchange could hand a customer a
+    // serial the register never received (or one sitting at another branch) and
+    // the UPDATE-if-exists sync further down would silently no-op while the
+    // customer row claimed the device. The register is now the authority, and
+    // the same rule is re-applied with a row lock inside the transaction.
+    const replacementSerial = String(newDeviceSerial || '').trim();
+    const exchBranchId = String(branchId || oldRecord.branchId || '');
+    const exchAction = String(oldDeviceAction || '').toUpperCase();
+    const exchQty = 1;
+    const replacementGateEntry = {
+      deviceSerial: replacementSerial,
+      ponSerial: String(newPonSerial || '').trim(),
+      macAddress: String(newMacAddress || '').trim(),
+      productId: '',
+      productName: String(newProductName || oldRecord.productName || ''),
+    };
+    // A replacement may legitimately be a different model, so the product is not
+    // matched; the branch and IN_STOCK are. Identity fields a caller DID send
+    // are still checked, so a wrong PON/MAC is refused rather than overwritten.
+    const replacementGateRules = {
+      branchId: exchBranchId,
+      allowedStatuses: ['IN_STOCK'] as const,
+      matchProduct: false,
+      matchPonWhenProvided: true,
+      matchMac: true,
+    };
+    const replacementGateCtx = { action: 'used as a replacement device' };
+    if (replacementSerial) {
+      if (getPgConnected()) {
+        // Pre-flight before any mirror state is touched, so a refusal is a clean
+        // 400 that leaves the mirrors exactly as they were.
+        await resolveSerialGateInDb(pgPool as any, [replacementGateEntry], replacementGateRules, replacementGateCtx);
+      } else {
+        resolveSerialGateInMemory(serialLogs as any, [replacementGateEntry], replacementGateRules, replacementGateCtx);
+      }
+
+      // Fill blank PON/MAC from the register row (one-field UX).
+      if (getPgConnected()) {
+        const identity = await pgPool.query(SERIAL_LOG_IDENTITY_BY_SERIAL_SQL, [replacementSerial]);
+        const row = identity.rows[0];
+        if (row) {
+          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
+          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
+        }
+      } else {
+        const row: any = serialLogs.find((r) => serialGateKey(r.deviceSerial) === serialGateKey(replacementSerial));
+        if (row) {
+          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
+          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
+        }
+      }
+    }
+
     const dateStrAD = new Date().toISOString().split('T')[0];
+    // A PG failure after the mirror writes below must not leave a phantom
+    // replacement row and a flipped old record behind.
+    cdrMirrorBefore = customerDeviceRecords;
+    mirrorStatusBefore = mirrorOld ? { status: mirrorOld.status, notes: mirrorOld.notes } : null;
 
     oldRecord.status = 'EXCHANGED';
     oldRecord.notes = `[EXCHANGED on ${dateStrAD}] Reason: ${exchangeReason || 'Defective / Replacement'}. Old device disposition: ${oldDeviceAction}. Replacement SN: ${newDeviceSerial}. ${oldRecord.notes || ''}`;
@@ -2529,9 +2635,6 @@ try {
     // reached the damaged bucket. Product resolved by name (CDR carries the
     // product name only, same pattern as the approval restock in misc).
     const exchProd = products.find((p) => p.name.trim().toLowerCase() === String(oldRecord.productName || '').trim().toLowerCase());
-    const exchBranchId = String(branchId || oldRecord.branchId || '');
-    const exchAction = String(oldDeviceAction || '').toUpperCase();
-    const exchQty = 1;
     const exchStockTxn = (changeType: 'PULLOUT' | 'DAMAGE', before: number, after: number): TransactionLog => ({
       id: `txn-exchange-${oldDeviceId}-${Date.now()}`,
       transactionNumber: `EXC-${oldDeviceId}-${Date.now()}`,
@@ -2551,6 +2654,12 @@ try {
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
+        // Authoritative re-check: the pre-flight above could have been raced by
+        // another consumer of this serial. FOR UPDATE pins the row until the
+        // CUSTOMER_ASSIGNED flip below commits.
+        if (replacementSerial) {
+          await resolveSerialGateInDb(client, [replacementGateEntry], replacementGateRules, replacementGateCtx);
+        }
         await client.query(CDR_EXCHANGE_STATUS_SQL, ['EXCHANGED', oldRecord.notes, oldDeviceId]);
 
         // Replacement row, serial-keyed: a serial the register has seen before
@@ -2679,8 +2788,22 @@ try {
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}${exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE') ? ` — old unit ${exchAction === 'RESTOCK' ? 'restocked to branch inventory' : 'quarantined as damaged stock'}` : ''}`, oldRecord.branchId);
     res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
   } catch (err: any) {
-    console.error('Error exchanging customer device:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const status = Number(err?.status) || 500;
+    // A refused exchange is a normal outcome for the operator, not a crash:
+    // only log real failures, so an expected 400 does not page anyone.
+    if (status >= 500) console.error('Error exchanging customer device:', err);
+    // Roll the mirrors back when PG refused after they were written, so a
+    // refused exchange never leaves a replacement row the database rejected.
+    if (getPgConnected()) {
+      if (mirrorOld && mirrorStatusBefore) {
+        mirrorOld.status = mirrorStatusBefore.status;
+        mirrorOld.notes = mirrorStatusBefore.notes;
+      }
+      // Null when the refusal happened before any mirror write (the common
+      // case), so there is nothing to undo.
+      if (cdrMirrorBefore) setCustomerDeviceRecords(cdrMirrorBefore);
+    }
+    res.status(status).json({ message: status === 500 ? `Database error: ${err.message}` : err.message });
   }
 
 }

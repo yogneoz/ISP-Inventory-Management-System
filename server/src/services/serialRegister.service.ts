@@ -13,6 +13,8 @@
  * procurement.controller.ts (`registerPurchaseSerials`).
  */
 
+import { normalizeMacAddress } from '../../../shared/macAddress';
+
 /** The product fields that decide whether a line carries serials. */
 export interface SerialTrackedProduct {
   id?: string;
@@ -75,8 +77,12 @@ export function isSerialTrackedProduct(product?: SerialTrackedProduct | null): b
   return product.requiresSerialTracking !== false;
 }
 
-/** PON and MAC are mandatory only for SERIAL_MAC_PON products. */
-export function requiresPonAndMac(product?: SerialTrackedProduct | null): boolean {
+/**
+ * MAC is mandatory for SERIAL_MAC_PON products. PON is optional: several ONU
+ * models ship without one printed, and the field stays available so an
+ * operator can record it when the device does carry one.
+ */
+export function requiresMac(product?: SerialTrackedProduct | null): boolean {
   return String(product?.trackingType || '') === 'SERIAL_MAC_PON';
 }
 
@@ -84,11 +90,11 @@ export function requiresPonAndMac(product?: SerialTrackedProduct | null): boolea
  * Plans and validates the register entries for an invoice's lines.
  *
  * Rejections (the invoice must post nothing): a serial-tracked line whose
- * device-serial count does not equal its quantity, a missing PON/MAC on a
+ * device-serial count does not equal its quantity, a missing MAC on a
  * SERIAL_MAC_PON product, and a device serial / PON / MAC repeated within the
- * invoice. Lines for a product the catalog does not know are treated as
- * serial-tracked when the operator typed serials, so deliberately entered
- * identity is never silently dropped.
+ * invoice. PON is optional and stored as null when blank. Lines for a product
+ * the catalog does not know are treated as serial-tracked when the operator
+ * typed serials, so deliberately entered identity is never silently dropped.
  */
 export function planPurchaseSerialEntries(
   items: Array<Record<string, any>>,
@@ -107,7 +113,7 @@ export function planPurchaseSerialEntries(
       .map((s: any) => ({
         deviceSerial: String(typeof s === 'string' ? s : s?.deviceSerial || '').trim(),
         ponSerial: String(typeof s === 'string' ? '' : s?.ponSerial || '').trim(),
-        macAddress: String(typeof s === 'string' ? '' : s?.macAddress || '').trim(),
+        macAddress: normalizeMacAddress(typeof s === 'string' ? '' : s?.macAddress || ''),
       }))
       .filter((p) => p.deviceSerial.length > 0);
     const serialized = product ? isSerialTrackedProduct(product) : pairs.length > 0;
@@ -122,16 +128,13 @@ export function planPurchaseSerialEntries(
       };
     }
 
-    const strict = requiresPonAndMac(product);
+    const strict = requiresMac(product);
     for (const pair of pairs) {
       const deviceKey = serialKey(pair.deviceSerial);
       if (seenDevice.has(deviceKey)) {
         return { entries: [], error: `Duplicate device serial ${pair.deviceSerial} on this purchase invoice.` };
       }
       seenDevice.add(deviceKey);
-      if (strict && !pair.ponSerial) {
-        return { entries: [], error: `PON serial is required for device serial ${pair.deviceSerial}.` };
-      }
       if (strict && !pair.macAddress) {
         return { entries: [], error: `MAC address is required for device serial ${pair.deviceSerial}.` };
       }
@@ -143,16 +146,18 @@ export function planPurchaseSerialEntries(
         seenPon.add(ponKey);
       }
       if (pair.macAddress) {
-        const macKey = serialKey(pair.macAddress);
-        if (seenMac.has(macKey)) {
+        // pair.macAddress is already canonical here, so a plain serial key is
+        // enough for intra-bill duplicates.
+        const macDuplicateKey = serialKey(pair.macAddress);
+        if (seenMac.has(macDuplicateKey)) {
           return { entries: [], error: `Duplicate MAC address ${pair.macAddress} on this purchase invoice.` };
         }
-        seenMac.add(macKey);
+        seenMac.add(macDuplicateKey);
       }
       entries.push({
         deviceSerial: pair.deviceSerial,
         ponSerial: pair.ponSerial || null,
-        macAddress: pair.macAddress || null,
+        macAddress: normalizeMacAddress(pair.macAddress) || null,
         productId: String(item?.productId || ''),
         productName: name,
         branchId,

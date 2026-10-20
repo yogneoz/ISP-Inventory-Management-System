@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CustomerDeviceRecord, CustomerRecord, Branch, Product, User, ApprovalRequest } from '../../types';
+import { CustomerDeviceRecord, CustomerRecord, Branch, Product, SerialLog, User, ApprovalRequest } from '../../types';
 import { formatDualDate, convertADToBS, formatBSDate } from '../../utils/nepaliCalendar';
 import { getWarrantyInfo } from '../../utils/warranty';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
@@ -32,6 +32,8 @@ import {
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
+import { DeviceSerialInput, findRegisterRow } from '../../components/common/DeviceSerialInput';
+import { normalizeMacAddress } from '../../../../shared/macAddress';
 
 interface CustomersManagementProps {
   customerDevices: CustomerDeviceRecord[];
@@ -160,6 +162,13 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [exchangeNotes, setExchangeNotes] = useState<string>('');
   const [isSubmittingExchange, setIsSubmittingExchange] = useState<boolean>(false);
 
+  /**
+   * IN_STOCK register rows for the branch a form acts on. Both modals used to
+   * ask for a typed Device + PON (+MAC) pair; now the device serial is the only
+   * key and this register supplies PON/MAC/product (serial-input plan, Slice D).
+   */
+  const [branchSerialRegister, setBranchSerialRegister] = useState<SerialLog[]>([]);
+
   const handleOpenExchangeModal = (record: CustomerDeviceRecord) => {
     setSelectedDeviceForExchange(record);
     setExchangeProductName(record.productName);
@@ -181,10 +190,18 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const handlePerformExchange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDeviceForExchange) return;
-    if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
-      alertDialog('Please fill new device serial number and PON serial number.');
+    if (!exchangeNewSerial.trim()) {
+      alertDialog('Scan or type the new device serial number (SN).');
       return;
     }
+    // The replacement's PON/MAC come from the register row, not the operator.
+    const replacementRow = findRegisterRow(branchSerialRegister, exchangeNewSerial);
+    if (!replacementRow || String(replacementRow.status || '') !== 'IN_STOCK') {
+      alertDialog('The new device serial must be an IN_STOCK unit of this branch in the serial register.');
+      return;
+    }
+    const resolvedExchangePon = String(replacementRow.ponSerial ?? exchangeNewPon ?? '').trim();
+    const resolvedExchangeMac = normalizeMacAddress(replacementRow.macAddress ?? exchangeNewMac);
 
     setIsSubmittingExchange(true);
     try {
@@ -194,8 +211,8 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         oldDeviceAction,
         newProductName: exchangeProductName || selectedDeviceForExchange.productName,
         newDeviceSerial: exchangeNewSerial.trim(),
-        newPonSerial: exchangeNewPon.trim(),
-        newMacAddress: exchangeNewMac.trim() || undefined,
+        newPonSerial: resolvedExchangePon,
+        newMacAddress: resolvedExchangeMac || undefined,
         notes: exchangeNotes.trim() || undefined,
         branchId: selectedDeviceForExchange.branchId,
       });
@@ -348,6 +365,32 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       }
     }
   }, [selectedBranchId, branches, currentUser]);
+  // IN_STOCK register rows for the branch a form acts on. Both modals used to
+  // ask for a typed Device + PON (+MAC) pair; now the device serial is the only
+  // key and this register supplies PON/MAC/product (serial-input plan, Slice D).
+  const formRegisterBranchId =
+    selectedBranchId !== 'ALL'
+      ? selectedBranchId
+      : isExchangeModalOpen
+        ? selectedDeviceForExchange?.branchId || branchId
+        : branchId;
+  useEffect(() => {
+    if (!isModalOpen && !isExchangeModalOpen) return;
+    if (!formRegisterBranchId) return;
+    let cancelled = false;
+    api
+      .getSerialLogs({ branchId: formRegisterBranchId, status: 'IN_STOCK' })
+      .then((res) => {
+        if (!cancelled) setBranchSerialRegister(Array.isArray(res) ? res : res.data || []);
+      })
+      .catch(() => {
+        if (!cancelled) setBranchSerialRegister([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen, isExchangeModalOpen, formRegisterBranchId]);
+
   const [productName, setProductName] = useState('ONU ROUTER 2.4G');
   const [deviceSerial, setDeviceSerial] = useState('');
   const [ponSerial, setPonSerial] = useState('');
@@ -425,10 +468,24 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName.trim() || !deviceSerial.trim() || !ponSerial.trim()) {
-      alertDialog('Please fill customer name, device serial number, and PON serial number.');
+    if (!customerName.trim() || !deviceSerial.trim()) {
+      alertDialog('Please fill the customer name and the device serial number.');
       return;
     }
+    // Device serial is the ONLY key: the register row supplies product, PON and
+    // MAC, so a unit that is not really IN_STOCK at this branch cannot be
+    // registered against a customer (serial-input plan, Slice D).
+    const unit = findRegisterRow(branchSerialRegister, deviceSerial);
+    if (!unit || String(unit.status || '') !== 'IN_STOCK') {
+      alertDialog(
+        `Device serial ${deviceSerial.trim().toUpperCase()} must be an IN_STOCK unit of ${branches.find((b) => b.id === branchId)?.name || branchId} in the serial register.`
+      );
+      return;
+    }
+    const resolvedDeviceSerial = String(unit.deviceSerial || deviceSerial).trim();
+    const resolvedPon = String(unit.ponSerial ?? '').trim();
+    const resolvedMac = normalizeMacAddress(unit.macAddress);
+    const resolvedProductName = String(unit.productName || productName || 'ONU ROUTER 2.4G');
 
     const dateBSObj = convertADToBS(issuedDateAD);
 
@@ -439,10 +496,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       contactPhone,
       installationAddress,
       branchId,
-      productName,
-      deviceSerial,
-      ponSerial,
-      macAddress: macAddress.trim() || undefined,
+      productName: resolvedProductName,
+      deviceSerial: resolvedDeviceSerial,
+      ponSerial: resolvedPon,
+      macAddress: resolvedMac || undefined,
       status: assignType,
       issuedDateAD,
       issuedDateBS: dateBSObj.formattedBSShort,
@@ -475,8 +532,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 onClick={() => {
                   setAssignType('RENTAL');
                   setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
-                  setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-                  setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+                  // Start empty: the assigned unit must be picked from the
+                  // branch's IN_STOCK register, never generated.
+                  setDeviceSerial('');
+                  setPonSerial('');
+                  setMacAddress('');
                   setIsModalOpen(true);
                 }}
                 className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
@@ -1161,19 +1221,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
               <div>
                 <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-300`}>
-                  Device Hardware Model
+                  Device Hardware Model (from the serial register)
                 </label>
-                <select
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 bg-white border-slate-300 text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
-                >
-                  <option value="ONU ROUTER 2.4G">ONU ROUTER 2.4G</option>
-                  <option value="ONU ROUTER 5G">ONU ROUTER 5G</option>
-                  <option value="IP TV SETUP BOX">IP TV SETUP BOX</option>
-                  <option value="SWITCH (HUAWEI S6700-24-EI)-FA">SWITCH (HUAWEI S6700-24-EI)</option>
-                  <option value="MIKROTIK HEX RB750Gr3">MIKROTIK HEX RB750Gr3</option>
-                </select>
+                <input
+                  type="text"
+                  readOnly
+                  value={
+                    findRegisterRow(branchSerialRegister, deviceSerial)?.productName ||
+                    (deviceSerial.trim() ? '— resolve the device serial first —' : '— pick a device serial —')
+                  }
+                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200`}
+                />
               </div>
 
               {/* Highlighted Serial Inputs */}
@@ -1186,44 +1244,19 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-blue-800 dark:text-blue-300`}>
-                      Device Serial Number *
+                      Device Serial Number * <span className="font-normal normal-case">— PON &amp; MAC fill from the register</span>
                     </label>
-                    <input
-                      type="text"
-                      required
-                      value={deviceSerial}
-                      onChange={(e) => setDeviceSerial(e.target.value)}
-                      placeholder="e.g. SN-ONU24G-881923"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-blue-500 bg-white border-blue-300 text-blue-900 dark:bg-slate-800 dark:border-blue-700 dark:text-blue-200`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-indigo-800 dark:text-indigo-300`}>
-                      PON Serial Number *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={ponSerial}
-                      onChange={(e) => setPonSerial(e.target.value)}
-                      placeholder="e.g. HWTC-90A812C4"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs font-extrabold focus:ring-2 focus:ring-indigo-500 bg-white border-indigo-300 text-indigo-900 dark:bg-slate-800 dark:border-indigo-700 dark:text-indigo-200`}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 text-slate-600 dark:text-slate-400`}>
-                      MAC Address (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={macAddress}
-                      onChange={(e) => setMacAddress(e.target.value)}
-                      placeholder="e.g. 70:A8:E3:4B:91:10"
-                      className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs bg-white border-slate-300 text-slate-800 dark:bg-slate-800 dark:border-slate-700 dark:text-white`}
+                    <DeviceSerialInput
+                      value={{ deviceSerial, ponSerial, macAddress }}
+                      onChange={(next) => {
+                        setDeviceSerial(next.deviceSerial);
+                        setPonSerial(next.ponSerial || '');
+                        setMacAddress(next.macAddress || '');
+                        const row = findRegisterRow(branchSerialRegister, next.deviceSerial);
+                        if (row?.productName) setProductName(String(row.productName));
+                      }}
+                      register={branchSerialRegister}
+                      branchId={branchId}
                     />
                   </div>
 
@@ -1565,66 +1598,23 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   )}
                 </div>
 
-                {/* New Serials */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                        New Device Serial # *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)}
-                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer font-bold"
-                      >
-                        🎲 Auto-Gen
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={exchangeNewSerial}
-                      onChange={(e) => setExchangeNewSerial(e.target.value)}
-                      placeholder="e.g. SN-ONU24G-902188"
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                        New PON Serial # *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`)}
-                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer font-bold"
-                      >
-                        🎲 Auto-Gen
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={exchangeNewPon}
-                      onChange={(e) => setExchangeNewPon(e.target.value)}
-                      placeholder="e.g. HWTC-6789ABCD"
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
-                    />
-                  </div>
-                </div>
-
-                {/* New MAC Address */}
+                {/* New device serial — the ONLY field; PON/MAC come from the register */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    New MAC Address (Optional)
+                    New Device Serial # * <span className="font-normal">— PON &amp; MAC fill from the register</span>
                   </label>
-                  <input
-                    type="text"
-                    value={exchangeNewMac}
-                    onChange={(e) => setExchangeNewMac(e.target.value)}
-                    placeholder="e.g. 00:1A:2B:3C:4D:5E"
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
+                  <DeviceSerialInput
+                    value={{ deviceSerial: exchangeNewSerial, ponSerial: exchangeNewPon, macAddress: exchangeNewMac }}
+                    onChange={(next) => {
+                      setExchangeNewSerial(next.deviceSerial);
+                      setExchangeNewPon(next.ponSerial || '');
+                      setExchangeNewMac(next.macAddress || '');
+                      const row = findRegisterRow(branchSerialRegister, next.deviceSerial);
+                      if (row?.productName) setExchangeProductName(String(row.productName));
+                    }}
+                    register={branchSerialRegister}
+                    branchId={selectedDeviceForExchange?.branchId}
+                    productName={exchangeProductName || selectedDeviceForExchange?.productName}
                   />
                 </div>
               </div>

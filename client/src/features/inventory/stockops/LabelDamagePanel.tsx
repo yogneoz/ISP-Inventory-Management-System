@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
-import type { DamageSerialEntry } from './StockOperationsContext';
 import {
   Product,
   PulloutItem,
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
+import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import {
   Trash2,
   AlertTriangle,
@@ -22,12 +22,14 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const LabelDamagePanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, initialDamageModalOpen, onCreateOperation, isSuperOrInventory, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, ensureBsDateAvailable, initialDamageModalOpen, onCreateOperation, isSuperOrInventory, products, serialRegister, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(initialDamageModalOpen);
 
   const defaultDamageBranch = userBranchId;
   const [damageBranchId, setDamageBranchId] = useState<string>(defaultDamageBranch);
+  // Same branch the submit uses — the register lookup must scope to it.
+  const effectiveDamageBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
   const [damageItems, setDamageItems] = useState<PulloutItem[]>([]);
   const [damageReason, setDamageReason] = useState<string>('Overstock transit damage / defective hardware unit');
   const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
@@ -121,10 +123,13 @@ export const LabelDamagePanel: React.FC = () => {
     }));
   };
 
-  const updateDamageItemSerial = (itemId: string, index: number, field: keyof DamageSerialEntry, value: string) => {
+  /** One-field entry: PON is resolved from the register, never typed. */
+  const updateDamageSerialPair = (itemId: string, index: number, next: { deviceSerial: string; ponSerial?: string }) => {
     setDamageItems((previous) => previous.map((item) => item.id === itemId ? {
       ...item,
-      deviceSerials: (item.deviceSerials || []).map((entry, entryIndex) => entryIndex === index ? { ...entry, [field]: value } : entry),
+      deviceSerials: (item.deviceSerials || []).map((entry, entryIndex) =>
+        entryIndex === index ? { deviceSerial: next.deviceSerial, ponSerial: next.ponSerial || '' } : entry
+      ),
     } : item));
   };
 
@@ -193,10 +198,17 @@ export const LabelDamagePanel: React.FC = () => {
                         <button type="button" onClick={() => setDamageItems((previous) => previous.filter((entry) => entry.id !== item.id))} className="text-rose-500 dark:text-rose-400"><Trash2 className="h-4 w-4" /></button>
                       </div>
                       {isSerialized && <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">
-                        {item.deviceSerials?.map((entry, index) => <div key={index} className="grid grid-cols-[2rem_1fr_1fr] gap-2 items-center">
-                          <span className="text-[10px] font-mono">#{index + 1}</span>
-                          <input required value={entry.deviceSerial} onChange={(e) => updateDamageItemSerial(item.id, index, 'deviceSerial', e.target.value)} placeholder="Device Serial #" className="rounded-lg border p-2 font-mono" />
-                          <input required value={entry.ponSerial} onChange={(e) => updateDamageItemSerial(item.id, index, 'ponSerial', e.target.value)} placeholder="PON Serial #" className="rounded-lg border p-2 font-mono" />
+                        {item.deviceSerials?.map((entry, index) => <div key={index} className="flex items-start gap-2">
+                          <span className="text-[10px] font-mono pt-2">#{index + 1}</span>
+                          <DeviceSerialInput
+                            className="flex-1"
+                            value={entry}
+                            onChange={(next) => updateDamageSerialPair(item.id, index, next)}
+                            register={serialRegister}
+                            branchId={effectiveDamageBranch}
+                            productId={item.productId}
+                            productName={item.productName}
+                          />
                         </div>)}
                       </div>}
                     </div>

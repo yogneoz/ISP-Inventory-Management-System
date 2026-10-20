@@ -14,6 +14,7 @@ import path from 'path';
 import { pgPool, realPoolInstance, setIsPgConnected } from '../../db';
 import { setPgConnected as setPgConnectedFlag } from '../state/runtimeState';
 import { hydrateBsCalendarFromDb } from '../config/bsCalendar';
+import { auditBsCalendar } from '../services/bsCalendarIntegrity.service';
 import {
 INITIAL_COMPANY_PROFILE,
 INITIAL_DOCUMENT_NUMBER_CONFIGS,
@@ -119,6 +120,31 @@ export async function syncDatabaseAndIndexes() {
     await loadPermissionMatrixFromDb(client);
     await hydrateBsCalendarFromDb(client);
 
+    // Read-only calendar integrity check. The API, the CLI and the BS Calendar
+    // Utility's Calendar Health panel can repair drift, but a restore from
+    // backup or an out-of-band seed must be visible in the boot log instead of
+    // surfacing weeks later as a wrong date on a document. Nothing is written
+    // here.
+    try {
+      const integrity = await auditBsCalendar(client);
+      if (integrity.summary.total === 0) {
+        console.log('✅ BS calendar integrity: the stored calendar matches the patro reference.');
+      } else {
+        console.warn(
+          `⚠️  BS calendar integrity: ${integrity.summary.total} finding(s) (${integrity.summary.fixable} derivable).` +
+            ' Run `npm run audit:bs-dates` for the list, or open Administration & Governance → BS Calendar Utility → Calendar Health.'
+        );
+        for (const finding of integrity.findings.slice(0, 5)) {
+          console.warn(`   ${finding.fixable ? '[fixable]' : '[report] '} ${finding.title}`);
+        }
+        if (integrity.findings.length > 5) {
+          console.warn(`   … +${integrity.findings.length - 5} more finding(s)`);
+        }
+      }
+    } catch (err: any) {
+      console.warn('BS calendar integrity check skipped:', err?.message || err);
+    }
+
     client.release();
     console.log('✅ Database schema synced from scripts/schema.sql; seeds, caches and permission matrix loaded.');
   } catch (err: any) {
@@ -141,7 +167,11 @@ async function seedInitialPostgresData(client: pg.PoolClient) {
       await client.query(
         `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (id) DO NOTHING`,
-        [fy.id, fy.code, fy.startDateAD || '2025-07-16', fy.endDateAD || '2026-07-15', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-31', fy.isCurrent || false, fy.isClosed || false]
+        // The fallbacks are a last resort for a master row that omits a field;
+        // they mirror fy-3 (2082-83 = Shrawan 1 2082 .. Ashadh 32 2083) from
+        // INITIAL_MASTER_FISCAL_YEARS so they never reintroduce a boundary that
+        // is not a patro date (2025-07-16 is Ashadh 32, not Shrawan 1).
+        [fy.id, fy.code, fy.startDateAD || '2025-07-17', fy.endDateAD || '2026-07-16', fy.startDateBS || '2082-04-01', fy.endDateBS || '2083-03-32', fy.isCurrent || false, fy.isClosed || false]
       );
     }
     // Seed Company Profile if empty

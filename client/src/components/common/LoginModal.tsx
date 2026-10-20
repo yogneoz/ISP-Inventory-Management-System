@@ -4,6 +4,7 @@ import {
   Mail,
   ArrowRight,
   AlertCircle,
+  AlertTriangle,
   Eye,
   EyeOff,
   Building2,
@@ -21,12 +22,16 @@ interface LoginModalProps {
   onLoginSuccess: (email: string, pass: string) => Promise<void>;
   onSetupSuperAdmin?: (data: { name: string; email: string; password: string; branchId?: string }) => Promise<void>;
   branches?: Branch[];
+  /** Why the operator is seeing this screen, when it was not their choice (for
+   *  example a demo-data clear that deleted the account they were signed in as). */
+  notice?: string;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
   onLoginSuccess,
   onSetupSuperAdmin,
   branches = [],
+  notice,
 }) => {
   const [mode, setMode] = useState<'LOGIN' | 'FIRST_TIME_SETUP' | 'FORGOT_PASSWORD'>('LOGIN');
   
@@ -186,6 +191,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Why they were signed out (e.g. their demo account was cleared) —
+            shown before the first-launch banner, because it explains it. */}
+        {notice && (
+          <div className="bg-rose-500/10 border-b border-rose-500/20 px-6 py-3 flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
+            <AlertTriangle className="h-4 w-4 text-rose-500 flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] leading-relaxed">{notice}</p>
+          </div>
+        )}
 
         {/* First Time Launch Banner Alert */}
         {isFirstLaunch && mode === 'FIRST_TIME_SETUP' && (

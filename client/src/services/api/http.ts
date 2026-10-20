@@ -116,6 +116,13 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit): Pro
         const error = new Error(errorBody.message || `Request failed with status ${res.status}`);
         // Attach status code for 401 detection
         (error as any).status = res.status;
+        // ...and the parsed body, because some refusals carry a machine-readable
+        // reason a caller has to act on rather than just display:
+        // noCurrentFiscalYear (409 bootstrap → offer the fiscal-year screen),
+        // fiscalYearNotFound (400), bsDateMissing (400). Without this the
+        // structured reason is lost at the boundary and callers are left
+        // pattern-matching prose.
+        (error as any).body = errorBody;
         // Toast intent (see the contract above): attach it to every failure,
         // broadcast it for failed mutations.
         const toastIntent: ApiToastIntent = { message: error.message, status: res.status };

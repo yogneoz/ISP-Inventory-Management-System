@@ -103,9 +103,37 @@ export async function deleteFiscalYear(id: string): Promise<{ message: string; i
   });
 }
 
-// Bikram Sambat (BS) Calendar PostgreSQL API
-export async function getBsCalendarYears(): Promise<{ yearBS: number; daysInMonths: number[]; startAD: string }[]> {
+// Bikram Sambat (BS) Calendar PostgreSQL API.
+// startAdSource / isProvisional carry the provenance of each year: 'estimated'
+// (or provisional) means the bundled patro data does not verify that month
+// array, so the mirror and the coverage warning say so instead of presenting a
+// guess as the calendar.
+export async function getBsCalendarYears(): Promise<{
+  yearBS: number;
+  daysInMonths: number[];
+  startAD: string;
+  startAdSource?: 'patro' | 'estimated';
+  isProvisional?: boolean;
+}[]> {
   return fetchJson('/api/bs-calendar/years');
+}
+
+// Integrity audit + repair of the stored BS calendar (the same engine behind
+// `npm run audit:bs-dates` and the boot check).
+export async function getBsCalendarIntegrity(): Promise<import('../../types').BsIntegrityReport> {
+  return fetchJson('/api/bs-calendar/integrity');
+}
+
+// Applies the DERIVABLE corrections: `ids` names findings from the last audit,
+// and the server re-resolves them, so a client can never supply the values that
+// get written. Omit `ids` to apply every fixable finding.
+export async function applyBsCalendarIntegrity(
+  ids?: string[]
+): Promise<import('../../types').BsIntegrityApplyResult> {
+  return fetchJson('/api/bs-calendar/integrity/apply', {
+    method: 'POST',
+    body: JSON.stringify(ids && ids.length > 0 ? { ids } : {}),
+  });
 }
 
 export async function getBsDayRecords(yearBS?: number | string, monthBS?: number | string, search?: string): Promise<any[]> {
@@ -166,7 +194,14 @@ export async function syncBsDayRange(dayRecords: any[]): Promise<{ success: bool
 // start date shifts) in bs_day_records.
 export async function updateBsCalendarYear(
   yearBS: number,
-  payload: { daysInMonths?: number[]; startAD?: string; recalculateNextStartAD?: boolean }
+  payload: {
+    daysInMonths?: number[];
+    startAD?: string;
+    recalculateNextStartAD?: boolean;
+    /** Provenance override: 'patro' is what the "confirm against patro" action
+     *  sends once the array and Baisakh 1 come from the published patro. */
+    startSource?: 'patro' | 'estimated';
+  }
 ): Promise<{ success: boolean; pgSynced?: boolean; affectedYears?: number[]; regeneratedRecords?: number; message: string }> {
   return fetchJson(`/api/bs-calendar/years/${yearBS}`, {
     method: 'PUT',

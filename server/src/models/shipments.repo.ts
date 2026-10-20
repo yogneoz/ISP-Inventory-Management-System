@@ -86,6 +86,31 @@ export function shipmentIncomingDestParams(destBranchId: string, item: Record<st
 }
 
 // ---------------------------------------------------------------------------
+// Serial register transitions (Slice E of the serial-input plan)
+// ---------------------------------------------------------------------------
+
+/**
+ * Moves one dispatched unit's register row to its new status/branch and
+ * appends the lifecycle history entry. Device serial is the key (the same
+ * case/trim key `uq_serial_log_device_serial` enforces), and the optional
+ * status predicate makes each leg race-safe: a unit that has since moved
+ * updates 0 rows instead of being silently re-stamped.
+ */
+/**
+ * Status-guarded flip: only a row in `$7` moves, so a unit that has since
+ * changed state updates 0 rows instead of being silently re-stamped.
+ */
+export const SERIAL_LOG_TRANSFER_FLIP_SQL = `UPDATE serial_log
+ SET status = $1,
+     branch_id = COALESCE($2, branch_id),
+     history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text,
+     source_type = $4,
+     source_id = $5,
+     updated_at = CURRENT_TIMESTAMP
+ WHERE lower(trim(device_serial)) = lower(trim($6))
+   AND status = $7`;
+
+// ---------------------------------------------------------------------------
 // Receive
 // ---------------------------------------------------------------------------
 
@@ -134,6 +159,22 @@ export const SHIPMENT_CANCEL_RELEASE_DEST_SQL =
 // ---------------------------------------------------------------------------
 // Undo receive (cancel a received transfer → back to In-Transit)
 // ---------------------------------------------------------------------------
+
+/** Status-guarded IN_STOCK→IN_TRANSIT flip used by the undo-receive leg. */
+export const SERIAL_LOG_UNDO_RECEIVE_FLIP_SQL = SERIAL_LOG_TRANSFER_FLIP_SQL;
+
+/** Param list for SERIAL_LOG_TRANSFER_FLIP_SQL (device serial is the key). */
+export function serialLogTransferFlipParams(
+  status: string,
+  branchId: string | null,
+  history: unknown,
+  sourceId: string,
+  deviceSerial: string,
+  fromStatus: string
+): unknown[] {
+  return [status, branchId, JSON.stringify(history), 'SHIPMENT', sourceId, deviceSerial, fromStatus];
+}
+
 
 /** Quantity settled by the receive for one item line (falls back to sent). */
 export function shipmentReceivedQty(item: Record<string, any>): number {

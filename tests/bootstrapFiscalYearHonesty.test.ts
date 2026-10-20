@@ -10,8 +10,10 @@
  *
  * The database was up the whole time. An operator following that message
  * restarts PostgreSQL, checks DSNs and reads connection logs for a fault that
- * is really "no fiscal year is flagged as current", which is fixed in Fiscal
- * Year Management. Two different problems deserve two different answers, and
+ * is really "no fiscal year is flagged as current", which is fixed in the
+ * Fiscal Year Closing Wizard (the screen that actually owns the fiscal-year
+ * master — an earlier message named "Fiscal Year Management", a label the nav
+ * has never shown). Two different problems deserve two different answers, and
  * the answer must never blame a subsystem that is healthy.
  *
  * PROVES, over real HTTP against a real PostgreSQL, in FOUR database states
@@ -246,7 +248,29 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
       assert.equal(status, 409, `expected 409, got ${status}: ${body.slice(0, 300)}`);
       assert.match(json?.message || '', /No fiscal year is flagged as current/);
       assert.equal(json?.noCurrentFiscalYear, true);
-      assert.match(json?.message || '', /Fiscal Year Management/, 'the message must name where it is fixed');
+      assert.match(
+        json?.message || '',
+        /Fiscal Year Closing Wizard/,
+        'the message must name where it is fixed, using the label the sidebar actually shows'
+      );
+      // The reason the old text was wrong: it named "Fiscal Year Management", a
+      // label that exists nowhere in the nav (the tab key with that name renders
+      // Document Numbering Setup), so the operator had nowhere to go. Pin the
+      // label against the sidebar itself, not against this file's prose.
+      const sidebar = fs.readFileSync(
+        path.resolve(process.cwd(), 'client', 'src', 'components', 'layout', 'Sidebar.tsx'),
+        'utf8'
+      );
+      assert.match(
+        sidebar,
+        /label: 'Fiscal Year Closing Wizard'/,
+        'the screen this message names must still exist in the sidebar under that label'
+      );
+      assert.doesNotMatch(
+        json?.message || '',
+        /Fiscal Year Management/,
+        'never send an operator to a screen label the sidebar does not show'
+      );
       assert.doesNotMatch(body, DB_OUTAGE_CLAIM, 'this is the exact body that used to claim PostgreSQL was down');
     });
   });

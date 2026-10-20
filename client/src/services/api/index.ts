@@ -183,6 +183,8 @@ export const api = {
   seedBsCalendarYearsBulk: finance.seedBsCalendarYearsBulk,
   syncBsDayRange: finance.syncBsDayRange,
   updateBsCalendarYear: finance.updateBsCalendarYear,
+  getBsCalendarIntegrity: finance.getBsCalendarIntegrity,
+  applyBsCalendarIntegrity: finance.applyBsCalendarIntegrity,
 
   // Clear Demo Data
   clearDemoData: admin.clearDemoData,

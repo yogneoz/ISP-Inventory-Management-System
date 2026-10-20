@@ -379,6 +379,9 @@ export default function App() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
+  /** One-line context shown on the login screen (e.g. the session was ended by
+   *  a demo-data clear because the signed-in account was demo data). */
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
 
   // Synchronize permissions live across components
   useEffect(() => {
@@ -556,7 +559,13 @@ export default function App() {
   // DatabaseSetupBanner — which infers reachability from the very payload the
   // refusal blocked. Null while the last load succeeded, so fixing the cause
   // and retrying clears it without a reload.
-  const [bootstrapBlocked, setBootstrapBlocked] = useState<{ message: string; status?: number } | null>(null);
+  const [bootstrapBlocked, setBootstrapBlocked] = useState<{
+    message: string;
+    status?: number;
+    /** Machine-readable cause from the server's body (see http.ts): a refused
+     *  bootstrap can name the screen that fixes it instead of only describing it. */
+    noCurrentFiscalYear?: boolean;
+  } | null>(null);
 
   // Hydrate state from recent cache for instant 0ms load speed
   const applyBootstrapData = (data: any) => {
@@ -744,6 +753,7 @@ export default function App() {
           setBootstrapBlocked({
             message: err?.message || 'The server could not load application data.',
             status,
+            noCurrentFiscalYear: err?.body?.noCurrentFiscalYear === true,
           });
         }
         // A structured 4xx came FROM the application, so PostgreSQL is
@@ -801,27 +811,34 @@ export default function App() {
   // conversion in the UI is driven by the authoritative bs_calendar_years /
   // bs_day_records tables. Seeds made in the BS Calendar Utility (Admin) are
   // picked up on any client, even browsers with a fresh local storage.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const years = await api.getBsCalendarYears();
-        if (cancelled || !Array.isArray(years)) return;
-        for (const y of years) {
-          if (y && y.yearBS && Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12 && y.startAD) {
-            seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
-          }
+  //
+  // Held in a ref so the SSE handler below can re-run it when the server
+  // broadcasts a calendar change: it used to happen ONLY on mount, so a tab left
+  // open kept a stale mirror after another admin seeded or repaired a year and
+  // could block dates the server would have accepted.
+  const syncBsCalendarMirrorRef = React.useRef<() => Promise<void>>(async () => undefined);
+  syncBsCalendarMirrorRef.current = async () => {
+    try {
+      const years = await api.getBsCalendarYears();
+      if (!Array.isArray(years)) return;
+      for (const y of years) {
+        if (y && y.yearBS && Array.isArray(y.daysInMonths) && y.daysInMonths.length === 12 && y.startAD) {
+          seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD, {
+            startAdSource: y.startAdSource,
+            isProvisional: y.isProvisional,
+          });
         }
-        // The mirror now reflects the server, so the coverage countdown must be
-        // re-derived from it (the memo above holds the pre-sync value).
-        setBsCalendarSyncVersion((v) => v + 1);
-      } catch (err) {
-        console.error('Failed to sync BS calendar years from server:', err);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      // The mirror now reflects the server, so the coverage countdown must be
+      // re-derived from it (the memo above holds the pre-sync value).
+      setBsCalendarSyncVersion((v) => v + 1);
+    } catch (err) {
+      console.error('Failed to sync BS calendar years from server:', err);
+    }
+  };
+
+  useEffect(() => {
+    syncBsCalendarMirrorRef.current();
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -859,6 +876,10 @@ export default function App() {
     // trail re-fetch ONLY their own slice instead of full bootstrapping.
     PERMISSIONS: ['permissionsMatrix'],
     SETTINGS: ['appSettings'],
+    // BS_CALENDAR has no bootstrap slice — its data is GET /api/bs-calendar/years,
+    // refreshed explicitly in the handler below. It is listed so a calendar event
+    // counts as a KNOWN domain (an unknown one forces a full bootstrap).
+    BS_CALENDAR: [],
   };
 
   // Paged-register refresh counters, bumped by the SSE handler below.
@@ -927,6 +948,10 @@ export default function App() {
         const plan = burst.flush((d) => Boolean(DOMAIN_STATE_KEYS[d]));
         if (plan.mode === 'targeted') {
           const domains = plan.domains;
+          // A calendar seed/repair changes the AD<->BS mapping every screen
+          // converts with, so re-read the mirror immediately instead of waiting
+          // for the next mount.
+          if (domains.includes('BS_CALENDAR')) syncBsCalendarMirrorRef.current();
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {
@@ -1664,10 +1689,15 @@ export default function App() {
         className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
       >
         <LoginModal
-          onLoginSuccess={handleLogin}
+          onLoginSuccess={async (email, pass) => {
+            setLoginNotice(null);
+            await handleLogin(email, pass);
+          }}
           branches={branches}
+          notice={loginNotice || undefined}
           onSetupSuperAdmin={async (data) => {
             const res = await api.setupSuperAdmin(data);
+            setLoginNotice(null);
             setAuthToken(res.token);
             setCurrentUser(res.user);
             setRootUser(res.user);
@@ -1748,6 +1778,13 @@ export default function App() {
         <BootstrapBlockedBanner
           message={bootstrapBlocked.message}
           status={bootstrapBlocked.status}
+          // A refused-for-want-of-a-fiscal-year bootstrap names its own remedy in
+          // prose; give it the button too, so the block is one click from fixed.
+          action={
+            bootstrapBlocked.noCurrentFiscalYear
+              ? { label: 'Open Fiscal Year Closing Wizard', tab: 'fiscal-year-closing' }
+              : undefined
+          }
           onRetry={refreshAllData}
           onDismiss={() => setBootstrapBlocked(null)}
         />
@@ -2887,9 +2924,25 @@ export default function App() {
                     poCount={purchaseOrders.length}
                     invoiceCount={purchaseInvoices.length}
                     onClearDemoData={async () => {
-                      await api.clearDemoData();
+                      const result = await api.clearDemoData();
                       await refreshAllData();
+                      // The demo Super Admin rows were just deleted — usually
+                      // including the account this session is signed in as.
+                      // Authorization is derived from the signed token (8h TTL)
+                      // with no per-request user lookup, so staying signed in
+                      // would mean acting as a user that no longer exists; the
+                      // real next step is the first-launch setup, which
+                      // LoginModal opens by itself once no Super Admin is left.
+                      if (result.superAdminCount === 0) {
+                        setLoginNotice(
+                          'Demo data was cleared, including the demo Super Admin accounts. Create your own Super Admin account to continue.'
+                        );
+                      }
+                      return result;
                     }}
+                    needsFiscalYear={!fiscalYears.some((fy) => fy.isCurrent)}
+                    onNavigateFiscalYears={() => setActiveTab('fiscal-year-closing')}
+                    onSignedOut={handleLogout}
                     onNavigateDashboard={() => setActiveTab('dashboard')}
                   />
                 </React.Suspense>
@@ -3019,6 +3072,7 @@ export default function App() {
               <KeepMounted visible={visible['bs-calendar'] === true}>
                 <React.Suspense fallback={<TabLoadingFallback />}>
                   <BsCalendarUtility
+                    currentUser={currentUser}
                   />
                 </React.Suspense>
               </KeepMounted>

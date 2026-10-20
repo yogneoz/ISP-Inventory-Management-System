@@ -32,6 +32,8 @@ import { formatMoney } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { inputClass, labelClass, btnPrimary, btnGhost } from '../../components/common/styleConstants';
 import { api } from '../../services/api';
+import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
+import { normalizeMacAddress } from '../../../../shared/macAddress';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
 import type {
   SalesInvoice, SalesInvoiceItem, Product, Branch, InventoryStock, CompanyProfile, User,
@@ -425,7 +427,10 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     for (const l of validLines) {
       if (!isSerializedProduct(l.productId)) continue;
       const qty = Number(l.quantity) || 0;
-      const slots = l.deviceSerials || [];
+      // Local copy: the register-resolved PON/MAC are written back here (never
+      // into React state) before the payload is built.
+      const slots = [...(l.deviceSerials || [])];
+      l.deviceSerials = slots;
       if (slots.length < qty) {
         setFormError(`Enter serial numbers for all ${qty} unit(s) of "${l.productName}".`);
         return;
@@ -433,16 +438,17 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
       for (let s = 0; s < qty; s++) {
         const unit = s + 1;
         const serial = norm(slots[s]?.deviceSerial);
+        // PON/MAC are resolved from the register row by the one-field input;
+        // they are display/verification values, not required typed keys.
         const pon = norm(slots[s]?.ponSerial);
         const mac = norm(slots[s]?.macAddress);
 
         if (!serial) { setFormError(`Device serial is required for "${l.productName}" (unit #${unit}).`); return; }
-        if (!pon) { setFormError(`PON serial is required for "${l.productName}" (unit #${unit}).`); return; }
         if (seenDevice.has(serial)) { setFormError(`Duplicate device serial ${serial} on this invoice.`); return; }
         if (seenPon.has(pon)) { setFormError(`Duplicate PON serial ${pon} on this invoice.`); return; }
         if (mac && seenMac.has(mac)) { setFormError(`Duplicate MAC address ${mac} on this invoice.`); return; }
         seenDevice.add(serial);
-        seenPon.add(pon);
+        if (pon) seenPon.add(pon);
         if (mac) seenMac.add(mac);
 
         // Gate: every serial must already exist in inventory — an IN_STOCK
@@ -462,7 +468,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
           );
           return;
         }
-        if (norm(rec.ponSerial) !== pon) {
+        if (pon && norm(rec.ponSerial) !== pon) {
           setFormError(
             `PON serial ${pon} (unit #${unit}) does not match inventory: ${sellBranchName} has ` +
             `${norm(rec.ponSerial) || 'no PON'} recorded against ${serial}.`
@@ -475,6 +481,15 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             `${norm(rec.macAddress) || 'no MAC'} recorded against ${serial}.`
           );
           return;
+        }
+        // Fill the resolved identity so the payload/claim carries the
+        // register's own PON and MAC rather than blanks.
+        if (!pon || !mac) {
+          slots[s] = {
+            ...slots[s],
+            ponSerial: pon || norm(rec.ponSerial),
+            macAddress: mac || normalizeMacAddress(rec.macAddress),
+          };
         }
       }
     }
@@ -907,65 +922,29 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                                     <tr className="text-[9px] uppercase tracking-wide text-slate-400">
                                       <th className="w-8 pb-1">#</th>
                                       <th className="pb-1">Device Serial *</th>
-                                      <th className="pb-1">PON Serial *</th>
-                                      <th className="pb-1">MAC Address</th>
+                                      <th className="pb-1">PON / MAC (from register)</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {Array.from({ length: serialQty }).map((_, sIdx) => (
                                       <tr key={sIdx}>
-                                        <td className="py-1 font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</td>
-                                        <td className="py-1 pr-2">
-                                          <input
+                                        <td className="py-1 font-mono text-[10px] font-bold text-slate-400 align-top">#{sIdx + 1}</td>
+                                        <td className="py-1 pr-2" colSpan={2}>
+                                          <DeviceSerialInput
                                             id={`sale-serial-device-${idx}-${sIdx}`}
-                                            type="text"
-                                            placeholder="Device Serial #"
-                                            value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                            onChange={(e) => updateSerial(idx, sIdx, { deviceSerial: e.target.value })}
-                                            onKeyDown={(e) => {
-                                              if (e.key !== 'Enter') return;
-                                              e.preventDefault();
-                                              const next = document.getElementById(`sale-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
-                                              next?.focus(); next?.select();
-                                            }}
-                                            className={serialInputClass}
-                                          />
-                                        </td>
-                                        <td className="py-1 pr-2">
-                                          <input
-                                            id={`sale-serial-pon-${idx}-${sIdx}`}
-                                            type="text"
-                                            placeholder="PON Serial #"
-                                            value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                            onChange={(e) => updateSerial(idx, sIdx, { ponSerial: e.target.value })}
-                                            onKeyDown={(e) => {
-                                              if (e.key !== 'Enter') return;
-                                              e.preventDefault();
-                                              const next = document.getElementById(`sale-serial-mac-${idx}-${sIdx}`) as HTMLInputElement;
-                                              next?.focus(); next?.select();
-                                            }}
-                                            className={serialInputClass}
-                                          />
-                                        </td>
-                                        <td className="py-1">
-                                          <input
-                                            id={`sale-serial-mac-${idx}-${sIdx}`}
-                                            type="text"
-                                            placeholder="MAC Address (optional)"
-                                            value={line.deviceSerials?.[sIdx]?.macAddress || ''}
-                                            onChange={(e) => updateSerial(idx, sIdx, { macAddress: e.target.value })}
-                                            onKeyDown={(e) => {
-                                              if (e.key !== 'Enter') return;
-                                              e.preventDefault();
+                                            value={line.deviceSerials?.[sIdx]}
+                                            onChange={(next) => updateSerial(idx, sIdx, next)}
+                                            register={inventorySerials}
+                                            branchId={branchId}
+                                            productId={line.productId}
+                                            productName={line.productName}
+                                            onEnter={() => {
                                               if (sIdx + 1 < serialQty) {
-                                                const next = document.getElementById(`sale-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
-                                                next?.focus(); next?.select();
+                                                document.getElementById(`sale-serial-device-${idx}-${sIdx + 1}`)?.focus();
                                               } else {
-                                                const btn = document.getElementById('sale-add-line') as HTMLButtonElement;
-                                                btn?.focus();
+                                                document.getElementById('sale-add-line')?.focus();
                                               }
                                             }}
-                                            className={serialInputClass}
                                           />
                                         </td>
                                       </tr>

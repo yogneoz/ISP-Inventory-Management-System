@@ -101,11 +101,20 @@ export const INITIAL_MASTER_BRANCHES: Branch[] = [
   { id: 'BRH01', code: 'BRH01', name: 'Branch 2', location: 'Example Location 2', phone: '9800000001', isHeadquarters: false, active: true },
 ];
 
+// A Nepali fiscal year runs Shrawan 1 -> the day before the next Shrawan 1, so
+// every boundary is read off the patro-verified BS calendar in
+// shared/bsCalendarYears.json and each endDateBS is derived from the row's own
+// endDateAD (the rule the server enforces everywhere else: BS comes from
+// bs_day_records). This replaces two defects: BS labels that read '20XX-12-31
+// BS' (Chaitra 31, which Chaitra does not have in 2080-2085), and AD boundaries
+// from 2081-82 on that sat a day early — 2025-07-16 is Ashadh 32 of 2082, not
+// Shrawan 1 — so a year labelled 'Shrawan 1' started the day before the month
+// and its last day belonged to the next fiscal year.
 export const INITIAL_MASTER_FISCAL_YEARS: FiscalYear[] = [
-  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2080-12-31 BS', isCurrent: false, isClosed: true },
-  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isCurrent: false, isClosed: true },
-  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-16', endDateAD: '2026-07-15', startDateBS: '2082-04-01 BS', endDateBS: '2082-12-31 BS', isCurrent: true, isClosed: false },
-  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isCurrent: false, isClosed: false },
+  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2081-03-31 BS', isCurrent: false, isClosed: true },
+  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-16', startDateBS: '2081-04-01 BS', endDateBS: '2082-03-32 BS', isCurrent: false, isClosed: true },
+  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-17', endDateAD: '2026-07-16', startDateBS: '2082-04-01 BS', endDateBS: '2083-03-32 BS', isCurrent: true, isClosed: false },
+  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-17', endDateAD: '2027-07-16', startDateBS: '2083-04-01 BS', endDateBS: '2084-03-32 BS', isCurrent: false, isClosed: false },
 ];
 
 // EXAMPLE/DUMMY suppliers (is_demo = TRUE). No real supplier data.

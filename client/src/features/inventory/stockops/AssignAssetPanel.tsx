@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import {
   Asset,
   Product,
@@ -121,9 +122,11 @@ export const AssignAssetPanel: React.FC = () => {
         unit: prod.unit,
         quantity: 1,
         isSerialized: serialized,
-        deviceSerial: serialized ? `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}` : '',
-        ponSerial: serialized ? `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}` : '',
-        macAddress: serialized ? '00:1A:2B:3C:4D:5E' : '',
+        // Empty on purpose: a deployment must PICK a real IN_STOCK unit, never
+        // carry a generated serial (serial-input plan, Slice D).
+        deviceSerial: '',
+        ponSerial: '',
+        macAddress: '',
         usedAtType: 'FIELD' as const,
         remarks: '',
       },
@@ -133,7 +136,16 @@ export const AssignAssetPanel: React.FC = () => {
   };
 
   const handleUpdateAssignItem = (id: string, updates: Partial<AssignBinLine>) => {
-    setAssignItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+    setAssignItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const next = { ...item, ...updates };
+        // A serialized line holds exactly one device identity, so it can never
+        // consume N units with one serial (serial-input plan, Slice F).
+        if (next.kind === 'PRODUCT' && next.isSerialized) next.quantity = 1;
+        return next;
+      })
+    );
   };
 
   const handleRemoveAssignItem = (id: string) => {
@@ -164,7 +176,23 @@ export const AssignAssetPanel: React.FC = () => {
       return;
     }
 
-    // Per-line validation: destination + stock + serial pairs.
+    // Availability is checked PER PRODUCT across the whole bin: two lines of
+    // the same product must not each fit inside the same branch balance.
+    const requestedByProduct = new Map<string, { quantity: number; name: string }>();
+    for (const item of assignItems) {
+      if (item.kind !== 'PRODUCT' || !item.productId) continue;
+      const entry = requestedByProduct.get(item.productId) || { quantity: 0, name: item.productName };
+      entry.quantity += item.quantity;
+      requestedByProduct.set(item.productId, entry);
+    }
+    for (const [productId, requested] of requestedByProduct) {
+      const availableAssetStock = stock.find((entry) => entry.productId === productId && entry.branchId === assignBranchId);
+      if (!availableAssetStock || availableAssetStock.quantityOnHand < requested.quantity) {
+        alertDialog(`Cannot assign "${requested.name}": requested ${requested.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
+        return;
+      }
+    }
+
     for (const item of assignItems) {
       if (item.usedAtType === 'POP' && !item.usedAtLocationId) {
         alertDialog(`Line "${item.productName}": select a POP / Network Location.`);
@@ -174,46 +202,38 @@ export const AssignAssetPanel: React.FC = () => {
         alertDialog(`Line "${item.productName}": select a Customer.`);
         return;
       }
-      if (item.kind === 'PRODUCT') {
-        const availableAssetStock = stock.find((entry) => entry.productId === item.productId && entry.branchId === assignBranchId);
-        if (!availableAssetStock || availableAssetStock.quantityOnHand < item.quantity) {
-          alertDialog(`Cannot assign "${item.productName}": requested ${item.quantity} unit(s) but only ${availableAssetStock?.quantityOnHand || 0} available at the selected branch.`);
+      if (item.kind === 'PRODUCT' && item.isSerialized) {
+        if (item.quantity !== 1) {
+          alertDialog(`Line "${item.productName}": a serialized unit deploys one serial per line — set quantity to 1 and add another line for the next device.`);
           return;
         }
-        if (item.isSerialized) {
-          // IN_STOCK serial identity lives in the serial_log register (branch
-          // stock intake), so validate against it. customer_device_records only
-          // holds devices already issued to customers — kept as a fallback for
-          // legacy flows that seed that table directly.
-          const pair = (sn?: string, pon?: string) => ({
-            sn: (sn || '').trim().toUpperCase(),
-            pon: (pon || '').trim().toUpperCase(),
-          });
-          const want = pair(item.deviceSerial, item.ponSerial);
-          const inStockInSerialLog = serialRegister.some((log) => {
-            const got = pair(log.deviceSerial, log.ponSerial);
-            return (
-              got.sn === want.sn &&
-              got.pon === want.pon &&
-              log.branchId === assignBranchId &&
-              log.status === 'IN_STOCK' &&
-              (log.productName || '').trim().toLowerCase() === (item.productName || '').trim().toLowerCase()
+        // IN_STOCK identity lives in the serial_log register (branch stock
+        // intake). The DEVICE SERIAL alone identifies the unit; PON/MAC are
+        // resolved from the register row. customer_device_records stays a
+        // legacy fallback for databases that seeded it directly.
+        const key = (item.deviceSerial || '').trim().toUpperCase();
+        const inStockInSerialLog = key
+          ? serialRegister.some(
+              (log) =>
+                (log.deviceSerial || '').trim().toUpperCase() === key &&
+                log.branchId === assignBranchId &&
+                log.status === 'IN_STOCK' &&
+                (!log.productId || log.productId === item.productId)
+            )
+          : false;
+        const matchingAssetDevice = inStockInSerialLog
+          ? true
+          : customerDevices.find(
+              (device) =>
+                (device.deviceSerial || '').trim().toUpperCase() === key &&
+                device.branchId === assignBranchId &&
+                device.status === 'IN_STOCK'
             );
-          });
-          const matchingAssetDevice = inStockInSerialLog
-            ? true
-            : customerDevices.find(
-                (device) =>
-                  device.deviceSerial?.trim().toUpperCase() === item.deviceSerial.trim().toUpperCase() &&
-                  device.ponSerial?.trim().toUpperCase() === item.ponSerial.trim().toUpperCase() &&
-                  device.branchId === assignBranchId &&
-                  device.status === 'IN_STOCK' &&
-                  device.productName?.trim().toLowerCase() === item.productName.trim().toLowerCase()
-              );
-          if (!matchingAssetDevice) {
-            alertDialog(`Line "${item.productName}": the Device Serial/PON pair must match an IN_STOCK unit at the selected branch.`);
-            return;
-          }
+        if (!matchingAssetDevice) {
+          alertDialog(
+            `Line "${item.productName}": Device Serial ${item.deviceSerial || '(blank)'} must be an IN_STOCK unit of this branch in the serial register.`
+          );
+          return;
         }
       }
     }
@@ -274,7 +294,11 @@ export const AssignAssetPanel: React.FC = () => {
             assignmentDateBS: todayBS,
             assignmentNotes: item.remarks,
           });
-          if (custObj) {
+          // Only register a customer device when a REAL device serial exists —
+          // manufacturing one here is exactly the invented identity the
+          // serial-input plan removes.
+          const cpeSerial = item.deviceSerial || ledgerAsset?.deviceSerial || '';
+          if (custObj && cpeSerial) {
             await api.createCustomerDevice({
               customerId: custObj.id,
               customerName: custObj.customerName,
@@ -283,8 +307,9 @@ export const AssignAssetPanel: React.FC = () => {
               installationAddress: custObj.address || 'Nepal',
               branchId: ledgerAsset?.branchId || assignBranchId,
               productName: ledgerAsset?.name || item.productName,
-              deviceSerial: `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
-              ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+              deviceSerial: cpeSerial,
+              ponSerial: item.ponSerial || '',
+              macAddress: item.macAddress || undefined,
               status: 'RENTAL',
               issuedDateAD: todayAD,
               issuedDateBS: todayBS,
@@ -593,18 +618,23 @@ export const AssignAssetPanel: React.FC = () => {
 
                         {/* Serial identity verification (serialized PRODUCT lines only) */}
                         {item.kind === 'PRODUCT' && item.isSerialized && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-0.5">
-                            <div>
-                              <label className="block font-bold text-[10px] text-slate-500 mb-1">Device Serial (SN) *</label>
-                              <input type="text" required value={item.deviceSerial} onChange={(e) => handleUpdateAssignItem(item.id, { deviceSerial: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono font-bold bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                            </div>
-                            <div>
-                              <label className="block font-bold text-[10px] text-slate-500 mb-1">PON Serial *</label>
-                              <input type="text" required value={item.ponSerial} onChange={(e) => handleUpdateAssignItem(item.id, { ponSerial: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono font-bold bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                            </div>
-                            <div>
-                              <label className="block font-bold text-[10px] text-slate-500 mb-1">MAC Address</label>
-                              <input type="text" value={item.macAddress} onChange={(e) => handleUpdateAssignItem(item.id, { macAddress: e.target.value })} className="w-full rounded-xl border px-2.5 py-1.5 h-9 font-mono bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                            <div className="sm:col-span-2">
+                              <label className="block font-bold text-[10px] text-slate-500 mb-1">
+                                Device Serial (SN) * <span className="font-normal normal-case">— PON &amp; MAC fill from the register</span>
+                              </label>
+                              <DeviceSerialInput
+                                value={{ deviceSerial: item.deviceSerial, ponSerial: item.ponSerial, macAddress: item.macAddress }}
+                                onChange={(next) => handleUpdateAssignItem(item.id, {
+                                  deviceSerial: next.deviceSerial,
+                                  ponSerial: next.ponSerial || '',
+                                  macAddress: next.macAddress || '',
+                                })}
+                                register={serialRegister}
+                                branchId={assignBranchId}
+                                productId={item.productId}
+                                productName={item.productName}
+                              />
                             </div>
                             <div className="flex items-end">
                               <button type="button" onClick={() => setIsBarcodeScannerOpen(true)} className="w-full px-3 py-1.5 h-9 rounded-xl border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 cursor-pointer flex items-center justify-center gap-1.5">

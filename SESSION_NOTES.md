@@ -1,6 +1,210 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-15 · Branch: main · Tests: 838/838 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-20 · Branch: main · Tests: 901/901 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ One BS calendar integrity engine (API + CLI + boot), provisional years, and no invented dates anywhere (2026-10-17)
+
+Six asks, one thread: make the calendar's honesty a *service* instead of a promise.
+
+**1. `server/src/services/bsCalendarIntegrity.service.ts` — the engine.** One pure core, one I/O shell.
+`buildPatroExpectations(years)` expands the bundled patro into the day-by-day truth; `auditBsCalendar(client,
+{ years, todayAD })` takes the database handle AND the truth AND "today", so the API, `npm run
+audit:bs-dates` and the boot check all run the same code with different inputs (the tests drive it with a
+synthetic patro and an in-memory fake, which is why `today` and the reference data are parameters rather
+than imports). Eleven finding kinds (`year_config_mismatch`, `year_unverified`, `year_span_mismatch`,
+`day_missing`, `day_label`, `day_derived`, `day_outside_calendar`, `stored_bs_value`,
+`fiscal_year_boundary`, `fiscal_year_link`, `fiscal_year_current`), each with a stable id, a
+current/expected pair, and a `fixable` flag that is TRUE only when the correct value is derivable (from
+the patro day, or from the row's own AD date). Application is the same engine: `applyBsCalendarFixes`
+re-derives each selected fix server-side inside one transaction, refuses anything not derivable, then
+re-audits — the count it returns is the fresh audit, not an assumption. The endpoint never accepts a
+value from the browser, only finding ids.
+
+**2. Endpoints + panel.** `GET /api/bs-calendar/integrity` (audit) and `POST
+/api/bs-calendar/integrity/apply` (optional `{ ids }`), behind the same role rule as every other
+`/bs-calendar/` route. The in-app face is the **Calendar Health** panel
+(`client/src/features/finance/BsCalendarHealthPanel.tsx`) at the top of BS Calendar Utility: a summary
+(seeded years, patro-verified years, day rows vs patro days, stored BS values checked, provisional
+years, patro years missing from the DB), the findings table with stored vs correct, per-row **Fix** for
+derivable rows, **Fix all N derivable**, and an explicit line for the rows that are reported rather than
+repaired (a year the unpublished patro does not cover, a date with no AD counterpart). Non-writers see
+what is wrong but no Fix button. After a repair the panel hands the fresh report back up, so the year
+table underneath re-reads itself.
+
+**3. Provisional future-year seeding.** `server/src/services/bsCalendarSeed.service.ts` decides a new
+year's Baisakh 1: supplied = `start_ad_source = 'patro'`; otherwise derived from the closest seeded year
+below (its end + 1), never the old `${year - 57}-04-14` guess — and if the derived start lands on the
+patro's own Baisakh 1 for a published year, the year is verifiably NOT provisional. `is_provisional`
+then stays true until the patro confirms it, and the flag is visible in three places: the seed response,
+the coverage warning (`getProvisionalYears()` in the client mirror), and the integrity audit (which
+reports a provisional year whose start is actually patro data as a fixable `year_unverified`). Columns
+added to `bs_calendar_years` (`start_ad_source`, `is_provisional`) with `ALTER TABLE ... IF NOT EXISTS`
+so an existing database picks them up on the next boot.
+
+**4. No more `2083-04-16 BS`.** That literal was a real (wrong) date for all but one day, and it reached
+stored BS columns. Both copies are gone — the server's `BS_DATE_FALLBACK` and the client conversion's
+invalid-input branch, which also stored itself through `CustomersManagement`
+(`issuedDateBS: convertADToBS(issuedDateAD).formattedBSShort`). Both sides now carry the same literal,
+`BS not seeded`: the server's resolvers return it, `isBsDateMissing()` treats it as missing (so a stored
+marker can never read back as a date), and the client shows it in `formatBSDate`/`formatDualDate` and
+returns it for an AD value that is not a date at all (`yearBS/monthBS/dayBS = 0`, so no caller can read
+the marker as a seeded month). `convertADToBS('')` no longer means "today": only an omitted argument
+does. `tests/bsDateMarker.test.ts` pins the shared literal and refuses a drifting second copy;
+`tests/bs_date.guard.test.ts` stays green because the engine's own docstring no longer quotes a date.
+
+**4b. …and the guard now covers the client too.** `tests/bs_date.guard.test.ts` used to scan only
+`server/src` (`.ts`), which is why the client's copy of that date could sit there and be stored. It now
+also scans `client/src` — `.ts` AND `.tsx`, because the offender was a screen-reachable utility — through
+the same pattern (`findHardcodedClientBsDates` shares the regex with `findHardcodedBsDates`), so the two
+rules cannot drift and cannot disagree about what a hardcoded BS date is. The client allowlist is EMPTY
+ON PURPOSE: the fabricated date lived in `client/src/utils/nepaliCalendar.ts`, so exempting any client
+file would have exempted the file that regressed the rule. The only thing that was in the way was a
+comment in that file quoting an example BS date — rephrased, not exempted. Verified by injection: adding
+`'2083-04-16 BS'` to the calendar utility fails the live-tree test with
+`utils/nepaliCalendar.ts:27 → '2083-04-16 BS'`, and removing it goes green again.
+
+**5. Calendar changes broadcast.** `resolveDomain` maps the calendar module to `BS_CALENDAR`; App.tsx
+lists it in `DOMAIN_STATE_KEYS` with an EMPTY slice list (there is no bootstrap slice to re-fetch) plus an
+explicit `syncBsCalendarMirrorRef.current()`, so a seed, a bulk seed, a year edit, a range sync or a
+repair resyncs every open client's calendar mirror immediately instead of on the next mount — and
+`tests/registerRefreshDomains.test.ts` now counts it as a known, declared no-register domain.
+
+**6. The client's day check is a real day-record check.** `hasExactBSDayRecord` used to test whether the
+date fell inside a configured year's span — a SPAN test — while the server read `bs_day_records`, so a
+year with a wrong month array passed the client gate and got a 400 from the server. It now asks
+`exactAdDateSet()` (the memoized client twin of `SELECT ad_date FROM bs_day_records`), which is the
+question the server answers, and its docstring says so (keeping the note about what the old span test
+got wrong, pinned by `tests/bsDateMarker.test.ts`).
+
+Tests: `tests/bsCalendarIntegrity.test.ts` (engine: patro comparison, findings, apply, refusal to invent),
+`tests/bsCalendarPatroData.test.ts` (the bundled reference, month by month), `tests/bsDateMarker.test.ts`
+(marker, client/server day agreement over ~2,000 days plus both edges, provisional seeding) — suite now
+900 tests, 0 fail.
+
+## ⭐ BS 2085 checked month by month, every stored BS date audited, and one file to rule them all (2026-10-16)
+
+**BS 2085's internal months — left “unverified” by the 2084 arc — were also wrong**, and in the same
+way: the year *starts* right (2028-04-13) but four of its twelve months had the wrong length, so the
+last eight months were labelled a day late. Patro read month by month (Hamro Patro
+`hamropatro.com/calendar/2085/<month>`, cross-checked with bhitta.app month pages, nepcalendar.com
+and nepalicalendar.rat32.com):
+
+| BS 2085 month | Baisakh 1 AD | Days | The copy that shipped |
+|---|---|---|---|
+| Baisakh | 2028-04-13 | 31 | same |
+| Jestha | 2028-05-14 | 32 | same |
+| Ashadh | 2028-06-15 | 31 | same |
+| Shrawan | 2028-07-16 | **32** | said 31 |
+| Bhadra | 2028-08-17 | **30** | said 31 |
+| Ashwin | 2028-09-16 | **31** | said 30 |
+| Kartik | 2028-10-17 | 30 | same |
+| Mangsir | 2028-11-16 | 30 | same |
+| Poush | 2028-12-16 | 29 | same |
+| Magh | 2029-01-14 | 30 | same |
+| Falgun | 2029-02-13 | **30** | said 29 |
+| Chaitra | 2029-03-15 | **30** | said 31 |
+
+So BS 2085 is `[31,32,31,32,30,31,30,30,29,30,30,30]` = **366 days**, ending 2029-04-13, with
+**Baisakh 1 2086 = 2029-04-14**. BS **2080** had the same class of defect (Poush and Magh 30 days;
+the patro has 29 — `[31,32,31,32,31,30,30,30,29,29,30,30]`). 2078, 2079, 2081, 2082 and 2083 were
+re-checked and are correct.
+
+**One copy, four readers.** The calendar now lives in exactly one hand-maintained file,
+`shared/bsCalendarYears.json` (with its `_source` / `_contract` provenance), read by
+`client/src/utils/nepaliCalendar.ts` (the bundled defaults, the `DateField` grid, the presets),
+`server/src/config/bsCalendar.ts` (the fallback cache + day-record generation), `scripts/setup_db.js`
+(the seeder that writes `bs_calendar_years`/`bs_day_records`) and `tsconfig.json`
+(`resolveJsonModule`). The two “+ Seed <year> BS” preset rows now derive their year list and month
+arrays from `getSeedPresetYears()` / `getBundledBsYearMonths()` instead of carrying literals, and
+`getCalendarBounds()`' empty-store fallback computes its bounds from the bundled data instead of
+restating them (its old literals claimed the calendar ended at a day Chaitra 2085 does not have).
+`tests/bsCalendarPatroData.test.ts` (+14 tests) pins every patro month start for 2080/2084/2085,
+the tiling of consecutive years, the single-source contract (server defaults and client bundle must
+be projections of the file, the seeder must `JSON.parse(fs.readFileSync(...))` it and must not
+inline arrays, no screen may carry `y === <year> ?` literals) and that **every fiscal-year BS label
+in both seed files is a day the patro has and matches its own AD date**.
+
+**The audit (`npm run audit:bs-dates`, `-- --apply` to write).** A repeatable script — not a
+throwaway — that diffs the database against the single source in four passes: `bs_calendar_years`,
+`bs_day_records` labels *and* their derived `fiscal_year`/`quarter` codes, every `*_bs` column in
+the schema (27 of them) against the patro, and `fiscal_years` boundaries/labels. Findings it
+corrected, all in one transaction:
+- 2,922 day records: 0 mislabelled, but **4 stale derived codes** — days whose label changed when
+  2080/2084 were fixed (2027-07-16 stopped being Shrawan 1 of 2084 and became Ashadh 32, which is a
+  different fiscal year and quarter);
+- the only `*_bs` value in the whole schema that pointed at a day the patro does not have was
+  `fiscal_years.end_date_bs`;
+- **fiscal-year AD boundaries were a day early from 2081-82 on.** A Nepali fiscal year runs
+  Shrawan 1 → the day before the next Shrawan 1, but the seed claimed `2025-07-16` — Ashadh **32**
+  of 2082 — as the start of a year whose own label says Shrawan 1, and each year's last day
+  belonged to the next year. Ashadh has 32 days in 2082/2083/2084, which is where the drift began.
+  Four rows (`fy-2`..`fy-5`) were realigned with their BS labels derived from the new AD dates
+  (`2082-03-32 BS` etc.), `bs_day_records.fiscal_year_id` was re-linked by AD overlap (1 linked, 2
+  cleared), and `is_current` re-derived (2083-84 still contains today). Checked first: the database
+  holds demo data only and **no row of any transactional table sits on a moved boundary day**, so
+  nothing re-filed between years.
+
+**Still open (out of calendar coverage, reported by the audit rather than guessed):** `fy-6`
+(2085-86) ends 2029-07-15, past the last seeded BS day (2085-12-30 = 2029-04-13), so neither its
+`end_date_ad` nor its `end_date_bs` can be derived yet — seed BS 2086 from the patro and re-run
+`npm run audit:bs-dates -- --apply` to close it. `tests/bsCalendarCoverageGuidance.test.ts` had
+encoded the old 2085 length (`maxBS 2085-12-31`, a day that does not exist); it now asserts
+`2085-12-30`, which is also the real end of the coverage countdown.
+
+## ⭐ BS 2084 was a month-by-month error, and 2026-10-15's “either/or” was both wrong (2026-10-16)
+
+The previous arc left the 2084 question open and framed it as a fork: *either* Chaitra 2084 is 29
+days *or* BS 2085 starts 2028-04-14, since the seeded array claimed 366 days from 2027-04-14. The
+answer the printed patro and four online patros give is a third option: **BS 2084 is 365 days, but
+its months are arranged differently from every copy in this repo** — so the *year boundary* was
+right while half the year's day labels were not.
+
+Verified against the published patro, read month by month (Hamro Patro
+`hamropatro.com/calendar/2084/<month>`, cross-checked with nepcalendar.com, bhitta.app and
+nepalicalendar.rat32.com — all four agree on every date below):
+
+| BS 2084 month | Baisakh 1 AD | Days | Checks against today's copy |
+|---|---|---|---|
+| Baisakh | 2027-04-14 | 31 | same |
+| Jestha | 2027-05-15 | 31 | same |
+| Ashadh | 2027-06-15 | **32** | copy split the 63 days as 31+32, patro as 32+31 |
+| Shrawan | 2027-07-17 | 31 | copy said 2027-07-16 |
+| Bhadra | 2027-08-17 | 31 | same |
+| Ashwin | 2027-09-17 | 30 | same |
+| Kartik | 2027-10-17 | 30 | copy said 2027-10-18 |
+| Mangsir | 2027-11-16 | 30 | copy said 2027-11-17, 29 days |
+| Poush | 2027-12-16 | 29 | copy said 30 days |
+| Magh | 2028-01-14 | 30 | copy said 2028-01-15, 29 days |
+| Falgun | 2028-02-13 | 30 | copy said 2028-02-14 |
+| Chaitra | 2028-03-14 | 30 | copy said 2028-03-15 |
+
+So the patro array is `[31,31,32,31,31,30,30,30,29,30,30,30]` = 365 days, ending **2028-04-12**,
+with BS 2085-01-01 the next day (**13 April 2028**). Chaitra 30 is not a leap-year extra day: the
+leap-like effect belongs to the **AD** year (2028 is a Gregorian leap year, which is why Baisakh 1
+lands on 13 April), and the 366-day years in this range are BS 2081 (2024-04-13 → 2025-04-13) and
+BS 2085.
+
+**Four copies, four answers, none of them the patro's:** the client bundle, both “+ Seed 2084 BS”
+UI presets and the server defaults said `[31,31,31,32,31,31,30,29,30,29,30,30]` while the seed
+script said `[31,31,31,32,31,31,30,29,30,30,30,30]` — and the seed script is the copy that actually
+seeded `bs_calendar_years`, which is why the 366-day story and the phantom 2028-04-13 overlap
+existed at all. All four copies plus the live row now carry the patro array. The 182 mislabelled
+`bs_day_records` rows of 2084 were corrected **in place** (row count stays 2,922 and every
+`fiscal_year_id` link survives — labels move, rows do not), so no schedule referenced by a document
+changed identity and the overlap warning is gone.
+
+**Pinned by `tests/bsCalendarPatroData.test.ts` (+6 tests):** the twelve 2084 month starts, the
+365-day/2028-04-12 end, BS 2085-01-01 = 2028-04-13, consecutive seeded years tiling the AD calendar
+with no gap and no overlap, and the drift gate that actually matters — the client bundle, the
+server defaults, the `setup_db.js` seed list and both UI presets must carry identical year data, so
+a hand-edited copy can never disagree with the rest again.
+
+**Still unverified at the time — both now closed at the top of this file:** BS 2085's *internal*
+months (only its 31-day Baisakh and its 2028-04-13 start were checked then; the follow-up arc read
+all twelve from the patro and found four wrong), and the fiscal-year seed writing `2083-12-31 BS` as
+an end date when Chaitra 2083 has 30 days (the audit replaced every such label with the value
+derived from its own AD boundary). 2078-2083 agree with the patro at every month start probed,
+including today (2083-06-30 = 2026-10-16) and BS 2083 Kartik 1 = 2026-10-18.
 
 ## ⭐ A refused BS date now names the screen that fixes it — and warns before it bites (2026-10-15)
 
@@ -29,7 +233,8 @@ the day the last mapped BS day passed — with an admin who never knew to seed i
    block on an unseeded date cannot drift apart again.
 
 **Also fixed in passing:** `getCalendarBounds()`'s empty-store fallback claimed the calendar ends
-2029-04-12; the last mapped AD day is 2029-04-13 (BS 2085-12-31). The docs also said *System
+2029-04-12; the last mapped AD day is 2029-04-13 (BS 2085-12-30 once 2085 was corrected — the
+fallback now derives its bounds from `shared/bsCalendarYears.json` instead of restating them). The docs also said *System
 Settings → Maintenance & Data Management* for the demo-data clear; it is **Administration &
 Governance → Data Recalculation & Repair**.
 
@@ -57,10 +262,10 @@ generator and the server's in-memory calendar agree day for day, and the mirror 
 `bs_calendar_years` (exactly as App.tsx bootstraps it) equals `bs_day_records` in both count and
 per-date content against a live PostgreSQL.
 
-**The data error behind it is NOT fixed** (no authoritative source consulted, so no month length was
-guessed): BS 2084's array claims 366 days, one more than the 2027-04-14 → 2028-04-13 gap. Either
-Chaitra 2084 is 29 days (array → 365, the likely fix) or BS 2085 starts 2028-04-14. Until an admin
-corrects it in BS Calendar Utility, 2084-12-30 does not exist and every consumer agrees on that.
+**Settled 2026-10-16 — and the honest fork above was the wrong question both ways:** the 2084 array
+itself was wrong (see the section at the top of this file). It is now the patro array, so the shipped
+calendar has **no overlap left** and the later-year tie-break below is defensive only — still proven,
+now against a synthetic overlapping pair instead of live bad data.
 
 **Still operator-owned, not code:** somebody must seed each new BS year before Baisakh 1 of that
 year — with the shipped calendar that is **14 April 2029**, now visible on the dashboard months
@@ -1584,7 +1789,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 838 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 901 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2151,7 +2356,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 838 tests, 0 fail). Live-verified:
+  key coverage; suite now 901 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2209,7 +2414,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 838 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 901 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2274,7 +2479,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 838 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 901 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2289,8 +2494,8 @@ unseeded calendar days use BS_DATE_FALLBACK.
   remount). Every App.tsx render site must pass its register counter (2 PO,
   2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-  (2) NEW — all 65 screens under client/src/features are pinned: a
-  SCREEN_SURFACE_PINS table (54 screens) + the 11 pinned above; an unpinned
+  (2) NEW — all 66 screens under client/src/features are pinned: a
+  SCREEN_SURFACE_PINS table (55 screens) + the 11 pinned above; an unpinned
   new screen fails coverage, and each pinned screen must match its exact
   surface. Surfaces use serverCallsIn = `api.*` methods + NAMED
   `services/api` imports, because the audit found FinancialStatements.tsx
@@ -2312,7 +2517,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 838 tests, 0 fail.
+  failures, then reverted). Suite now 901 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2327,7 +2532,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 838 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 901 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -2342,3 +2547,83 @@ unseeded calendar days use BS_DATE_FALLBACK.
 - `client/src/utils/registerRefreshDomains.ts` + `tests/registerRefreshDomains.test.ts`
   (SSE domain → paged-register mapping, extracted for testability)
 - `server/src/services/damage.service.ts` (B1/B2 helpers), `server/src/models/procurement.repo.ts` (B3)
+
+---
+
+## 2026-10-19 — Serial input & transfer integrity (plan slices A–F)
+
+Delivered the approved serial-input plan (see `docs/serial-input-improvements-plan.md` §8).
+
+- **MAC canonicalisation:** one shared `shared/macAddress.ts` (`normalizeMacAddress`,
+  `macKey`, `isMacAddress`) used by client and server; applied at purchase entry, the
+  register write, the serial gate's comparisons, sales verification and lookup-by-MAC.
+  `tests/macAddress.test.ts` pins separator/case/idempotence/non-MAC cases.
+- **Purchase bill:** MAC required, **PON optional** (stored `NULL` when blank) for
+  `SERIAL_MAC_PON`; per-unit slots now seed `macAddress` (they never did — that is why
+  the MAC box was demanded but appeared empty); punch order Device → MAC → PON with
+  blur/Enter canonicalisation. `requiresPonAndMac` → `requiresMac`.
+- **One device key:** `serialGate.service` gained `hydrateSerialEntries`, which fills
+  blank PON/MAC from the locked register row before any rule runs; the blanket
+  `requirePon` was removed from `planSerialGateEntries` and from the sales claim. A
+  PON/MAC the caller really sent is still checked.
+- **One-field UX:** new `client/src/components/common/DeviceSerialInput.tsx` (with
+  `findRegisterRow` / `classifyRegisterRow`) adopted on sales, shipment create, stock-op
+  pullout/transfer/damage/product-sale, assign fixed asset, device exchange, customer
+  assignment and CPE exchange. **All 10 invented-identity generators removed**; customer
+  assignment derives product/PON/MAC from the register row.
+- **Transfer register integrity (Slice 3):** dispatch `IN_STOCK → IN_TRANSIT`,
+  receive `IN_TRANSIT → IN_STOCK` at the destination, cancel back to `IN_STOCK` at the
+  source, undo-receipt back to `IN_TRANSIT` — all inside the existing transactions and
+  mirrored in demo mode. Received serials are recorded per item, so a short receipt
+  leaves the undelivered units in transit; dispatch plans through the shared gate, so
+  the server also refuses a serial-tracked line with no serials.
+- **Availability hardening:** per-product aggregate checks in the client validator, the
+  shipment create path, `post_assets` and the locked stock-op re-check, returning `400`
+  with available/requested via the new `server/src/utils/operationError.ts`; serialized
+  assign lines pinned to quantity 1; `post_customerDevices` resolves the assigned unit
+  through the shared gate (IN_STOCK at the branch).
+- **Docs:** `docs/serial-register-audit.md` §6c records Slices 3–4 as delivered and
+  closes the "transfers are register-blind" finding; handoff §17 summarises the changes.
+
+Verification: `npx tsc --noEmit` clean; full suite **900 tests, 898 pass, 0 fail,
+2 skipped** (the two pre-existing Windows-only real-signal checks); docs-count gate
+green (all current-state counts updated to 900).
+Residual: `post_exchange` still trusts the client's replacement serial at the API level
+(the form picks from the register), and plan Slice 5 (demote the boot serial backfill to
+a maintenance action) stays open.
+
+## ⭐ Device exchange now draws its replacement from the register (2026-10-20)
+
+Closing the last defence-in-depth gap from the serial-input pass. `post_exchange`
+used to trust `newDeviceSerial` from the body: the customer-device row could name
+a unit the register never received, or one held at another branch, and the
+`SERIAL_LOG_SYNC_ON_CDR_SQL` UPDATE would silently no-op while the CDR row
+claimed the device. The PG-contract test kept that shape alive because it posted
+a replacement with no register row at all.
+
+What changed:
+- **Gate (server/src/controllers/inventory.controller.ts).** The replacement must
+  be an `IN_STOCK` row of the fulfilling branch. Checked twice: a pre-flight
+  before any mirror mutation (so a refusal is a clean `400` with the mirrors
+  untouched), then again with `SERIAL_GATE_LOCK_SQL`'s `FOR UPDATE` inside the
+  exchange transaction (so a concurrent consumer cannot slip in between). The
+  product is deliberately NOT matched — a replacement may be a different model —
+  while a PON/MAC the caller did send is still compared.
+- **Hydration.** A blank PON/MAC is filled from the register row
+  (`SERIAL_LOG_IDENTITY_BY_SERIAL_SQL`, new in `inventory.repo.ts`), so a
+  one-field client payload produces a complete CDR row. Demo mode uses the
+  in-memory mirror row for the same fill.
+- **Rollback + status.** The mirrors (old record status/notes and the inserted
+  replacement) are captured before the writes and restored if PG refuses after
+  them; the handler no longer turns a `SerialGateError` into a `500` — it returns
+  the gate's `400` and logs only real 5xx failures (an expected refusal should
+  not print a stack trace).
+- **Test (tests/mirrorStep3.test.ts).** The fixture now seeds a real `serial_log`
+  row for `M3-NEW-EX` (IN_STOCK, with a MAC the test does not send) plus a
+  `CUSTOMER_ASSIGNED` decoy. Proves: the IN_STOCK exchange succeeds and the new
+  CDR row carries the register's MAC (hydration), the `CUSTOMER_ASSIGNED` one is
+  refused `400` with no CDR row and no change to the earlier exchange.
+
+Verification: `npx tsc --noEmit` clean; `tests/mirrorStep3.test.ts` 6/6;
+`check:no-inline-sql` clean (the new SQL lives in the repo, not the controller);
+full suite 901 tests, 899 pass, 0 fail, 2 skipped; docs-count gate green at 901.

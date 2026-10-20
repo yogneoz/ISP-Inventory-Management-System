@@ -5,6 +5,7 @@ import { isOperationAllowed } from '../../../utils/permissions';
 import { tryConvertADToBS } from '../../../utils/nepaliCalendar';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
+import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import {
   Plus,
   Trash2,
@@ -21,7 +22,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const CreateTransferPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, branches, canDispatchFromWarehouse, currentUser, ensureBsDateAvailable, focusInput, isWarehouseOrHeadOffice, onCreateShipment, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, canDispatchFromWarehouse, currentUser, ensureBsDateAvailable, focusInput, isWarehouseOrHeadOffice, onCreateShipment, products, serialRegister, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   const initialValidDestBranch = branches.find(
     (b) =>
@@ -71,23 +72,17 @@ export const CreateTransferPanel: React.FC = () => {
     setXferDestBranchId(branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || '');
   };
 
-  const updateTransferDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+  /** One-field entry: PON resolves from the register in the same state write. */
+  const updateTransferSerial = (
+    lineIdx: number,
+    sIdx: number,
+    next: { deviceSerial: string; ponSerial?: string }
+  ) => {
     setTransferItems((prev) =>
       prev.map((item, idx) => {
         if (idx !== lineIdx) return item;
         const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
-        return { ...item, deviceSerials: serials };
-      })
-    );
-  };
-
-  const updateTransferPonSerial = (lineIdx: number, sIdx: number, val: string) => {
-    setTransferItems((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== lineIdx) return item;
-        const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        serials[sIdx] = { deviceSerial: next.deviceSerial, ponSerial: next.ponSerial || '' };
         return { ...item, deviceSerials: serials };
       })
     );
@@ -428,52 +423,27 @@ export const CreateTransferPanel: React.FC = () => {
                                     ✓ Scan Serials for {item.productName} ({item.quantitySent} Unit{item.quantitySent > 1 ? 's' : ''})
                                   </span>
                                   {Array.from({ length: item.quantitySent }).map((_, sIdx) => (
-                                    <div key={sIdx} className="bg-sky-50/50 dark:bg-sky-950/40 p-1.5 rounded-lg border border-sky-200 dark:border-sky-800 flex items-center gap-1.5 text-xs">
-                                      <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                      <input
-                                        id={`transfer-serial-device-${idx}-${sIdx}`}
-                                        type="text"
-                                        placeholder="Device Serial #"
-                                        value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                        onChange={(e) => updateTransferDeviceSerial(idx, sIdx, e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            const nextEl = document.getElementById(`transfer-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
-                                            if (nextEl) {
-                                              nextEl.focus();
-                                              if ('select' in nextEl) nextEl.select();
-                                            }
-                                          }
-                                        }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 text-sky-900 bg-white border-sky-300 dark:text-sky-200 dark:bg-slate-800 dark:border-sky-700 `}
-                                      />
-                                      <input
-                                        id={`transfer-serial-pon-${idx}-${sIdx}`}
-                                        type="text"
-                                        placeholder="PON Serial #"
-                                        value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                        onChange={(e) => updateTransferPonSerial(idx, sIdx, e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
+                                    <div key={sIdx} className="bg-sky-50/50 dark:bg-sky-950/40 p-1.5 rounded-lg border border-sky-200 dark:border-sky-800 text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                        <DeviceSerialInput
+                                          id={`transfer-serial-device-${idx}-${sIdx}`}
+                                          className="flex-1"
+                                          value={item.deviceSerials?.[sIdx]}
+                                          onChange={(next) => updateTransferSerial(idx, sIdx, next)}
+                                          register={serialRegister}
+                                          branchId={xferSourceBranchId}
+                                          productId={item.productId}
+                                          productName={item.productName}
+                                          onEnter={() => {
                                             if (sIdx + 1 < item.quantitySent) {
-                                              const nextDev = document.getElementById(`transfer-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
-                                              if (nextDev) {
-                                                nextDev.focus();
-                                                if ('select' in nextDev) nextDev.select();
-                                              }
+                                              focusInput(`transfer-serial-device-${idx}-${sIdx + 1}`);
                                             } else {
-                                              const searchInput = document.getElementById('transfer-product-search-input') as HTMLInputElement;
-                                              if (searchInput) {
-                                                searchInput.focus();
-                                                if ('select' in searchInput) searchInput.select();
-                                              }
+                                              focusInput('transfer-product-search-input');
                                             }
-                                          }
-                                        }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-white border-indigo-300 dark:text-indigo-200 dark:bg-slate-800 dark:border-indigo-700`}
-                                      />
+                                          }}
+                                        />
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

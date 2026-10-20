@@ -72,27 +72,40 @@ const DAYS_OF_WEEK_NP = [
   'आईटबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहिबार', 'शुक्रबार', 'शनिबार'
 ];
 
-// BS calendar coverage 2078-2085 (kept in sync with the server calendar).
-const DEFAULT_BS_YEARS = [
-  { yearBS: 2078, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2021-04-14' },
-  { yearBS: 2079, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2022-04-14' },
-  { yearBS: 2080, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2023-04-14' },
-  { yearBS: 2081, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2024-04-13' },
-  { yearBS: 2082, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2025-04-14' },
-  { yearBS: 2083, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2026-04-14' },
-  { yearBS: 2084, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 30, 30, 30], startAD: '2027-04-14' },
-  { yearBS: 2085, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2028-04-13' },
-];
+// BS calendar coverage 2078-2085, read from the repo's ONE copy of the calendar
+// data (shared/bsCalendarYears.json) — the same file the client bundle and the
+// server defaults load. It must never be a second copy of the numbers: the old
+// hand-copied list here is what seeded BS 2080/2084/2085 with the wrong month
+// splits while the client shipped a different array.
+const DEFAULT_BS_YEARS = JSON.parse(
+  fs.readFileSync(new URL('../shared/bsCalendarYears.json', import.meta.url), 'utf8')
+).years;
 
 // Fiscal years. isCurrent is intentionally left for the seeder to compute:
 // exactly one row may carry is_current = TRUE (enforced by the
 // uq_fiscal_years_single_current partial unique index).
+//
+// A Nepali fiscal year runs Shrawan 1 -> the day before the next Shrawan 1, so
+// every boundary below is read straight off the patro-verified BS calendar in
+// shared/bsCalendarYears.json, and the endDateBS is derived from the row's own
+// endDateAD (the rule the server enforces everywhere else: BS comes from
+// bs_day_records). Two defects this replaces:
+//   - the BS labels all read '20XX-12-31 BS' — Chaitra 31, which Chaitra does
+//     not have in 2080-2085;
+//   - from 2081-82 on, the AD boundaries sat a day early (2025-07-16 = Ashadh
+//     32, 2082), so a row labelled 'Shrawan 1' did not start on Shrawan 1 and
+//     each year's last day belonged to the next fiscal year. Ashadh has 32 days
+//     in 2082/2083/2084, which is where the drift began.
 const DEFAULT_FISCAL_YEARS = [
-  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2080-12-31 BS', isClosed: true },
-  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-15', startDateBS: '2081-04-01 BS', endDateBS: '2081-12-31 BS', isClosed: true },
-  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-16', endDateAD: '2026-07-15', startDateBS: '2082-04-01 BS', endDateBS: '2082-12-31 BS', isClosed: false },
-  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-16', endDateAD: '2027-07-15', startDateBS: '2083-04-01 BS', endDateBS: '2083-12-31 BS', isClosed: false },
-  { id: 'fy-5', code: '2084-85', startDateAD: '2027-07-16', endDateAD: '2028-07-15', startDateBS: '2084-04-01 BS', endDateBS: '2084-12-31 BS', isClosed: false },
+  { id: 'fy-1', code: '2080-81', startDateAD: '2023-07-17', endDateAD: '2024-07-15', startDateBS: '2080-04-01 BS', endDateBS: '2081-03-31 BS', isClosed: true },
+  { id: 'fy-2', code: '2081-82', startDateAD: '2024-07-16', endDateAD: '2025-07-16', startDateBS: '2081-04-01 BS', endDateBS: '2082-03-32 BS', isClosed: true },
+  { id: 'fy-3', code: '2082-83', startDateAD: '2025-07-17', endDateAD: '2026-07-16', startDateBS: '2082-04-01 BS', endDateBS: '2083-03-32 BS', isClosed: false },
+  { id: 'fy-4', code: '2083-84', startDateAD: '2026-07-17', endDateAD: '2027-07-16', startDateBS: '2083-04-01 BS', endDateBS: '2084-03-32 BS', isClosed: false },
+  { id: 'fy-5', code: '2084-85', startDateAD: '2027-07-17', endDateAD: '2028-07-15', startDateBS: '2084-04-01 BS', endDateBS: '2085-03-31 BS', isClosed: false },
+  // fy-6 runs past the seeded BS calendar (which stops at 2085-12-30 =
+  // 2029-04-13), so neither its endDateAD nor its endDateBS can be derived yet:
+  // '2085-12-31 BS' is not a day Chaitra 2085 has (30 days). Re-derive both
+  // fields once BS 2086 is seeded from the patro.
   { id: 'fy-6', code: '2085-86', startDateAD: '2028-07-16', endDateAD: '2029-07-15', startDateBS: '2085-04-01 BS', endDateBS: '2085-12-31 BS', isClosed: false },
 ];
 
@@ -925,6 +938,12 @@ async function runSetup() {
       const tblRes = await client.query(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
       );
+      // A brand-new database (the documented first run: create the database,
+      // then `npm run setup:pg`) has no tables at all yet, so the DELETE below
+      // used to abort the whole setup with `relation "fiscal_years" does not
+      // exist` — before the schema pass that creates it. Nothing to wipe there:
+      // skip the DELETE, keep the ordering (wipe -> schema) intact.
+      const hasFiscalYearsTable = tblRes.rows.some((r) => r.table_name === 'fiscal_years');
       const wipeTables = tblRes.rows
         .map((r) => r.table_name)
         .filter((t) => !preservedTables.has(t));
@@ -934,8 +953,10 @@ async function runSetup() {
       }
       // Plain DELETE (not TRUNCATE) so bs_day_records.fiscal_year_id is
       // SET NULL via the FK action instead of the calendar being wiped.
-      await client.query('DELETE FROM fiscal_years');
-      console.log('🗑  Removed all fiscal years (Nepali calendar rows preserved, will re-link).');
+      if (hasFiscalYearsTable) {
+        await client.query('DELETE FROM fiscal_years');
+        console.log('🗑  Removed all fiscal years (Nepali calendar rows preserved, will re-link).');
+      }
     }
 
     // 3. Schema (idempotent) on the clean slate.

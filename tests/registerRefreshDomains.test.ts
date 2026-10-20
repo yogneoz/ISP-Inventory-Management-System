@@ -44,6 +44,11 @@ const NO_REGISTER_DOMAINS = [
   'MASTER_DATA', 'CATEGORIES', 'PRODUCTS', 'FISCAL', 'USERS',
   'APPROVALS', 'RECALC', 'COMPANY_PROFILE',
   'PERMISSIONS', 'SETTINGS', 'AUDIT',
+  // BS_CALENDAR mutates no paged register: a seed/repair changes the
+  // AD<->BS mapping every screen converts with, so App.tsx re-reads the
+  // calendar mirror instead (DOMAIN_STATE_KEYS.BS_CALENDAR is deliberately
+  // empty for the same reason — there is no bootstrap slice to re-fetch).
+  'BS_CALENDAR',
 ];
 
 // ---------------------------------------------------------------------------
@@ -674,20 +679,22 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features — now 63
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 65
   // after the §G StockOperations decomposition added 12 tab panels (and
-  // commit 2 the extracted tab-bar chrome) under inventory/stockops — each
-  // pinned below; the host keeps its dedicated register-guard pin above.
+  // commit 2 the extracted tab-bar chrome) under inventory/stockops, plus
+  // the BS-calendar integrity work's Calendar Health panel — each
+  // pinned below; the hosts keep their dedicated register-guard pins above.
   //
   //  · 11 are pinned by the guard tests above (the three prop-rendered
   //    inventory tabs, the two create forms, the six SSE-wired paged
   //    registers) — see PINNED_ELSEWHERE.
-  //  · 11 GET their own whole-list data on mount / selection change and are
-  //    deliberately NOT sse-wired: tabs remount on switch (fresh fetch) and
-  //    none pages on the server — see MOUNT_REFETCH_NO_SSE_KEY.
-  //  · 5 are write-only screens (mutations + validation reads); the grids
+  //  · 12 GET their own whole-list data on mount / selection change and are
+  //    deliberately NOT sse-wired: they re-fetch on tab re-activation and
+  //    none pages on the server — see MOUNT_REFETCH_NO_SSE_KEY (11 top-level
+  //    tabs plus the nested Calendar Health panel under the bs-calendar tab).
+  //  · 7 are write-only screens (mutations + validation reads); the grids
   //    they render come from bootstrap-slice props.
-  //  · 23 render props/callbacks only — zero server calls of their own.
+  //  · 36 render props/callbacks only — zero server calls of their own.
   //
   // SCREEN_SURFACE_PINS pins every one of those screens to the EXACT server
   // calls it makes today — api.* methods AND named services/api imports,
@@ -731,6 +738,11 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/CategoryManagement.tsx': ['createCategory', 'deleteCategory', 'getCategories', 'updateCategory'],
     'inventory/UomManagement.tsx': ['createUom', 'deleteUom', 'getUoms', 'updateUom'],
     'settings/LocationsManagement.tsx': ['createLocation', 'getLocations'],
+    // Nestled inside BsCalendarUtility under the bs-calendar tab: the
+    // integrity engine's findings (GET) and its apply endpoint (POST) are
+    // this panel's whole surface — it re-audits and hands the fresh report
+    // back to its parent, which re-reads the year table through onRepaired.
+    'finance/BsCalendarHealthPanel.tsx': ['applyBsCalendarIntegrity', 'getBsCalendarIntegrity'],
 
     // — write-only / auxiliary-read screens: grids render bootstrap props —
     //   Shipments decomposition (2026-10-09): the 2,186-line screen split
@@ -825,13 +837,17 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'sales/SalesInvoices.tsx',
   ]);
 
-  // The 11 screens that fetch their own rendered list/report data. They are
+  // The 12 screens that fetch their own rendered list/report data. They are
   // still whole-list (no register wiring — see the guards below), but since
   // the keep-mounted tab container they no longer remount on a tab switch;
   // instead each one opts in to refetch-on-reactivation via
   // useActivationKey('<tabKey>') as a dependency of its fetch effect. The
-  // keys are pinned below so neither half can be dropped silently.
+  // keys are pinned below so neither half can be dropped silently. The
+  // Calendar Health panel is the one non-tab entry: it is nested in
+  // BsCalendarUtility and keys off the same 'bs-calendar' tab, so a seed or
+  // repair applied from the year table also re-audits the findings.
   const MOUNT_REFETCH_NO_SSE_KEY = [
+    'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
     'finance/DocumentNumbering.tsx',
@@ -953,6 +969,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // activation counter never ticks (and the refetch-on-reactivation never
   // happens). Pinned screen → tab key, checked against App.tsx itself.
   const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string> = {
+    'finance/BsCalendarHealthPanel.tsx': 'bs-calendar',
     'finance/BsCalendarUtility.tsx': 'bs-calendar',
     'finance/CustomerLedger.tsx': 'customer-ledger',
     'finance/DocumentNumbering.tsx': 'fiscal-year-management',

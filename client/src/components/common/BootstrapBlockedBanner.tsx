@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, RefreshCw, X } from 'lucide-react';
+import { requestTabNavigation } from '../../services/api/http';
 
 interface BootstrapBlockedBannerProps {
   /** The server's own message — never re-worded here, so the operator reads the
@@ -7,6 +8,14 @@ interface BootstrapBlockedBannerProps {
   message: string;
   /** HTTP status that came back with it, shown small for a support report. */
   status?: number;
+  /**
+   * The screen that fixes this, when the refusal named a machine-readable cause.
+   * The server's message already names it in words; a button is the difference
+   * between reading about the remedy and reaching it. Navigation goes through the
+   * same `requestTabNavigation` contract the API toasts use, so App validates the
+   * target against the signed-in user's permissions before switching.
+   */
+  action?: { label: string; tab: string };
   onRetry?: () => void;
   onDismiss?: () => void;
 }
@@ -27,6 +36,7 @@ interface BootstrapBlockedBannerProps {
 export const BootstrapBlockedBanner: React.FC<BootstrapBlockedBannerProps> = ({
   message,
   status,
+  action,
   onRetry,
   onDismiss,
 }) => (
@@ -51,6 +61,17 @@ export const BootstrapBlockedBanner: React.FC<BootstrapBlockedBannerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+          {action ? (
+            <button
+              id="btn-bootstrap-blocked-action"
+              type="button"
+              onClick={() => requestTabNavigation(action.tab)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-white/90 hover:bg-white text-rose-700 border border-rose-300 shadow-xs transition-colors cursor-pointer"
+            >
+              <span>{action.label}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : null}
           {onRetry ? (
             <button
               id="btn-retry-bootstrap"

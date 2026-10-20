@@ -37,6 +37,7 @@ import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalend
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { normalizeMacAddress } from '../../../../shared/macAddress';
 import type {
   PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, Supplier, DeviceSerialPair, User,
 } from '../../types';
@@ -88,11 +89,13 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   /**
    * Shared serial-tracking rule (same one the server applies): QUANTITY_ONLY
    * products carry no serials, and a product is tracked unless it explicitly
-   * opts out. PON + MAC are mandatory only for SERIAL_MAC_PON hardware.
+   * opts out. MAC is mandatory and PON optional for SERIAL_MAC_PON hardware —
+   * several ONU models ship without a printed PON, so the field stays but may
+   * be left blank (stored as null).
    */
   const isSerialTracked = (product?: Product): boolean =>
     product ? product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY' : true;
-  const requiresPonAndMac = (product?: Product): boolean => product?.trackingType === 'SERIAL_MAC_PON';
+  const requiresMac = (product?: Product): boolean => product?.trackingType === 'SERIAL_MAC_PON';
 
   // Link Purchase Order State
   const [selectedPoId, setSelectedPoId] = useState<string>('');
@@ -254,6 +257,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
           currentSerials.push({
             deviceSerial: '',
             ponSerial: '',
+            macAddress: '',
           });
         }
         updated[existingIdx] = {
@@ -281,6 +285,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                   {
                     deviceSerial: '',
                     ponSerial: '',
+                    macAddress: '',
                   },
                 ]
               : [],
@@ -348,6 +353,18 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
     serials[serialIdx] = { ...serials[serialIdx], macAddress };
     updated[lineIdx].deviceSerials = serials;
     setLines(updated);
+  };
+
+  /**
+   * Canonicalises the MAC for one unit. Called on blur, on Enter and once more
+   * before submit — NOT on every keystroke, so a barcode scanner's character
+   * burst (and a human's caret) is never disturbed mid-entry.
+   */
+  const normalizeLineMac = (lineIdx: number, serialIdx: number) => {
+    const current = lines[lineIdx]?.deviceSerials?.[serialIdx]?.macAddress;
+    const normalized = normalizeMacAddress(current);
+    if (normalized === (current || '')) return;
+    updateLineMacAddress(lineIdx, serialIdx, normalized);
   };
 
   const updateLinePrice = (index: number, newPrice: number) => {
@@ -449,17 +466,14 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
         );
         return;
       }
-      const strict = requiresPonAndMac(product);
+      const strict = requiresMac(product);
       for (let s = 0; s < qty; s++) {
         const device = serialKey(slots[s]?.deviceSerial);
         const pon = serialKey(slots[s]?.ponSerial);
-        const mac = serialKey(slots[s]?.macAddress);
+        // Canonical form is what gets registered and compared downstream.
+        const mac = serialKey(normalizeMacAddress(slots[s]?.macAddress));
         if (!device) {
           setSaveMessage(`Device serial is required for "${line.productName}" (unit #${s + 1}).`);
-          return;
-        }
-        if (strict && !pon) {
-          setSaveMessage(`PON serial is required for "${line.productName}" (unit #${s + 1}).`);
           return;
         }
         if (strict && !mac) {
@@ -475,7 +489,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
           return;
         }
         if (mac && seenMac.has(mac)) {
-          setSaveMessage(`Duplicate MAC address ${slots[s].macAddress} on this bill.`);
+          setSaveMessage(`Duplicate MAC address ${normalizeMacAddress(slots[s].macAddress)} on this bill.`);
           return;
         }
         seenDevice.add(device);
@@ -499,7 +513,10 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
       subtotal: l.netSubtotal,
       taxAmount: isBillTaxable ? (l.netSubtotal * getDefaultTaxRate()) / 100 : 0,
       total: l.netSubtotal + (isBillTaxable ? (l.netSubtotal * getDefaultTaxRate()) / 100 : 0),
-      deviceSerials: l.deviceSerials,
+      deviceSerials: (l.deviceSerials || []).map((s) => ({
+        ...s,
+        macAddress: normalizeMacAddress(s.macAddress) || undefined,
+      })),
     }));
 
     // Default to CREDIT mode transaction as requested
@@ -912,7 +929,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                 const isSerialized = isSerialTracked(prod);
                                 return isSerialized ? (
                                   <div className={`text-[10px] font-medium mt-0.5 text-blue-600 dark:text-blue-400`}>
-                                    Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
+                                    Device Serial + MAC Tracking, PON optional ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
                                   </div>
                                 ) : (
                                   <div className={`text-[10px] font-medium mt-0.5 text-emerald-600 dark:text-emerald-400`}>
@@ -979,7 +996,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                 <td colSpan={7} className="px-2.5 py-1.5">
                                   <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
                                     <Barcode className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400`} />
-                                    <span>Serial Numbers — Device / PON / MAC for {line.productName} ({line.quantity} Units)</span>
+                                    <span>Serial Numbers — Device + MAC required, PON optional, for {line.productName} ({line.quantity} Units)</span>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {Array.from({ length: line.quantity }).map((_, sIdx) => (
@@ -990,7 +1007,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                         <div className="flex items-center justify-between mb-1.5">
                                           <span className="font-mono text-[10px] font-bold text-slate-400">Unit #{sIdx + 1}</span>
                                           <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                                            MAC
+                                            MAC required · PON optional
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
@@ -1004,7 +1021,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                               if (e.key === 'Enter') {
                                                 e.preventDefault();
                                                 const nextEl = document.getElementById(
-                                                  `serial-pon-${idx}-${sIdx}`
+                                                  `serial-mac-${idx}-${sIdx}`
                                                 ) as HTMLInputElement;
                                                 if (nextEl) {
                                                   nextEl.focus();
@@ -1015,17 +1032,21 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                             className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded-lg border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                           />
 
+                                          {/* MAC is required and the barcode often carries it
+                                              without separators; blur/Enter canonicalise it. */}
                                           <input
-                                            id={`serial-pon-${idx}-${sIdx}`}
+                                            id={`serial-mac-${idx}-${sIdx}`}
                                             type="text"
-                                            placeholder="PON Serial #"
-                                            value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                            onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
+                                            placeholder="MAC Address (required)"
+                                            value={line.deviceSerials?.[sIdx]?.macAddress || ''}
+                                            onChange={(e) => updateLineMacAddress(idx, sIdx, e.target.value)}
+                                            onBlur={() => normalizeLineMac(idx, sIdx)}
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter') {
                                                 e.preventDefault();
+                                                normalizeLineMac(idx, sIdx);
                                                 const nextEl = document.getElementById(
-                                                  `serial-mac-${idx}-${sIdx}`
+                                                  `serial-pon-${idx}-${sIdx}`
                                                 ) as HTMLInputElement;
                                                 if (nextEl) {
                                                   nextEl.focus();
@@ -1033,15 +1054,15 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                                 }
                                               }
                                             }}
-                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded-lg border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/50 rounded-lg border border-emerald-200 dark:border-emerald-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                           />
 
                                           <input
-                                            id={`serial-mac-${idx}-${sIdx}`}
+                                            id={`serial-pon-${idx}-${sIdx}`}
                                             type="text"
-                                            placeholder="MAC Address"
-                                            value={line.deviceSerials?.[sIdx]?.macAddress || ''}
-                                            onChange={(e) => updateLineMacAddress(idx, sIdx, e.target.value)}
+                                            placeholder="PON Serial # (optional)"
+                                            value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                            onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter') {
                                                 e.preventDefault();
@@ -1054,7 +1075,7 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
                                                 }
                                               }
                                             }}
-                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/50 rounded-lg border border-emerald-200 dark:border-emerald-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded-lg border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           />
                                         </div>
                                       </div>

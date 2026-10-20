@@ -210,7 +210,7 @@ async function claimInvoiceSerials(
   // and the stock operations, so "is this unit real, in stock and mine?" has a
   // single answer everywhere. Sales keeps its own claim transition below
   // (SI_CLAIM_SERIAL_SQL) because Sales Returns flips it back symmetrically.
-  const plan = planSerialGateEntries(items, products as any[], { requirePon: true });
+  const plan = planSerialGateEntries(items, products as any[]);
   if (plan.error) throw new Error(plan.error);
   if (plan.entries.length === 0) return;
 
@@ -219,7 +219,7 @@ async function claimInvoiceSerials(
   await resolveSerialGateInDb(
     client,
     plan.entries,
-    { branchId: targetBranchId, branchLabel: atBranch, requirePon: true, matchMac: true, matchProduct: true },
+    { branchId: targetBranchId, branchLabel: atBranch, matchMac: true, matchProduct: true },
     { action: 'sold', productName: (e) => e.productName }
   );
 

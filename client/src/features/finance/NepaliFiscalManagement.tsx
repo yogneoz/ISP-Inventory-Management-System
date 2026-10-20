@@ -21,6 +21,8 @@ import {
   getNepaliQuarter,
   generateCalendarDatabase,
   getCalendarBounds,
+  getBundledBsYearMonths,
+  getSeedPresetYears,
   isDateInBounds,
   lookupBSDayRecord,
 } from '../../utils/nepaliCalendar';
@@ -608,25 +610,22 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               <span>Quick Seed Presets:</span>
             </span>
 
-            {[2082, 2083, 2084, 2085].map((y) => (
-              <button
-                key={y}
-                type="button"
-                onClick={() =>
-                  handleQuickSeed(
-                    y,
-                    y === 2084
-                      ? [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30]
-                      : y === 2085
-                      ? [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31]
-                      : [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]
-                  )
-                }
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
-              >
-                + Seed {y} BS
-              </button>
-            ))}
+            {getSeedPresetYears().map((y) => {
+              // Month arrays come from shared/bsCalendarYears.json (via the
+              // bundled calendar), never from literals in this screen.
+              const bundledMonths = getBundledBsYearMonths(y);
+              if (!bundledMonths) return null;
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => handleQuickSeed(y, bundledMonths)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
+                >
+                  + Seed {y} BS
+                </button>
+              );
+            })}
           </div>
         </form>
 
@@ -1068,20 +1067,38 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                 Quick Seed Missing BS Year Array(s):
               </span>
               <div className="flex flex-wrap gap-2">
-                {rangeConversionStatus.missingYears.map((mYear) => (
-                  <button
-                    key={mYear}
-                    type="button"
-                    onClick={async () => {
-                      await handleQuickSeed(mYear, [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]);
-                      handleConvertRange();
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-mono font-bold shadow transition-all cursor-pointer flex items-center gap-1"
-                  >
-                    <PlusCircle className="h-3 w-3" />
-                    <span>Seed Array BS {mYear} & Retry</span>
-                  </button>
-                ))}
+                {rangeConversionStatus.missingYears.map((mYear) => {
+                  // Only offer a seed for years the patro data actually covers.
+                  // Guessing a 12-month array for an unverified year is how the
+                  // seeded calendar went wrong in three of its eight years.
+                  const bundledMonths = getBundledBsYearMonths(mYear);
+                  if (!bundledMonths) {
+                    return (
+                      <span
+                        key={mYear}
+                        title={`BS ${mYear} is not in the bundled patro data (shared/bsCalendarYears.json). Seed it from the official patro above instead of guessing its month lengths.`}
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-100/70 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200"
+                      >
+                        <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                        <span>BS {mYear}: no patro data — seed it from the official patro</span>
+                      </span>
+                    );
+                  }
+                  return (
+                    <button
+                      key={mYear}
+                      type="button"
+                      onClick={async () => {
+                        await handleQuickSeed(mYear, bundledMonths);
+                        handleConvertRange();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-mono font-bold shadow transition-all cursor-pointer flex items-center gap-1"
+                    >
+                      <PlusCircle className="h-3 w-3" />
+                      <span>Seed Array BS {mYear} & Retry</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

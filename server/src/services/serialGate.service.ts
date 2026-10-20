@@ -27,6 +27,7 @@
  * so the rules are unit-testable without a database.
  */
 import { SERIAL_GATE_CONSUMABLE_STATUSES, SERIAL_GATE_LOCK_SQL } from '../models/inventory.repo';
+import { macKey, normalizeMacAddress } from '../../../shared/macAddress';
 
 /** Minimal DB/transaction client shape (pg's PoolClient is assignable). */
 export interface SqlClient {
@@ -84,7 +85,12 @@ export function isSerialTracked(product?: SerialGateProduct | null): boolean {
   return product.requiresSerialTracking !== false;
 }
 
-/** PON is mandatory only for SERIAL_MAC_PON products. */
+/**
+ * Legacy helper only — no endpoint demands a typed PON any more. The device
+ * serial is the operation's only key: PON and MAC are resolved from the
+ * register (see `hydrateSerialEntries`). Kept because trackers still ask
+ * whether a product is a SERIAL_MAC_PON one.
+ */
 export function requiresPon(product?: SerialGateProduct | null): boolean {
   return String(product?.trackingType || '') === 'SERIAL_MAC_PON';
 }
@@ -138,15 +144,18 @@ export interface SerialGateRules {
 /**
  * Plans and shape-validates the units an operation will draw from one or more
  * lines: serial-tracked lines must supply exactly one device serial per unit,
- * `SERIAL_MAC_PON` lines must supply a PON, and a device serial may appear only
- * once across the whole operation. A line for a product the catalog does not
- * know is treated as serial-tracked when the operator typed serials, so
- * deliberately entered identity is never silently dropped.
+ * and a device serial may appear only once across the whole operation.
+ *
+ * The DEVICE SERIAL is the only field an operator types (one-field UX): PON and
+ * MAC are filled from the register rows by `hydrateSerialEntries` before the
+ * gate rules run, so nothing here demands a typed PON or MAC. A line for a
+ * product the catalog does not know is treated as serial-tracked when the
+ * operator typed serials, so deliberately entered identity is never silently
+ * dropped.
  */
 export function planSerialGateEntries(
   items: Array<Record<string, any>>,
-  products: SerialGateProduct[],
-  opts: { requirePon?: boolean } = {}
+  products: SerialGateProduct[]
 ): SerialGatePlan {
   const entries: SerialGateEntry[] = [];
   const seen = new Set<string>();
@@ -172,11 +181,6 @@ export function planSerialGateEntries(
         error: `${name} is serial-tracked: ${qty} device serial(s) required, ${pairs.length} provided.`,
       };
     }
-    if ((opts.requirePon || requiresPon(product)) && pairs.some((p) => !p.ponSerial)) {
-      const missing = pairs.find((p) => !p.ponSerial);
-      return { entries: [], error: `PON serial is required for device serial ${missing?.deviceSerial}.` };
-    }
-
     for (const pair of pairs) {
       const key = serialGateKey(pair.deviceSerial);
       if (seen.has(key)) {
@@ -186,7 +190,7 @@ export function planSerialGateEntries(
       entries.push({
         deviceSerial: pair.deviceSerial,
         ponSerial: pair.ponSerial,
-        macAddress: pair.macAddress,
+        macAddress: normalizeMacAddress(pair.macAddress),
         productId: String(item?.productId || ''),
         productName: name,
       });
@@ -194,6 +198,28 @@ export function planSerialGateEntries(
   }
 
   return { entries, error: null };
+}
+
+/**
+ * Fills each entry's PON/MAC from its register row when the caller sent a
+ * blank. The register is the authority for a unit's identity, so a screen that
+ * captures only the device serial still resolves the full record before any
+ * rule runs — and a caller that DID type a PON/MAC keeps it, so the mismatch
+ * checks below remain real defence in depth.
+ */
+export function hydrateSerialEntries(
+  entries: readonly SerialGateEntry[],
+  rowsByKey: Map<string, SerialGateRow>
+): SerialGateEntry[] {
+  return entries.map((entry) => {
+    const row = rowsByKey.get(serialGateKey(entry.deviceSerial));
+    if (!row) return entry;
+    return {
+      ...entry,
+      ponSerial: entry.ponSerial || String(row.ponSerial ?? '').trim(),
+      macAddress: macKey(entry.macAddress || row.macAddress),
+    };
+  });
 }
 
 /** Register rows keyed by `serialGateKey(device_serial)` for violation checks. */
@@ -238,12 +264,12 @@ export function findGateViolation(
       if (!entry.ponSerial) return { code: 'PON_REQUIRED', deviceSerial: entry.deviceSerial };
     }
     if ((rules.requirePon || rules.matchPonWhenProvided) && entry.ponSerial) {
-      if (String(row.ponSerial || '').trim().toUpperCase() !== entry.ponSerial.toUpperCase()) {
+      if (String(row.ponSerial || '').trim().toUpperCase() !== entry.ponSerial.trim().toUpperCase()) {
         return { code: 'PON_MISMATCH', deviceSerial: entry.deviceSerial, ponSerial: entry.ponSerial };
       }
     }
     if (rules.matchMac !== false && entry.macAddress) {
-      if (String(row.macAddress || '').trim().toUpperCase() !== entry.macAddress.toUpperCase()) {
+      if (macKey(row.macAddress) !== macKey(entry.macAddress)) {
         return { code: 'MAC_MISMATCH', deviceSerial: entry.deviceSerial, macAddress: entry.macAddress };
       }
     }
@@ -298,9 +324,11 @@ export async function resolveSerialGateInDb(
   if (entries.length === 0) return;
   const keys = [...new Set(entries.map((e) => serialGateKey(e.deviceSerial)))];
   const locked = await client.query(SERIAL_GATE_LOCK_SQL, [keys]);
-  const violation = findGateViolation(entries, indexGateRows(locked.rows as SerialGateRow[]), rules);
+  const rowsByKey = indexGateRows(locked.rows as SerialGateRow[]);
+  const hydrated = hydrateSerialEntries(entries, rowsByKey);
+  const violation = findGateViolation(hydrated, rowsByKey, rules);
   if (violation) {
-    const entry = entries.find((e) => serialGateKey(e.deviceSerial) === serialGateKey((violation as any).deviceSerial));
+    const entry = hydrated.find((e) => serialGateKey(e.deviceSerial) === serialGateKey((violation as any).deviceSerial));
     throw new SerialGateError(
       400,
       describeGateViolation(violation, {
@@ -324,9 +352,11 @@ export function resolveSerialGateInMemory(
   ctx: { action: string; productName?: (entry: SerialGateEntry) => string }
 ): void {
   if (entries.length === 0) return;
-  const violation = findGateViolation(entries, indexGateRows(rows), rules);
+  const rowsByKey = indexGateRows(rows);
+  const hydrated = hydrateSerialEntries(entries, rowsByKey);
+  const violation = findGateViolation(hydrated, rowsByKey, rules);
   if (violation) {
-    const entry = entries.find((e) => serialGateKey(e.deviceSerial) === serialGateKey((violation as any).deviceSerial));
+    const entry = hydrated.find((e) => serialGateKey(e.deviceSerial) === serialGateKey((violation as any).deviceSerial));
     throw new SerialGateError(
       400,
       describeGateViolation(violation, {

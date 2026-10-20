@@ -27,6 +27,10 @@
       ]
     },
     "allowImportingTsExtensions": true,
+    // The BS calendar reference data is a single JSON file (shared/
+    // bsCalendarYears.json) imported by the client bundle and the server
+    // config alike, so the two can never disagree about a month length.
+    "resolveJsonModule": true,
     "noEmit": true
   }
 }

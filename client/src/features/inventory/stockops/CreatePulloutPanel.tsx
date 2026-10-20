@@ -6,6 +6,7 @@ import {
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
+import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
   Trash2,
@@ -23,7 +24,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const CreatePulloutPanel: React.FC = () => {
-  const { activeTab, alertDialog, allowedBranches, branches, currentUser, ensureBsDateAvailable, focusInput, initialPulloutModalOpen, onCreateOperation, products, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, alertDialog, allowedBranches, branches, currentUser, ensureBsDateAvailable, focusInput, initialPulloutModalOpen, onCreateOperation, products, serialRegister, setActiveTab, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(initialPulloutModalOpen);
 
@@ -137,23 +138,22 @@ export const CreatePulloutPanel: React.FC = () => {
     }
   };
 
-  const updatePulloutDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+  /**
+   * One-field serial entry: the operator types the device serial and the
+   * component resolves PON (and MAC, for display) from the register. Both
+   * values are written in ONE state update, so the second field of a pair can
+   * never be clobbered by a stale copy of the first.
+   */
+  const updatePulloutSerial = (
+    lineIdx: number,
+    sIdx: number,
+    next: { deviceSerial: string; ponSerial?: string }
+  ) => {
     setPulloutItems((prev) =>
       prev.map((item, idx) => {
         if (idx !== lineIdx) return item;
         const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
-        return { ...item, deviceSerials: serials };
-      })
-    );
-  };
-
-  const updatePulloutPonSerial = (lineIdx: number, sIdx: number, val: string) => {
-    setPulloutItems((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== lineIdx) return item;
-        const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        serials[sIdx] = { deviceSerial: next.deviceSerial, ponSerial: next.ponSerial || '' };
         return { ...item, deviceSerials: serials };
       })
     );
@@ -423,52 +423,27 @@ export const CreatePulloutPanel: React.FC = () => {
                               <span>✓ Scan Serials for {item.productName} ({item.quantity} Unit{item.quantity > 1 ? 's' : ''})</span>
                             </div>
                             {Array.from({ length: item.quantity }).map((_, sIdx) => (
-                              <div key={sIdx} className={`p-1.5 rounded-lg border flex items-center gap-1.5 text-xs bg-white dark:bg-slate-900/80`}>
-                                <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                <input
-                                  id={`pullout-serial-device-${idx}-${sIdx}`}
-                                  type="text"
-                                  placeholder="Device Serial #"
-                                  value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                  onChange={(e) => updatePulloutDeviceSerial(idx, sIdx, e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      const nextEl = document.getElementById(`pullout-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
-                                      if (nextEl) {
-                                        nextEl.focus();
-                                        if ('select' in nextEl) nextEl.select();
-                                      }
-                                    }
-                                  }}
-                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-slate-50 border-indigo-200 dark:text-indigo-200 dark:bg-slate-950 dark:border-indigo-800`}
-                                />
-                                <input
-                                  id={`pullout-serial-pon-${idx}-${sIdx}`}
-                                  type="text"
-                                  placeholder="PON Serial #"
-                                  value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                  onChange={(e) => updatePulloutPonSerial(idx, sIdx, e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
+                              <div key={sIdx} className={`p-1.5 rounded-lg border text-xs bg-white dark:bg-slate-900/80`}>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                  <DeviceSerialInput
+                                    id={`pullout-serial-device-${idx}-${sIdx}`}
+                                    className="flex-1"
+                                    value={item.deviceSerials?.[sIdx]}
+                                    onChange={(next) => updatePulloutSerial(idx, sIdx, next)}
+                                    register={serialRegister}
+                                    branchId={sourceBranchId}
+                                    productId={item.productId}
+                                    productName={item.productName}
+                                    onEnter={() => {
                                       if (sIdx + 1 < item.quantity) {
-                                        const nextDev = document.getElementById(`pullout-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
-                                        if (nextDev) {
-                                          nextDev.focus();
-                                          if ('select' in nextDev) nextDev.select();
-                                        }
+                                        focusInput(`pullout-serial-device-${idx}-${sIdx + 1}`);
                                       } else {
-                                        const searchInput = document.getElementById('pullout-product-search-input') as HTMLInputElement;
-                                        if (searchInput) {
-                                          searchInput.focus();
-                                          if ('select' in searchInput) searchInput.select();
-                                        }
+                                        focusInput('pullout-product-search-input');
                                       }
-                                    }
-                                  }}
-                                  className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-sky-500 text-sky-900 bg-slate-50 border-sky-200 dark:text-sky-200 dark:bg-slate-950 dark:border-sky-800`}
-                                />
+                                    }}
+                                  />
+                                </div>
                               </div>
                             ))}
                           </div>

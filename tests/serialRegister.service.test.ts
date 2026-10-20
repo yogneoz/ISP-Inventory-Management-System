@@ -15,7 +15,7 @@ import {
   isSerialTrackedProduct,
   planPurchaseSerialEntries,
   purchaseRegisterHistoryEntry,
-  requiresPonAndMac,
+  requiresMac,
   serialKey,
 } from '../server/src/services/serialRegister.service';
 
@@ -24,10 +24,10 @@ const FIBER = { id: 'p-fiber', name: 'FIBER CABLE', requiresSerialTracking: fals
 
 const pair = (deviceSerial: string, ponSerial = '', macAddress = '') => ({ deviceSerial, ponSerial, macAddress });
 
-describe('isSerialTrackedProduct / requiresPonAndMac', () => {
+describe('isSerialTrackedProduct / requiresMac', () => {
   test('QUANTITY_ONLY products are never serial-tracked', () => {
     assert.equal(isSerialTrackedProduct(FIBER), false);
-    assert.equal(requiresPonAndMac(FIBER), false);
+    assert.equal(requiresMac(FIBER), false);
   });
 
   test('a product is tracked unless it explicitly opts out', () => {
@@ -38,9 +38,9 @@ describe('isSerialTrackedProduct / requiresPonAndMac', () => {
     assert.equal(isSerialTrackedProduct(undefined), false);
   });
 
-  test('PON + MAC are mandatory only for SERIAL_MAC_PON', () => {
-    assert.equal(requiresPonAndMac(ONU), true);
-    assert.equal(requiresPonAndMac({ id: 'x', trackingType: 'SERIAL_ONLY' }), false);
+  test('MAC is mandatory only for SERIAL_MAC_PON (PON is optional everywhere)', () => {
+    assert.equal(requiresMac(ONU), true);
+    assert.equal(requiresMac({ id: 'x', trackingType: 'SERIAL_ONLY' }), false);
   });
 });
 
@@ -111,7 +111,7 @@ describe('planPurchaseSerialEntries', () => {
     assert.match(plan.error || '', /Duplicate device serial sn-1 on this purchase invoice/);
   });
 
-  test('duplicate PON and duplicate MAC are refused too', () => {
+  test('duplicate PON and duplicate MAC are refused too (MAC compared canonically)', () => {
     const dupPon = planPurchaseSerialEntries(
       [
         { productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-1', 'PON-1', 'AA')] },
@@ -124,22 +124,24 @@ describe('planPurchaseSerialEntries', () => {
 
     const dupMac = planPurchaseSerialEntries(
       [
-        { productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-1', 'PON-1', 'AA')] },
-        { productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-2', 'PON-2', 'aa')] },
+        { productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-1', 'PON-1', '00-11-22-33-44-55')] },
+        { productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-2', 'PON-2', '001122334455')] },
       ],
       [ONU],
       'WH001'
     );
-    assert.match(dupMac.error || '', /Duplicate MAC address aa/);
+    assert.match(dupMac.error || '', /Duplicate MAC address 00:11:22:33:44:55/);
   });
 
-  test('SERIAL_MAC_PON requires PON and MAC per unit', () => {
+  test('SERIAL_MAC_PON requires MAC per unit and stores a blank PON as null', () => {
     const noPon = planPurchaseSerialEntries(
       [{ productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-1', '', 'AA')] }],
       [ONU],
       'WH001'
     );
-    assert.match(noPon.error || '', /PON serial is required for device serial SN-1/);
+    assert.equal(noPon.error, null);
+    assert.equal(noPon.entries[0].ponSerial, null);
+    assert.equal(noPon.entries[0].macAddress, 'AA');
 
     const noMac = planPurchaseSerialEntries(
       [{ productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-1', 'PON-1', '')] }],
@@ -147,6 +149,16 @@ describe('planPurchaseSerialEntries', () => {
       'WH001'
     );
     assert.match(noMac.error || '', /MAC address is required for device serial SN-1/);
+
+    // A MAC scanned without separators is stored canonically, so the register
+    // never holds two spellings of one device.
+    const barcodeMac = planPurchaseSerialEntries(
+      [{ productId: 'p-onu', quantity: 1, deviceSerials: [pair('SN-3', 'PON-3', 'a4c3f0b1d2e3')] }],
+      [ONU],
+      'WH001'
+    );
+    assert.equal(barcodeMac.error, null);
+    assert.equal(barcodeMac.entries[0].macAddress, 'A4:C3:F0:B1:D2:E3');
 
     // SERIAL_ONLY: device serial alone is enough.
     const serialOnly = planPurchaseSerialEntries(

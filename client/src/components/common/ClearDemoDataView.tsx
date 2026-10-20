@@ -15,6 +15,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { User } from '../../types';
+import type { ClearDemoDataResult } from '../../services/api/admin';
 
 interface ClearDemoDataViewProps {
   currentUser?: User | null;
@@ -25,8 +26,19 @@ interface ClearDemoDataViewProps {
   customerCount: number;
   poCount: number;
   invoiceCount: number;
-  onClearDemoData: () => Promise<void>;
+  /**
+   * Whether the app still has no usable fiscal year. When it does not, the
+   * success card's primary action is the fiscal-year screen: a cleared install
+   * has no fiscal year, and every bootstrap refuses until one is created and
+   * active, so "go to the dashboard" would land the operator on a blocked app.
+   */
+  needsFiscalYear?: boolean;
+  onClearDemoData: () => Promise<ClearDemoDataResult | void>;
   onNavigateDashboard: () => void;
+  onNavigateFiscalYears?: () => void;
+  /** Called when the cleared account was the signed-in demo one (no Super Admin
+   *  left): App signs the session out to the first-launch setup. */
+  onSignedOut?: () => void;
 }
 
 export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
@@ -38,12 +50,16 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
   customerCount,
   poCount,
   invoiceCount,
+  needsFiscalYear = false,
   onClearDemoData,
   onNavigateDashboard,
+  onNavigateFiscalYears,
+  onSignedOut,
 }) => {
   const [confirmText, setConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
   const [clearedSuccess, setClearedSuccess] = useState(false);
+  const [clearResult, setClearResult] = useState<ClearDemoDataResult | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   const requiredConfirm = 'CLEAR DEMO DATA';
@@ -54,11 +70,24 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
     setIsClearing(true);
     setErrorMessage('');
     try {
-      await onClearDemoData();
+      const result = await onClearDemoData();
+      if (result) setClearResult(result);
       setClearedSuccess(true);
-      setTimeout(() => {
-        onNavigateDashboard();
-      }, 2000);
+      // The account this session was signed in as was demo data, and nothing
+      // real is left to act as: hand off to the first-launch setup instead of
+      // pretending the session still exists (the server deletes the user row;
+      // the token alone would keep working for hours).
+      if (result && result.superAdminCount === 0) {
+        onSignedOut?.();
+        return;
+      }
+      // Only auto-return to the dashboard when there is nothing to fix first;
+      // a cleared install has no fiscal year and the dashboard would 409.
+      if (!needsFiscalYear) {
+        setTimeout(() => {
+          onNavigateDashboard();
+        }, 2500);
+      }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to clear demo data.');
     } finally {
@@ -108,8 +137,60 @@ export const ClearDemoDataView: React.FC<ClearDemoDataViewProps> = ({
           </h2>
           <p className="text-sm text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
             All demo-flagged records (is_demo = TRUE) have been removed — including the demo branches, demo user accounts, and demo fiscal years.
-            Your real business data is untouched and the Nepali BS calendar is preserved. Redirecting to Executive Dashboard...
+            Your real business data is untouched and the Nepali BS calendar is preserved.
           </p>
+
+          {/* What the server actually removed, not a summary we composed here. */}
+          {clearResult && (
+            <p className="text-[11px] font-mono text-emerald-800/90 dark:text-emerald-300/90">
+              {clearResult.totalRemoved} row(s) removed · {clearResult.demoFiscalYearsDeleted} demo fiscal year(s) deleted
+              {clearResult.demoFiscalYearsSkipped > 0
+                ? ` · ${clearResult.demoFiscalYearsSkipped} kept (real opening balances reference them)`
+                : ''}
+              {' · '}BS calendar preserved ({clearResult.bsDayRecordsRelinked} day link(s) refreshed) · {clearResult.userCount} user(s)
+              left ({clearResult.superAdminCount} Super Admin)
+            </p>
+          )}
+
+          {/* Next steps. A cleared install has no fiscal year, so the app cannot
+              load data until one exists and is active — say so here instead of
+              bouncing the operator into a blocked dashboard. */}
+          {needsFiscalYear ? (
+            <div className="max-w-lg mx-auto text-left space-y-3 pt-1">
+              <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40">
+                <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                  One step left before the app can load data
+                </p>
+                <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
+                  The demo fiscal years are gone, so there is no accounting period to scope records to and every
+                  screen will keep reporting “No fiscal year is configured”. Create your own year in the Fiscal Year
+                  Closing Wizard — it runs Shrawan 1 to Ashadh end, and the BS dates are filled in from the seeded
+                  calendar for you. The first year you create becomes the active one.
+                </p>
+              </div>
+              {onNavigateFiscalYears && (
+                <button
+                  type="button"
+                  onClick={onNavigateFiscalYears}
+                  className="w-full px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition shadow-md cursor-pointer"
+                >
+                  Create your first fiscal year
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onNavigateDashboard}
+                className="w-full px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Back to Dashboard (data stays blocked until a fiscal year exists)
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-emerald-700 dark:text-emerald-300">
+              Returning to the Executive Dashboard — if the app reports that no fiscal year is configured, create one in
+              the Fiscal Year Closing Wizard.
+            </p>
+          )}
         </div>
       ) : (
         <>

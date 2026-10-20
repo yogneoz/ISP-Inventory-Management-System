@@ -2,12 +2,29 @@
  * Bikram Sambat (BS) <-> Anno Domini (AD) Date Conversion Utility for Inventory
  * Powered by Reference Table Calendar Data & Full Day-by-Day Database Generator
  */
+import bsCalendarYearsSource from '../../../shared/bsCalendarYears.json';
 
 export interface BSYearData {
   yearBS: number;
   daysInMonths: number[]; // 12 numbers for [Baisakh..Chaitra]
   startAD: string; // ISO date string YYYY-MM-DD for Baisakh 1
+  /** Where startAD came from: 'patro' = read off the published patro (or the
+   *  bundled reference data), 'estimated' = derived at seed time from the
+   *  previous year's end + 1, or the year-57 approximation. */
+  startAdSource?: 'patro' | 'estimated';
+  /** True while the bundled patro data does not verify this year's array, so
+   *  every screen can warn instead of treating an entry as the calendar. */
+  isProvisional?: boolean;
 }
+
+/**
+ * What a screen shows where a BS date should be but the calendar has no day
+ * record for it. The server writes the same literal (server/src/utils/bsDate.ts
+ * BS_NOT_SEEDED) into BS columns it cannot derive, so an unseeded day is visible
+ * in the UI, in exports and in the stored row instead of hiding behind a
+ * fictitious date. tests/bsDateMarker.test.ts pins the two literals together.
+ */
+export const BS_NOT_SEEDED = 'BS not seeded';
 
 export interface BSDayRecord {
   adDate: string; // YYYY-MM-DD AD
@@ -84,49 +101,20 @@ export const DAYS_OF_WEEK_NP = [
   'शनिबार',
 ];
 
-// Default built-in BS Calendar Lookup Engine (2078 BS to 2085 BS)
-const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = {
-  2078: {
-    yearBS: 2078,
-    daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2021-04-14',
-  },
-  2079: {
-    yearBS: 2079,
-    daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2022-04-14',
-  },
-  2080: {
-    yearBS: 2080,
-    daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2023-04-14',
-  },
-  2081: {
-    yearBS: 2081,
-    daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31],
-    startAD: '2024-04-13',
-  },
-  2082: {
-    yearBS: 2082,
-    daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2025-04-14',
-  },
-  2083: {
-    yearBS: 2083,
-    daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2026-04-14',
-  },
-  2084: {
-    yearBS: 2084,
-    daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30],
-    startAD: '2027-04-14',
-  },
-  2085: {
-    yearBS: 2085,
-    daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31],
-    startAD: '2028-04-13',
-  },
-};
+// Default built-in BS Calendar Lookup Engine (2078 BS to 2085 BS), read from the
+// repo's ONE copy of the calendar data: shared/bsCalendarYears.json — the same
+// file the server config (server/src/config/bsCalendar.ts) and the database
+// seeder (scripts/setup_db.js) load, and the same one the UI seed presets derive
+// from. This used to be four hand-maintained copies, and three of the eight
+// seeded years had drifted from the published patro (BS 2080, 2084 and 2085
+// labelled mid-year AD dates with the wrong Nepali day). Month lengths differ
+// year to year: neighbouring years never share an array, they only tile.
+const INITIAL_BS_CALENDAR_DATA: Record<number, BSYearData> = Object.fromEntries(
+  bsCalendarYearsSource.years.map((y) => [
+    y.yearBS,
+    { yearBS: y.yearBS, daysInMonths: y.daysInMonths, startAD: y.startAD },
+  ])
+);
 
 /**
  * In-memory BS calendar lookup.
@@ -158,6 +146,32 @@ export function getBsCalendarData(): Record<number, BSYearData> {
   return { ...(calendarStore ?? INITIAL_BS_CALENDAR_DATA) };
 }
 
+/**
+ * The bundled (patro-verified) month array for one BS year, or null when that
+ * year is not in shared/bsCalendarYears.json.
+ *
+ * The "+ Seed <year> BS" presets read this instead of carrying their own
+ * literals, so a button can never offer a month array the seeder does not have
+ * (and a year the patro data does not cover has no button at all rather than a
+ * guessed 30-day-per-month row).
+ */
+export function getBundledBsYearMonths(yearBS: number): number[] | null {
+  const year = INITIAL_BS_CALENDAR_DATA[yearBS];
+  return year ? [...year.daysInMonths] : null;
+}
+
+/**
+ * The years the "+ Seed <year> BS" preset row offers: the four most recent
+ * years the bundled patro data covers, newest first. Derived from the data, so
+ * the row can never name a year the seeder has no verified array for.
+ */
+export function getSeedPresetYears(): number[] {
+  return Object.keys(INITIAL_BS_CALENDAR_DATA)
+    .map(Number)
+    .sort((a, b) => b - a)
+    .slice(0, 4);
+}
+
 /** Replaces the in-memory calendar snapshot. */
 function saveBsCalendarData(data: Record<number, BSYearData>): void {
   calendarStore = { ...data };
@@ -180,7 +194,8 @@ export function resetBsCalendarData(): void {
 export function seedBSYearCalendar(
   yearBS: number,
   daysInMonths: number[],
-  customStartAD?: string
+  customStartAD?: string,
+  provenance?: { startAdSource?: 'patro' | 'estimated'; isProvisional?: boolean }
 ): Record<number, BSYearData> {
   if (daysInMonths.length !== 12) {
     throw new Error('Month array must contain exactly 12 integers [Baisakh..Chaitra].');
@@ -202,17 +217,35 @@ export function seedBSYearCalendar(
     }
   }
 
+  const previous = currentData[yearBS];
   const updatedData: Record<number, BSYearData> = {
     ...currentData,
     [yearBS]: {
       yearBS,
       daysInMonths: [...daysInMonths],
       startAD,
+      // Provenance is remembered per year: the server sends it for seeded rows,
+      // and a caller that supplies none keeps whatever the year already had
+      // (rather than silently upgrading a provisional year to "patro").
+      startAdSource: provenance?.startAdSource ?? previous?.startAdSource ?? (customStartAD ? 'patro' : 'estimated'),
+      isProvisional: provenance?.isProvisional ?? previous?.isProvisional ?? false,
     },
   };
 
   saveBsCalendarData(updatedData);
   return updatedData;
+}
+
+/**
+ * The seeded years the bundled patro data does not verify (or whose Baisakh 1
+ * was derived). Their dates work, but nothing confirms the month array, so the
+ * coverage countdown keeps naming them until the published patro confirms it.
+ */
+export function getProvisionalYears(): number[] {
+  return Object.values(getBsCalendarData())
+    .filter((year) => year.isProvisional || year.startAdSource === 'estimated')
+    .map((year) => year.yearBS)
+    .sort((a, b) => a - b);
 }
 
 /**
@@ -518,15 +551,15 @@ export function getNepaliQuarter(monthBS: number): string {
 
 /**
  * One AD date claimed by TWO BS years. Overlaps are DATA errors — a month
- * array or a Baisakh-1 start date is off by a day — and the live calendar has
- * exactly one: BS 2084's array sums to 366 days from 2027-04-14, so its 366th
- * day lands on 2028-04-13, the very day BS 2085 begins.
+ * array or a Baisakh-1 start date is off by a day. The seeded 2078-2085 data has
+ * none: BS 2084 was corrected on 2026-10-16 (its array had one day too many in
+ * Magh, so 2028-04-13 was claimed as 2084-12-30 AND 2085-01-01).
  *
- * The conversion must stay deterministic regardless, so both sides resolve it
- * the same way: the later BS year wins (this is also what the database does —
+ * The conversion must stay deterministic if bad data ever comes back, so both
+ * sides resolve it the same way: the later BS year wins (the database does too —
  * `bs_day_records.ad_date` is the PRIMARY KEY inserted `ON CONFLICT (ad_date)
- * DO UPDATE` year by year, so 2028-04-13 holds BS 2085-01-01 and the table has
- * 2,922 rows while the generator used to emit 2,923).
+ * DO UPDATE` year by year), so the mirror lists one record per AD date like
+ * bs_day_records does, and any collision is reported instead of hidden.
  */
 export interface CalendarOverlap {
   adDate: string;
@@ -679,17 +712,30 @@ export function getCalendarBounds(): CalendarBounds {
 
   const db = generateCalendarDatabase();
   if (db.length === 0) {
-    return {
-      minAD: '2021-04-14',
-      // Last mapped AD day = BS 2085-12-31 (2028-04-13 + 365 days). Was one
-      // day short, which understated coverage in the empty-store fallback.
-      maxAD: '2029-04-13',
-      minBS: '2078-01-01',
-      maxBS: '2085-12-31',
-      totalDaysMapped: 0,
-      mappedYearsCount: 0,
-      mappedYears: [],
-    };
+    // Nothing is mapped (empty store), so report the BUNDLED coverage — derived
+    // from shared/bsCalendarYears.json rather than restated here. The literals
+    // this replaces claimed the range ended at BS 2085-12-31, a day Chaitra 2085
+    // does not have (30 days), and would have needed editing again the next time
+    // a year is corrected.
+    const years = Object.values(INITIAL_BS_CALENDAR_DATA).sort((a, b) => a.yearBS - b.yearBS);
+    const first = years[0];
+    const last = years[years.length - 1];
+    if (first && last) {
+      const lastMonthEnd = last.daysInMonths[last.daysInMonths.length - 1];
+      const bundledEnd = new Date(`${last.startAD}T00:00:00Z`);
+      bundledEnd.setUTCDate(
+        bundledEnd.getUTCDate() + last.daysInMonths.reduce((sum, days) => sum + days, 0) - 1
+      );
+      return {
+        minAD: first.startAD,
+        maxAD: bundledEnd.toISOString().split('T')[0],
+        minBS: `${first.yearBS}-01-01`,
+        maxBS: `${last.yearBS}-12-${String(lastMonthEnd).padStart(2, '0')}`,
+        totalDaysMapped: 0,
+        mappedYearsCount: 0,
+        mappedYears: [],
+      };
+    }
   }
 
   const minAD = db[0].adDate;
@@ -762,6 +808,10 @@ export interface BsCalendarCoverageStatus extends CalendarBounds {
    *  Negative once coverage has already ended. */
   daysRemaining: number;
   status: BsCoverageStatus;
+  /** Seeded years the published patro data does not verify (Baisakh 1 derived,
+   *  or a month array entered by hand). Dates in them work, but the coverage
+   *  warning must keep naming them until the patro confirms the array. */
+  provisionalYears: number[];
 }
 
 /**
@@ -771,16 +821,17 @@ export interface BsCalendarCoverageStatus extends CalendarBounds {
  */
 export function getBsCalendarCoverage(asOfAD?: string): BsCalendarCoverageStatus {
   const bounds = getCalendarBounds();
+  const provisionalYears = getProvisionalYears();
   const asOf = String(asOfAD || new Date().toISOString()).split('T')[0];
   if (bounds.totalDaysMapped <= 0 || !bounds.maxAD) {
-    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED' };
+    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED', provisionalYears };
   }
   const DAY_MS = 24 * 60 * 60 * 1000;
   const daysRemaining = Math.floor(
     (Date.parse(`${bounds.maxAD}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`)) / DAY_MS
   );
   if (!Number.isFinite(daysRemaining)) {
-    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED' };
+    return { ...bounds, daysRemaining: 0, status: 'UNSEEDED', provisionalYears };
   }
   const status: BsCoverageStatus =
     daysRemaining < 0
@@ -790,7 +841,7 @@ export function getBsCalendarCoverage(asOfAD?: string): BsCalendarCoverageStatus
       : daysRemaining <= BS_COVERAGE_WARNING_DAYS
       ? 'WARNING'
       : 'OK';
-  return { ...bounds, daysRemaining, status };
+  return { ...bounds, daysRemaining, status, provisionalYears };
 }
 
 /**
@@ -848,26 +899,40 @@ export function lookupBSDayRecord(adDateStr: string): BSDayRecord {
 }
 
 /**
- * STRICT day-record check (no fallback estimation): returns true only when the
- * seeded calendar database contains an exact day-by-day BS mapping for the AD
- * date. Used to gate stock operations that require a valid Nepali date.
+ * STRICT day-record check (no fallback estimation): true only when the synced
+ * calendar has an exact AD -> BS record for this date.
+ *
+ * This used to test whether the date fell between a configured year's start and
+ * start + total days, which is a SPAN test, not a record test: a year whose
+ * month lengths were seeded wrong (or a date inside a configured year the day
+ * table does not actually expand to) passed the client gate while the server,
+ * which reads bs_day_records, refused the same date with a 400. Both sides now
+ * ask the same question. Used to gate stock operations that require a valid
+ * Nepali date.
  */
-export function hasExactBSDayRecord(adDateStr: string): boolean {
-  const targetDateStr = (adDateStr || new Date().toISOString()).split('T')[0];
-  const targetDate = new Date(targetDateStr);
-  if (isNaN(targetDate.getTime())) return false;
+export function hasExactBSDayRecord(adDateStr?: string | null): boolean {
+  // undefined means "no date supplied — check today" (the long-standing call
+  // shape). An EMPTY string is a form field somebody cleared, and must never be
+  // silently answered as today: that turned a blank date into a passing gate.
+  const targetDateStr =
+    adDateStr === undefined ? new Date().toISOString().split('T')[0] : String(adDateStr).split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)) return false;
+  return exactAdDateSet().has(targetDateStr);
+}
 
-  const calendarData = getBsCalendarData();
-  for (const yData of Object.values(calendarData)) {
-    if (!yData || !yData.startAD || !Array.isArray(yData.daysInMonths)) continue;
-    const start = new Date(yData.startAD);
-    if (isNaN(start.getTime())) continue;
-    const totalDays = yData.daysInMonths.reduce((a, b) => a + (Number(b) || 0), 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + totalDays - 1);
-    if (targetDate >= start && targetDate <= end) return true;
-  }
-  return false;
+/**
+ * The set of AD dates the synced calendar maps to a BS date — the client twin of
+ * `SELECT ad_date FROM bs_day_records`. Memoized per calendar revision, like
+ * generateCalendarDatabase/getCalendarBounds, because form gates call it on
+ * every submit.
+ */
+let cachedAdDateSet: Set<string> | null = null;
+let cachedAdDateSetRevision = -1;
+function exactAdDateSet(): Set<string> {
+  if (cachedAdDateSet && cachedAdDateSetRevision === calendarStoreRevision) return cachedAdDateSet;
+  cachedAdDateSet = new Set(generateCalendarDatabase().map((record) => record.adDate));
+  cachedAdDateSetRevision = calendarStoreRevision;
+  return cachedAdDateSet;
 }
 
 /**
@@ -893,6 +958,12 @@ export function ensureBSDayForAD(adDateStr: string | null | undefined): string |
 
 /**
  * Converts AD Date String (YYYY-MM-DD) to formatted BS String using reference bsCalendarData.
+ *
+ * Throws when the date falls outside the mapped calendar (an unseeded day is the
+ * caller's problem to report — use tryConvertADToBS/formatDualDate to render the
+ * not-seeded marker), and returns the marker when the AD value is not a date at
+ * all. Only an omitted argument means "today"; an empty string is a cleared field
+ * and is NOT silently answered with today's BS date.
  */
 export function convertADToBS(adDateStr: string): {
   yearBS: number;
@@ -902,17 +973,27 @@ export function convertADToBS(adDateStr: string): {
   formattedBS: string;
   formattedBSShort: string;
 } {
-  const targetDateStr = (adDateStr || new Date().toISOString()).split('T')[0];
+  const targetDateStr =
+    adDateStr === undefined
+      ? new Date().toISOString().split('T')[0]
+      : String(adDateStr).split('T')[0];
   const targetDate = new Date(targetDateStr);
 
   if (isNaN(targetDate.getTime())) {
+    // An AD value that is not a date has no BS counterpart. This used to return
+    // Shrawan 16, 2083 — a real (wrong) date for all but one day, which reached
+    // screens AND stored BS columns (CustomersManagement stores
+    // convertADToBS(issuedDateAD).formattedBSShort on the device row). The
+    // marker says "not seeded" instead, which isBsDateMissing() on the server
+    // treats as missing rather than as a date. yearBS/monthBS/dayBS are 0 so no
+    // caller can mistake the marker for a seeded month.
     return {
-      yearBS: 2083,
-      monthBS: 4,
-      dayBS: 16,
-      monthName: 'Shrawan',
-      formattedBS: '16 Shrawan 2083 BS',
-      formattedBSShort: '2083-04-16 BS',
+      yearBS: 0,
+      monthBS: 0,
+      dayBS: 0,
+      monthName: BS_NOT_SEEDED,
+      formattedBS: BS_NOT_SEEDED,
+      formattedBSShort: BS_NOT_SEEDED,
     };
   }
 
@@ -1109,7 +1190,14 @@ export function getNepaliFiscalYear(adDateStr?: string): string {
 export function formatDualDate(adDateStr: string, mode: 'BS' | 'AD' = 'BS'): string {
   if (!adDateStr) return '-';
   const adFormatted = adDateStr.split('T')[0];
-  const bsObj = convertADToBS(adFormatted);
+  // tryConvert, not convert: an unseeded date (past the end of the calendar, or
+  // inside a year whose day records are missing) used to THROW here and take the
+  // whole screen down. It now renders the explicit marker instead of a
+  // fabricated BS date.
+  const bsObj = tryConvertADToBS(adFormatted);
+  if (!bsObj) {
+    return mode === 'BS' ? `${BS_NOT_SEEDED} (${adFormatted})` : `${adFormatted} (${BS_NOT_SEEDED})`;
+  }
 
   if (mode === 'BS') {
     return `${bsObj.formattedBSShort.replace(' BS', '')} (${adFormatted})`;
@@ -1126,7 +1214,15 @@ export function formatBSDate(dateStr?: string | null): string {
   const cleaned = String(dateStr).trim();
   if (!cleaned || cleaned === '-') return '-';
 
-  // If already in BS format like "2081-05-12 BS" or "2081-05-12" or "2083-04-22"
+  // The stored not-seeded marker (server-side BS columns, or a row that could
+  // not be resolved) is shown as itself — never reformatted into a date shape
+  // it does not have.
+  if (cleaned.toLowerCase() === BS_NOT_SEEDED.toLowerCase()) return BS_NOT_SEEDED;
+
+  // Already in BS form: 2081-05-12, 2081/05/12 or 2081.05.12, with an optional
+  // trailing BS suffix. (Written without a quoted date on purpose — a quoted
+  // YYYY-MM-DD BS literal anywhere in client code is what
+  // tests/bs_date.guard.test.ts now refuses.)
   const bsMatch = cleaned.match(/^(20[6-9]\d)[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (bsMatch) {
     const yr = bsMatch[1];

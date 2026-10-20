@@ -13,6 +13,8 @@ import {
   NEPALI_MONTHS_EN,
   generateCalendarDatabase,
   getCalendarBounds,
+  getBundledBsYearMonths,
+  getSeedPresetYears,
   lookupBSDayRecord,
 } from '../../utils/nepaliCalendar';
 import {
@@ -38,12 +40,18 @@ import {
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
 import { PageHeader } from '../../components/common/PageHeader';
 import { readFirstSheetRows, buildTemplateWorkbook } from '../../utils/excel';
+import type { User } from '../../types';
+import { BsCalendarHealthPanel } from './BsCalendarHealthPanel';
 
 interface BsCalendarUtilityProps {
+  /** Signed-in user, so the repair buttons respect the same roles the API
+   *  enforces (SUPER_ADMIN | HEAD_OFFICE_ADMIN). */
+  currentUser?: User | null;
 }
 
-export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
-}) => {
+export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUser }) => {
+  const canManageCalendar =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'HEAD_OFFICE_ADMIN';
   const { confirm: confirmDialog } = useDialog();
   const [calendarData, setCalendarData] = useState<Record<number, BSYearData>>({});
   const [, setDayDatabase] = useState<BSDayRecord[]>([]);
@@ -56,6 +64,27 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
     type: 'success' | 'error' | null;
     message: string;
   }>({ type: null, message: '' });
+
+  // The next year to seed, and the Baisakh 1 the server would DERIVE for it
+  // (previous seeded year's end + 1) instead of the old `year - 57` guess.
+  // Display only: the server derives it again on seed and marks the year
+  // provisional, because the patro has not published that year yet.
+  const nextUnseeded = useMemo(() => {
+    const seeded = Object.values(calendarData).sort((a, b) => a.yearBS - b.yearBS);
+    const last = seeded[seeded.length - 1];
+    if (!last || !Array.isArray(last.daysInMonths) || !last.startAD) return null;
+    const previousEndAD = (() => {
+      const end = new Date(`${last.startAD}T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + last.daysInMonths.reduce((a, b) => a + (Number(b) || 0), 0) - 1);
+      return end.toISOString().split('T')[0];
+    })();
+    const startAD = (() => {
+      const next = new Date(`${previousEndAD}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      return next.toISOString().split('T')[0];
+    })();
+    return { yearBS: last.yearBS + 1, previousYearBS: last.yearBS, previousEndAD, startAD };
+  }, [calendarData]);
 
   // Multi-year text preview (derived live from the textarea)
   const textPreviewYears = useMemo(() => parseBSSeedYears(seedInput).years, [seedInput]);
@@ -155,8 +184,13 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
             yearBS: y.yearBS,
             daysInMonths: y.daysInMonths,
             startAD: y.startAD,
+            startAdSource: y.startAdSource,
+            isProvisional: y.isProvisional,
           };
-          seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD);
+          seedBSYearCalendar(y.yearBS, y.daysInMonths, y.startAD, {
+            startAdSource: y.startAdSource,
+            isProvisional: y.isProvisional,
+          });
         });
         setCalendarData(yearMap);
       } else {
@@ -589,6 +623,29 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
             </div>
           </div>
 
+          {/* What the calendar would use for the next unseeded year. The start is
+              DERIVED (previous year's end + 1) and the month array has to come
+              from the published patro, so the year gets seeded as provisional and
+              every dated operation keeps warning until somebody confirms it. */}
+          {nextUnseeded && (
+            <div className={`rounded-xl border p-3 text-[11px] flex items-start gap-2 bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-300`}>
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
+              <div>
+                <p className="font-bold text-slate-700 dark:text-slate-200">
+                  Next unseeded year: BS {nextUnseeded.yearBS}
+                </p>
+                <p>
+                  Its Baisakh 1 would be derived as{' '}
+                  <span className="font-mono font-bold">{nextUnseeded.startAD}</span> (BS {nextUnseeded.previousYearBS} ends{' '}
+                  <span className="font-mono">{nextUnseeded.previousEndAD}</span>). Enter the published month lengths and
+                  start date above to seed it verified; seeding without the start date marks the whole year{' '}
+                  <span className="font-bold">provisional</span> and every dated operation will keep warning until it is
+                  confirmed.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Multi-year preview table (live from textarea) */}
           {textPreviewYears.length > 0 && (
             <div className={`rounded-xl border overflow-hidden bg-slate-50/70 border-slate-200 dark:bg-slate-900/50 dark:border-slate-800`}>
@@ -725,25 +782,23 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
               <span>Presets:</span>
             </span>
 
-            {[2082, 2083, 2084, 2085].map((y) => (
-              <button
-                key={y}
-                type="button"
-                onClick={() =>
-                  handleQuickSeed(
-                    y,
-                    y === 2084
-                      ? [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30]
-                      : y === 2085
-                      ? [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31]
-                      : [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30]
-                  )
-                }
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
-              >
-                + Seed {y} BS
-              </button>
-            ))}
+            {getSeedPresetYears().map((y) => {
+              // The month array comes from shared/bsCalendarYears.json (via the
+              // bundled calendar), never a literal in this screen: a preset that
+              // disagrees with the seeder is how BS 2084 and 2085 got seeded wrong.
+              const bundledMonths = getBundledBsYearMonths(y);
+              if (!bundledMonths) return null;
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => handleQuickSeed(y, bundledMonths)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700`}
+                >
+                  + Seed {y} BS
+                </button>
+              );
+            })}
           </div>
         </form>
 
@@ -798,6 +853,18 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
                   <tr key={y.yearBS} className={`transition-colors hover:bg-white dark:hover:bg-slate-800/50`}>
                     <td className="p-2.5 font-bold text-amber-500 dark:text-amber-400 text-sm whitespace-nowrap">
                       {y.yearBS} BS
+                      {y.isProvisional && (
+                        <span
+                          title={`The bundled patro data does not verify BS ${y.yearBS}: ${
+                            y.startAdSource === 'estimated'
+                              ? 'its Baisakh 1 was derived, not read off the patro'
+                              : 'its month array was entered by hand'
+                          }. Confirm it against the published patro.`}
+                          className="ml-1.5 align-middle px-1.5 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800"
+                        >
+                          PROVISIONAL
+                        </span>
+                      )}
                     </td>
                     <td className="p-2.5 font-semibold whitespace-nowrap">
                       {y.startAD}
@@ -848,6 +915,10 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({
           hidePageSize
         />
       </div>
+
+      {/* Calendar Health — the integrity engine's report and its derivable fixes
+          (same engine as `npm run audit:bs-dates`). */}
+      <BsCalendarHealthPanel canManage={canManageCalendar} onRepaired={refreshCalendarData} />
 
       {/* Edit BS Year Modal */}
       {editingYearData && (

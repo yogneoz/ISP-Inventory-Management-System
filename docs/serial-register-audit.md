@@ -15,6 +15,7 @@ consumer read it the same way?**
 |---|---|---|
 | Does the app have a serial database? | **Yes, but it is derived, not written.** `serial_log` is the register (one row per serial), yet the only writers are a **boot-time backfill** and a handful of lifecycle flips. Nothing registers a serial when it is received. | [schema.sql:713](../scripts/schema.sql#L713), [dbBoot.ts:249](../server/src/boot/dbBoot.ts#L249) |
 | Does Assign Fixed Asset validate the serial? | **Client-side only, and incompletely.** The panel validates a (device, PON) pair against its own copy of the register; the server silently skips an unknown serial and proceeds. The panel also pre-fills a random serial, a random PON and a **constant MAC**. | [AssignAssetPanel.tsx:197](../client/src/features/inventory/stockops/AssignAssetPanel.tsx#L197), [inventory.controller.ts:799](../server/src/controllers/inventory.controller.ts#L799) |
+| Do transfers move register rows? | **Yes — fixed in Slice 3 (2026-10-19):** dispatch/receive/cancel/undo-receipt flip `IN_STOCK → IN_TRANSIT → IN_STOCK` inside their own transactions. | [serial-input-improvements-plan.md §8E](serial-input-improvements-plan.md) |
 | Does purchasing a serial-tracked product log into the register? | **Yes — fixed in Slice 1 (2026-10-13).** `POST /api/purchase-invoices` now writes one `serial_log` row per received unit inside its own transaction, so the unit is sellable immediately. (Before Slice 1 the serials lived only in the invoice's `items` JSONB and rows appeared at the next restart.) | [procurement.controller.ts:324](../server/src/controllers/procurement.controller.ts#L324), [serialRegister.service.ts](../server/src/services/serialRegister.service.ts) |
 | Are `SERIAL_LOG_INSERT_SQL` / `SERIAL_LOG_UPDATE_SQL` doing that work? | **No — they are dead code.** Both are exported and imported into the inventory controller, but no call site exists anywhere in `server/`. Only tests assert their SQL shape. | [inventory.repo.ts:1160](../server/src/models/inventory.repo.ts#L1160), [#L1198](../server/src/models/inventory.repo.ts#L1198), [inventory.controller.ts:103](../server/src/controllers/inventory.controller.ts#L103) |
 
@@ -239,10 +240,35 @@ What shipped.
 Acceptance, run through the real HTTP API against the dev server (`localhost:3000`, PostgreSQL 16),
 **15/15 checks** — including the headline one: a unit bought in this session is `IN_STOCK` in the
 register **without a restart** and sells immediately. Concurrency probe: five simultaneous bills
-sharing one PON → exactly one posts, four clean `400`s, zero `500`s, one register row.
+sharing one PON → exactly one posts, four clean `400`s, zero `500`s, one register row.Still open at the time (Slices 3–5): transfer integrity, the shared pick-only serial input, and demoting the boot backfill to a maintenance action.
 
-Still open (Slices 3–5): transfer integrity, the shared pick-only serial input, and demoting the boot
-backfill to a maintenance action.
+## 6c. Slices 3 and 4 — delivered (2026-10-19)
+
+See [serial-input-improvements-plan.md](serial-input-improvements-plan.md) §8 for the full record.
+
+- **Slice 3 (transfer integrity) — done.** `shipments.controller` now moves `serial_log`
+  on all four legs inside the existing transactions: dispatch `IN_STOCK → IN_TRANSIT`
+  (gate-resolved at the source), receive `IN_TRANSIT → IN_STOCK` at the destination,
+  cancel `IN_TRANSIT → IN_STOCK` at the source, undo-receipt `IN_STOCK → IN_TRANSIT`.
+  The received serials are recorded per item, so a short receipt leaves the undelivered
+  units in transit and cancellable, and dispatch plans its units through the shared gate
+  (the server, not only the UI, refuses a serial-tracked line with no device serials).
+  The “transfers are register-blind” finding in §3 is therefore **closed**.
+- **Slice 4 (pick-only UX) — done.** One shared `DeviceSerialInput` replaces the
+  Device + PON (+MAC) triples on sales, shipment create, stock-op pullout / transfer /
+  damage / product sale, assign fixed asset, device exchange, customer assignment and
+  CPE exchange. It resolves the unit against the branch's register, shows the status
+  inline, and fills PON and MAC read-only — then the payload carries only the device
+  serial, because the server hydrates the rest
+  (`serialGate.service` `hydrateSerialEntries`).
+- **Also delivered in the same pass:** MAC canonicalisation (`shared/macAddress.ts`),
+  MAC required / PON optional at purchase, aggregate per-product availability checks
+  with `400` refusals, and every invented-identity generator removed (10 call sites).
+- **Also delivered (2026-10-20):** `post_exchange` now gates the replacement
+  against the register (IN_STOCK at the fulfilling branch, locked re-check inside
+  the transaction) and hydrates a blank PON/MAC from the row; a refused exchange
+  writes no customer-device row.
+- **Still open:** Slice 5 (demote the boot backfill to an explicit maintenance action).
 
 ## 6b. Slice 2 — delivered (2026-10-13)
 

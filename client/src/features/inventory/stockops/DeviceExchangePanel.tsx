@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
+import { DeviceSerialInput, findRegisterRow } from '../../../components/common/DeviceSerialInput';
 import {
   CustomerDeviceRecord,
 } from '../../../types';
@@ -22,7 +23,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const DeviceExchangePanel: React.FC = () => {
-  const { activeTab, alertDialog, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
+  const { activeTab, alertDialog, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
 
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
   const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
@@ -43,21 +44,31 @@ export const DeviceExchangePanel: React.FC = () => {
       alertDialog('Please select a customer device to exchange.');
       return;
     }
-    if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
-      alertDialog('Please enter new device serial number (SN) and PON serial number.');
+    if (!exchangeNewSerial.trim()) {
+      alertDialog('Scan or type the replacement device serial number (SN).');
       return;
     }
     const exchangeBranchId = selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId;
-    const replacementDevice = customerDevices.find(
-      (device) =>
-        device.deviceSerial?.trim().toUpperCase() === exchangeNewSerial.trim().toUpperCase() &&
-        device.ponSerial?.trim().toUpperCase() === exchangeNewPon.trim().toUpperCase() &&
-        device.branchId === exchangeBranchId &&
-        device.status === 'IN_STOCK' &&
-        device.productName?.trim().toLowerCase() === (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase()
+    // The DEVICE SERIAL is the only key (one-field UX). The register row must be
+    // an IN_STOCK unit of this branch for the same product; its PON/MAC are the
+    // replacement's real identity, not operator-typed values.
+    const registerRow = findRegisterRow(serialRegister, exchangeNewSerial);
+    const legacyRow = customerDevices.find(
+      (device) => device.deviceSerial?.trim().toUpperCase() === exchangeNewSerial.trim().toUpperCase()
     );
-    if (!replacementDevice) {
-      alertDialog('The replacement Device Serial/PON pair must match an IN_STOCK device at the selected branch.');
+    const replacementOk = registerRow
+      ? registerRow.branchId === exchangeBranchId &&
+        String(registerRow.status || '') === 'IN_STOCK' &&
+        (!registerRow.productName ||
+          registerRow.productName.trim().toLowerCase() ===
+            (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase())
+      : Boolean(
+          legacyRow &&
+            legacyRow.branchId === exchangeBranchId &&
+            legacyRow.status === 'IN_STOCK'
+        );
+    if (!replacementOk) {
+      alertDialog('The replacement device serial must match an IN_STOCK unit at the selected branch in the serial register.');
       return;
     }
 
@@ -189,9 +200,11 @@ export const DeviceExchangePanel: React.FC = () => {
                           onClick={() => {
                             setSelectedDeviceForExchange(dev);
                             setExchangeProductName(dev.productName);
-                            setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-                            setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-                            setExchangeNewMac('00:1A:2B:3C:4D:5E');
+                            // Start EMPTY: the replacement must be picked from the
+                            // branch register, never generated.
+                            setExchangeNewSerial('');
+                            setExchangeNewPon('');
+                            setExchangeNewMac('');
                           }}
                           className="p-3 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer transition-all flex items-center justify-between"
                         >
@@ -331,53 +344,22 @@ export const DeviceExchangePanel: React.FC = () => {
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    New Device Serial Number (SN) *
+                    New Device Serial Number (SN) * — PON &amp; MAC fill from the register
                   </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={exchangeNewSerial}
-                      onChange={(e) => setExchangeNewSerial(e.target.value)}
-                      placeholder="e.g. SN-ONU24G-991203"
-                      className={`w-full rounded-xl border p-2.5 pr-20 text-xs font-mono font-bold border-slate-300 bg-white text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-indigo-400`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)}
-                      className="absolute right-1 top-1 bottom-1 px-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold hover:bg-indigo-200 cursor-pointer"
-                    >
-                      Auto-Gen
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    New PON Serial Number *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={exchangeNewPon}
-                    onChange={(e) => setExchangeNewPon(e.target.value)}
-                    placeholder="e.g. HWTC-99182A3"
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono font-bold border-slate-300 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    New MAC Address (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={exchangeNewMac}
-                    onChange={(e) => setExchangeNewMac(e.target.value)}
-                    placeholder="e.g. 00:1A:2B:3C:4D:5E"
-                    className={`w-full rounded-xl border p-2.5 text-xs font-mono border-slate-300 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`}
+                  <DeviceSerialInput
+                    value={{ deviceSerial: exchangeNewSerial, ponSerial: exchangeNewPon, macAddress: exchangeNewMac }}
+                    onChange={(next) => {
+                      setExchangeNewSerial(next.deviceSerial);
+                      setExchangeNewPon(next.ponSerial || '');
+                      setExchangeNewMac(next.macAddress || '');
+                      const row = findRegisterRow(serialRegister, next.deviceSerial);
+                      if (row?.productName) setExchangeProductName(String(row.productName));
+                    }}
+                    register={serialRegister}
+                    branchId={selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId}
+                    productName={exchangeProductName || selectedDeviceForExchange?.productName}
                   />
                 </div>
               </div>

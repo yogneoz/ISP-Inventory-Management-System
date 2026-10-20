@@ -4,11 +4,11 @@
  * The defect this pins: the client mirror listed 2,923 days while
  * bs_day_records held 2,922. `generateCalendarDatabase()` emitted a record per
  * (year, day) pair and simply concatenated the years, so a year whose month
- * array overruns its successor produced TWO records for one AD date:
+ * array overran its successor produced TWO records for one AD date:
  *
- *   BS 2084 = [31,31,31,32,31,31,30,29,30,30,30,30] (366 days) from 2027-04-14
+ *   BS 2084 seeded as 366 days from 2027-04-14
  *   BS 2085 starts 2028-04-13
- *   → 2028-04-13 is claimed as 2084-12-30 AND 2085-01-01
+ *   → 2028-04-13 was claimed as 2084-12-30 AND 2085-01-01
  *
  * The database never had that problem because `bs_day_records.ad_date` is the
  * PRIMARY KEY and every seed path inserts `ON CONFLICT (ad_date) DO UPDATE`
@@ -16,13 +16,17 @@
  * rows. The client now applies the same rule, which makes the two agree in both
  * count and content, and the overlap is reported instead of silently swallowed.
  *
+ * The bad 2084 array itself is fixed (BS 2084 is 365 days — see
+ * bsCalendarPatroData.test.ts), so the shipped calendar has NO overlap left —
+ * the rule below is defensive, and is proven against a synthetic overlap.
+ *
  * PROVES (pure + source-level, plus a live-DB check that runs in CI):
  *   - findCalendarOverlaps is pure and flags exactly the shared day of a
  *     synthetic overlapping pair, and nothing for contiguous years;
  *   - the generated mirror holds one record per AD date (count == distinct AD
  *     dates) for the real shipped calendar data;
- *   - where the shipped data overlaps, the surviving record is the LATER BS
- *     year — identical to the database's ON CONFLICT rule;
+ *   - an overlapping day resolves to the LATER BS year — identical to the
+ *     database's ON CONFLICT rule — and the shipped data has no overlap at all;
  *   - the client generator and the server's in-memory generator resolve the
  *     same year data to the same AD → BS pairs;
  *   - against a reachable PostgreSQL: seeding the mirror exactly the way App.tsx
@@ -105,7 +109,13 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
   });
 
   test('an overlapping day resolves to the LATER BS year, like bs_day_records does', () => {
+    // The shipped calendar is contiguous, so prove the tie-break on a pair that
+    // really does overlap: 9000 ends 2020-01-24 and 9001 also claims that day.
+    resetBsCalendarData();
+    seedBSYearCalendar(9000, TWO_DAYS, '2020-01-01');
+    seedBSYearCalendar(9001, TWO_DAYS, '2020-01-24');
     const overlaps = findCalendarOverlaps(getBsCalendarData());
+    assert.equal(overlaps.length, 1, 'the synthetic pair must overlap on exactly one day');
     for (const overlap of overlaps) {
       const record = lookupBSDayRecord(overlap.adDate);
       assert.equal(
@@ -116,6 +126,12 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
       // The database keeps the later year too (PK ad_date + ON CONFLICT DO UPDATE).
       assert.equal(record?.bsYear, overlap.laterYearBS);
     }
+    resetBsCalendarData();
+    assert.deepEqual(
+      findCalendarOverlaps(getBsCalendarData()),
+      [],
+      'the shipped calendar must be contiguous again after the synthetic seed'
+    );
   });
 
   test('the client mirror and the server in-memory calendar agree day for day', () => {

@@ -70,6 +70,14 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
     end_date_bs VARCHAR(20) NOT NULL,
     is_current BOOLEAN DEFAULT FALSE,
     is_closed BOOLEAN DEFAULT FALSE,
+    -- TRUE while this row's BS boundary labels were derived from a PROVISIONAL
+    -- calendar year (one the published patro does not cover yet, seeded by hand
+    -- from the operator's own source) rather than from patro-verified data. The
+    -- year stays usable — every screen works, the BS labels are the ones the
+    -- stored calendar implies — but the app says out loud that the label is not
+    -- yet confirmed. The BS calendar integrity audit clears the flag once the
+    -- published patro covers the day and agrees with the stored label.
+    is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE
 );
 
@@ -79,6 +87,9 @@ DROP INDEX IF EXISTS uq_fiscal_years_single_current;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_years_single_current ON fiscal_years ((is_current)) WHERE is_current = TRUE;
 CREATE INDEX IF NOT EXISTS idx_fiscal_years_start_date ON fiscal_years(start_date_ad DESC);
 CREATE INDEX IF NOT EXISTS idx_fiscal_years_demo ON fiscal_years(id) WHERE is_demo = TRUE;
+
+-- Existing databases pick the provisional flag up on the next boot.
+ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_provisional BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ==========================================
 -- 4. Suppliers Table
@@ -777,8 +788,24 @@ CREATE TABLE IF NOT EXISTS bs_calendar_years (
     year_bs INT PRIMARY KEY,
     days_in_months INT[] NOT NULL,
     start_ad DATE NOT NULL,
+    -- Where start_ad came from. 'patro': an operator entered Baisakh 1 from the
+    -- published patro / the bundled reference data. 'estimated': derived at
+    -- seed time (previous seeded year's end + 1, or the year-57 approximation
+    -- when there is nothing to continue from). is_provisional marks any year
+    -- whose month array the published patro does not verify yet, so consumers
+    -- (coverage warning, integrity audit, seeding result) say so out loud
+    -- instead of letting a guess pass as the calendar.
+    start_ad_source VARCHAR(20) NOT NULL DEFAULT 'patro',
+    is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Provisional-year tracking for databases created before the columns existed.
+-- Idempotent and data-free: no patro year list is repeated here (the bundled
+-- shared/bsCalendarYears.json is the only copy), so a legacy row keeps the
+-- 'patro' default until the integrity audit re-classifies it.
+ALTER TABLE bs_calendar_years ADD COLUMN IF NOT EXISTS start_ad_source VARCHAR(20) NOT NULL DEFAULT 'patro';
+ALTER TABLE bs_calendar_years ADD COLUMN IF NOT EXISTS is_provisional BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ==========================================
 -- 20. BS Day Records Table

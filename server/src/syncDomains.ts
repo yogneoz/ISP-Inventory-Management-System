@@ -40,6 +40,11 @@ export const DOMAIN_BY_MODULE: Record<string, string> = {
   //    toggle) are only "company-wide" if every client hears about them.
   //  - AUDIT: logAuditEvent emits this in addition to the business event so
   //    an open Audit Trail screen refreshes its slice live.
+  //  - BS_CALENDAR: a seed/edit changes the AD<->BS mapping every screen
+  //    converts dates with, so each open client must re-read bs_calendar_years
+  //    instead of keeping a mirror that blocks dates the server would accept.
+  BS_CALENDAR_UPDATED: 'BS_CALENDAR',
+  BS_CALENDAR: 'BS_CALENDAR',
   PERMISSIONS_UPDATED: 'PERMISSIONS',
   APP_SETTINGS_UPDATED: 'SETTINGS',
   AUDIT_LOGGED: 'AUDIT',

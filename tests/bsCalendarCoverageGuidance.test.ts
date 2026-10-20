@@ -43,12 +43,13 @@ import {
 const read = (relativePath: string): string =>
   fs.readFileSync(path.resolve(relativePath), 'utf8');
 
-/** A coverage span used as a fixture: BS 2078-01-01 … 2085-12-31. */
+/** A coverage span used as a fixture: BS 2078-01-01 … 2085-12-30 (the patro's
+ *  last seeded day; Chaitra 2085 has 30 days). */
 const COVERAGE = {
   minAD: '2021-04-14',
   maxAD: '2029-04-13',
   minBS: '2078-01-01',
-  maxBS: '2085-12-31',
+  maxBS: '2085-12-30',
   totalDays: 2922,
 };
 
@@ -87,7 +88,7 @@ describe('BS-seeding guidance — server failure classification', () => {
     const after = bsDateFailureMessage('2029-04-14', 'AFTER_CALENDAR_COVERAGE', COVERAGE);
     assert.match(after, /past the end of the seeded BS calendar/);
     assert.match(after, /Seed the next BS year/);
-    assert.ok(after.includes('2085-12-31'), 'the message must quote where coverage currently ends');
+    assert.ok(after.includes('2085-12-30'), 'the message must quote where coverage currently ends');
     assert.ok(after.includes(BS_SEEDING_SCREEN_PATH));
 
     const before = bsDateFailureMessage('2021-04-13', 'BEFORE_CALENDAR_COVERAGE', COVERAGE);
@@ -122,7 +123,9 @@ describe('BS-seeding guidance — server failure classification', () => {
 
 describe('BS-seeding guidance — client coverage countdown', () => {
   test('coverage math: healthy, warning, critical, expired', () => {
-    // The bundled/client-synced calendar maps up to BS 2085-12-31 (AD 2029-04-13).
+    // The bundled/client-synced calendar maps up to BS 2085-12-30 (AD
+    // 2029-04-13). Chaitra 2085 has 30 days, not 31 — the array this once
+    // asserted was the drifted copy that also claimed Shrawan 31 days.
     const healthy = getBsCalendarCoverage('2028-01-01');
     assert.equal(healthy.status, 'OK');
     assert.ok(healthy.daysRemaining > BS_COVERAGE_WARNING_DAYS, `expected > ${BS_COVERAGE_WARNING_DAYS} days, got ${healthy.daysRemaining}`);
@@ -142,7 +145,7 @@ describe('BS-seeding guidance — client coverage countdown', () => {
     const expired = getBsCalendarCoverage('2029-05-01');
     assert.equal(expired.status, 'EXPIRED');
     assert.ok(expired.daysRemaining < 0);
-    assert.equal(expired.maxBS, '2085-12-31', 'an expired calendar still reports where it ends');
+    assert.equal(expired.maxBS, '2085-12-30', 'an expired calendar still reports where it ends');
   });
 
   test('the countdown names the real menu, not a menu that does not exist', () => {

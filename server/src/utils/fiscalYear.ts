@@ -79,6 +79,60 @@ export function selectBootstrapFiscalYear(years: any[], requestedId?: string): F
   return { ok: false, reason: years && years.length === 0 ? 'none-configured' : 'none-current' };
 }
 
+/**
+ * A BS boundary label as stored in fiscal_years.start_date_bs/end_date_bs:
+ * 'YYYY-MM-DD' with an optional trailing ' BS' (the calendar-derived form).
+ *
+ * Parsing is deliberately shape-only (year 2000-2200, month 1-12, day 1-32):
+ * whether a given day exists in that BS month is the calendar's question, and
+ * the calendar is what decides the day. What this rejects is anything that
+ * could never be a BS date, so a typo can no longer be stored as a boundary
+ * label and later be read back as if the calendar had produced it.
+ */
+export interface BsBoundary {
+  yearBS: number;
+  monthBS: number;
+  dayBS: number;
+}
+
+export function parseBsLabel(value: unknown): BsBoundary | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:\s*BS)?$/i.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const boundary = { yearBS: Number(match[1]), monthBS: Number(match[2]), dayBS: Number(match[3]) };
+  if (boundary.yearBS < 2000 || boundary.yearBS > 2200) return null;
+  if (boundary.monthBS < 1 || boundary.monthBS > 12) return null;
+  if (boundary.dayBS < 1 || boundary.dayBS > 32) return null;
+  return boundary;
+}
+
+/**
+ * Nepal's fiscal year runs Shrawan 1 (BS month 4, day 1) to Ashadh end
+ * (BS month 3) of the following BS year. Returns null when either label cannot
+ * be parsed at all — an unreadable label is a validation error, not a
+ * convention violation, so the caller must not report it as one.
+ *
+ * Advisory only: a mid-year transition period is legitimate (a company moving
+ * onto the software in Magh), so callers warn rather than refuse.
+ */
+export function isStandardNepaliFiscalPeriod(startLabel: unknown, endLabel: unknown): boolean | null {
+  const start = parseBsLabel(startLabel);
+  const end = parseBsLabel(endLabel);
+  if (!start || !end) return null;
+  return start.monthBS === 4 && start.dayBS === 1 && end.monthBS === 3;
+}
+
+/** Every BS year the two boundary labels touch, ascending and de-duplicated.
+ *  This is the set of bs_calendar_years the period's labels depend on. */
+export function bsYearsSpannedBy(startLabel: unknown, endLabel: unknown): number[] {
+  const start = parseBsLabel(startLabel);
+  const end = parseBsLabel(endLabel);
+  if (!start || !end) return [];
+  const first = Math.min(start.yearBS, end.yearBS);
+  const last = Math.max(start.yearBS, end.yearBS);
+  if (last - first > 10) return [];
+  return Array.from({ length: last - first + 1 }, (_v, i) => first + i);
+}
+
 // Returns the fiscal-year code (e.g. '2083-84') whose AD range contains the
 // given date, or '' when no fiscal year covers it. Used to stamp records with
 // the correct fiscal year at write time instead of a stale hard-coded default.

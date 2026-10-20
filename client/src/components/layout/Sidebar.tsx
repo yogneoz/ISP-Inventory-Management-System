@@ -603,6 +603,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
   if (isSuperAdmin) {
     adminChildren.push({ id: 'bs-calendar' as NavTab, label: 'BS Calendar Utility', icon: CalendarDays });
+  } else if (currentUser?.role === 'HEAD_OFFICE_ADMIN') {
+    // The BS Calendar Utility is Super-Admin-only, but a Head Office Admin may
+    // seed the same calendar (see BS_SEEDING_TAB_BY_ROLE in services/api/http).
+    // Without this entry the only way to reach the seeder was the action button
+    // on a failure toast — a screen you can be sent to but can never find.
+    adminChildren.push({ id: 'nepali-fiscal' as NavTab, label: 'Nepali Fiscal & BS Calendar', icon: CalendarDays });
   }
   if (isOperationAllowed('admin-audit', currentUser?.role)) {
     adminChildren.push({ id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList });

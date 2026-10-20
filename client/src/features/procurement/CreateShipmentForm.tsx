@@ -17,6 +17,7 @@ import { FormCard } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { api } from '../../services/api';
+import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
 
 export interface ShipmentFormLine {
   productId: string;
@@ -84,18 +85,13 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
   const [destinationBranchId, setDestinationBranchId] = useState(branches[1]?.id || 'WH002');
   const [notes, setNotes] = useState('');
 
-  // Helper to generate serial pairs for a product
-  const generateSerialsForProduct = (prod?: Product, qty: number = 1) => {
-    const serials = [];
-    const sku = prod?.sku || 'SKU';
-    for (let i = 0; i < qty; i++) {
-      serials.push({
-        deviceSerial: `SN-${sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-        ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-      });
-    }
-    return serials;
-  };
+  /**
+   * Empty per-unit slots. A dispatch must name REAL IN_STOCK units: the
+   * operator types/scans the device serial and the register supplies PON
+   * (serial-input plan, Slice D — every generator removed).
+   */
+  const emptySerialsForProduct = (qty: number = 1) =>
+    Array.from({ length: Math.max(1, qty) }, () => ({ deviceSerial: '', ponSerial: '' }));
 
   const getSourceStock = (pId: string, bId: string) => {
     const item = stock.find((s) => s.productId === pId && s.branchId === bId);
@@ -110,7 +106,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
       {
         productId: nextProd?.id || '',
         quantitySent: 1,
-        deviceSerials: generateSerialsForProduct(nextProd, 1),
+        deviceSerials: emptySerialsForProduct(1),
       },
     ]);
   };
@@ -126,7 +122,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     updated[index] = {
       productId: newProductId,
       quantitySent: qty,
-      deviceSerials: generateSerialsForProduct(prod, qty),
+      deviceSerials: emptySerialsForProduct(qty),
     };
     setLines(updated);
   };
@@ -139,10 +135,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     const currentSerials = [...(line.deviceSerials || [])];
 
     while (currentSerials.length < qty) {
-      currentSerials.push({
-        deviceSerial: `SN-${prod?.sku || 'SKU'}-${Math.floor(100000 + Math.random() * 900000)}`,
-        ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-      });
+      currentSerials.push({ deviceSerial: '', ponSerial: '' });
     }
     if (currentSerials.length > qty) {
       currentSerials.length = qty;
@@ -156,18 +149,15 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     setLines(updated);
   };
 
-  const updateLineDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+  /** One-field entry: PON resolves from the register in the same state write. */
+  const updateLineSerial = (
+    lineIdx: number,
+    sIdx: number,
+    next: { deviceSerial: string; ponSerial?: string }
+  ) => {
     const updated = [...lines];
     const serials = [...(updated[lineIdx].deviceSerials || [])];
-    serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
-    updated[lineIdx] = { ...updated[lineIdx], deviceSerials: serials };
-    setLines(updated);
-  };
-
-  const updateLinePonSerial = (lineIdx: number, sIdx: number, val: string) => {
-    const updated = [...lines];
-    const serials = [...(updated[lineIdx].deviceSerials || [])];
-    serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+    serials[sIdx] = { deviceSerial: next.deviceSerial, ponSerial: next.ponSerial || '' };
     updated[lineIdx] = { ...updated[lineIdx], deviceSerials: serials };
     setLines(updated);
   };
@@ -187,19 +177,30 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destBranch = branches.find((b) => b.id === destinationBranchId);
 
-    // Validate Branch Stock Quantity & Serial Register for Source Branch
+    // Aggregate availability PER PRODUCT: duplicate lines must not each fit
+    // inside the same branch balance.
+    const requestedPerProduct = new Map<string, { qty: number; name: string }>();
+    for (const l of lines) {
+      const prod = products.find((p) => p.id === l.productId);
+      const entry = requestedPerProduct.get(l.productId) || { qty: 0, name: prod?.name || 'Item' };
+      entry.qty += Number(l.quantitySent) || 0;
+      requestedPerProduct.set(l.productId, entry);
+    }
+    for (const [productId, requested] of requestedPerProduct) {
+      const srcStock = stock.find((s) => s.productId === productId && s.branchId === sourceBranchId);
+      const availStock = srcStock ? srcStock.quantityOnHand : 0;
+      if (availStock < requested.qty) {
+        alertDialog(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${requested.name}" on hand, but ${requested.qty} unit(s) are requested for transfer shipment.`);
+        return;
+      }
+    }
+
+    // Validate the Serial Register for the source branch.
     const seenSerials = new Set<string>();
     for (const l of lines) {
       const prod = products.find((p) => p.id === l.productId);
       const prodName = prod?.name || 'Item';
       const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
-      const srcStock = stock.find((s) => s.productId === l.productId && s.branchId === sourceBranchId);
-      const availStock = srcStock ? srcStock.quantityOnHand : 0;
-
-      if (availStock < l.quantitySent) {
-        alertDialog(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${prodName}" on hand, but ${l.quantitySent} unit(s) are requested for transfer shipment.`);
-        return;
-      }
 
       if (isSerialized) {
         if (!l.deviceSerials || l.deviceSerials.length < l.quantitySent) {
@@ -383,12 +384,10 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
                 if (existingIdx >= 0) {
                   const updated = [...prev];
                   const existing = updated[existingIdx];
+                  const isSerializedProduct = product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
                   const newQty = existing.quantitySent + 1;
                   const currentSerials = [...(existing.deviceSerials || [])];
-                  currentSerials.push({
-                    deviceSerial: `SN-${product.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                    ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-                  });
+                  if (isSerializedProduct) currentSerials.push({ deviceSerial: '', ponSerial: '' });
                   updated[existingIdx] = {
                     ...existing,
                     quantitySent: newQty,
@@ -401,7 +400,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
                   {
                     productId: product.id,
                     quantitySent: 1,
-                    deviceSerials: generateSerialsForProduct(product, 1),
+                    deviceSerials: emptySerialsForProduct(1),
                   },
                 ];
               });
@@ -501,24 +500,17 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {Array.from({ length: line.quantitySent }).map((_, sIdx) => (
-                          <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-2">
-                            <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <input
-                                type="text"
-                                placeholder="Device Serial #"
-                                value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
-                                className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <input
-                                type="text"
-                                placeholder="PON Serial #"
-                                value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
-                                className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                          <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                            <div className="flex items-start gap-2">
+                              <span className="font-mono text-[10px] font-bold text-slate-400 pt-2">#{sIdx + 1}</span>
+                              <DeviceSerialInput
+                                className="flex-1 min-w-0"
+                                value={line.deviceSerials?.[sIdx]}
+                                onChange={(next) => updateLineSerial(idx, sIdx, next)}
+                                register={serialRegister}
+                                branchId={sourceBranchId}
+                                productId={line.productId}
+                                productName={prod?.name}
                               />
                             </div>
                           </div>

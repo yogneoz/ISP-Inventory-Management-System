@@ -11,6 +11,7 @@ import {
   SerialGateError,
   describeGateViolation,
   findGateViolation,
+  hydrateSerialEntries,
   indexGateRows,
   isSerialTracked,
   planSerialGateEntries,
@@ -55,10 +56,10 @@ describe('planSerialGateEntries', () => {
     );
   });
 
-  test('SERIAL_MAC_PON lines require a PON; SERIAL_ONLY lines do not', () => {
+  test('the DEVICE SERIAL is the only required field — PON/MAC are never demanded', () => {
     assert.equal(
       planSerialGateEntries([{ productId: 'p-onu', productName: 'ONU', quantity: 1, deviceSerials: [pair('SN-1')] }], [ONU]).error,
-      'PON serial is required for device serial SN-1.'
+      null
     );
     assert.equal(
       planSerialGateEntries([{ productId: 'p-sn', productName: 'CORD', quantity: 1, deviceSerials: [pair('SN-9')] }], [SN_ONLY]).error,
@@ -66,13 +67,13 @@ describe('planSerialGateEntries', () => {
     );
   });
 
-  test('the strict option demands a PON even for SERIAL_ONLY lines (the sales rule)', () => {
+  test('a MAC scanned without separators is stored canonically', () => {
     const plan = planSerialGateEntries(
-      [{ productId: 'p-sn', productName: 'CORD', quantity: 1, deviceSerials: [pair('SN-9')] }],
-      [SN_ONLY],
-      { requirePon: true }
+      [{ productId: 'p-onu', productName: 'ONU', quantity: 1, deviceSerials: [pair('SN-1', '', 'a4c3f0b1d2e3')] }],
+      [ONU]
     );
-    assert.match(String(plan.error), /PON serial is required/);
+    assert.equal(plan.error, null);
+    assert.equal(plan.entries[0].macAddress, 'A4:C3:F0:B1:D2:E3');
   });
 
   test('a device serial repeated across lines is refused once, case-insensitively', () => {
@@ -126,29 +127,36 @@ describe('findGateViolation — the rule every endpoint shares', () => {
     assert.equal(findGateViolation(entries([['SN-1']]), rows, RULES)?.code, 'WRONG_PRODUCT');
   });
 
-  test('PON is required, matched, and MAC matched only when scanned', () => {
+  test('a PON/MAC the caller DID send is still checked; a blank one resolves from the register', () => {
     const rows = indexGateRows([row()]);
-    assert.equal(findGateViolation(entries([['SN-1']]), rows, { ...RULES, requirePon: true })?.code, 'PON_REQUIRED');
     assert.deepEqual(
-      findGateViolation(entries([['SN-1', 'PON-WRONG']]), rows, { ...RULES, requirePon: true }),
+      findGateViolation(entries([['SN-1', 'PON-WRONG']]), rows, { ...RULES, matchPonWhenProvided: true }),
       { code: 'PON_MISMATCH', deviceSerial: 'SN-1', ponSerial: 'PON-WRONG' }
     );
-    // A PON the operator typed is always checked, even when not required.
-    assert.equal(
-      findGateViolation(entries([['SN-1', 'PON-WRONG']]), rows, { ...RULES, matchPonWhenProvided: true })?.code,
-      'PON_MISMATCH'
-    );
     assert.equal(findGateViolation(entries([['SN-1']]), rows, { ...RULES, matchPonWhenProvided: true }), null);
-    // MAC: matched when given, never demanded.
-    const macRows = indexGateRows([row({ macAddress: 'AA:BB' })]);
-    const withMac = entries([['SN-1']]).map((e) => ({ ...e, macAddress: 'ZZ:ZZ' }));
-    assert.equal(findGateViolation(withMac, macRows, RULES)?.code, 'MAC_MISMATCH');
+    // MAC: matched when given, never demanded, and compared canonically.
+    const macRows = indexGateRows([row({ macAddress: 'AA:BB:CC:DD:EE:FF' })]);
+    const withMac = entries([['SN-1']]).map((e) => ({ ...e, macAddress: 'AABBCCDDEEFF' }));
+    assert.equal(findGateViolation(withMac, macRows, RULES), null);
+    const wrongMac = entries([['SN-1']]).map((e) => ({ ...e, macAddress: 'AA:BB:CC:DD:EE:00' }));
+    assert.equal(findGateViolation(wrongMac, macRows, RULES)?.code, 'MAC_MISMATCH');
     assert.equal(findGateViolation(entries([['SN-1']]), macRows, RULES), null);
+  });
+
+  test('hydration fills a blank PON/MAC from the register row (one-field UX)', () => {
+    const rowsByKey = indexGateRows([row({ ponSerial: 'PON-1', macAddress: 'a4c3f0b1d2e3' })]);
+    const [hydrated] = hydrateSerialEntries(
+      [{ deviceSerial: 'sn-1', ponSerial: '', macAddress: '', productId: 'p-onu', productName: 'ONU' }],
+      rowsByKey
+    );
+    assert.equal(hydrated.ponSerial, 'PON-1');
+    assert.equal(hydrated.macAddress, 'A4C3F0B1D2E3');
+    assert.equal(findGateViolation([hydrated], rowsByKey, RULES), null);
   });
 
   test('a clean set resolves', () => {
     const rows = indexGateRows([row()]);
-    assert.equal(findGateViolation(entries([['SN-1', 'pon-1']]), rows, { ...RULES, requirePon: true }), null);
+    assert.equal(findGateViolation(entries([['SN-1', 'pon-1']]), rows, { ...RULES, matchPonWhenProvided: true }), null);
   });
 });
 

@@ -6,7 +6,18 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, setInMemoryBsDayRecords, broadcastChange } from '../app';
+import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, hydrateBsCalendarFromDb, setInMemoryBsDayRecords, broadcastChange } from '../app';
+import { auditBsCalendar, applyBsCalendarFixes } from '../services/bsCalendarIntegrity.service';
+import {
+  parseBsLabel,
+  isStandardNepaliFiscalPeriod,
+  bsYearsSpannedBy,
+} from '../utils/fiscalYear';
+import {
+  isPatroYear,
+  provisionalSeedNote,
+  resolveSeedConfig as seedResolveSeedConfig,
+} from '../services/bsCalendarSeed.service';
 import { Branch, Asset, DocumentNumberConfig, CompanyProfile, User } from '../../../client/src/types';
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import {
@@ -61,6 +72,8 @@ import {
   fiscalYearInsertParams,
   FY_SET_CURRENT_CLEAR_SQL,
   FY_SET_CURRENT_SQL,
+  FY_CURRENT_COUNT_SQL,
+  FY_SINGLE_CURRENT_CONSTRAINT,
   FY_CLOSE_SQL,
   FY_END_DATE_SQL,
   FY_REOPEN_SQL,
@@ -762,10 +775,73 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
   // seeded: derive the period's BS dates from bs_day_records for the AD
   // boundaries; the client's values only apply for unseeded boundary days
   // (e.g. a future FY start beyond the seeded calendar).
+  //
+  // A label that is not a BS date at all is refused here rather than stored: on
+  // a fresh install (demo data cleared, calendar not yet extended) these fields
+  // are hand-typed, and an unparseable label used to be persisted verbatim and
+  // then be impossible to tell apart from a calendar-derived one.
+  const typedStartBS = startDateBS.trim();
+  const typedEndBS = endDateBS.trim();
+  if (!parseBsLabel(typedStartBS) || !parseBsLabel(typedEndBS)) {
+    return res.status(400).json({
+      message: 'BS dates must be written as YYYY-MM-DD (e.g. the BS year you are opening, then -04-01 for Shrawan 1).',
+    });
+  }
+
   const startDay = await findBsDayRecordForAdDate(String(startDateAD).split('T')[0]);
   const endDay = await findBsDayRecordForAdDate(String(endDateAD).split('T')[0]);
-  const resolvedStartBS = startDay.found && startDay.record?.bsDate ? `${startDay.record.bsDate} BS` : startDateBS.trim();
-  const resolvedEndBS = endDay.found && endDay.record?.bsDate ? `${endDay.record.bsDate} BS` : endDateBS.trim();
+  const startFromCalendar = Boolean(startDay.found && startDay.record?.bsDate);
+  const endFromCalendar = Boolean(endDay.found && endDay.record?.bsDate);
+  const resolvedStartBS = startFromCalendar ? `${startDay.record!.bsDate} BS` : typedStartBS;
+  const resolvedEndBS = endFromCalendar ? `${endDay.record!.bsDate} BS` : typedEndBS;
+
+  // "Provisional" is the honest answer to "is this label verified?": a label
+  // the calendar produced for a year whose Baishakh 1 was itself derived (or a
+  // label the operator typed because no day record exists) has not been checked
+  // against the published patro. Storing that fact on the year is what lets the
+  // wizard say so now and the integrity audit clear it later, instead of a
+  // label silently looking verified because it happens to be well-formed.
+  const unverifiedYears: number[] = [];
+  try {
+    const yearRows = (await pgPool.query(BS_CALENDAR_YEARS_SELECT_SQL)).rows as Array<{
+      yearBS: number;
+      startAdSource?: string | null;
+      isProvisional?: boolean | null;
+    }>;
+    const flags = new Map(yearRows.map((row) => [Number(row.yearBS), row]));
+    for (const yearBS of bsYearsSpannedBy(resolvedStartBS, resolvedEndBS)) {
+      const flag = flags.get(yearBS);
+      if (!flag || flag.isProvisional === true || flag.startAdSource === 'estimated') {
+        unverifiedYears.push(yearBS);
+      }
+    }
+  } catch (_err) {
+    // The calendar itself was just read for the boundary days; an unreadable
+    // year table means the labels cannot be vouched for, so nothing is marked
+    // verified on a guess.
+    unverifiedYears.push(...bsYearsSpannedBy(resolvedStartBS, resolvedEndBS));
+  }
+  const missingDayRecords = [
+    startFromCalendar ? null : String(startDateAD).split('T')[0],
+    endFromCalendar ? null : String(endDateAD).split('T')[0],
+  ].filter((value): value is string => Boolean(value));
+  const provisionalReasons: string[] = [];
+  if (missingDayRecords.length > 0) {
+    provisionalReasons.push(
+      `no BS day record for ${missingDayRecords.join(' and ')}, so the BS labels were taken from what you typed`
+    );
+  }
+  if (unverifiedYears.length > 0) {
+    provisionalReasons.push(
+      `BS ${unverifiedYears.join(', ')} ${unverifiedYears.length === 1 ? 'is' : 'are'} not verified against the published patro`
+    );
+  }
+  const isProvisional = provisionalReasons.length > 0;
+  const conventionOk = isStandardNepaliFiscalPeriod(resolvedStartBS, resolvedEndBS);
+  const periodWarning =
+    conventionOk === false
+      ? 'Nepali fiscal years run Shrawan 1 to Ashadh end; this period does not. It can still be created, but reports will label a non-standard period.'
+      : null;
   try {
     // Prevent overlapping fiscal periods so every AD date belongs to exactly one
     // fiscal year (the assign_fiscal_year_id_from_date trigger relies on this).
@@ -782,18 +858,52 @@ const { code, startDateAD, endDateAD, startDateBS, endDateBS } = req.body || {};
     const id = `fy-${crypto.randomUUID()}`;
     const result = await pgPool.query(
       FY_INSERT_SQL,
-      fiscalYearInsertParams({ id, code: cleanCode, startDateAD, endDateAD, startDateBS: resolvedStartBS, endDateBS: resolvedEndBS })
+      fiscalYearInsertParams({ id, code: cleanCode, startDateAD, endDateAD, startDateBS: resolvedStartBS, endDateBS: resolvedEndBS, isProvisional })
     );
     const newFiscalYear = result.rows[0];
+    // First-year case: the insert leaves is_current = FALSE, so a database with
+    // fiscal years but none active keeps refusing every bootstrap (409 "no
+    // fiscal year is flagged as current") until somebody finds Set Active. That
+    // is exactly the state a fresh install lands in after its first Add Fiscal
+    // Year, and the state a demo-data clear leaves behind. The year just created
+    // is the only candidate, so it becomes the active one: creating a year when
+    // nothing is current IS choosing the active year. An existing choice is
+    // never overridden.
+    const currentCount = await pgPool.query(FY_CURRENT_COUNT_SQL);
+    if (Number(currentCount.rows[0]?.count || 0) === 0) {
+      const promoted = await pgPool.query(FY_SET_CURRENT_SQL, [id]);
+      if (promoted.rowCount) newFiscalYear.isCurrent = true;
+    }
     setFiscalYears(withSorted(
       withAppended(fiscalYears, newFiscalYear),
       (a, b) => String(b.startDateAD).localeCompare(String(a.startDateAD))
     ));
-    logAuditEvent(req, 'CREATE_FISCAL_YEAR', 'FISCAL_YEAR', `Created fiscal year ${newFiscalYear.code}`);
-    res.status(201).json(newFiscalYear);
+    logAuditEvent(
+      req,
+      'CREATE_FISCAL_YEAR',
+      'FISCAL_YEAR',
+      `Created fiscal year ${newFiscalYear.code}${newFiscalYear.isCurrent ? ' and flagged it current (no active year existed)' : ''}${isProvisional ? ` — BS labels provisional: ${provisionalReasons.join('; ')}` : ''}`
+    );
+    // The row itself is the client's FiscalYear; the verdict travels alongside it
+    // so the wizard can say "provisional, and here is why" without a second call.
+    res.status(201).json({
+      ...newFiscalYear,
+      bsLabelsFromCalendar: { start: startFromCalendar, end: endFromCalendar },
+      provisionalReason: isProvisional ? provisionalReasons.join('; ') : null,
+      periodWarning,
+    });
     return;
   } catch (error: any) {
-    if (error?.code === '23505') return res.status(409).json({ message: 'That fiscal year code already exists.' });
+    if (error?.code === '23505') {
+      // Two unique indexes can raise 23505 here; they mean different things and
+      // the operator must not be told the wrong one.
+      if (error?.constraint === FY_SINGLE_CURRENT_CONSTRAINT) {
+        return res.status(409).json({
+          message: 'Another fiscal year was flagged active at the same moment. Reload and check which year is active.',
+        });
+      }
+      return res.status(409).json({ message: 'That fiscal year code already exists.' });
+    }
     console.error('Error creating fiscal year:', error);
     res.status(500).json({ message: `Unable to create fiscal year: ${error.message}` });
     return;
@@ -1085,7 +1195,72 @@ const { yearBS, monthBS, search } = req.query;
 
 }
 
-/** Forwarded from admin.routes.ts (post_seed). */
+/**
+ * The seeding RULES (start derivation + provenance, and the provisional note)
+ * live in services/bsCalendarSeed.service.ts so they are unit-testable without
+ * HTTP or a database; this controller only wires them to the endpoints.
+ */
+const resolveSeedConfig = (yearBS: number, daysInMonths: number[], customStartAD?: string) =>
+  seedResolveSeedConfig(yearBS, daysInMonths, customStartAD, inMemoryBsCalendarYears);
+
+/**
+ * Integrity audit / repair (the shared engine also backs `npm run
+ * audit:bs-dates` and the Calendar Health panel). Findings only ever name
+ * derivable corrections; applying never guesses a value.
+ */
+export async function get_integrity(req: any, res: Response): Promise<any> {
+  try {
+    const report = await auditBsCalendar(pgPool);
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({ message: `Unable to audit the BS calendar: ${err.message}` });
+  }
+}
+
+export async function post_integrityApply(req: any, res: Response): Promise<any> {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((id: unknown) => String(id)) : undefined;
+  try {
+    const result = await withTransaction(async (client) => applyBsCalendarFixes(client, ids));
+    // The calendar (or the fiscal years derived from it) changed: every open
+    // client must re-read bs_calendar_years instead of keeping a stale mirror.
+    if (result.applied.length > 0) {
+      await hydrateDynamicState();
+      broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
+      logAuditEvent(
+        req,
+        'BS_CALENDAR_INTEGRITY_APPLY',
+        'MASTER_DATA',
+        `BS calendar integrity repair applied ${result.applied.length} fix(es): ${result.applied
+          .map((a) => a.kind)
+          .join(', ')}`
+      );
+    }
+    res.json({
+      success: true,
+      applied: result.applied,
+      skipped: result.skipped,
+      report: result.report,
+      message:
+        result.applied.length === 0
+          ? 'No derivable findings were selected — nothing needed writing.'
+          : `Applied ${result.applied.length} calendar correction(s); ${result.report.summary.fixable} fixable finding(s) remain.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: `Unable to apply calendar corrections: ${err.message}` });
+  }
+}
+
+/** Re-reads the calendar caches after a repair so the running server serves
+ *  the corrected data immediately (the same hydration the boot path uses). */
+async function hydrateDynamicState(): Promise<void> {
+  try {
+    await hydrateBsCalendarFromDb(pgPool);
+    generateInMemoryBsDayRecords();
+  } catch (err: any) {
+    console.warn('BS calendar cache refresh after repair failed:', err?.message || err);
+  }
+}
+
 export async function post_seed(req: any, res: Response): Promise<any> {
 const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
   if (!yearBS || !Array.isArray(daysInMonths) || daysInMonths.length !== 12) {
@@ -1093,11 +1268,8 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
     return;
   }
 
-  let startAD = customStartAD;
-  if (!startAD) {
-    const estADYear = yearBS - 57;
-    startAD = `${estADYear}-04-14`;
-  }
+  const seedConfig = resolveSeedConfig(yearBS, daysInMonths, customStartAD);
+  const startAD = seedConfig.startAD;
 
   // Check if year already exists if onlyIfNew flag is set
   const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
@@ -1115,7 +1287,13 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
   // unreachable, so it is refreshed after the database write attempt.
   let pgSynced = false;
   try {
-    await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [yearBS, daysInMonths, startAD]);
+    await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [
+      yearBS,
+      daysInMonths,
+      startAD,
+      seedConfig.startAdSource,
+      seedConfig.isProvisional,
+    ]);
 
     let runningDate = new Date(startAD);
     for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
@@ -1173,12 +1351,19 @@ const { yearBS, daysInMonths, customStartAD, onlyIfNew } = req.body;
   }
   generateInMemoryBsDayRecords();
 
+  // Every open client converts dates with this calendar, so it must re-read
+  // it rather than keep a mirror that would block dates the server accepts.
+  broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
+
   res.json({
     success: true,
     pgSynced,
-    message: pgSynced
+    isProvisional: seedConfig.isProvisional,
+    startAdSource: seedConfig.startAdSource,
+    message: (pgSynced
       ? `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!`
-      : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`,
+      : `Seeded BS Year ${yearBS} in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run the seed after the database is back.`) +
+      provisionalSeedNote(yearBS, seedConfig),
   });
 
 }
@@ -1195,6 +1380,10 @@ const { years, onlyIfNew } = req.body;
   let seededCount = 0;
   const skippedYears: number[] = [];
   const errors: string[] = [];
+  // Years the bundled patro data does not verify (see resolveSeedConfig): they
+  // are seeded, flagged, and named in the response so nobody reads a guess as
+  // the published calendar.
+  const provisionalYearsSeeded: number[] = [];
 
   try {
     for (const item of years) {
@@ -1204,11 +1393,9 @@ const { years, onlyIfNew } = req.body;
         continue;
       }
 
-      let startAD = customStartAD;
-      if (!startAD) {
-        const estADYear = yearBS - 57;
-        startAD = `${estADYear}-04-14`;
-      }
+      const seedConfig = resolveSeedConfig(yearBS, daysInMonths, customStartAD);
+      const startAD = seedConfig.startAD;
+      if (seedConfig.isProvisional) provisionalYearsSeeded.push(yearBS);
 
       const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
       if (onlyIfNew && existingIdx >= 0) {
@@ -1216,7 +1403,13 @@ const { years, onlyIfNew } = req.body;
         continue;
       }
 
-      await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [yearBS, daysInMonths, startAD]);
+      await pgPool.query(BS_CALENDAR_YEAR_UPSERT_SQL, [
+        yearBS,
+        daysInMonths,
+        startAD,
+        seedConfig.startAdSource,
+        seedConfig.isProvisional,
+      ]);
 
       let runningDate = new Date(startAD);
       for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
@@ -1277,14 +1470,26 @@ const { years, onlyIfNew } = req.body;
     // PostgreSQL is unreachable; in-memory fallback only
   }
 
+  if (seededCount > 0) {
+    // Every open client converts dates with this calendar — tell it to re-read.
+    broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
+  }
+
+  const provisionalNote =
+    provisionalYearsSeeded.length > 0
+      ? ` Marked PROVISIONAL (the bundled patro data does not verify them): BS ${provisionalYearsSeeded.join(', ')} — confirm each against the published patro.`
+      : '';
   res.json({
     success: true,
     pgSynced,
     seededCount,
     skippedYears,
-    message: pgSynced
-      ? `Successfully seeded ${seededCount} BS year(s) and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`
-      : `Seeded ${seededCount} BS year(s) in the in-memory calendar only — PostgreSQL was unreachable. Re-run when database is back.${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`,
+    provisionalYears: provisionalYearsSeeded,
+    message:
+      (pgSynced
+        ? `Successfully seeded ${seededCount} BS year(s) and regenerated calendar day-by-day lookup table in PostgreSQL (bs_day_records)!${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`
+        : `Seeded ${seededCount} BS year(s) in the in-memory calendar only — PostgreSQL was unreachable. Re-run when database is back.${skippedYears.length ? ` Skipped ${skippedYears.length} existing year(s): ${skippedYears.join(', ')}` : ''}`) +
+      provisionalNote,
   });
 
 }
@@ -1315,10 +1520,25 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
     return;
   }
 
-  const newConfig: { yearBS: number; daysInMonths: number[]; startAD: string } = {
+  // Provenance: supplying a start date means the operator read Baisakh 1 off
+  // the patro, and an explicit startSource overrides that judgement (the
+  // "confirm against patro" action sends 'patro'; an import of estimated data
+  // sends 'estimated'). A year the bundled patro does not cover stays
+  // provisional whatever the source says.
+  const existingSource =
+    (inMemoryBsCalendarYears[existingIdx] as any).startAdSource === 'estimated' ? 'estimated' : 'patro';
+  const requestedSource: 'patro' | 'estimated' =
+    req.body?.startSource === 'estimated'
+      ? 'estimated'
+      : req.body?.startSource === 'patro' || startAD !== undefined
+      ? 'patro'
+      : existingSource;
+  const newConfig: { yearBS: number; daysInMonths: number[]; startAD: string; startAdSource: 'patro' | 'estimated'; isProvisional: boolean } = {
     yearBS,
     daysInMonths: daysInMonths !== undefined ? daysInMonths : [...inMemoryBsCalendarYears[existingIdx].daysInMonths],
     startAD: startAD !== undefined ? startAD : inMemoryBsCalendarYears[existingIdx].startAD,
+    startAdSource: requestedSource,
+    isProvisional: requestedSource === 'estimated' || !isPatroYear(yearBS),
   };
 
   // Compute the end AD date of the edited year with its new config, both the
@@ -1381,7 +1601,13 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
     // query, so the calendar rewrite was never actually atomic.
     await withTransaction(async (client) => {
       // 1. Upsert the edited year's config.
-      await client.query(BS_CALENDAR_YEAR_UPSERT_SQL, [newConfig.yearBS, newConfig.daysInMonths, newConfig.startAD]);
+      await client.query(BS_CALENDAR_YEAR_UPSERT_SQL, [
+        newConfig.yearBS,
+        newConfig.daysInMonths,
+        newConfig.startAD,
+        newConfig.startAdSource,
+        newConfig.isProvisional,
+      ]);
 
       // 2. Rewrite the subsequent years' start_ad when the running calendar
       //    requires it (keeps bs_calendar_years config consistent with the
@@ -1425,14 +1651,21 @@ const yearBS = parseInt(req.params.yearBS as string, 10);
     return sum + y.daysInMonths.reduce((m, d) => m + d, 0);
   }, 0);
 
+  // The AD<->BS mapping every screen converts with just changed.
+  broadcastChange({ type: 'BS_CALENDAR_UPDATED', entity: 'MASTER_DATA' });
+
   res.json({
     success: true,
     pgSynced,
     affectedYears: affectedYears.map((y) => y.yearBS),
     regeneratedRecords: regenCount,
-    message: pgSynced
-      ? `BS Year ${yearBS} updated. Regenerated ${regenCount} day records across BS year(s): ${affectedYears.map((y) => y.yearBS).join(', ')}. Subsequent year start dates were recomputed for calendar continuity.`
-      : `BS Year ${yearBS} updated in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run when database is back.`,
+    isProvisional: newConfig.isProvisional,
+    startAdSource: newConfig.startAdSource,
+    message:
+      (pgSynced
+        ? `BS Year ${yearBS} updated. Regenerated ${regenCount} day records across BS year(s): ${affectedYears.map((y) => y.yearBS).join(', ')}. Subsequent year start dates were recomputed for calendar continuity.`
+        : `BS Year ${yearBS} updated in the in-memory calendar only — PostgreSQL was unreachable, so bs_day_records was not updated. Re-run when database is back.`) +
+      provisionalSeedNote(yearBS, newConfig),
   });
 
 }

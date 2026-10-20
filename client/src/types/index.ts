@@ -554,6 +554,11 @@ export interface FiscalYear {
   isCurrent: boolean;
   isClosed: boolean;
   isDemo?: boolean;
+  /** TRUE while this year's BS boundary labels came from a calendar year the
+   *  published patro does not cover yet (seeded by hand). The year works; the
+   *  labels are simply not confirmed — see the BS calendar integrity audit,
+   *  which clears the flag once the patro covers the day and agrees. */
+  isProvisional?: boolean;
 }
 
 export interface FiscalYearOpeningStockRow {
@@ -930,5 +935,71 @@ export interface BootstrapState {
   appSettings?: Record<string, string>;
   /** The calling user's server-side user_preferences rows. */
   userPreferences?: Record<string, string>;
+}
+
+/**
+ * BS calendar integrity audit — the client mirror of the engine's result
+ * (server/src/services/bsCalendarIntegrity.service.ts). The kinds are pinned to
+ * the server's union by tests/bsCalendarIntegrity.test.ts, so a new finding kind
+ * cannot ship without the panel understanding it.
+ */
+export type BsIntegrityKind =
+  | 'year_config_mismatch'
+  | 'year_unverified'
+  | 'year_span_mismatch'
+  | 'day_missing'
+  | 'day_label'
+  | 'day_derived'
+  | 'day_outside_calendar'
+  | 'stored_bs_value'
+  | 'fiscal_year_boundary'
+  | 'fiscal_year_link'
+  | 'fiscal_year_current'
+  | 'fiscal_year_provisional';
+
+export interface BsIntegrityFinding {
+  id: string;
+  kind: BsIntegrityKind;
+  severity: 'error' | 'warning';
+  title: string;
+  detail: string;
+  current?: string | null;
+  expected?: string | null;
+  /** True only when the correct value is derivable from the patro reference or
+   *  the row's own AD date — those are the ones Fix can write. */
+  fixable: boolean;
+  fixAction?: string;
+  yearBS?: number;
+  target?: string;
+  targetId?: string;
+}
+
+export interface BsIntegritySummary {
+  yearsSeeded: number;
+  yearsCoveredByPatro: number;
+  yearsMissingFromDb: number[];
+  provisionalYears: number[];
+  patroDays: number;
+  dayRows: number;
+  dayRowsOutsidePatro: number;
+  storedBsValuesChecked: number;
+  total: number;
+  fixable: number;
+  errors: number;
+  warnings: number;
+}
+
+export interface BsIntegrityReport {
+  generatedAt: string;
+  summary: BsIntegritySummary;
+  findings: BsIntegrityFinding[];
+}
+
+export interface BsIntegrityApplyResult {
+  success: boolean;
+  applied: Array<{ id: string; kind: BsIntegrityKind; title: string }>;
+  skipped: Array<{ id: string; reason: string }>;
+  report: BsIntegrityReport;
+  message: string;
 }
 

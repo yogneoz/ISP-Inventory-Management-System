@@ -34,7 +34,7 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
   - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
   - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
 - **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
-- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded).
+- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting (2078–2085 BS seeded). The month lengths live in **one** file — `shared/bsCalendarYears.json`, patro-verified month by month — which the client bundle, the server config, the database seeder and the UI seed presets all read, so a year cannot be corrected in one place and stay stale in another (`npm run audit:bs-dates` re-checks the database against it, and the BS Calendar Utility's **Calendar Health** panel runs the same engine in-app — it lists every stored BS date that disagrees with the patro, repairs only the rows whose correct value is derivable, and reports the rest instead of guessing). A year the patro does not publish yet is seeded as *provisional* (its Baisakh 1 derived from the previous year's end, flagged until confirmed), and a day the calendar does not contain is shown as `BS not seeded` rather than dated.
 - **Financial Overview (Management View) & Tax Registers**: Statement of Financial Position and Trading Summary per branch or consolidated (with prior-year comparative and variance), a branch-comparison report, VAT purchase register, and depreciation schedules. Compiled from operational registers — clearly labeled as a management view, not statutory accounting.
 - **Real-Time Multi-User Sync with Targeted Refresh**: Server-Sent Events (SSE) broadcast every mutation tagged with the client-state domain it invalidates. Clients re-fetch **only that domain's slice** (`GET /api/bootstrap/local?key=...`) instead of re-downloading the whole bootstrap; unknown events fall back to a full atomic bootstrap resync.
 - **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) that can install, configure PostgreSQL, migrate all **30 relational database tables**, and optionally seed a linked demo dataset.
@@ -465,6 +465,7 @@ docker run -d \
 | **Automated DB Setup (Node)** | `npm run setup:pg` |
 | **Automated DB Setup (Shell)** | `npm run setup:postgres` |
 | **Database Integrity Check** | `npm run integrity:check` |
+| **BS Calendar / BS-Date Audit** *(add `-- --apply` to correct)* | `npm run audit:bs-dates` |
 | **API Smoke Test** *(server must be running)* | `npm run smoke` |
 | **Write-Latency Benchmark** *(server must be running)* | `npm run bench:write` |
 | **Full Demo Reset** | `node scripts/reset_fresh_demo.mjs` |
@@ -595,14 +596,17 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   passing its counter (2 PurchaseOrders, 2 PurchaseInvoices, 1
   SerialLogRegister, 11 StockOperations, 4 ReturnsRegister, 2 SalesInvoices).
   A newly added unwired mount fails.
-- **All 65 feature screens pinned** — a coverage table asserts every screen
+- **All 66 feature screens pinned** — a coverage table asserts every screen
   under `client/src/features` exists in `SCREEN_SURFACE_PINS` with its exact
   server-call surface (`api.*` methods **and** named `services/api` imports —
   FinancialStatements.tsx imports `getFinancialSummary` directly, which a
   bare `api.*` scan would miss), so a fetch added by any mechanism must be
   pinned deliberately.
 - **Tripwires** — raw `fetch`/`axios`/`EventSource` are banned in every
-  screen, a `pageSize:` request key may appear **only** in the six wired
+  screen; no hardcoded BS date literal may appear in `server/src` **or**
+  `client/src` (a fixed date is wrong on every day but one, and the client copy
+  of it reached stored BS columns — `tests/bs_date.guard.test.ts` scans both
+  trees, with an empty client allowlist); a `pageSize:` request key may appear **only** in the six wired
   registers, and the 11 mount/selection self-fetch screens (ledgers, BS
   calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are
   pinned as whole-list and register-unwired **by design** — with the keep-mounted tab container
@@ -652,7 +656,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 838-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 901-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

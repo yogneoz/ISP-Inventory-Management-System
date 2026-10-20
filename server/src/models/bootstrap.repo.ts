@@ -106,7 +106,7 @@ export async function fetchBootstrapSlice(
  */
 export async function fetchFiscalYears(pool: QueryExecutor): Promise<any[]> {
   const result = await pool.query(
-    'SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo" FROM fiscal_years ORDER BY start_date_ad DESC'
+    'SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD", start_date_bs AS "startDateBS", end_date_bs AS "endDateBS", is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo", is_provisional AS "isProvisional" FROM fiscal_years ORDER BY start_date_ad DESC'
   );
   return result.rows;
 }

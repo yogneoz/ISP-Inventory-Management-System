@@ -27,7 +27,24 @@ export async function repairFiscalYearLinks(): Promise<{ success: boolean; total
   return fetchJson('/api/admin/repair/fiscal-year-links', { method: 'POST' });
 }
 
-export async function clearDemoData(): Promise<{ message: string }> {
+/**
+ * What the demo-clear endpoint reports back. The row counts are the server's
+ * own numbers, and `superAdminCount` is the one the UI must act on: when it is
+ * 0, the account this session is signed in as was demo data too, so continuing
+ * would mean operating as a user row that no longer exists.
+ */
+export interface ClearDemoDataResult {
+  message: string;
+  removedRows: Record<string, number>;
+  totalRemoved: number;
+  demoFiscalYearsDeleted: number;
+  demoFiscalYearsSkipped: number;
+  bsDayRecordsRelinked: number;
+  userCount: number;
+  superAdminCount: number;
+}
+
+export async function clearDemoData(): Promise<ClearDemoDataResult> {
   return fetchJson('/api/admin/clear-demo-data', {
     method: 'POST',
   });

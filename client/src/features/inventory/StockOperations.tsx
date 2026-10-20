@@ -283,23 +283,41 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   ): boolean => {
     const seenSerials = new Set<string>();
 
+    // 1. Availability is checked PER PRODUCT (and pool), not per line: two
+    // lines of the same product used to each compare against the whole
+    // balance, so 5 + 5 against 5 units passed the UI check and only failed
+    // later inside the database transaction.
+    const requestedByProduct = new Map<string, { quantity: number; damaged: boolean; name: string }>();
     for (const item of items) {
-      const prod = products.find((p) => p.id === item.productId);
-      const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
-      const srcStock = stock.find((s) => s.productId === item.productId && s.branchId === branchId);
-
-      const isDamagedPullout = item.condition === 'DAMAGED_STOCK';
-      const availStock = srcStock ? (isDamagedPullout ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
-
-      // 1. Every stock-out operation must have a real branch stock record.
-      if (!srcStock || availStock < item.quantity) {
+      const poolKey = `${item.productId}|${item.condition === 'DAMAGED_STOCK' ? 'DAMAGED' : 'USABLE'}`;
+      const entry = requestedByProduct.get(poolKey) || {
+        quantity: 0,
+        damaged: item.condition === 'DAMAGED_STOCK',
+        name: item.productName,
+      };
+      entry.quantity += Math.abs(Number(item.quantity) || 0);
+      requestedByProduct.set(poolKey, entry);
+    }
+    for (const [poolKey, requested] of requestedByProduct) {
+      const productId = poolKey.split('|')[0];
+      const srcStock = stock.find((s) => s.productId === productId && s.branchId === branchId);
+      const availStock = srcStock ? (requested.damaged ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
+      if (!srcStock || availStock < requested.quantity) {
         alertDialog(
-          `Insufficient inventory: "${branchName}" has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", but ${item.quantity} unit(s) were requested.`
+          `Insufficient inventory: "${branchName}" has ${availStock} ${requested.damaged ? 'damaged' : 'usable'} unit(s) of "${requested.name}", but ${requested.quantity} unit(s) were requested.`
         );
         return false;
       }
+    }
 
-      // 2. Validate Serial Tracking & Register for Serialized Items
+    for (const item of items) {
+      const prod = products.find((p) => p.id === item.productId);
+      const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
+
+      // 2. Serial identity: every unit needs a REAL device serial that the
+      // branch's IN_STOCK register vouches for. PON is optional — it is
+      // resolved from the register by the one-field input, and a model that
+      // ships without one must still be sellable/pullable.
       if (isSerialized) {
         if (!item.deviceSerials || item.deviceSerials.length < item.quantity) {
           alertDialog(`Validation Error: Please enter serial numbers for all ${item.quantity} unit(s) of "${item.productName}".`);
@@ -315,10 +333,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
           const cleanSerial = s.deviceSerial.trim().toUpperCase();
           const cleanPon = s.ponSerial?.trim().toUpperCase();
-          if (prod?.trackingType === 'SERIAL_MAC_PON' && !cleanPon) {
-            alertDialog(`Validation Error: PON Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
-            return false;
-          }
 
           if (seenSerials.has(cleanSerial)) {
             alertDialog(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in requested items.`);

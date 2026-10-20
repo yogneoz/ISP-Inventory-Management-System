@@ -386,15 +386,28 @@ export function ledgerBalanceUpdateParams(u: { id: string; quantityBefore: numbe
 // ---------------------------------------------------------------------------
 
 export const BS_CALENDAR_YEARS_SELECT_SQL =
-  'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC';
+  'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD", start_ad_source AS "startAdSource", is_provisional AS "isProvisional" FROM bs_calendar_years ORDER BY year_bs ASC';
 
-export const BS_CALENDAR_YEAR_UPSERT_SQL = `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
- VALUES ($1, $2, $3)
+/**
+ * Seeds/updates one BS year. Binds the provenance of start_ad alongside it:
+ * start_ad_source ('patro' | 'estimated') and is_provisional, so a year whose
+ * Baishakh 1 was derived rather than read off the published patro can never be
+ * mistaken for verified calendar data later.
+ */
+export const BS_CALENDAR_YEAR_UPSERT_SQL = `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad, start_ad_source, is_provisional)
+ VALUES ($1, $2, $3, $4, $5)
  ON CONFLICT (year_bs) DO UPDATE SET
    days_in_months = EXCLUDED.days_in_months,
-   start_ad = EXCLUDED.start_ad;`;
+   start_ad = EXCLUDED.start_ad,
+   start_ad_source = EXCLUDED.start_ad_source,
+   is_provisional = EXCLUDED.is_provisional;`;
 
 export const BS_CALENDAR_YEAR_SET_START_SQL = 'UPDATE bs_calendar_years SET start_ad = $2 WHERE year_bs = $1;';
+
+/** Corrects the provenance flags alone (used by the integrity audit when a year
+ *  outside the published patro was seeded as if it were verified). */
+export const BS_CALENDAR_YEAR_SET_SOURCE_SQL =
+  'UPDATE bs_calendar_years SET start_ad_source = $2, is_provisional = $3 WHERE year_bs = $1;';
 
 export const BS_DAY_RECORDS_DELETE_BY_YEARS_SQL = 'DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);';
 
@@ -516,6 +529,99 @@ export function buildBsDayRecordsQuery(
   sql += ` ORDER BY ad_date ASC LIMIT 500;`;
   return { sql, params };
 }
+
+// ---------------------------------------------------------------------------
+// BS calendar — integrity audit
+//
+// The audit compares the DATABASE against the bundled patro reference
+// (shared/bsCalendarYears.json, reached through server/src/config/bsCalendar)
+// and returns findings; the service in services/bsCalendarIntegrity.service.ts
+// owns the rules and the fixes, this layer owns every statement they run. Two
+// shapes are unavoidable here and are built rather than quoted:
+//   - the "*_bs" column sweep reads information_schema and then reads/writes
+//     the column it found, so table/column names are interpolated (values are
+//     always bound);
+//   - the fiscal-year realignment needs COALESCE-style partial updates.
+// ---------------------------------------------------------------------------
+
+/** Every day row, with the label plus the fields DERIVED from it. */
+export const BS_INTEGRITY_DAY_RECORDS_SELECT_SQL = `SELECT ad_date::text AS ad, bs_date AS bs, fiscal_year, quarter,
+       fiscal_year_id
+  FROM bs_day_records ORDER BY ad_date`;
+
+/** Every "*_bs" column in the schema (the stored-BS-date sweep). */
+export const BS_INTEGRITY_BS_COLUMNS_SQL = `SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public' AND column_name LIKE '%\\_bs' ESCAPE '\\'
+  ORDER BY table_name, column_name`;
+
+/** Every column in the schema (used to find a row's own AD sibling). */
+export const BS_INTEGRITY_ALL_COLUMNS_SQL =
+  "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'";
+
+/** Rows of one table whose "*_bs" column holds a non-empty value. */
+export function bsIntegrityValueRowsSql(table: string, column: string): string {
+  return `SELECT id, ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL AND ${column} <> ''`;
+}
+
+/** One row's AD sibling value, used to re-derive an unpatro BS value. */
+export function bsIntegrityAdValueSql(table: string, adColumn: string): string {
+  return `SELECT ${adColumn} AS value FROM ${table} WHERE id = $1`;
+}
+
+/** Writes one corrected BS value (the value is always bound). */
+export function bsIntegritySetBsValueSql(table: string, column: string): string {
+  return `UPDATE ${table} SET ${column} = $2 WHERE id = $1`;
+}
+
+/** Rewrites one day row's label and everything derived from it. */
+export const BS_INTEGRITY_DAY_RELABEL_SQL = `UPDATE bs_day_records
+    SET bs_date = $2, bs_month = $3, bs_day = $4, bs_month_name = $5, bs_month_name_np = $6,
+        fiscal_year = $7, quarter = $8
+  WHERE ad_date = $1`;
+
+/** Fiscal-year rows the audit checks (labels AND Shrawan-1 boundaries). */
+export const BS_INTEGRITY_FISCAL_YEARS_SELECT_SQL = `SELECT id, code, start_date_ad::text AS start_ad, end_date_ad::text AS end_ad,
+       start_date_bs, end_date_bs, is_current, is_provisional
+  FROM fiscal_years ORDER BY code`;
+
+/**
+ * Realigns one fiscal year. Every field is optional and only the fields the
+ * audit could DERIVE are filled (COALESCE keeps the rest), so a boundary the
+ * calendar cannot resolve is never guessed into the row.
+ */
+export function bsIntegrityFiscalYearUpdateSql(): string {
+  return `UPDATE fiscal_years
+    SET start_date_ad = COALESCE($2, start_date_ad),
+        end_date_ad   = COALESCE($3, end_date_ad),
+        start_date_bs = COALESCE($4, start_date_bs),
+        end_date_bs   = COALESCE($5, end_date_bs)
+  WHERE id = $1`;
+}
+
+/** Clears a day row's fiscal-year link when the link no longer contains it. */
+export const BS_INTEGRITY_FY_LINK_CLEAR_SQL = `UPDATE bs_day_records b
+    SET fiscal_year_id = NULL
+  WHERE b.fiscal_year_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM fiscal_years fy
+       WHERE fy.id = b.fiscal_year_id
+         AND b.ad_date >= fy.start_date_ad
+         AND b.ad_date <= fy.end_date_ad)`;
+
+/** Re-links every day row to the fiscal year that actually contains its AD date. */
+export const BS_INTEGRITY_FY_LINK_SET_SQL = `UPDATE bs_day_records b
+    SET fiscal_year_id = fy.id
+   FROM fiscal_years fy
+  WHERE b.fiscal_year_id IS NULL
+    AND b.ad_date >= fy.start_date_ad
+    AND b.ad_date <= fy.end_date_ad`;
+
+/** The one fiscal year containing a given AD date (for is_current). */
+export const BS_INTEGRITY_CURRENT_FY_SELECT_SQL = `SELECT id, code FROM fiscal_years
+  WHERE $1::date BETWEEN start_date_ad AND end_date_ad
+  ORDER BY start_date_ad DESC LIMIT 1`;
+
+export const BS_INTEGRITY_CURRENT_FY_SET_SQL = 'UPDATE fiscal_years SET is_current = (id = $1)';
 
 // ---------------------------------------------------------------------------
 // Admin repair — fiscal-year links
@@ -657,7 +763,8 @@ export const DOC_NUMBER_CONFIG_INCREMENT_SQL =
 export const FY_SELECT_COLUMNS =
   `id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
               start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                    is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo"`;
+                    is_current AS "isCurrent", is_closed AS "isClosed", is_demo AS "isDemo",
+                    is_provisional AS "isProvisional"`;
 
 export const FY_LIST_SQL = `SELECT ${FY_SELECT_COLUMNS}
              FROM fiscal_years ORDER BY start_date_ad DESC;`;
@@ -666,7 +773,8 @@ export const FY_LIST_SQL = `SELECT ${FY_SELECT_COLUMNS}
 export const FY_WRITE_COLUMNS =
   `id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
                  start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
-                 is_current AS "isCurrent", is_closed AS "isClosed"`;
+                 is_current AS "isCurrent", is_closed AS "isClosed",
+                 is_provisional AS "isProvisional"`;
 
 export const FY_OVERLAP_CHECK_SQL = `SELECT code FROM fiscal_years
        WHERE ($1::date BETWEEN start_date_ad AND end_date_ad)
@@ -674,8 +782,15 @@ export const FY_OVERLAP_CHECK_SQL = `SELECT code FROM fiscal_years
           OR (start_date_ad BETWEEN $1::date AND $2::date)
        LIMIT 1;`;
 
-export const FY_INSERT_SQL = `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, FALSE)
+/**
+ * Insert a fiscal year. `is_current` is always FALSE here: choosing the active
+ * year is a separate decision the caller makes (post_fiscalYears promotes the
+ * new row when nothing is active). `is_provisional` comes from the caller — TRUE
+ * when the BS boundary labels were derived from a calendar year the published
+ * patro does not cover yet.
+ */
+export const FY_INSERT_SQL = `INSERT INTO fiscal_years (id, code, start_date_ad, end_date_ad, start_date_bs, end_date_bs, is_current, is_closed, is_demo, is_provisional)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, FALSE, $7)
        RETURNING ${FY_SELECT_COLUMNS};`;
 
 export function fiscalYearInsertParams(fy: {
@@ -685,11 +800,25 @@ export function fiscalYearInsertParams(fy: {
   endDateAD: string;
   startDateBS: string;
   endDateBS: string;
+  isProvisional?: boolean;
 }): unknown[] {
-  return [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS];
+  return [fy.id, fy.code, fy.startDateAD, fy.endDateAD, fy.startDateBS, fy.endDateBS, fy.isProvisional === true];
 }
 
+/** Flip the provisional flag (set on create, cleared once the patro confirms). */
+export const FY_SET_PROVISIONAL_SQL =
+  'UPDATE fiscal_years SET is_provisional = $2 WHERE id = $1 RETURNING id;';
+
 export const FY_SET_CURRENT_CLEAR_SQL = 'UPDATE fiscal_years SET is_current = FALSE;';
+
+/** How many years are flagged active — the first-year test in post_fiscalYears
+ *  (COUNT is returned as a string by pg, so callers coerce). */
+export const FY_CURRENT_COUNT_SQL = 'SELECT COUNT(*) AS count FROM fiscal_years WHERE is_current = TRUE;';
+
+/** Names the unique index behind 'two years flagged current at once', so the
+ *  create path can answer that race with its own message instead of blaming the
+ *  fiscal-year code. */
+export const FY_SINGLE_CURRENT_CONSTRAINT = 'uq_fiscal_years_single_current';
 
 export const FY_SET_CURRENT_SQL = 'UPDATE fiscal_years SET is_current = TRUE WHERE id = $1 RETURNING id;';
 

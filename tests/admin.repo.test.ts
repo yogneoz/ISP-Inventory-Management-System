@@ -56,6 +56,11 @@ import {
   fiscalYearInsertParams,
   FY_SET_CURRENT_CLEAR_SQL,
   FY_SET_CURRENT_SQL,
+  FY_CURRENT_COUNT_SQL,
+  FY_SINGLE_CURRENT_CONSTRAINT,
+  FY_SET_PROVISIONAL_SQL,
+  FY_SELECT_COLUMNS,
+  FY_WRITE_COLUMNS,
   FY_UPDATE_SQL,
   FY_CLOSE_SQL,
   FY_END_DATE_SQL,
@@ -295,8 +300,14 @@ describe('BS calendar SQL', () => {
   });
 
   test('calendar config helpers keep the year key and start date', () => {
-    assert.equal(maxPlaceholder(BS_CALENDAR_YEAR_UPSERT_SQL), 3);
+    // Five binds: the year key, the month array, the start date, and the two
+    // provenance columns (start_ad_source / is_provisional) that let a derived
+    // Baisakh 1 stay distinguishable from one read off the published patro.
+    assert.equal(maxPlaceholder(BS_CALENDAR_YEAR_UPSERT_SQL), 5);
     assert.match(BS_CALENDAR_YEAR_UPSERT_SQL, /ON CONFLICT \(year_bs\)/);
+    assert.ok(BS_CALENDAR_YEAR_UPSERT_SQL.includes('start_ad_source = EXCLUDED.start_ad_source'));
+    assert.ok(BS_CALENDAR_YEAR_UPSERT_SQL.includes('is_provisional = EXCLUDED.is_provisional'));
+    assert.ok(BS_CALENDAR_YEARS_SELECT_SQL.includes('is_provisional AS "isProvisional"'));
     assert.equal(BS_CALENDAR_YEAR_SET_START_SQL, 'UPDATE bs_calendar_years SET start_ad = $2 WHERE year_bs = $1;');
     assert.equal(BS_DAY_RECORDS_DELETE_BY_YEARS_SQL, 'DELETE FROM bs_day_records WHERE bs_year = ANY($1::int[]);');
     assert.match(BS_CALENDAR_YEARS_SELECT_SQL, / ORDER BY year_bs ASC$/);
@@ -401,12 +412,33 @@ describe('fiscal years SQL', () => {
   });
 
   test('insert is a non-demo, non-current year and echoes the row back', () => {
-    assert.match(FY_INSERT_SQL, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, FALSE, FALSE, FALSE\)/);
+    // is_current is FALSE by contract: choosing the active year is a separate
+    // decision (post_fiscalYears promotes the new row only when NOTHING is
+    // active, so creating the first year of a fresh install unblocks the app).
+    // The seventh bind is the provisional-flag decided by the caller, whose BS
+    // boundary labels may come from a calendar year the patro does not cover.
+    assert.match(FY_INSERT_SQL, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, FALSE, FALSE, FALSE, \$7\)/);
     assert.match(FY_INSERT_SQL, /RETURNING/);
     assert.deepEqual(
       fiscalYearInsertParams({ id: 'fy-1', code: '2083-84', startDateAD: '2026-04-14', endDateAD: '2027-04-13', startDateBS: '2083-01-01', endDateBS: '2084-12-30' }),
-      ['fy-1', '2083-84', '2026-04-14', '2027-04-13', '2083-01-01', '2084-12-30']
+      ['fy-1', '2083-84', '2026-04-14', '2027-04-13', '2083-01-01', '2084-12-30', false],
+      'an absent flag is an explicit FALSE, never undefined'
     );
+    assert.deepEqual(
+      fiscalYearInsertParams({
+        id: 'fy-2', code: '2086-87', startDateAD: '2029-07-17', endDateAD: '2030-07-16',
+        startDateBS: '2086-04-01 BS', endDateBS: '2087-03-31 BS', isProvisional: true,
+      }),
+      ['fy-2', '2086-87', '2029-07-17', '2030-07-16', '2086-04-01 BS', '2087-03-31 BS', true]
+    );
+  });
+
+  test('a fiscal year reads and rewrites its provisional flag', () => {
+    assert.ok(FY_SELECT_COLUMNS.includes('is_provisional AS "isProvisional"'));
+    assert.ok(FY_WRITE_COLUMNS.includes('is_provisional AS "isProvisional"'));
+    assert.equal(FY_SET_PROVISIONAL_SQL, 'UPDATE fiscal_years SET is_provisional = $2 WHERE id = $1 RETURNING id;');
+    assert.equal(FY_CURRENT_COUNT_SQL, 'SELECT COUNT(*) AS count FROM fiscal_years WHERE is_current = TRUE;');
+    assert.equal(FY_SINGLE_CURRENT_CONSTRAINT, 'uq_fiscal_years_single_current');
   });
 
   test('overlap check rejects dates spanning an existing period', () => {

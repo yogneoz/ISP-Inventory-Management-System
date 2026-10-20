@@ -1,17 +1,32 @@
 /**
- * C4 regression guard: BS (Nepali calendar) display dates must come from
- * bs_day_records (via server/src/utils/bsDate.ts), never from hardcoded
- * string literals. A hardcoded date is wrong for every day except one, and
- * it silently corrupts ledger/audit display dates when calendar seeding
+ * C4 regression guard: BS (Nepali calendar) dates must come from the calendar —
+ * bs_day_records on the server (via server/src/utils/bsDate.ts) and the synced
+ * mirror in the browser (client/src/utils/nepaliCalendar.ts) — never from a
+ * hardcoded string literal. A hardcoded date is wrong for every day except one,
+ * and it silently corrupts ledger/audit display dates when calendar seeding
  * changes.
  *
- * Scans every .ts file under server/src for QUOTED 'YYYY-MM-DD BS' literals
- * and fails for any occurrence outside the allowlist:
- *   - server/src/utils/bsDate.ts      — the sanctioned single-source fallback
- *                                       constant (BS_DATE_FALLBACK) and docs
+ * BOTH trees are scanned now, each for the failure mode it actually has:
+ *   - server/src (.ts) — QUOTED 'YYYY-MM-DD BS' literals, which is how the old
+ *     BS_DATE_FALLBACK = '2083-04-16 BS' dated ledgers and audit rows.
+ *   - client/src (.ts AND .tsx) — the client twin of the same mistake: a screen
+ *     or utility that fills a BS field with a fixed date instead of converting
+ *     (it was `formattedBSShort: '2083-04-16 BS'` in the calendar utility, which
+ *     also reached STORED BS columns through CustomersManagement).
+ *
+ * Allowlists, per tree, root-relative:
+ *   - server/src/utils/bsDate.ts      — the sanctioned single-source marker
+ *                                       constant (BS_NOT_SEEDED) and its docs
  *   - server/src/config/seedData.ts   — legitimate fiscal-year seed rows
  *                                       (stored historical calendar data,
  *                                       not display fallbacks)
+ *   - client/src                      — EMPTY ON PURPOSE. The fabricated date
+ *                                       lived in client/src/utils/nepaliCalendar.ts,
+ *                                       so an allowlist there would have hidden
+ *                                       exactly the regression this guard exists
+ *                                       for; every client-side BS date goes
+ *                                       through formatBSDate / formatDualDate /
+ *                                       the BS not seeded marker instead.
  *
  * Only quoted literals are flagged: prose like the bsCalendar mismatch hint
  * ("...send dateBS=2083-05-14 BS") is educational text, not a value the code
@@ -33,30 +48,37 @@ export interface HardcodedBsDateViolation {
 /** Quoted BS date literal: 'YYYY-MM-DD BS' / "..." / `...` as a whole value. */
 const QUOTED_BS_DATE = /(['"`])(\d{4}-\d{2}-\d{2}) BS\1/g;
 
-/** Files allowed to contain quoted BS date literals — paths relative to
+/** Server files allowed to contain quoted BS date literals — paths relative to
  *  server/src, POSIX-normalized (absolute inputs are relativized first). */
-const ALLOWLIST = new Set([
+const SERVER_ALLOWLIST = new Set([
   'utils/bsDate.ts',
   'config/seedData.ts',
 ]);
 
+/** Client files allowed to contain quoted BS date literals. Deliberately EMPTY:
+ *  the fabricated fallback that reached stored BS columns lived in
+ *  client/src/utils/nepaliCalendar.ts, so exempting any client file would exempt
+ *  the one that regressed. */
+const CLIENT_ALLOWLIST = new Set<string>();
+
 /** Pure detection core: scan a list of {file, source} pairs for violations.
- *  Absolute paths under serverRoot are relativized (POSIX separators) before
+ *  Absolute paths under `root` are relativized (POSIX separators) before
  *  allowlist matching, so callers may pass absolute or relative paths. */
-export function findHardcodedBsDates(
+function scanQuotedBsDates(
   sources: Array<{ file: string; source: string }>,
-  serverRoot?: string
+  root: string | undefined,
+  allowlist: Set<string>
 ): HardcodedBsDateViolation[] {
   const violations: HardcodedBsDateViolation[] = [];
   for (const { file, source } of sources) {
     let normalized = file.split(path.sep).join('/');
-    if (serverRoot) {
-      const rootPrefix = serverRoot.split(path.sep).join('/').replace(/\/$/, '') + '/';
+    if (root) {
+      const rootPrefix = root.split(path.sep).join('/').replace(/\/$/, '') + '/';
       if (normalized.startsWith(rootPrefix)) {
         normalized = normalized.slice(rootPrefix.length);
       }
     }
-    if (ALLOWLIST.has(normalized)) continue;
+    if (allowlist.has(normalized)) continue;
     const lines = source.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       QUOTED_BS_DATE.lastIndex = 0;
@@ -69,17 +91,34 @@ export function findHardcodedBsDates(
   return violations;
 }
 
-/** Recursively collect .ts files under a directory (absolute paths). */
-function collectTsFiles(dir: string, out: string[] = []): string[] {
+/** Server tree: server/src/utils/bsDate.ts and config/seedData.ts are exempt. */
+export function findHardcodedBsDates(
+  sources: Array<{ file: string; source: string }>,
+  serverRoot?: string
+): HardcodedBsDateViolation[] {
+  return scanQuotedBsDates(sources, serverRoot, SERVER_ALLOWLIST);
+}
+
+/** Client tree: no exemptions — a literal here is always a fabricated date. */
+export function findHardcodedClientBsDates(
+  sources: Array<{ file: string; source: string }>,
+  clientRoot?: string
+): HardcodedBsDateViolation[] {
+  return scanQuotedBsDates(sources, clientRoot, CLIENT_ALLOWLIST);
+}
+
+/** Recursively collect files with any of the given extensions (absolute paths). */
+function collectSourceFiles(dir: string, extensions: string[], out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) collectTsFiles(full, out);
-    else if (entry.isFile() && entry.name.endsWith('.ts')) out.push(full);
+    if (entry.isDirectory()) collectSourceFiles(full, extensions, out);
+    else if (entry.isFile() && extensions.some((ext) => entry.name.endsWith(ext))) out.push(full);
   }
   return out;
 }
 
 const SERVER_SRC = path.resolve(process.cwd(), 'server', 'src');
+const CLIENT_SRC = path.resolve(process.cwd(), 'client', 'src');
 
 describe('C4 guard: no hardcoded BS date literals in server code', () => {
   describe('findHardcodedBsDates (pure core)', () => {
@@ -130,7 +169,7 @@ describe('C4 guard: no hardcoded BS date literals in server code', () => {
   });
 
   test('live tree: server/src contains zero hardcoded BS date literals', () => {
-    const files = collectTsFiles(SERVER_SRC);
+    const files = collectSourceFiles(SERVER_SRC, ['.ts']);
     assert.ok(files.length >= 20, `expected to scan a real tree, got ${files.length} files`);
     const sources = files.map((file) => ({ file, source: fs.readFileSync(file, 'utf8') }));
     const violations = findHardcodedBsDates(sources, SERVER_SRC);
@@ -138,7 +177,76 @@ describe('C4 guard: no hardcoded BS date literals in server code', () => {
       violations,
       [],
       `Hardcoded BS date literals found — resolve them from bs_day_records via
-server/src/utils/bsDate.ts (resolveBsDateForLedger / todayBs / BS_DATE_FALLBACK):
+server/src/utils/bsDate.ts (resolveBsDateForLedger / todayBs / BS_NOT_SEEDED):
+${violations.map((v) => `  ${v.file}:${v.line} → ${v.snippet}`).join('\n')}`
+    );
+  });
+});
+
+describe('C4 guard: no hardcoded BS date literals in client code either', () => {
+  describe('findHardcodedClientBsDates (pure core)', () => {
+    test('flags the fabricated literal in a screen or in the calendar utility', () => {
+      // Both were real: the utility returned this date for an unparseable AD
+      // value, and CustomersManagement stored the result as a device row's
+      // issuedDateBS. Screens are scanned too (.tsx), not just utilities.
+      const violations = findHardcodedClientBsDates(
+        [
+          { file: 'client/src/features/sales/SomeScreen.tsx', source: "const issuedDateBS = '2083-04-16 BS';" },
+          { file: 'client/src/utils/nepaliCalendar.ts', source: "      formattedBSShort: '2083-04-16 BS'," },
+        ],
+        'client/src'
+      );
+      assert.deepEqual(
+        violations.map((v) => `${v.file}:${v.line} ${v.snippet}`),
+        [
+          "features/sales/SomeScreen.tsx:1 '2083-04-16 BS'",
+          "utils/nepaliCalendar.ts:1 '2083-04-16 BS'",
+        ]
+      );
+    });
+
+    test('the client tree has no escape hatch — the calendar utility is scanned too', () => {
+      // CLIENT_ALLOWLIST is empty on purpose: the fallback that regressed lived
+      // in exactly this file, so an exemption here would hide the regression the
+      // guard exists for.
+      const violations = findHardcodedClientBsDates(
+        [{ file: 'client/src/utils/nepaliCalendar.ts', source: "return { formattedBSShort: '2083-04-16 BS' };" }],
+        'client/src'
+      );
+      assert.equal(violations.length, 1, 'no client file may be exempt from the rule');
+      assert.equal(violations[0].file, 'utils/nepaliCalendar.ts');
+    });
+
+    test('both trees are judged by the same pattern, so the two rules cannot drift', () => {
+      const source = "const d = '2083-04-16 BS';";
+      const server = findHardcodedBsDates([{ file: 'server/src/controllers/a.ts', source }], 'server/src');
+      const client = findHardcodedClientBsDates([{ file: 'client/src/features/a.tsx', source }], 'client/src');
+      assert.equal(server.length, 1);
+      assert.equal(client.length, 1);
+      assert.equal(server[0].snippet, client[0].snippet, 'one pattern, both trees');
+    });
+
+    test('ignores the legal client forms: the marker, AD dates, unquoted prose', () => {
+      const violations = findHardcodedClientBsDates([
+        { file: 'client/src/features/a.tsx', source: "const x = BS_NOT_SEEDED; const ad = '2026-10-17';" },
+        { file: 'client/src/features/b.tsx', source: '// previously hardcoded 2083-04-16 BS before the marker landed' },
+        { file: 'client/src/features/c.tsx', source: "if (cleaned.toLowerCase() === 'bs not seeded') return '-';" },
+      ]);
+      assert.deepEqual(violations, []);
+    });
+  });
+
+  test('live tree: client/src (.ts and .tsx) contains zero hardcoded BS date literals', () => {
+    const files = collectSourceFiles(CLIENT_SRC, ['.ts', '.tsx']);
+    assert.ok(files.length >= 100, `expected to scan a real tree, got ${files.length} files`);
+    const sources = files.map((file) => ({ file, source: fs.readFileSync(file, 'utf8') }));
+    const violations = findHardcodedClientBsDates(sources, CLIENT_SRC);
+    assert.deepEqual(
+      violations,
+      [],
+      `Hardcoded BS date literals found in the client — every BS date must come from
+the synced calendar mirror (client/src/utils/nepaliCalendar.ts: getBsCalendarData /
+formatBSDate / formatDualDate) or be shown as the BS not seeded marker:
 ${violations.map((v) => `  ${v.file}:${v.line} → ${v.snippet}`).join('\n')}`
     );
   });

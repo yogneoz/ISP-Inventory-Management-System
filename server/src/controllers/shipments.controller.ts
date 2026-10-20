@@ -6,13 +6,16 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent } from '../app';
+import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, findBsDayRecordForAdDate, getUserFromReq, issueNextDocNumber, permissionMatrix, setShipments, withReplaced, withPrepended, withTransaction, inventoryStock, setInventoryStock, transactionLogs, setTransactionLogs, products, logAuditEvent, serialLogs, setSerialLogs } from '../app';
+import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGateKey } from '../services/serialGate.service';
+import { OperationError, errorResponse } from '../utils/operationError';
 import {
   SHIPMENT_LIST_SQL, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
   shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_STOCK_LOCK_SQL,
+  SERIAL_LOG_TRANSFER_FLIP_SQL, serialLogTransferFlipParams,
 } from '../models/shipments.repo';
 import { buildTxnMultiRowInsertSql, flattenTxnParams, txnInsertOnConflictParams } from '../models/inventory.repo';
 import { bsDateOr400 } from '../utils/bsDate';
@@ -53,6 +56,55 @@ function buildTransferTxn(
     timestampAD: new Date(`${timestampAD}T00:00:00.000Z`).toISOString(),
     timestampBS,
   };
+}
+
+/**
+ * Serial-register history entry for one transfer leg (same {status, sourceType,
+ * sourceId, dateAD, notes} shape the other serial flows append).
+ */
+function shipmentSerialHistory(status: string, sourceId: string, dateAD: string, notes: string) {
+  return [{ status, sourceType: 'SHIPMENT', sourceId, dateAD, notes }];
+}
+
+/**
+ * In-memory (demo-mode) twin of SERIAL_LOG_TRANSFER_FLIP_SQL: flips only rows
+ * that are currently in `fromStatus`, so both modes report identically.
+ */
+function flipShipmentSerialsMirror(
+  deviceSerials: readonly string[],
+  fromStatus: string,
+  toStatus: string,
+  branchId: string | null,
+  sourceId: string,
+  dateAD: string,
+  notes: string
+): void {
+  const keys = new Set(deviceSerials.map((s) => serialGateKey(s)).filter(Boolean));
+  if (keys.size === 0) return;
+  const entry = shipmentSerialHistory(toStatus, sourceId, dateAD, notes)[0];
+  let changed = false;
+  const next = serialLogs.map((row: any) => {
+    if (!keys.has(serialGateKey(row?.deviceSerial)) || String(row?.status || '') !== fromStatus) return row;
+    changed = true;
+    const history = Array.isArray(row?.history) ? [...row.history, entry] : [entry];
+    return {
+      ...row,
+      status: toStatus,
+      branchId: branchId ?? row?.branchId,
+      sourceType: 'SHIPMENT',
+      sourceId,
+      history,
+      historyJson: JSON.stringify(history),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  if (changed) setSerialLogs(next as any);
+}
+
+/** Maps a serial-gate refusal to its HTTP status; anything else stays a 500. */
+function shipmentErrorResponse(err: any): { status: number; message: string } {
+  if (err instanceof SerialGateError) return { status: err.status, message: err.message };
+  return errorResponse(err);
 }
 
 /**
@@ -210,6 +262,64 @@ try {
         await client.query(SHIPMENT_UPSERT_SQL, shipmentUpsertParams(newShipment));
 
         if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+          // Slice E: a dispatched unit LEAVES the source branch's sellable pool.
+          // Plan one entry per unit, resolve them through the shared gate under
+          // this transaction's lock (IN_STOCK at the source), then flip
+          // IN_STOCK → IN_TRANSIT so no other screen can sell it mid-transit.
+          const transferSerialItems = newShipment.items.map((it: any) => ({
+            ...it,
+            quantity: shipmentQtySent(it),
+          }));
+          const serialPlan = planSerialGateEntries(transferSerialItems, products as any[]);
+          if (serialPlan.error) throw new SerialGateError(400, serialPlan.error);
+          await resolveSerialGateInDb(
+            client,
+            serialPlan.entries,
+            {
+              branchId: String(newShipment.sourceBranchId),
+              branchLabel: sourceBranch?.name,
+              matchProduct: true,
+              allowedStatuses: ['IN_STOCK'],
+            },
+            { action: 'dispatched', productName: (entry) => entry.productName }
+          );
+          for (const entry of serialPlan.entries) {
+            await client.query(
+              SERIAL_LOG_TRANSFER_FLIP_SQL,
+              serialLogTransferFlipParams(
+                'IN_TRANSIT',
+                null,
+                shipmentSerialHistory('IN_TRANSIT', newShipment.trackingCode, dispatchDateAD, `Dispatched on transfer ${newShipment.trackingCode}`),
+                newShipment.trackingCode,
+                entry.deviceSerial,
+                'IN_STOCK'
+              )
+            );
+          }
+
+          // Aggregate availability PER PRODUCT before any deduction: duplicate
+          // lines of one product must not each pass against the same balance.
+          // The refusal is a clean 400 with available/requested numbers.
+          const requestedPerProduct = new Map<string, { qty: number; name: string }>();
+          for (const item of newShipment.items) {
+            const entry = requestedPerProduct.get(item.productId) || {
+              qty: 0,
+              name: String(item.productName || item.productId),
+            };
+            entry.qty += shipmentQtySent(item);
+            requestedPerProduct.set(item.productId, entry);
+          }
+          for (const [productId, requested] of requestedPerProduct) {
+            const lockedRow = await client.query(SHIPMENT_STOCK_LOCK_SQL, [productId, newShipment.sourceBranchId]);
+            const available = Number(lockedRow.rows[0]?.quantityOnHand) || 0;
+            if (available < requested.qty) {
+              throw new OperationError(
+                400,
+                `Insufficient inventory at the source branch for ${requested.name}. Available: ${available}, requested: ${requested.qty}.`
+              );
+            }
+          }
+
           const dispatchTxns: TransactionLog[] = [];
           let lineIdx = 0;
           for (const item of newShipment.items) {
@@ -222,7 +332,9 @@ try {
               SHIPMENT_DEDUCT_SOURCE_SQL,
               [qtySent, item.productId, newShipment.sourceBranchId]
             );
-            if (updated.rowCount !== 1) throw new Error(`Insufficient stock for ${item.productName || item.productId}.`);
+            if (updated.rowCount !== 1) {
+              throw new OperationError(400, `Insufficient stock for ${item.productName || item.productId}. The source branch balance changed — reload and retry.`);
+            }
             dispatchTxns.push(buildTransferTxn(newShipment, item, lineIdx++, newShipment.sourceBranchId, 'TRANSFER_OUT', before, -qtySent, newShipment.dispatchDateAD, newShipment.dispatchDateBS));
 
             if (newShipment.destinationBranchId) {
@@ -240,6 +352,20 @@ try {
     }
 
     if (!shipmentAlreadyExists && newShipment.type === 'INTER_BRANCH' && newShipment.sourceBranchId) {
+      // Demo-mode register mirror: same IN_STOCK → IN_TRANSIT flip.
+      flipShipmentSerialsMirror(
+        newShipment.items.flatMap((item: any) =>
+          (Array.isArray(item.deviceSerials) ? item.deviceSerials : [])
+            .slice(0, shipmentQtySent(item))
+            .map((s: any) => String(typeof s === 'string' ? s : s?.deviceSerial || ''))
+        ),
+        'IN_STOCK',
+        'IN_TRANSIT',
+        null,
+        newShipment.trackingCode,
+        dispatchDateAD,
+        `Dispatched on transfer ${newShipment.trackingCode}`
+      );
       const dispatchTxns: TransactionLog[] = [];
       const dispatchSrcId = newShipment.sourceBranchId;
       newShipment.items.forEach((item: any, idx: number) => {
@@ -265,7 +391,8 @@ try {
     res.status(201).json(newShipment);
   } catch (err: any) {
     console.error('Error creating shipment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = shipmentErrorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }
@@ -364,6 +491,20 @@ try {
 
       item.quantityReceived = actualQtyReceived;
       if (actualQtyReceived < (item.quantitySent || item.quantity || 1)) hasDiscrepancy = true;
+
+      // Which dispatch serials actually arrived. The receive-verification modal
+      // sends the ticked-off list; a direct API call falls back to the first N
+      // dispatched serials. Units that did not arrive stay IN_TRANSIT at the
+      // source so they remain traceable and cancellable.
+      const verifiedSerials = Array.isArray(verified?.receivedSerials) ? verified.receivedSerials : [];
+      const serialSource = verifiedSerials.length > 0
+        ? verifiedSerials
+        : (Array.isArray(item.deviceSerials) ? item.deviceSerials : []);
+      item.receivedSerials = serialSource
+        .slice(0, actualQtyReceived)
+        .map((s: any) => String(typeof s === 'string' ? s : s?.deviceSerial || '').trim())
+        .filter(Boolean)
+        .map((deviceSerial: string) => ({ deviceSerial }));
     });
 
     sh.hasDiscrepancy = hasDiscrepancy;
@@ -376,6 +517,44 @@ try {
           SHIPMENT_RECEIVE_UPDATE_SQL,
           [sh.status, sh.receivedByNotes, receivedDateBS, hasDiscrepancy, JSON.stringify(sh.items), id]
         );
+
+        // Slice E: received units land IN_STOCK at the destination branch. The
+        // gate resolves them as IN_TRANSIT at the source under this lock; an
+        // unknown or already-moved serial refuses the whole receipt.
+        const receivedPlanItems = sh.items
+          .map((item: any) => ({
+            ...item,
+            quantity: (item.receivedSerials || []).length,
+            deviceSerials: item.receivedSerials || [],
+          }))
+          .filter((item: any) => item.quantity > 0);
+        if (receivedPlanItems.length > 0) {
+          const receivedPlan = planSerialGateEntries(receivedPlanItems, products as any[]);
+          if (receivedPlan.error) throw new SerialGateError(400, receivedPlan.error);
+          await resolveSerialGateInDb(
+            client,
+            receivedPlan.entries,
+            {
+              branchId: String(sh.sourceBranchId),
+              matchProduct: true,
+              allowedStatuses: ['IN_TRANSIT'],
+            },
+            { action: 'received', productName: (entry) => entry.productName }
+          );
+          for (const entry of receivedPlan.entries) {
+            await client.query(
+              SERIAL_LOG_TRANSFER_FLIP_SQL,
+              serialLogTransferFlipParams(
+                'IN_STOCK',
+                sh.destinationBranchId || null,
+                shipmentSerialHistory('IN_STOCK', sh.trackingCode, sh.receivedDateAD || new Date().toISOString().split('T')[0], `Received on transfer ${sh.trackingCode}`),
+                sh.trackingCode,
+                entry.deviceSerial,
+                'IN_TRANSIT'
+              )
+            );
+          }
+        }
 
         let lineIdx = 0;
         for (const item of sh.items) {
@@ -426,12 +605,23 @@ try {
         receiveTxns.push(buildTransferTxn(sh, item, idx, receiveDestId, 'TRANSFER_IN', before, receivedQty, sh.receivedDateAD || new Date().toISOString().split('T')[0], receivedDateBS || ''));
       });
     }
+    // Demo-mode register mirror: the received units land at the destination.
+    flipShipmentSerialsMirror(
+      sh.items.flatMap((item: any) => (item.receivedSerials || []).map((s: any) => String(s.deviceSerial || ''))),
+      'IN_TRANSIT',
+      'IN_STOCK',
+      sh.destinationBranchId || null,
+      sh.trackingCode,
+      sh.receivedDateAD || new Date().toISOString().split('T')[0],
+      `Received on transfer ${sh.trackingCode}`
+    );
     appendLedgerMirror(receiveTxns);
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
     console.error('Error receiving shipment:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = shipmentErrorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }
@@ -496,8 +686,43 @@ try {
         if (cancelTxns.length > 0) {
           await client.query(buildTxnMultiRowInsertSql(cancelTxns.length), flattenTxnParams(cancelTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
+
+        // Slice E: units that never reached their destination go back to the
+        // source branch's sellable pool (IN_TRANSIT → IN_STOCK).
+        const cancelSerials = (items as any[]).flatMap((item: any) =>
+          (Array.isArray(item?.deviceSerials) ? item.deviceSerials : []).map((s: any) =>
+            String(typeof s === 'string' ? s : s?.deviceSerial || '').trim()
+          )
+        );
+        for (const deviceSerial of cancelSerials.filter(Boolean)) {
+          await client.query(
+            SERIAL_LOG_TRANSFER_FLIP_SQL,
+            serialLogTransferFlipParams(
+              'IN_STOCK',
+              sourceBranchId || null,
+              shipmentSerialHistory('IN_STOCK', id, cancelDateAD, `Transfer ${id} cancelled`),
+              id,
+              deviceSerial,
+              'IN_TRANSIT'
+            )
+          );
+        }
       });
     }
+    // Demo-mode register mirror for the same restoration.
+    flipShipmentSerialsMirror(
+      sh.items.flatMap((item: any) =>
+        (Array.isArray(item?.deviceSerials) ? item.deviceSerials : []).map((s: any) =>
+          String(typeof s === 'string' ? s : s?.deviceSerial || '')
+        )
+      ),
+      'IN_TRANSIT',
+      'IN_STOCK',
+      sh.sourceBranchId || null,
+      id,
+      cancelDateAD,
+      `Transfer ${id} cancelled`
+    );
     // Mirror the restoration in memory: demo mode previously never returned
     // source stock or released the destination reservation on cancel.
     sh.items.forEach((item: any, idx: number) => {
@@ -582,6 +807,28 @@ try {
         if (undoTxns.length > 0) {
           await client.query(buildTxnMultiRowInsertSql(undoTxns.length), flattenTxnParams(undoTxns.map((txn) => txnInsertOnConflictParams(txn))));
         }
+
+        // Slice E: undoing a receipt puts the units back in transit from the
+        // source branch (IN_STOCK at the destination → IN_TRANSIT).
+        const undoSerials = (items as any[]).flatMap((item: any) => {
+          const list = Array.isArray(item?.receivedSerials) && item.receivedSerials.length > 0
+            ? item.receivedSerials
+            : (Array.isArray(item?.deviceSerials) ? item.deviceSerials : []);
+          return list.map((s: any) => String(typeof s === 'string' ? s : s?.deviceSerial || '').trim());
+        });
+        for (const deviceSerial of undoSerials.filter(Boolean)) {
+          await client.query(
+            SERIAL_LOG_TRANSFER_FLIP_SQL,
+            serialLogTransferFlipParams(
+              'IN_TRANSIT',
+              row.sourceBranchId || sh.sourceBranchId || null,
+              shipmentSerialHistory('IN_TRANSIT', id, undoDateAD, `Receipt of transfer ${id} cancelled`),
+              id,
+              deviceSerial,
+              'IN_STOCK'
+            )
+          );
+        }
         await client.query(SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, [id, undoNote]);
       });
     }
@@ -605,6 +852,21 @@ try {
         undoTxns.push(buildTransferTxn(sh, item, idx, undoDestId, 'TRANSFER_RECEIPT_CANCELLED', before, -qty, undoDateAD, undoDateBS));
       });
     }
+    // Demo-mode register mirror for the undo.
+    flipShipmentSerialsMirror(
+      sh.items.flatMap((item: any) => {
+        const list = Array.isArray(item?.receivedSerials) && item.receivedSerials.length > 0
+          ? item.receivedSerials
+          : (Array.isArray(item?.deviceSerials) ? item.deviceSerials : []);
+        return list.map((s: any) => String(typeof s === 'string' ? s : s?.deviceSerial || ''));
+      }),
+      'IN_STOCK',
+      'IN_TRANSIT',
+      sh.sourceBranchId || null,
+      id,
+      undoDateAD,
+      `Receipt of transfer ${id} cancelled`
+    );
     appendLedgerMirror(undoTxns);
     sh.status = 'IN_TRANSIT';
     sh.receivedByNotes = undefined;
@@ -617,7 +879,8 @@ try {
     res.json({ shipment: sh, message: `Receipt of transfer ${sh.trackingCode} cancelled. Inventory restored to In-Transit status.` });
   } catch (err: any) {
     console.error('Error cancelling shipment receipt:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    const mapped = shipmentErrorResponse(err);
+    res.status(mapped.status).json({ message: mapped.message });
   }
 
 }

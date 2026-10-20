@@ -14,8 +14,10 @@
  *  3. REVERSE guards read PG: PG says CANCELLED -> 400 even though the
  *     mirror still says LOGGED (the old mirror-first read ran a full
  *     second reversal).
- *  4. EXCHANGE reads PG first: the response seeds from the PG row, and the
- *     mirror copy of the OLD record is still flipped (dual-write kept).
+ *  4. EXCHANGE reads PG first: the response seeds from the PG row, the mirror
+ *     copy of the OLD record is still flipped (dual-write kept), the
+ *     replacement must be an IN_STOCK register row at the branch, and a blank
+ *     PON/MAC is hydrated from that row.
  *  5. SERIAL RENAME reads PG first: the response record is the PG row, and
  *     the mirror row is still cascaded in place (dual-write kept).
  *
@@ -93,6 +95,15 @@ describe('mirror step 3: PG-first reads with mirror fallback', () => {
     await pool!.query(
       `INSERT INTO customer_device_records (id, customer_name, customer_code, branch_id, product_name, device_serial, pon_serial, status, notes)
        VALUES ('m3-cdr', 'PG Customer', 'M3C', 'm3-branch', 'M3 Product', 'M3-OLD-PG', 'M3PON-OLD', 'RENTAL', 'pg fixture')`
+    );
+    // The exchange gate draws its replacement from the register, so the fixture
+    // must carry a real IN_STOCK row (the old test posted a serial that existed
+    // only in the request body). The MAC is deliberately not sent by the test,
+    // proving the blank is hydrated from this row.
+    await pool!.query(
+      `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_name, branch_id, status, source_type) VALUES
+       ('m3-sl-new', 'M3-NEW-EX', 'M3PON-EX', 'A4:C3:F0:B1:D2:E3', 'M3 Product', 'm3-branch', 'IN_STOCK', 'PURCHASE'),
+       ('m3-sl-assigned', 'M3-AWAY-ASSIGNED', 'M3PON-AWAY', NULL, 'M3 Product', 'm3-branch', 'CUSTOMER_ASSIGNED', 'PURCHASE')`
     );
 
     // Stale mirror state: every shared id disagrees with PG, and one op
@@ -200,6 +211,37 @@ describe('mirror step 3: PG-first reads with mirror fallback', () => {
     const mirrorOld = customerDeviceRecords.find((c: any) => c.id === 'm3-cdr');
     assert.ok(mirrorOld, 'mirror row must still exist after the exchange');
     assert.equal(mirrorOld.status, 'EXCHANGED', 'mirror copy of the OLD record must still be flipped (dual-write)');
+
+    // The register is the authority for identity: the test sent no MAC, so the
+    // replacement row must carry the MAC of the IN_STOCK register row.
+    const newRow = await pool!.query(
+      'SELECT pon_serial, mac_address FROM customer_device_records WHERE device_serial = $1',
+      ['M3-NEW-EX']
+    );
+    assert.equal(newRow.rows[0]?.pon_serial, 'M3PON-EX');
+    assert.equal(newRow.rows[0]?.mac_address, 'A4:C3:F0:B1:D2:E3', 'blank MAC must be hydrated from the register');
+  });
+
+  test('device exchange refuses a replacement that is not IN_STOCK at the branch', { skip: skipNoDb }, async () => {
+    const { status, json } = await call('POST', '/api/customer-devices/exchange', {
+      oldDeviceId: 'm3-cdr',
+      exchangeReason: 'm3 gate test',
+      oldDeviceAction: 'KEEP',
+      newProductName: 'M3 Product',
+      newDeviceSerial: 'M3-AWAY-ASSIGNED',
+      newPonSerial: 'M3PON-AWAY',
+      notes: '',
+    });
+    assert.equal(status, 400, 'a replacement the register does not hold as IN_STOCK must be refused, not 500/201');
+    assert.match(String(json?.message), /CUSTOMER_ASSIGNED \(not IN_STOCK\)/);
+
+    const cdrRows = await pool!.query(
+      'SELECT 1 FROM customer_device_records WHERE device_serial = $1',
+      ['M3-AWAY-ASSIGNED']
+    );
+    assert.equal(cdrRows.rowCount, 0, 'a refused exchange must not write a customer-device row');
+    const oldRow = await pool!.query('SELECT status FROM customer_device_records WHERE id = $1', ['m3-cdr']);
+    assert.equal(oldRow.rows[0]?.status, 'EXCHANGED', 'the earlier successful exchange must stay applied');
   });
 
   test('serial rename reads PG first and still cascades the mirror row in place', { skip: skipNoDb }, async () => {

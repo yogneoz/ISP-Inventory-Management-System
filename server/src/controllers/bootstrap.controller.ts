@@ -47,13 +47,20 @@ const { branchId, fiscalYearId } = req.query;
             fiscalYearNotFound: true,
           });
         }
+        // Both messages must name a screen the UI actually shows. They used to
+        // say "Fiscal Year Management", which is not a nav label anywhere — the
+        // tab that carries that key is labelled "Document Numbering Setup", and
+        // the fiscal-year form lives in "Fiscal Year Closing Wizard". An operator
+        // reading the old text had nowhere to go. tests/fiscalYearFirstCreation
+        // .test.ts asserts both labels against Sidebar.tsx, so a rename here or
+        // in the nav fails instead of quietly sending the next operator hunting.
         return res.status(409).json({
           message:
             fiscalYearScope.reason === 'none-configured'
               ? 'No fiscal year is configured, so there is nothing to scope application data to. ' +
-                'Create a fiscal year in Fiscal Year Management, then reload.'
+                'Create one in Fiscal Year Closing Wizard (Add Fiscal Year), then reload.'
               : 'No fiscal year is flagged as current, so there is no default view to load. ' +
-                'Open Fiscal Year Management, flag one year as current, then reload.',
+                'Open Fiscal Year Closing Wizard and set a year active, then reload.',
           noCurrentFiscalYear: true,
         });
       }

@@ -1214,6 +1214,17 @@ export const SERIAL_GATE_LOCK_SQL = `SELECT lower(trim(device_serial)) AS key,
  FOR UPDATE`;
 
 /**
+ * Identity fields of one register row, used to hydrate an exchange: the
+ * replacement's PON/MAC come from the register when the caller left them
+ * blank (one-field UX), so the customer row never carries halves of an
+ * identity the register already knows.
+ */
+export const SERIAL_LOG_IDENTITY_BY_SERIAL_SQL = `SELECT pon_serial AS "ponSerial", mac_address AS "macAddress"
+ FROM serial_log
+ WHERE lower(trim(device_serial)) = lower(trim($1))
+ LIMIT 1`;
+
+/**
  * The states a serial-touching operation may draw a unit from. A unit that has
  * already moved on (sold, assigned, damaged, in transit) is never consumable
  * twice, and the refusal names the state it actually holds.

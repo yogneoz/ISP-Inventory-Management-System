@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 838 tests; CI runs
+                                        #   drift/concurrency guards — 901 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -564,7 +564,9 @@ The server registers ~130 routes. The most important ones:
 | `/api/fiscal-years/:id/reopen` | POST | Reopen closed year |
 | `/api/fiscal-years/:id/initialize-opening-stock` | POST | Generate opening balances from a closed year |
 | `/api/fiscal-years/:id/opening-stock` | GET, POST | View / batch-adjust opening balances (open years only) |
-| `/api/bs-calendar/years` | GET, POST, DELETE `:year` | BS calendar year data |
+| `/api/bs-calendar/years` | GET, POST, DELETE `:year` | BS calendar year data (each year carries `startAdSource` + `isProvisional`) |
+| `/api/bs-calendar/integrity` | GET | Audit every stored BS date against the patro reference, the day table and the fiscal years derived from it |
+| `/api/bs-calendar/integrity/apply` | POST | Apply only the corrections the audit can DERIVE (optional body: `{ ids: [...] }`); re-audits and returns what is left |
 
 ### 6.7 Admin Endpoints
 
@@ -873,8 +875,13 @@ rows that exist and never create one (section 11.2).
 ### 12.1 `utils/nepaliCalendar.ts`
 
 - `adToBS(adDate)` / `bsToAD(bsDate)` — dual-calendar conversion
+- Month lengths come from the repo's ONE copy of the BS calendar data, `shared/bsCalendarYears.json` (patro-verified month starts), which the client bundle, `server/src/config/bsCalendar.ts`, `scripts/setup_db.js` and the UI seed presets all read; `tests/bsCalendarPatroData.test.ts` refuses a second copy
 - Built-in data for BS years 2078–2085, extendable via BS Calendar Utility admin screen
 - Server-side: `bs_day_records` table provides the authoritative day-by-day mapping (rebuildable via admin recalculation)
+- `npm run audit:bs-dates` re-checks the database against that file (calendar rows, every `*_bs` value, and fiscal-year boundaries/labels) and corrects it with `-- --apply`
+- The in-app face of that audit is `GET /api/bs-calendar/integrity` + the **Calendar Health** panel ([client/src/features/finance/BsCalendarHealthPanel.tsx](client/src/features/finance/BsCalendarHealthPanel.tsx)) inside the BS Calendar Utility: `server/src/services/bsCalendarIntegrity.service.ts` is ONE engine behind the panel, the script and the boot check, and its apply path writes only values it can derive (patro day, or the row's own AD date) inside one transaction, then re-audits
+- A year seeded at a Baisakh 1 the patro does not publish is stored with `start_ad_source = 'estimated'` + `is_provisional = true` (derived from the previous seeded year's end, never the old `year - 57` guess), and stays flagged until the patro confirms it — the coverage warning, the integrity audit and the seed response all say so
+- An unseeded day is reported as **`BS not seeded`** — one literal shared by `server/src/utils/bsDate.ts` and `client/src/utils/nepaliCalendar.ts` (pinned by [tests/bsDateMarker.test.ts](tests/bsDateMarker.test.ts)). Nothing invents a date: the old `BS_DATE_FALLBACK = '2083-04-16 BS'` (and the client conversion's copy of it) is gone, and `isBsDateMissing()` treats the marker as missing, so a stored `*_bs` column can never look like a real date
 
 ### 12.2 `utils/depreciation.ts`
 
@@ -1204,7 +1211,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 838 tests against a real PostgreSQL 16 service container
+2. `npm test` — 901 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1271,15 +1278,20 @@ so any unwired new fetch fails the suite instead of shipping:
   remount refreshes it). Each test pins the effect deps carrying the refresh key and EVERY App.tsx render
   site passing it (2 PO, 2 PI, 1 SerialLogRegister, 11 StockOperations, 4 ReturnsRegister,
   2 SalesInvoices) — a newly added unwired mount fails.
-- **Feature-screen coverage (2026-10-03 audit, all 65 screens — the §G StockOperations
-  split added 12 tab panels plus the extracted tab-bar chrome)** — a `SCREEN_SURFACE_PINS`
-  table pins the 54 screens not covered above (the other 11 are pinned by the dedicated
+- **Feature-screen coverage (2026-10-03 audit, all 66 screens — the §G StockOperations
+  split added 12 tab panels plus the extracted tab-bar chrome, and the BS-calendar
+  integrity work added the Calendar Health panel)** — a `SCREEN_SURFACE_PINS`
+  table pins the 55 screens not covered above (the other 11 are pinned by the dedicated
   tests); an unpinned new screen fails coverage, and each pinned screen must match its
   exact surface. Surfaces use `serverCallsIn` = `api.*` methods **plus named
   `services/api` imports** — the audit found FinancialStatements.tsx imports
   `getFinancialSummary` directly, which a bare `api.*` scan would miss, so every pin uses
   the combined helper.
-- **Tripwires** — raw `fetch(`/axios/EventSource are banned in every screen; a `pageSize:`
+- **Tripwires** — raw `fetch(`/axios/EventSource are banned in every screen; a hardcoded
+  BS date literal is refused in BOTH trees by `tests/bs_date.guard.test.ts` (the server's
+  `BS_DATE_FALLBACK = '2083-04-16 BS'` and the client conversion's copy of it both dated
+  real rows; `findHardcodedClientBsDates` scans `client/src` `.ts`/`.tsx` with an empty
+  allowlist, and the two scanners share one pattern so they cannot drift); a `pageSize:`
   request key is allowed ONLY in the six wired registers (a seventh server-paged fetch = a
   register missing its sseRefreshKey); the 11 mount/selection self-fetch screens (ledgers,
   BS calendars, Category/Uom/Locations, doc numbering, FinancialStatements) are pinned as
@@ -1377,6 +1389,38 @@ All demo users share password: `Demo@123`
 | Add new permission operation | `client/src/utils/permissionMatrixData.ts` (operation + defaults) + `server/src/app.ts` (matrix seed) + `requirePermission` on routes |
 | Add new document type | `server/src/config/seedData.ts` (INITIAL_DOCUMENT_NUMBER_CONFIGS) + `scripts/setup_db.js` + `client/src/utils/documentNumbering.ts` |
 | Change serial behavior | `server/src/services/serialEdit.handler.ts` (handleUpdateSerials, lookup/dual) + `client/src/features/inventory/SerialLogRegister.tsx` |
+
+---
+
+---
+
+## 17. Serial input & transfer integrity (2026-10-19)
+
+Implemented the approved [serial-input-improvements-plan.md](docs/serial-input-improvements-plan.md)
+(slices A–F). What changed and where:
+
+| Area | Change | Key files |
+|---|---|---|
+| MAC formatting | ONE shared `normalizeMacAddress` / `macKey` module; applied at purchase entry, register write, gate comparison, sales verification and lookup | `shared/macAddress.ts`, `server/src/services/serialRegister.service.ts`, `server/src/services/serialGate.service.ts`, `server/src/models/inventory.repo.ts` |
+| Purchase bill | Device + MAC required, **PON optional** (stored `null` when blank); per-unit slots now seed a MAC; blur/Enter canonicalises | `client/src/features/procurement/PurchaseInvoiceForm.tsx` |
+| One-field serial entry | New `DeviceSerialInput` (inline register status, read-only PON/MAC) + `findRegisterRow` / `classifyRegisterRow`; adopted on 10 screens; **all invented-identity generators removed** | `client/src/components/common/DeviceSerialInput.tsx`, sales/procurement/inventory forms |
+| Server hydration | `hydrateSerialEntries` fills blank PON/MAC from the locked register row; blanket PON requirement dropped from sales and stock ops | `server/src/services/serialGate.service.ts`, `server/src/controllers/sales.controller.ts` |
+| Transfer register integrity | Dispatch/receive/cancel/undo-receipt flip `serial_log` (`IN_STOCK ⇄ IN_TRANSIT`) inside their transactions, mirrored in demo mode; received serials recorded per item so short receipts leave units in transit | `server/src/controllers/shipments.controller.ts`, `server/src/models/shipments.repo.ts` |
+| Availability | Per-product aggregate checks (client validator, shipment create, `post_assets`, locked stock-op re-check) returning `400` with available/requested; serialized assign lines pinned to quantity 1; CDR assignment gated on an IN_STOCK register row | `server/src/utils/operationError.ts`, `server/src/controllers/{inventory,shipments}.controller.ts`, `client/src/features/inventory/StockOperations.tsx`, `AssignAssetPanel.tsx` |
+
+**Follow-up (2026-10-20): the exchange gap is closed.** `post_exchange` gates the
+replacement against the register — `IN_STOCK` at the fulfilling branch, checked
+once before any mirror write and again with `FOR UPDATE` inside the transaction
+— hydrates a blank PON/MAC from that row (`SERIAL_LOG_IDENTITY_BY_SERIAL_SQL`),
+and rolls the mirror writes back when PG refuses. `tests/mirrorStep3.test.ts`
+seeds a real `serial_log` row and proves both directions: an IN_STOCK replacement
+succeeds and takes the register's MAC, a `CUSTOMER_ASSIGNED` one is refused `400`
+with no customer-device row written.
+
+Verification: `npx tsc --noEmit` clean; full suite **901 tests, 899 pass, 0 fail, 2 skipped**
+(the two pre-existing Windows-only real-signal checks); docs-count gate green.
+Residual: Slice 5 — demoting the boot serial backfill to a maintenance action —
+remains open.
 
 ---
 

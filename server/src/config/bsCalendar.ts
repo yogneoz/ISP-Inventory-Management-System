@@ -2,6 +2,7 @@
 // day-record generation and AD/BS lookup helpers. Extracted verbatim from the
 // former app.ts section of the same name.
 import { pgPool } from '../../db';
+import bsCalendarYearsSource from '../../../shared/bsCalendarYears.json';
 
 // Bikram Sambat (BS) Calendar & Day Records Endpoints
 export const NEPALI_MONTHS_EN_SERVER = [
@@ -22,16 +23,22 @@ export const DAYS_OF_WEEK_NP_SERVER = [
   'आइतबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहीबार', 'शुक्रबार', 'शनिबार'
 ];
 
-export const DEFAULT_BS_YEARS_SERVER = [
-  { yearBS: 2078, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2021-04-14' },
-  { yearBS: 2079, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2022-04-14' },
-  { yearBS: 2080, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2023-04-14' },
-  { yearBS: 2081, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2024-04-13' },
-  { yearBS: 2082, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2025-04-14' },
-  { yearBS: 2083, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2026-04-14' },
-  { yearBS: 2084, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2027-04-14' },
-  { yearBS: 2085, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2028-04-13' },
-];
+/**
+ * Built-in BS calendar, read from the repo's ONE copy of the calendar data:
+ * shared/bsCalendarYears.json (the client bundle and scripts/setup_db.js load
+ * the same file). Keep this a projection of that file — never a second copy of
+ * the numbers, which is how BS 2080, 2084 and 2085 came to label mid-year AD
+ * dates with the wrong Nepali day.
+ */
+export const DEFAULT_BS_YEARS_SERVER: Array<{
+  yearBS: number;
+  daysInMonths: number[];
+  startAD: string;
+}> = bsCalendarYearsSource.years.map((y) => ({
+  yearBS: y.yearBS,
+  daysInMonths: y.daysInMonths,
+  startAD: y.startAD,
+}));
 
 export let inMemoryBsCalendarYears = [...DEFAULT_BS_YEARS_SERVER];
 export let inMemoryBsDayRecords: any[] = [];

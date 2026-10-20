@@ -6,6 +6,7 @@ import {
 } from '../../../types';
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
+import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
 import { formatNPR } from '../../../utils/nprFormat';
 import {
   Plus,
@@ -26,7 +27,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const ProductSalePanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, focusInput, onCreateOperation, products, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, branches, currentUser, customers, ensureBsDateAvailable, focusInput, onCreateOperation, products, serialRegister, stock, userBranchId, validateSourceBranchStockAndSerials } = useStockOperationsCtx();
 
   // Product-group filtered catalogs (types/index.ts: 'Product Item' | 'Fixed Asset' |
   // 'Consumable Item'; absent productGroup defaults to 'Product Item' everywhere else
@@ -47,23 +48,17 @@ export const ProductSalePanel: React.FC = () => {
     setSellNotes('Direct retail product item sale to customer');
   };
 
-  const updateSellDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+  /** One-field entry: PON resolves from the register in the same state write. */
+  const updateSellSerial = (
+    lineIdx: number,
+    sIdx: number,
+    next: { deviceSerial: string; ponSerial?: string }
+  ) => {
     setSellItems((prev) =>
       prev.map((item, idx) => {
         if (idx !== lineIdx) return item;
         const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
-        return { ...item, deviceSerials: serials };
-      })
-    );
-  };
-
-  const updateSellPonSerial = (lineIdx: number, sIdx: number, val: string) => {
-    setSellItems((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== lineIdx) return item;
-        const serials = [...(item.deviceSerials || [])];
-        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        serials[sIdx] = { deviceSerial: next.deviceSerial, ponSerial: next.ponSerial || '' };
         return { ...item, deviceSerials: serials };
       })
     );
@@ -500,49 +495,22 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
                                   {Array.from({ length: item.quantity }).map((_, sIdx) => (
                                     <div key={sIdx} className="flex items-center gap-1.5 mt-1 text-xs">
                                       <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                      <input
+                                      <DeviceSerialInput
                                         id={`sale-serial-device-${idx}-${sIdx}`}
-                                        type="text"
-                                        placeholder="Device Serial #"
-                                        value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                        onChange={(e) => updateSellDeviceSerial(idx, sIdx, e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            const nextEl = document.getElementById(`sale-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
-                                            if (nextEl) {
-                                              nextEl.focus();
-                                              if ('select' in nextEl) nextEl.select();
-                                            }
+                                        className="flex-1"
+                                        value={item.deviceSerials?.[sIdx]}
+                                        onChange={(next) => updateSellSerial(idx, sIdx, next)}
+                                        register={serialRegister}
+                                        branchId={sellBranchId}
+                                        productId={item.productId}
+                                        productName={item.productName}
+                                        onEnter={() => {
+                                          if (sIdx + 1 < item.quantity) {
+                                            focusInput(`sale-serial-device-${idx}-${sIdx + 1}`);
+                                          } else {
+                                            focusInput('sale-product-search-input');
                                           }
                                         }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-purple-500 text-purple-900 bg-white border-purple-300 dark:text-purple-200 dark:bg-slate-800 dark:border-purple-700`}
-                                      />
-                                      <input
-                                        id={`sale-serial-pon-${idx}-${sIdx}`}
-                                        type="text"
-                                        placeholder="PON Serial #"
-                                        value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                        onChange={(e) => updateSellPonSerial(idx, sIdx, e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            if (sIdx + 1 < item.quantity) {
-                                              const nextDev = document.getElementById(`sale-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
-                                              if (nextDev) {
-                                                nextDev.focus();
-                                                if ('select' in nextDev) nextDev.select();
-                                              }
-                                            } else {
-                                              const searchInput = document.getElementById('sale-product-search-input') as HTMLInputElement;
-                                              if (searchInput) {
-                                                searchInput.focus();
-                                                if ('select' in searchInput) searchInput.select();
-                                              }
-                                            }
-                                          }
-                                        }}
-                                        className={`w-1/2 px-2 py-1 text-[11px] font-mono font-bold rounded border focus:outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-900 bg-white border-indigo-300 dark:text-indigo-200 dark:bg-slate-800 dark:border-indigo-700`}
                                       />
                                     </div>
                                   ))}
