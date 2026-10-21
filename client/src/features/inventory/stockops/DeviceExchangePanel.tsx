@@ -83,15 +83,17 @@ export const DeviceExchangePanel: React.FC = () => {
       (!registerRow.productName ||
         registerRow.productName.trim().toLowerCase() === replacementProductName.trim().toLowerCase());
     if (!replacementOk) {
-      alertDialog(
-        describeReplacementRefusal({
-          serial: exchangeSerial,
-          row: registerRow,
-          branchId: exchangeBranchId,
-          branchName: exchangeBranchName,
-          productName: replacementProductName,
-        })
-      );
+      const refusal = describeReplacementRefusal({
+        serial: exchangeSerial,
+        row: registerRow,
+        branchId: exchangeBranchId,
+        branchName: exchangeBranchName,
+        productName: replacementProductName,
+      });
+      // This refusal never reaches the server, so report it: a unit claimed
+      // again and again has to show up in the audit trail, not only on screen.
+      void api.reportExchangeRefusal({ serial: exchangeSerial, reason: refusal, branchId: exchangeBranchId }).catch(() => {});
+      alertDialog(refusal);
       return;
     }
     // Identity from the register, not from whatever the form still holds.

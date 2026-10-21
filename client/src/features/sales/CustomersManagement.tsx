@@ -217,14 +217,16 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       String(replacementRow?.status || '').toUpperCase() === 'IN_STOCK' &&
       (!exchangeBranchId || !replacementRow?.branchId || String(replacementRow.branchId) === String(exchangeBranchId));
     if (!usable) {
-      alertDialog(
-        describeReplacementRefusal({
-          serial: exchangeSerial,
-          row: replacementRow,
-          branchId: exchangeBranchId,
-          branchName: exchangeBranchName,
-        })
-      );
+      const refusal = describeReplacementRefusal({
+        serial: exchangeSerial,
+        row: replacementRow,
+        branchId: exchangeBranchId,
+        branchName: exchangeBranchName,
+      });
+      // Never reaches the server otherwise — report the attempt so repeated
+      // claims on one unit are visible beyond this operator's screen.
+      void api.reportExchangeRefusal({ serial: exchangeSerial, reason: refusal, branchId: exchangeBranchId }).catch(() => {});
+      alertDialog(refusal);
       return;
     }
     const resolvedExchangePon = String(replacementRow.ponSerial ?? exchangeNewPon ?? '').trim();

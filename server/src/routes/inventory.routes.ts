@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
+import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_exchangeRefusal, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
 import {
   handleUpdateSerials,
   requirePermission,
@@ -73,6 +73,12 @@ app.get('/api/customer-devices/exchange/lookup', requireRole('SUPER_ADMIN', 'HEA
 app.post('/api/inventory/serials/dual', requirePermission('edit-device-serials'), async (req, res, next) => { post_dual(req as any, res as any).catch(next); });
 
 app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { post_exchange(req as any, res as any).catch(next); });
+
+// The dialogs refuse a known-bad replacement before submitting (fast, specific
+// wording), so those attempts never reach post_exchange. They report them here
+// so repeated claims on one unit still land in the audit trail. Audit only: the
+// handler re-resolves the unit from the register and writes nothing else.
+app.post('/api/customer-devices/exchange/refusal', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { post_exchangeRefusal(req as any, res as any).catch(next); });
 
 app.get('/api/serial-log', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'AUDITOR', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN'), async (req, res, next) => { get_serialLog(req as any, res as any).catch(next); });
 

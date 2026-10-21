@@ -440,9 +440,9 @@ last screen that could name a serial the register never received.
 ### Verification
 
 - `npx tsc --noEmit` — clean.
-- `NODE_ENV=test npx tsx --test tests/*.test.ts` — **919 tests, 917 pass, 0 fail,
+- `NODE_ENV=test npx tsx --test tests/*.test.ts` — **924 tests, 922 pass, 0 fail,
   2 skipped** (the two pre-existing Windows-only real-signal checks).
-- Docs-count gate — 3 docs scanned, all current-state counts match 919.
+- Docs-count gate — 3 docs scanned, all current-state counts match 924.
 
 ### Closed after the first pass (2026-10-20)
 
@@ -477,6 +477,13 @@ last screen that could name a serial the register never received.
   permission excludes FIELD_TECHNICIAN / BRANCH_MANAGER. Refusals share
   `describeReplacementRefusal` (serial + status + branch) and appear once
   (`silentErrorToast`); `DeviceSerialInput` resolves on a 400 ms typing pause.
+- **Refusal audit trail (2026-10-21):** every refused replacement is recorded as
+  `DEVICE_EXCHANGE_REFUSED` (module `CPE_MANAGEMENT`) with the serial, the
+  register's own status and branch, the actor and the reason. The dialogs report
+  their local pre-flight refusals to
+  `POST /api/customer-devices/exchange/refusal` (exchange roles only), and
+  `post_exchange` audits its `400`/`409`/`422` refusals itself. Pinned by
+  `tests/exchangeRefusalAudit.test.ts`.
 
 ### Residual / deliberately not changed
 

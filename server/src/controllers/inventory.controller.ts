@@ -2503,12 +2503,85 @@ try {
 
 }
 
+/**
+ * Audit a refused replacement: the serial, the register's own status and branch
+ * (never the caller's claim), and the reason it was refused. A refusal changes
+ * no state, so this records an ATTEMPT — the pattern a register exists to
+ * expose, e.g. the same unit claimed from two branches in one afternoon.
+ */
+async function logExchangeRefusal(
+  req: any,
+  serial: string,
+  reason: string,
+  branchId?: string
+): Promise<void> {
+  const normalized = String(serial || '').trim().toUpperCase();
+  if (!normalized) return;
+  const key = normalized;
+  let status = 'UNKNOWN';
+  let heldAt = String(branchId || '').trim();
+  try {
+    if (getPgConnected()) {
+      const row = await resolveSerialRow(normalized, []);
+      if (row) {
+        status = String(row.status || 'UNKNOWN').toUpperCase();
+        heldAt = String(row.branchId || heldAt);
+      }
+    } else {
+      const row: any = serialLogs.find(
+        (r: any) => String(r.deviceSerial || '').trim().toUpperCase() === key
+      );
+      if (row) {
+        status = String(row.status || 'UNKNOWN').toUpperCase();
+        heldAt = String(row.branchId || heldAt);
+      }
+    }
+  } catch {
+    // Diagnostic read only: the refusal must not fail because the audit could
+    // not name the status.
+  }
+  const details = `Refused replacement SN ${normalized} — register status ${status}${heldAt ? ` at branch ${heldAt}` : ''}. ${String(reason || 'Replacement refused.').slice(0, 300)}`;
+  try {
+    if (getPgConnected()) {
+      // Await the insert on the caller's scope so the row exists by the time
+      // the refusal is returned (tests and audits both read it immediately).
+      await logAuditEvent(req, 'DEVICE_EXCHANGE_REFUSED', 'CPE_MANAGEMENT', details, heldAt || undefined, pgPool);
+    } else {
+      logAuditEvent(req, 'DEVICE_EXCHANGE_REFUSED', 'CPE_MANAGEMENT', details, heldAt || undefined);
+    }
+  } catch (e: any) {
+    console.error('audit_logs persist failed: DEVICE_EXCHANGE_REFUSED', e?.message || e);
+  }
+}
+
+/**
+ * Forwarded from inventory.routes.ts (post_exchangeRefusal). The dialogs refuse
+ * a known-bad replacement before submitting, so those attempts never reach
+ * post_exchange; they report them here. Audit only — nothing is written except
+ * the audit row, and the server re-resolves the unit rather than trusting the
+ * client's description of it.
+ */
+export async function post_exchangeRefusal(req: any, res: Response): Promise<any> {
+  const serial = String(req.body?.serial || '').trim();
+  if (!serial) return res.status(400).json({ message: 'serial is required.' });
+  await logExchangeRefusal(
+    req,
+    serial,
+    String(req.body?.reason || ''),
+    String(req.body?.branchId || '')
+  );
+  return res.status(204).end();
+}
+
 /** Forwarded from inventory.routes.ts (post_exchange). */
 export async function post_exchange(req: any, res: Response): Promise<any> {
   // Hoisted so the catch block can undo mirror writes when PG refuses.
   let mirrorOld: any = null;
   let mirroredNewRecordId: string | null = null;
   let mirrorStatusBefore: { status: unknown; notes: unknown } | null = null;
+  // Hoisted so the catch block can audit a refused replacement.
+  let refusalSerial = '';
+  let refusalBranchId = '';
 try {
     const {
       oldDeviceId,
@@ -2521,6 +2594,9 @@ try {
     } = req.body;
     // Hydrated below from the register when blank (one-field UX).
     let { newPonSerial, newMacAddress } = req.body;
+    // Kept for the catch block: a refusal still has to name what was refused.
+    refusalSerial = String(newDeviceSerial || '').trim();
+    refusalBranchId = String(branchId || '');
 
     // Mirror step 3: PG-first — the full-row read below used to run only on
     // a mirror miss, so a stale mirror row could seed the exchange response.
@@ -2567,9 +2643,9 @@ try {
         String(newPonSerial || '').trim().toUpperCase(),
       ]);
       if (dupDevice.rowCount) {
-        res.status(409).json({
-          message: 'That device serial or PON serial is already registered to another device. Enter the replacement unit\'s own serial.',
-        });
+        const duplicateMessage = 'That device serial or PON serial is already registered to another device. Enter the replacement unit\'s own serial.';
+        await logExchangeRefusal(req, String(newDeviceSerial), duplicateMessage, String(branchId || oldRecord.branchId || ''));
+        res.status(409).json({ message: duplicateMessage });
         return;
       }
     }
@@ -2582,6 +2658,7 @@ try {
     // the same rule is re-applied with a row lock inside the transaction.
     const replacementSerial = String(newDeviceSerial || '').trim();
     const exchBranchId = String(branchId || oldRecord.branchId || '');
+    refusalBranchId = exchBranchId;
     const exchAction = String(oldDeviceAction || '').toUpperCase();
     const exchQty = 1;
     const replacementGateEntry = {
@@ -2828,6 +2905,13 @@ try {
     // A refused exchange is a normal outcome for the operator, not a crash:
     // only log real failures, so an expected 400 does not page anyone.
     if (status >= 500) console.error('Error exchanging customer device:', err);
+    // ...but it is an EVENT worth recording: the actor, the unit, the register's
+    // real state and the reason. The 4xx path is where a repeated claim on one
+    // serial shows up (the client pre-flights the obvious cases and reports
+    // those separately).
+    if ([400, 409, 422].includes(status) && refusalSerial) {
+      await logExchangeRefusal(req, refusalSerial, err?.message || '', refusalBranchId);
+    }
     // Roll the mirrors back when PG refused after they were written, so a
     // refused exchange never leaves a replacement row the database rejected.
     if (getPgConnected()) {

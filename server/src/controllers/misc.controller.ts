@@ -6,11 +6,14 @@
  * original route handlers.
  */
 import type { Request, Response } from 'express';
-import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs } from '../app';
+import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail } from '../app';
 import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
   DB_STATUS_PROBE_SQL,
+  buildAuditTrailQuery,
+  AUDIT_TRAIL_DEFAULT_LIMIT,
+  AUDIT_TRAIL_MAX_LIMIT,
   buildTransactionLogQuery,
   buildApprovalRequestQuery,
   AR_INSERT_SQL,
@@ -68,6 +71,50 @@ let isConnected = await ensurePostgresConnection();
 }
 
 /** Forwarded from misc.routes.ts (get_auditTrail). */
+export async function get_auditTrail(req: any, res: Response): Promise<any> {
+const { branchId, serial, limit } = req.query;
+  const user = (req as any).user;
+  // Branch scoping, same contract as the serial log: non-global roles read only
+  // their own/allowed branches, and may not ask for someone else's.
+  let branchScope: string[] | undefined;
+  let globalBranchId: unknown;
+  if (user && user.role !== 'SUPER_ADMIN' && user.role !== 'HEAD_OFFICE_ADMIN') {
+    const allowed = new Set<string>([user.branchId || '', ...(user.allowedBranchIds || [])].filter(Boolean));
+    const requestedBranchId = typeof branchId === 'string' && branchId !== 'ALL' && branchId.trim() !== '' ? branchId : undefined;
+    if (requestedBranchId && !allowed.has(requestedBranchId)) {
+      res.status(403).json({ message: 'Forbidden: this account is not authorized for the requested branch.' });
+      return;
+    }
+    if (allowed.size === 0) {
+      res.json([]);
+      return;
+    }
+    branchScope = requestedBranchId ? [requestedBranchId] : [...allowed];
+  } else {
+    globalBranchId = branchId;
+  }
+  // A serial's whole history is the point of this read, so the cap is a
+  // safety bound, not a page size.
+  const take = Math.min(AUDIT_TRAIL_MAX_LIMIT, Math.max(1, Number(limit) || AUDIT_TRAIL_DEFAULT_LIMIT));
+  const term = typeof serial === 'string' ? serial.trim() : '';
+  if (getPgConnected()) {
+    const { sql, params } = buildAuditTrailQuery(branchScope ?? globalBranchId, take, term);
+    const r = await pgPool.query(sql, params);
+    res.json(r.rows);
+    return;
+  }
+  // Demo mode: filter the in-memory mirror with the same semantics.
+  const needle = term.toLowerCase();
+  const scope = branchScope ? new Set(branchScope) : null;
+  const rows = (auditTrail || []).filter((row) => {
+    if (scope && !scope.has(String(row.branchId || ''))) return false;
+    if (!scope && globalBranchId && globalBranchId !== 'ALL' && row.branchId !== globalBranchId) return false;
+    return !needle || String(row.details || '').toLowerCase().includes(needle);
+  });
+  res.json(rows.slice(0, take));
+
+}
+
 /** Forwarded from misc.routes.ts (get_transactionLogs). */
 export async function get_transactionLogs(req: any, res: Response): Promise<any> {
 const { branchId, productId, limit } = req.query;

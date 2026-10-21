@@ -23,12 +23,50 @@ export const DB_STATUS_PROBE_SQL =
 export const AUDIT_SELECT_PREFIX =
   'SELECT id, user_email AS "userEmail", user_name AS "userName", action, module, details, timestamp_ad AS "timestampAD", timestamp_bs AS "timestampBS", branch_id AS "branchId" FROM audit_logs';
 
-export function buildAuditTrailQuery(branchId?: unknown, limit?: unknown): { sql: string; params: unknown[] } {
+/** Default/cap row counts for a serial-scoped audit read. */
+export const AUDIT_TRAIL_DEFAULT_LIMIT = 200;
+export const AUDIT_TRAIL_MAX_LIMIT = 500;
+
+/**
+ * Escape a user-supplied term for use inside a LIKE/ILIKE pattern, so a serial
+ * containing '%' or '_' matches itself instead of acting as a wildcard.
+ * Paired with `ESCAPE '\\'` in the query.
+ */
+export function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/**
+ * Audit-trail read. `branchId` accepts a single id, the 'ALL' sentinel, or an
+ * ARRAY of allowed branch ids (a branch-scoped user reads all their branches in
+ * one query). `serial` matches the serial anywhere in `details` — that is where
+ * every serial event (claims, exchanges, refusals, corrections) records it — so
+ * one unit's whole history comes back newest first in a single read.
+ */
+export function buildAuditTrailQuery(branchId?: unknown, limit?: unknown, serial?: unknown): { sql: string; params: unknown[] } {
   let sql = AUDIT_SELECT_PREFIX;
   const params: unknown[] = [];
-  if (branchId && branchId !== 'ALL') {
-    sql += ' WHERE branch_id = $1';
+  const conds: string[] = [];
+  if (Array.isArray(branchId)) {
+    if (branchId.length === 0) {
+      // An account with no branch scope sees nothing; keep the SQL valid so the
+      // caller still gets an empty result rather than an unfiltered read.
+      conds.push('FALSE');
+    } else {
+      params.push(branchId);
+      conds.push(`branch_id = ANY($${params.length})`);
+    }
+  } else if (branchId && branchId !== 'ALL') {
     params.push(branchId);
+    conds.push(`branch_id = $${params.length}`);
+  }
+  const term = typeof serial === 'string' ? serial.trim() : '';
+  if (term) {
+    params.push(`%${escapeLikeTerm(term)}%`);
+    conds.push(`details ILIKE $${params.length} ESCAPE '\\'`);
+  }
+  if (conds.length > 0) {
+    sql += ' WHERE ' + conds.join(' AND ');
   }
   sql += ' ORDER BY timestamp_ad DESC';
   if (limit) {

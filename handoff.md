@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 919 tests; CI runs
+                                        #   drift/concurrency guards — 932 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1211,7 +1211,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 919 tests against a real PostgreSQL 16 service container
+2. `npm test` — 932 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1446,7 +1446,35 @@ requires the exchange `branchId` for branch-bound roles, and masks the holder's
 name for units outside the operator's branches. `DeviceSerialInput` resolves on a
 400 ms typing pause, so status and PON/MAC appear before the field loses focus.
 
-Verification: `npx tsc --noEmit` clean; full suite **919 tests, 917 pass, 0 fail, 2 skipped**
+**Follow-up (2026-10-21): refusals now leave a trail.** A refusal that exists only
+on one operator's screen hides the pattern — one serial claimed from three
+branches in an afternoon. Every refused replacement is an audit event
+(`DEVICE_EXCHANGE_REFUSED`, module `CPE_MANAGEMENT`) carrying the serial, the
+register's own status and branch, the actor and the reason. The dialogs pre-flight
+most refusals, so they report the attempt to
+`POST /api/customer-devices/exchange/refusal` (exchange roles only; AUDITOR gets
+`403` and writes nothing), while `post_exchange` audits its own `400`/`409`/`422`
+refusals — including the early duplicate branch, which returns instead of
+throwing. The server re-resolves the unit, so a report cannot invent a status; the
+insert is awaited so the row exists when the refusal returns. Covered by
+`tests/exchangeRefusalAudit.test.ts` (5, real PostgreSQL).
+
+**Follow-up (2026-10-21): the trail is searchable by serial.** A refusal trail
+nobody can query only hides the pattern better. `GET /api/audit-trail?serial=…`
+(`getAuditTrail`, query in `misc.repo.ts`) reads one unit's whole history —
+serial matched inside `details ILIKE` with LIKE-escaped input, newest first, cap
+500 — because the Audit Trail screen otherwise renders only the newest 200
+bootstrap rows. It is gated by `requirePermission('admin-audit')` and scopes
+branch users server-side (`branch_id = ANY($1)`; a foreign `branchId` is `403`).
+The screen's audit subtab gained a debounced serial box, a newest/oldest toggle,
+an amber `REFUSED` row marker and a refused-attempt count; clearing the box falls
+back to the live bootstrap list, and CSV export follows the filtered rows.
+`tests/misc.repo.test.ts` pins the SQL, `tests/exchangeRefusalAudit.test.ts` (8)
+proves the read including the branch and permission refusals, and
+`tests/registerRefreshDomains.test.ts` pins `getAuditTrail` as the screen's only
+server call.
+
+Verification: `npx tsc --noEmit` clean; full suite **932 tests, 930 pass, 0 fail, 2 skipped**
 (the two pre-existing Windows-only real-signal checks); docs-count gate green.
 Residual: Slice 5 — demoting the boot serial backfill to a maintenance action —
 remains open.

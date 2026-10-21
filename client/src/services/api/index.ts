@@ -150,6 +150,9 @@ export const api = {
   // Financial Summary
   getFinancialSummary: finance.getFinancialSummary,
 
+  // Audit Trail (serial-scoped history)
+  getAuditTrail: inventory.getAuditTrail,
+
   // Customer Devices & Serial Numbers
   getCustomerDevices: inventory.getCustomerDevices,
   createCustomerDevice: inventory.createCustomerDevice,
@@ -158,6 +161,7 @@ export const api = {
   updateDeviceSerials: inventory.updateDeviceSerials,
   lookupSerial: inventory.lookupSerial,
   lookupExchangeSerial: inventory.lookupExchangeSerial,
+  reportExchangeRefusal: inventory.reportExchangeRefusal,
   updateDeviceSerialsDual: inventory.updateDeviceSerialsDual,
 
   // Customer Master Database (paged server-side reads)

@@ -5,13 +5,18 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_status, get_transactionLogs, get_approvalRequests, post_approvalRequests, post_process, post_cancel } from '../controllers/misc.controller';
-import { requireRole } from '../app';
+import { get_status, get_auditTrail, get_transactionLogs, get_approvalRequests, post_approvalRequests, post_process, post_cancel } from '../controllers/misc.controller';
+import { requirePermission, requireRole } from '../app';
 import { ensurePostgresConnection, pgPool, realPoolInstance, setIsPgConnected } from '../app';
 import type { ApprovalRequest, AuditLog, CustomerDeviceRecord, TransactionLog } from '../../../client/src/types';
 
 export function registerMiscRoutes(app: Express) {
 app.get('/api/db/status', async (req, res, next) => { get_status(req as any, res as any).catch(next); });
+
+// Serial-scoped audit trail: the Audit Trail screen asks this for one unit's
+// full claim/refusal history instead of filtering the 200-row bootstrap slice.
+// Gated by the same operation that shows the screen.
+app.get('/api/audit-trail', requirePermission('admin-audit'), async (req, res, next) => { get_auditTrail(req as any, res as any).catch(next); });
 
 app.get('/api/transaction-logs', async (req, res, next) => { get_transactionLogs(req as any, res as any).catch(next); });
 

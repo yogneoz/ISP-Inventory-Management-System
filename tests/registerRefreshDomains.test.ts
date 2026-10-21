@@ -759,7 +759,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // lookupExchangeSerial: the exchange modal resolves a serial the cached
     // IN_STOCK register does not know, so its refusal can name the unit's real
     // state (assigned / damaged / other branch) instead of guessing.
-    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial'],
+    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
@@ -777,7 +777,12 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   bootstrap slices App re-fetches on SSE events)
     'dashboard/Dashboard.tsx': [],
     'dev/StatCardShowcase.tsx': [],
-    'finance/AuditTrailReports.tsx': [],
+    // getAuditTrail: the register lists bootstrap-slice rows, but the serial
+    // focus is a deliberate server read — a unit's claim/refusal history can
+    // predate the 200-row slice, and "every event for this serial" is the
+    // whole point. It is a search, not a second copy of the list: clearing the
+    // box drops straight back to the bootstrap prop.
+    'finance/AuditTrailReports.tsx': ['getAuditTrail'],
     'finance/DepreciationRegister.tsx': [],
     'finance/FiscalYearClosingWizard.tsx': [],
     'finance/FixedAssetRegister.tsx': [],
@@ -819,7 +824,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // lookupExchangeSerial: same stale-cache fallback as the customer modal — the
     // panel's mount-once register copy cannot name the state of a serial it has
     // not seen.
-    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial'],
+    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
     'inventory/stockops/LogsPanel.tsx': [],
     'inventory/stockops/ProductSalePanel.tsx': [],

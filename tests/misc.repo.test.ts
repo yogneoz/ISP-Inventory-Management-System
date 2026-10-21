@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   DB_STATUS_PROBE_SQL,
   buildAuditTrailQuery,
+  escapeLikeTerm,
   buildTransactionLogQuery,
   buildApprovalRequestQuery,
   AR_INSERT_SQL,
@@ -75,6 +76,37 @@ describe('buildAuditTrailQuery', () => {
     const { sql, params } = buildAuditTrailQuery();
     assert.match(sql, / FROM audit_logs ORDER BY timestamp_ad DESC$/);
     assert.deepEqual(params, []);
+  });
+
+  test('serial matches inside details, escaped, before the limit', () => {
+    const { sql, params } = buildAuditTrailQuery('BR02', 25, 'SN-100');
+    assert.match(sql, / WHERE branch_id = \$1 AND details ILIKE \$2 /);
+    assert.ok(sql.includes("ESCAPE '\\'"), 'the LIKE pattern escapes wildcards');
+    assert.deepEqual(params, ['BR02', '%SN-100%', 25]);
+  });
+
+  test('like wildcards in a typed serial match literally, not everything', () => {
+    assert.equal(escapeLikeTerm('AB%_C'), 'AB\\%\\_C');
+    const { params } = buildAuditTrailQuery('ALL', 10, 'AB%');
+    assert.deepEqual(params, ['%AB\\%%', 10]);
+  });
+
+  test('a blank serial term adds no filter', () => {
+    const { sql, params } = buildAuditTrailQuery('ALL', 10, '   ');
+    assert.ok(!sql.includes('ILIKE'));
+    assert.deepEqual(params, [10]);
+  });
+
+  test('an allowed-branch array scopes the read with a single parameter', () => {
+    const { sql, params } = buildAuditTrailQuery(['BR01', 'BR02'], 500, 'SN-100');
+    assert.match(sql, / WHERE branch_id = ANY\(\$1\) AND details ILIKE \$2 /);
+    assert.ok(sql.includes("ESCAPE '\\'"), 'the LIKE pattern escapes wildcards');
+    assert.deepEqual(params, [['BR01', 'BR02'], '%SN-100%', 500]);
+  });
+
+  test('an empty branch scope yields no rows instead of an unfiltered read', () => {
+    const { sql } = buildAuditTrailQuery([], 10);
+    assert.match(sql, / WHERE FALSE ORDER BY timestamp_ad DESC LIMIT \$1$/);
   });
 });
 

@@ -10,6 +10,7 @@ import type {
   SerialLog,
   SerialLookupResult,
   SerialEditPayload,
+  AuditLog,
   User,
 } from '../../types';
 import { fetchJson } from './http';
@@ -171,6 +172,19 @@ export async function updateDocumentNumberConfigs(configs: DocumentNumberConfig[
 }
 
 // Audit Logs & Transaction Logs
+//
+// The Audit Trail screen bootstraps the 200 newest audit rows. A serial's
+// history can be older than that slice, so a serial-focused read asks the
+// server for every matching row (newest first) instead of filtering locally.
+export async function getAuditTrail(params: { serial?: string; branchId?: string; limit?: number } = {}): Promise<AuditLog[]> {
+  const search = new URLSearchParams();
+  if (params.serial) search.append('serial', params.serial);
+  if (params.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params.limit) search.append('limit', String(params.limit));
+  const queryString = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/audit-trail${queryString}`);
+}
+
 // Customer Devices & Serial Numbers
 export async function getCustomerDevices(branchId?: string, query?: string): Promise<CustomerDeviceRecord[]> {
   const params = new URLSearchParams();
@@ -213,6 +227,21 @@ export async function exchangeCustomerDevice(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   }, { silent: options?.silentErrorToast });
+}
+
+// The dialogs refuse a known-bad replacement locally (fast, specific wording), so
+// the attempt never reaches the exchange endpoint. Report it for the audit trail;
+// a failed report must never add a second error to a refusal the operator has
+// already read, hence the silent flag.
+export async function reportExchangeRefusal(payload: {
+  serial: string;
+  reason?: string;
+  branchId?: string;
+}): Promise<void> {
+  await fetchJson('/api/customer-devices/exchange/refusal', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, { silent: true });
 }
 
 export async function updateDeviceSerials(payload: {

@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-21 · Branch: main · Tests: 919/919 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-21 · Branch: main · Tests: 932/932 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 ## ⭐ One BS calendar integrity engine (API + CLI + boot), provisional years, and no invented dates anywhere (2026-10-17)
 
@@ -1789,7 +1789,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 919 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 932 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2356,7 +2356,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 919 tests, 0 fail). Live-verified:
+  key coverage; suite now 932 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2414,7 +2414,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 919 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 932 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2479,7 +2479,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 919 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 932 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2517,7 +2517,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 919 tests, 0 fail.
+  failures, then reverted). Suite now 932 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2532,7 +2532,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 919 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 932 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -2724,5 +2724,87 @@ Verification: `npx tsc --noEmit` clean; `tests/serialRefusal.test.ts`,
 database: field technician `200` with `branchId` (real status), `403` without it
 (branch-scoped read guard), `403` on the edit lookup, `404` for an unknown serial,
 and a foreign-branch unit returning `CUSTOMER_ASSIGNED` + branch with
-`customerName` masked (HQ saw the name). Full suite 919 tests, 917 pass, 0 fail,
-2 skipped; docs-count gate green at 919.
+`customerName` masked (HQ saw the name). Full suite 932 tests, 930 pass, 0 fail,
+2 skipped; docs-count gate green at 932.
+
+## ⭐ A refused replacement leaves a trail (2026-10-21)
+
+The exchange gate and both dialogs now name a refused unit, but a refusal that
+only exists on one operator's screen is invisible: the same serial can be
+claimed from three branches in an afternoon and nobody can see the pattern.
+Refusals are now audit events — `DEVICE_EXCHANGE_REFUSED` on module
+`CPE_MANAGEMENT`, with the serial, the register's **own** status and branch, the
+actor, and the reason.
+
+- **Two entry points, one record.** The dialogs pre-flight a replacement, so
+  most refusals never reach the server; they report the attempt to
+  `POST /api/customer-devices/exchange/refusal` (exchange roles only — AUDITOR
+  gets `403` and writes nothing). The endpoint audits and returns `204`; it never
+  mutates anything else. Server-side refusals — the register gate's `400`, the
+  duplicate check's `409`, a `422` — are audited from `post_exchange`'s catch,
+  and the early duplicate branch audits before it answers (that path returns
+  rather than throws, so it would otherwise skip the catch).
+- **The register is the witness.** `logExchangeRefusal` re-resolves the serial
+  (`resolveSerialRow`) instead of recording the client's claim: the details line
+  carries the status the register holds (`CUSTOMER_ASSIGNED`, `UNKNOWN` for a
+  serial never received) and the branch holding it. A field technician's report
+  therefore cannot invent a status; it only records that the attempt happened.
+- **Committed with the refusal.** The audit insert is awaited on the pool, not
+  fire-and-forget, so the row exists by the time the operator (or a test) sees the
+  response. An audit failure is logged and never turns a clean refusal into a
+  `500`.
+- **What it costs:** one extra indexed serial read and one insert per refused
+  attempt. Accepted deliberately — a refusal is rare, and this is the only
+  signal that separates a typo from a unit being claimed twice.
+
+Tests: `tests/exchangeRefusalAudit.test.ts` (5, real PostgreSQL) — dialog
+refusal records serial/status/branch/actor; an unseen serial is `UNKNOWN`; an
+AUDITOR gets `403` with no row; a gate refusal on submit is audited against the
+submitting admin; and the `409` duplicate path is audited too, not only the gate.
+`tests/registerRefreshDomains.test.ts` pins `reportExchangeRefusal` in both
+dialogs' server-call surface.
+
+Verification: `npx tsc --noEmit` clean; the five audit tests plus the refusal,
+toast and surface suites green; full suite 932 tests, 930 pass, 0 fail, 2 skipped;
+docs-count gate green at 932.
+
+## ⭐ One serial, every event: the audit trail has a serial focus (2026-10-21)
+
+The refusal trail existed but could only be watched, not searched: the Audit
+Trail screen renders the bootstrap slice (the newest 200 audit rows), so a unit
+whose last claim was three weeks ago simply was not on the screen. The screen now
+takes a device serial and reads that unit's whole history from the server.
+
+- **`GET /api/audit-trail?serial=…`** (`get_auditTrail` in the misc controller,
+  query built in `misc.repo.ts`). It matches the serial inside `details ILIKE`,
+  where every serial event already records it (claims, exchanges, refusals,
+  corrections), returns newest first, and caps at 500 rows
+  (`AUDIT_TRAIL_DEFAULT_LIMIT` 200 / `AUDIT_TRAIL_MAX_LIMIT` 500). The term is
+  LIKE-escaped (`escapeLikeTerm` + `ESCAPE ''`), so a typed `%` is a serial
+  character, not "everything". Gated by `requirePermission('admin-audit')` — the
+  same operation the sidebar and App use to show the screen.
+- **Branch scoping is the handler's, not the client's.** Non-global roles read
+  their own + allowed branches (`branch_id = ANY($1)`); asking for a foreign
+  `branchId` is a `403`, and an account with no branch scope short-circuits to
+  `[]` instead of an unfiltered read. An empty scope still generates
+  `WHERE FALSE`, so the repo can never fall back to a full scan.
+- **The screen keeps the live list as its base state.** Typing debounces 300 ms;
+  serial rows replace the bootstrap slice only while a serial is applied, a failed
+  read falls back to the slice with an inline note, and clearing the box goes
+  straight back to the SSE-refreshed prop. A status line reports
+  "N events for SN … (newest/oldest first)" and counts refused attempts;
+  `DEVICE_EXCHANGE_REFUSED` rows are amber and carry an icon, and the order toggle
+  flips to oldest-first so a supervisor can read the story chronologically. CSV
+  export follows the filtered list, not the raw prop.
+
+Tests: `tests/misc.repo.test.ts` pins the SQL (serial before limit, escaped
+wildcards, `ANY($1)` branch array, `WHERE FALSE` for an empty scope).
+`tests/exchangeRefusalAudit.test.ts` (now 8, real PostgreSQL) proves the read:
+every event for the unit newest-first, `403` for a role without `admin-audit`, and
+a foreign-branch auditor sees `[]`, plus `403` on an explicit foreign `branchId`.
+`tests/registerRefreshDomains.test.ts` pins `getAuditTrail` as the screen's only
+server call, with the reason it is a search rather than a duplicated list.
+
+Verification: `npx tsc --noEmit` clean; full suite 932 tests, 930 pass, 0 fail,
+2 skipped; docs-count gate green at 932.
+
