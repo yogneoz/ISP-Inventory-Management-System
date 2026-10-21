@@ -440,9 +440,9 @@ last screen that could name a serial the register never received.
 ### Verification
 
 - `npx tsc --noEmit` — clean.
-- `NODE_ENV=test npx tsx --test tests/*.test.ts` — **901 tests, 899 pass, 0 fail,
+- `NODE_ENV=test npx tsx --test tests/*.test.ts` — **919 tests, 917 pass, 0 fail,
   2 skipped** (the two pre-existing Windows-only real-signal checks).
-- Docs-count gate — 3 docs scanned, all current-state counts match 901.
+- Docs-count gate — 3 docs scanned, all current-state counts match 919.
 
 ### Closed after the first pass (2026-10-20)
 
@@ -455,6 +455,28 @@ last screen that could name a serial the register never received.
   Covered by `tests/mirrorStep3.test.ts` in both directions: an IN_STOCK
   replacement succeeds and takes the register's MAC, a `CUSTOMER_ASSIGNED` one
   is refused `400` with no customer-device row written.
+- **Concurrency (2026-10-20):** `tests/exchange.concurrency.test.ts` fires two
+  HTTP exchanges for the same replacement serial at once and asserts the
+  invariant rather than an interleaving — exactly one `201`, one refusal (`400`
+  from the register gate, or `409` from the duplicate check when it arrives after
+  the winner commits), one customer-device row carrying the register's PON/MAC,
+  and only the winner's old record closed. A second case holds the register row
+  in an uncommitted transaction, commits mid-request, and proves the refusal
+  leaves no customer record behind. The mirror rollback removes only this
+  request's replacement row instead of restoring an array snapshot, so a
+  concurrent winner's mirror write is never wiped by a loser.
+
+- **Assignment vs exchange (2026-10-21):**
+  `tests/assignmentExchange.concurrency.test.ts` races `POST /api/customer-devices`
+  against `POST /api/customer-devices/exchange` for one IN_STOCK serial and pins
+  the invariant: exactly one `201`, one refusal, one customer record, register
+  `CUSTOMER_ASSIGNED`, stock consumed once only when the assignment won, and the
+  loser's old rental untouched. The dialogs' pre-flight now resolves an unknown
+  serial through `GET /api/customer-devices/exchange/lookup` — a read-only route
+  for the exchange audience, because the edit lookup's `edit-device-serials`
+  permission excludes FIELD_TECHNICIAN / BRANCH_MANAGER. Refusals share
+  `describeReplacementRefusal` (serial + status + branch) and appear once
+  (`silentErrorToast`); `DeviceSerialInput` resolves on a 400 ms typing pause.
 
 ### Residual / deliberately not changed
 

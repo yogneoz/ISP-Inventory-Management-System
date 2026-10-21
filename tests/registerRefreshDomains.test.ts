@@ -756,7 +756,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'procurement/CreateShipmentForm.tsx': ['getSerialLogs'],
     'procurement/Shipments.tsx': [],
     'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
-    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices'],
+    // lookupExchangeSerial: the exchange modal resolves a serial the cached
+    // IN_STOCK register does not know, so its refusal can name the unit's real
+    // state (assigned / damaged / other branch) instead of guessing.
+    'sales/CustomersManagement.tsx': ['cancelApprovalRequest', 'createApprovalRequest', 'exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial'],
     'settings/DataRecalculationMaintenance.tsx': [
       'initializeFiscalYearOpeningStock',
       'rebuildBsDayRecords',
@@ -813,7 +816,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/stockops/CreatePulloutPanel.tsx': [],
     'inventory/stockops/CreateTransferPanel.tsx': [],
     'inventory/stockops/DamageTrackingPanel.tsx': ['reverseStockOperation'],
-    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices'],
+    // lookupExchangeSerial: same stale-cache fallback as the customer modal — the
+    // panel's mount-once register copy cannot name the state of a serial it has
+    // not seen.
+    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
     'inventory/stockops/LogsPanel.tsx': [],
     'inventory/stockops/ProductSalePanel.tsx': [],

@@ -33,6 +33,7 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { DeviceSerialInput, findRegisterRow } from '../../components/common/DeviceSerialInput';
+import { describeReplacementRefusal } from '../../utils/serialRefusal';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
 
 interface CustomersManagementProps {
@@ -195,9 +196,35 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       return;
     }
     // The replacement's PON/MAC come from the register row, not the operator.
-    const replacementRow = findRegisterRow(branchSerialRegister, exchangeNewSerial);
-    if (!replacementRow || String(replacementRow.status || '') !== 'IN_STOCK') {
-      alertDialog('The new device serial must be an IN_STOCK unit of this branch in the serial register.');
+    const exchangeSerial = exchangeNewSerial.trim();
+    const exchangeBranchId = selectedDeviceForExchange.branchId;
+    const exchangeBranchName =
+      branches.find((b) => b.id === exchangeBranchId)?.name || exchangeBranchId || 'this branch';
+    // The cached register only holds this branch's IN_STOCK units, so a miss
+    // does NOT mean the serial is unknown. Ask the server before refusing, so
+    // the operator is told the unit's real state (assigned? damaged? other
+    // branch?) instead of a blanket "must be IN_STOCK".
+    let replacementRow: any = findRegisterRow(branchSerialRegister, exchangeSerial) || null;
+    if (!replacementRow) {
+      try {
+        replacementRow = await api.lookupExchangeSerial(exchangeSerial, exchangeBranchId);
+      } catch {
+        replacementRow = null;
+      }
+    }
+    const usable =
+      Boolean(replacementRow) &&
+      String(replacementRow?.status || '').toUpperCase() === 'IN_STOCK' &&
+      (!exchangeBranchId || !replacementRow?.branchId || String(replacementRow.branchId) === String(exchangeBranchId));
+    if (!usable) {
+      alertDialog(
+        describeReplacementRefusal({
+          serial: exchangeSerial,
+          row: replacementRow,
+          branchId: exchangeBranchId,
+          branchName: exchangeBranchName,
+        })
+      );
       return;
     }
     const resolvedExchangePon = String(replacementRow.ponSerial ?? exchangeNewPon ?? '').trim();
@@ -210,15 +237,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         exchangeReason,
         oldDeviceAction,
         newProductName: exchangeProductName || selectedDeviceForExchange.productName,
-        newDeviceSerial: exchangeNewSerial.trim(),
+        newDeviceSerial: exchangeSerial,
         newPonSerial: resolvedExchangePon,
         newMacAddress: resolvedExchangeMac || undefined,
         notes: exchangeNotes.trim() || undefined,
         branchId: selectedDeviceForExchange.branchId,
-      });
+      }, { silentErrorToast: true });
 
       const customerName = selectedDeviceForExchange.customerName;
-      const serial = exchangeNewSerial;
+      const serial = exchangeSerial;
       setIsExchangeModalOpen(false);
       setSelectedDeviceForExchange(null);
 
@@ -1615,6 +1642,13 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     register={branchSerialRegister}
                     branchId={selectedDeviceForExchange?.branchId}
                     productName={exchangeProductName || selectedDeviceForExchange?.productName}
+                    // The cache holds only this branch's IN_STOCK units, so ask
+                    // the server about anything else — the inline hint then says
+                    // CUSTOMER ASSIGNED / DAMAGED / other branch instead of
+                    // "not in the register".
+                    lookup={(serial) =>
+                      api.lookupExchangeSerial(serial, selectedDeviceForExchange?.branchId).catch(() => null)
+                    }
                   />
                 </div>
               </div>

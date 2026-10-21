@@ -2382,6 +2382,40 @@ try {
 
 }
 
+/**
+ * One serial value → the device that holds it, or null. Shared by the serial
+ * edit lookup and the exchange lookup so the two can never disagree about where
+ * a unit is.
+ */
+async function resolveSerialRow(value: string, exclude: string[]): Promise<any | null> {
+  const { params, serialLogSql, customerDeviceSql, fixedAssetSql } = buildSerialLookupSql(value, exclude);
+
+  // 1. serial_log (register — one row per serial)
+  const slRes = await pgPool.query(serialLogSql, params);
+  if (slRes.rows.length > 0) return { ...slRes.rows[0], source: 'SERIAL_LOG' };
+
+  // 2. customer_device_records (customer assignments)
+  const cdrRes = await pgPool.query(customerDeviceSql, params);
+  if (cdrRes.rows.length > 0) return { ...cdrRes.rows[0], source: 'CUSTOMER_DEVICE' };
+
+  // 3. fixed_assets (device serial stored as tag_number)
+  const faRes = await pgPool.query(fixedAssetSql, params);
+  if (faRes.rows.length > 0) {
+    return {
+      deviceSerial: faRes.rows[0].deviceSerial,
+      ponSerial: null,
+      macAddress: null,
+      productName: faRes.rows[0].productName,
+      branchId: faRes.rows[0].branchId,
+      customerId: null,
+      customerName: null,
+      status: 'IN_STOCK',
+      source: 'FIXED_ASSET',
+    };
+  }
+  return null;
+}
+
 /** Forwarded from inventory.routes.ts (get_lookup). */
 export async function get_lookup(req: any, res: Response): Promise<any> {
 try {
@@ -2394,42 +2428,44 @@ try {
     if (!value) return res.status(400).json({ message: 'value query parameter is required.' });
     if (!getPgConnected()) return res.status(503).json({ message: 'Database not connected.' });
 
-    const { params, serialLogSql, customerDeviceSql, fixedAssetSql } = buildSerialLookupSql(value, exclude);
-
-    // 1. serial_log (register — one row per serial)
-    const slRes = await pgPool.query(serialLogSql, params);
-    if (slRes.rows.length > 0) {
-      res.json({ ...slRes.rows[0], source: 'SERIAL_LOG' });
-      return;
-    }
-
-    // 2. customer_device_records (customer assignments)
-    const cdrRes = await pgPool.query(customerDeviceSql, params);
-    if (cdrRes.rows.length > 0) {
-      res.json({ ...cdrRes.rows[0], source: 'CUSTOMER_DEVICE' });
-      return;
-    }
-
-    // 3. fixed_assets (device serial stored as tag_number)
-    const faRes = await pgPool.query(fixedAssetSql, params);
-    if (faRes.rows.length > 0) {
-      return res.json({
-        deviceSerial: faRes.rows[0].deviceSerial,
-        ponSerial: null,
-        macAddress: null,
-        productName: faRes.rows[0].productName,
-        branchId: faRes.rows[0].branchId,
-        customerId: null,
-        customerName: null,
-        status: 'IN_STOCK',
-        source: 'FIXED_ASSET',
-      });
-    }
-
-    res.status(404).json({ message: 'No device holds this serial.' });
+    const row = await resolveSerialRow(value, exclude);
+    if (!row) return res.status(404).json({ message: 'No device holds this serial.' });
+    res.json(row);
     return;
   } catch (err: any) {
     console.error('Error looking up serial:', err);
+    res.status(500).json({ message: err.message || 'Database error' });
+    return;
+  }
+
+}
+
+/**
+ * Forwarded from inventory.routes.ts (get_exchangeLookup). Same resolution, but
+ * open to the exchange audience (which includes branch-bound FIELD_TECHNICIAN /
+ * BRANCH_MANAGER), so a unit held OUTSIDE their branches reports only its state
+ * and branch — never the customer holding it.
+ */
+export async function get_exchangeLookup(req: any, res: Response): Promise<any> {
+try {
+    const value = String(req.query.value || '').trim();
+    if (!value) return res.status(400).json({ message: 'value query parameter is required.' });
+    if (!getPgConnected()) return res.status(503).json({ message: 'Database not connected.' });
+
+    const row = await resolveSerialRow(value, []);
+    if (!row) return res.status(404).json({ message: 'No device holds this serial.' });
+
+    const user = req.user || {};
+    const allowed = new Set<string>([user.branchId, ...(user.allowedBranchIds || [])].filter(Boolean));
+    const isHq = user.role === 'SUPER_ADMIN' || user.role === 'HEAD_OFFICE_ADMIN';
+    if (!isHq && row.branchId && !allowed.has(String(row.branchId))) {
+      delete row.customerName;
+      delete row.customerId;
+    }
+    res.json(row);
+    return;
+  } catch (err: any) {
+    console.error('Error looking up serial for exchange:', err);
     res.status(500).json({ message: err.message || 'Database error' });
     return;
   }
@@ -2471,7 +2507,7 @@ try {
 export async function post_exchange(req: any, res: Response): Promise<any> {
   // Hoisted so the catch block can undo mirror writes when PG refuses.
   let mirrorOld: any = null;
-  let cdrMirrorBefore: typeof customerDeviceRecords | null = null;
+  let mirroredNewRecordId: string | null = null;
   let mirrorStatusBefore: { status: unknown; notes: unknown } | null = null;
 try {
     const {
@@ -2595,7 +2631,6 @@ try {
     const dateStrAD = new Date().toISOString().split('T')[0];
     // A PG failure after the mirror writes below must not leave a phantom
     // replacement row and a flipped old record behind.
-    cdrMirrorBefore = customerDeviceRecords;
     mirrorStatusBefore = mirrorOld ? { status: mirrorOld.status, notes: mirrorOld.notes } : null;
 
     oldRecord.status = 'EXCHANGED';
@@ -2626,6 +2661,7 @@ try {
       notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
     };
 
+    mirroredNewRecordId = newRecord.id;
     setCustomerDeviceRecords(upsertCdrMirror(customerDeviceRecords, newRecord).rows);
 
     // Stock maintenance for the OLD unit's disposition (exchange audit fix):
@@ -2799,9 +2835,14 @@ try {
         mirrorOld.status = mirrorStatusBefore.status;
         mirrorOld.notes = mirrorStatusBefore.notes;
       }
-      // Null when the refusal happened before any mirror write (the common
-      // case), so there is nothing to undo.
-      if (cdrMirrorBefore) setCustomerDeviceRecords(cdrMirrorBefore);
+      // Remove ONLY this request's replacement row: restoring a whole-array
+      // snapshot would also wipe a concurrent exchange that committed while
+      // this one was being refused. Null when the refusal happened before the
+      // mirror write (the common case).
+      if (mirroredNewRecordId) {
+        const rejectedId = mirroredNewRecordId;
+        setCustomerDeviceRecords(customerDeviceRecords.filter((r) => r.id !== rejectedId));
+      }
     }
     res.status(status).json({ message: status === 500 ? `Database error: ${err.message}` : err.message });
   }

@@ -87,7 +87,16 @@ export interface ApiToastIntent {
 // In-flight promise cache to deduplicate simultaneous duplicate requests
 const inFlightRequests = new Map<string, Promise<any>>();
 
-export async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+export interface FetchJsonConfig {
+  /**
+   * Skip the global mutation-error toast. For callers that render the refusal
+   * themselves in a persistent dialog — otherwise the operator reads the same
+   * sentence twice, in two places, and one of them disappears on a timer.
+   */
+  silent?: boolean;
+}
+
+export async function fetchJson<T>(endpoint: string, options?: RequestInit, config?: FetchJsonConfig): Promise<T> {
   const isGet = !options?.method || options.method === 'GET';
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
   const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${currentUserContext?.branchId || ''}`;
@@ -142,7 +151,7 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit): Pro
         // Dispatch auth expiration event on 401 so App can force logout
         if (res.status === 401) {
           window.dispatchEvent(new CustomEvent('inventory_auth_expired', { detail: { message: error.message } }));
-        } else if (!isGet && typeof window !== 'undefined') {
+        } else if (!isGet && typeof window !== 'undefined' && !config?.silent) {
           window.dispatchEvent(new CustomEvent(API_TOAST_EVENT, { detail: toastIntent }));
         }
         throw error;

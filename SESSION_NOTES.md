@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-20 · Branch: main · Tests: 901/901 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-21 · Branch: main · Tests: 919/919 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 ## ⭐ One BS calendar integrity engine (API + CLI + boot), provisional years, and no invented dates anywhere (2026-10-17)
 
@@ -1789,7 +1789,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 901 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 919 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2356,7 +2356,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 901 tests, 0 fail). Live-verified:
+  key coverage; suite now 919 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2414,7 +2414,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 901 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 919 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2479,7 +2479,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 901 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 919 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2517,7 +2517,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 901 tests, 0 fail.
+  failures, then reverted). Suite now 919 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2532,7 +2532,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 901 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 919 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -2626,4 +2626,103 @@ What changed:
 
 Verification: `npx tsc --noEmit` clean; `tests/mirrorStep3.test.ts` 6/6;
 `check:no-inline-sql` clean (the new SQL lives in the repo, not the controller);
-full suite 901 tests, 899 pass, 0 fail, 2 skipped; docs-count gate green at 901.
+full suite 911 tests, 909 pass, 0 fail, 2 skipped; docs-count gate green at 911.
+
+## ⭐ Two simultaneous exchanges cannot both take the same replacement (2026-10-20)
+
+The gate added in the previous entry made a *single* exchange prove its unit, but
+nothing pinned what happens when two operators reach the same IN_STOCK serial at
+the same time — the exact failure mode a register exists to prevent. New
+`tests/exchange.concurrency.test.ts` (HTTP, real PostgreSQL, skips without a DB)
+fires both requests through `Promise.all` and asserts the invariant instead of an
+interleaving:
+
+- exactly one `201`; the loser is refused `400` by the register gate when the two
+  transactions overlap, or `409` by the duplicate check when it arrives after the
+  winner committed (first run of the test exercised the `409` path, which is why
+  the assertion accepts either — both are correct refusals, and the run-to-run
+  difference is real);
+- exactly one customer-device row for the contested serial, carrying the
+  register's PON and the MAC the request never sent (server hydration);
+- the register holds it as `CUSTOMER_ASSIGNED`, and only the winner's old record
+  is `EXCHANGED` — the loser's own record stays `RENTAL`;
+- a second case holds the row in an uncommitted transaction, commits mid-request,
+  and proves the exchange is still refused with no customer record written.
+
+One real bug surfaced while writing it: the rollback I added earlier restored a
+whole-array snapshot of the CDR mirror, so a loser could erase a concurrent
+winner's mirror row. It now removes only the id this request inserted
+(`customerDeviceRecords.filter(r => r.id !== rejectedId)`).
+
+Verification: `npx tsc --noEmit` clean; the new file 2/2 in three consecutive
+runs; full suite 911 tests, 909 pass, 0 fail, 2 skipped; docs-count gate green
+at 911.
+
+## ⭐ One serial, two claims — and refusals that name the unit (2026-10-21)
+
+The exchange gate proved a single exchange could not take an unstocked unit, and
+the previous entry proved two exchanges could not take the same one. Four gaps
+around it closed together.
+
+- **Assignment vs exchange, one serial, same instant —
+  `tests/assignmentExchange.concurrency.test.ts`.** The two paths reach the same
+  register row through different endpoints, so the row (`FOR UPDATE`) is what
+  serialises them. `Promise.all` fires `POST /api/customer-devices` and
+  `POST /api/customer-devices/exchange` for the same IN_STOCK unit and asserts the
+  invariant: exactly one `201`, the loser refused `400` (gate) or `409` (duplicate
+  check, when it arrives after the winner commits); exactly one customer record
+  names the serial and it belongs to the winner; the register ends
+  `CUSTOMER_ASSIGNED`; stock drops by exactly one when the ASSIGNMENT won and not
+  at all when the EXCHANGE won (an exchange consumes stock already decremented at
+  receipt); the loser's own rental stays `RENTAL`.
+- **Both dialogs now name the serial, its real status and the branch —
+  `client/src/utils/serialRefusal.ts`.** One `describeReplacementRefusal` mirrors
+  the server's `describeGateViolation` phrasing, so the Stock Operations panel and
+  the Customers modal cannot drift: "ONU002-0007 is CUSTOMER ASSIGNED at Branch 1
+  (Head Office) to Walk Customer — only IN_STOCK units can be issued as a
+  replacement." Unknown, wrong-status, wrong-branch and wrong-product stay
+  distinct (`tests/serialRefusal.test.ts`).
+- **Refusal shown once.** `exchangeCustomerDevice` takes
+  `{ silentErrorToast: true }` from both dialogs; `fetchJson` gained a `silent`
+  config that suppresses the global mutation toast, so the sentence appears in the
+  dialog that owns the decision instead of twice (once in a toast that then
+  expires while the dialog still reads). `tests/apiToastSilencing.test.ts` pins
+  it behaviourally: a silent refusal still carries `error.toast` for the dialog,
+  but broadcasts nothing; the default and a plain GET keep their old behaviour.
+- **Unknown serials resolved by the server, not the mount-once cache.** Both
+  dialogs call `api.lookupExchangeSerial` before refusing. This needed its own
+  route: `GET /api/inventory/serials/lookup` sits behind
+  `edit-device-serials`, which FIELD_TECHNICIAN and BRANCH_MANAGER — the two
+  roles that actually do field exchanges — do not hold. A probe as a field
+  technician returned `403` on that route, i.e. the old wording would have
+  survived for the exact operators it was meant to help.
+  `GET /api/customer-devices/exchange/lookup` carries the exchange role list and a
+  read-only handler; because its path falls under the branch-scoped read guard,
+  the client sends the exchange `branchId`. A unit held outside the operator's
+  branches returns its state and branch but never the customer holding it; HQ
+  roles see the full row. `tests/exchange.concurrency.test.ts` pins the audience
+  and the client path (`get_exchangeLookup`, `branchId` appended).
+- **Serial resolved while typing.** `DeviceSerialInput` now resolves after a
+  400 ms pause instead of only on blur/Enter, so the register status and the
+  hydrated PON/MAC appear before the operator leaves the field. The inline hint
+  uses the register's real status ("CUSTOMER ASSIGNED — not IN_STOCK") and
+  names the holding branch instead of the old generic "already out of stock".
+  A late lookup is discarded when the field has moved on
+  (`latestSerial.current !== typed`), so a slow answer for A cannot overwrite B
+  — the one hazard of resolving on every keystroke.
+
+One behavioural note: the exchange handler no longer restores the whole
+in-memory CDR array on rollback (it removes only the id this request inserted).
+That fix came with the previous entry's concurrency test; the assignment test
+would have caught the regression, since a restore would erase the assignment
+that won.
+
+Verification: `npx tsc --noEmit` clean; `tests/serialRefusal.test.ts`,
+`tests/apiToastSilencing.test.ts`, `tests/exchange.concurrency.test.ts`,
+`tests/assignmentExchange.concurrency.test.ts` and
+`tests/registerRefreshDomains.test.ts` green; live probe against the dev
+database: field technician `200` with `branchId` (real status), `403` without it
+(branch-scoped read guard), `403` on the edit lookup, `404` for an unknown serial,
+and a foreign-branch unit returning `CUSTOMER_ASSIGNED` + branch with
+`customerName` masked (HQ saw the name). Full suite 919 tests, 917 pass, 0 fail,
+2 skipped; docs-count gate green at 919.

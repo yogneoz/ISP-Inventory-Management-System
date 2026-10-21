@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 901 tests; CI runs
+                                        #   drift/concurrency guards — 919 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1211,7 +1211,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 901 tests against a real PostgreSQL 16 service container
+2. `npm test` — 919 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1417,7 +1417,36 @@ seeds a real `serial_log` row and proves both directions: an IN_STOCK replacemen
 succeeds and takes the register's MAC, a `CUSTOMER_ASSIGNED` one is refused `400`
 with no customer-device row written.
 
-Verification: `npx tsc --noEmit` clean; full suite **901 tests, 899 pass, 0 fail, 2 skipped**
+A second file, `tests/exchange.concurrency.test.ts`, proves the gate under
+contention: two simultaneous HTTP exchanges for one replacement serial yield
+exactly one `201` and one refusal (the register gate's `400`, or the duplicate
+check's `409` when the loser arrives after the winner commits), one
+customer-device row for that serial, and only the winner's old record closed. A
+holder transaction that commits mid-request is refused with no customer record
+written. The mirror rollback removes only this request's replacement row, so a
+concurrent winner's mirror write is never wiped by a loser.
+
+**Follow-up (2026-10-21): the other half of the race, and refusals that read.**
+`tests/assignmentExchange.concurrency.test.ts` fires `POST /api/customer-devices`
+and `POST /api/customer-devices/exchange` at the same IN_STOCK unit: exactly one
+`201`, one refusal (`400` from the gate or `409` from the duplicate check), one
+customer record naming the serial, the register left `CUSTOMER_ASSIGNED`, stock
+down exactly one when the assignment won and untouched when the exchange won, and
+the loser's rental left `RENTAL`. Both dialogs phrase a refused replacement
+through `client/src/utils/serialRefusal.ts` (serial, real status, holding branch,
+product) and show it once — `exchangeCustomerDevice` accepts
+`{ silentErrorToast: true }`, which `fetchJson` honours by skipping the global
+toast (pinned behaviourally by `tests/apiToastSilencing.test.ts`: the silent
+error still carries `error.toast`, it just is not broadcast). A serial the
+mount-once cache cannot answer is resolved on the server via
+`GET /api/customer-devices/exchange/lookup`; the existing edit lookup could not
+be reused because it sits behind `edit-device-serials`, which FIELD_TECHNICIAN and
+BRANCH_MANAGER lack (probed: `403`). That route carries the exchange role list,
+requires the exchange `branchId` for branch-bound roles, and masks the holder's
+name for units outside the operator's branches. `DeviceSerialInput` resolves on a
+400 ms typing pause, so status and PON/MAC appear before the field loses focus.
+
+Verification: `npx tsc --noEmit` clean; full suite **919 tests, 917 pass, 0 fail, 2 skipped**
 (the two pre-existing Windows-only real-signal checks); docs-count gate green.
 Residual: Slice 5 — demoting the boot serial backfill to a maintenance action —
 remains open.

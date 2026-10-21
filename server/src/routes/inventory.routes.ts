@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
+import { get_stock, patch_Id, patch_reorderLevel, post_bulkReorderLevels, post_reconcileAudit, post_assets, patch_status, get_stockOperations, post_stockOperations, post_reverse, post_reverseConsumable, post_receive, get_customerDevices, post_customerDevices, patch_status2, get_lookup, get_exchangeLookup, post_dual, post_exchange, get_serialLog } from '../controllers/inventory.controller';
 import {
   handleUpdateSerials,
   requirePermission,
@@ -61,6 +61,14 @@ app.patch('/api/inventory/serials', requirePermission('edit-device-serials'), ha
 // even when it lives outside the user's branch-scoped register.
 // ---------------------------------------------------------------------------
 app.get('/api/inventory/serials/lookup', requirePermission('edit-device-serials'), async (req, res, next) => { get_lookup(req as any, res as any).catch(next); });
+
+// Exchange dialogs resolve a replacement serial BEFORE submitting, so their
+// refusal can name the unit's real state. They cannot use the edit lookup above:
+// exchanging is open to FIELD_TECHNICIAN / BRANCH_MANAGER, who hold no
+// 'edit-device-serials' permission, and a 403 would send them back to the
+// misleading "not in the register" wording. Same read-only handler, same
+// audience as the exchange endpoint itself — this route never writes.
+app.get('/api/customer-devices/exchange/lookup', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { get_exchangeLookup(req as any, res as any).catch(next); });
 
 app.post('/api/inventory/serials/dual', requirePermission('edit-device-serials'), async (req, res, next) => { post_dual(req as any, res as any).catch(next); });
 

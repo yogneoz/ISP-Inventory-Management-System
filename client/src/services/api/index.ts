@@ -157,6 +157,7 @@ export const api = {
   exchangeCustomerDevice: inventory.exchangeCustomerDevice,
   updateDeviceSerials: inventory.updateDeviceSerials,
   lookupSerial: inventory.lookupSerial,
+  lookupExchangeSerial: inventory.lookupExchangeSerial,
   updateDeviceSerialsDual: inventory.updateDeviceSerialsDual,
 
   // Customer Master Database (paged server-side reads)

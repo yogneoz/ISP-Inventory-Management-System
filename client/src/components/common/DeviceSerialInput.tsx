@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
+import { serialStatusLabel } from '../../utils/serialRefusal';
 import { CheckCircle2, AlertTriangle, Loader2, XCircle } from 'lucide-react';
 
 /**
@@ -103,10 +104,34 @@ const STATE_TEXT: Record<Exclude<DeviceSerialState, 'idle'>, string> = {
   checking: 'Checking register…',
   ok: 'IN_STOCK — PON & MAC filled from the register',
   'not-found': 'Not in the serial register for this branch',
-  'not-in-stock': 'Already out of stock (not IN_STOCK)',
+  'not-in-stock': 'Not IN_STOCK',
   'other-branch': 'Held at a different branch',
   'other-product': 'Belongs to a different product',
 };
+
+/** Typing pause before the register is asked about a hand-typed serial. */
+const RESOLVE_DEBOUNCE_MS = 400;
+
+/**
+ * Refusal text for a resolved-but-unusable unit. The status is the fact the
+ * operator needs ("CUSTOMER ASSIGNED" vs "DAMAGED"), so it is not collapsed back
+ * into the generic "not IN_STOCK" wording.
+ */
+function describeInlineState(
+  state: Exclude<DeviceSerialState, 'idle' | 'checking' | 'ok'>,
+  resolved: { status: string; branchId: string } | null
+): string {
+  switch (state) {
+    case 'not-in-stock': {
+      const label = serialStatusLabel(resolved?.status);
+      return label === 'UNKNOWN' ? STATE_TEXT['not-in-stock'] : `${label} — not IN_STOCK`;
+    }
+    case 'other-branch':
+      return resolved?.branchId ? `Held at branch ${resolved.branchId}` : STATE_TEXT['other-branch'];
+    default:
+      return STATE_TEXT[state];
+  }
+}
 
 export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
   id,
@@ -124,15 +149,24 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
   placeholder = 'Device Serial #',
 }) => {
   const [state, setState] = useState<DeviceSerialState>('idle');
-  const [resolved, setResolved] = useState<{ ponSerial: string; macAddress: string } | null>(null);
+  const [resolved, setResolved] = useState<{ ponSerial: string; macAddress: string; status: string; branchId: string } | null>(null);
 
   const deviceSerial = value?.deviceSerial || '';
+  // Latest typed value, so a slow lookup for an earlier serial cannot land on
+  // top of a newer one (the operator types B while A is still in flight).
+  const latestSerial = useRef(deviceSerial);
+  latestSerial.current = deviceSerial;
 
   const applyRow = (row: SerialResolvable, fallback: string, expected: DeviceSerialState) => {
     const nextPon = String(row.ponSerial ?? '').trim();
     const nextMac = normalizeMacAddress(row.macAddress);
     setState(expected);
-    setResolved({ ponSerial: nextPon, macAddress: nextMac });
+    setResolved({
+      ponSerial: nextPon,
+      macAddress: nextMac,
+      status: String(row.status || ''),
+      branchId: String(row.branchId || ''),
+    });
     if (deviceSerial !== (row.deviceSerial || fallback) || (value?.ponSerial || '') !== nextPon || (value?.macAddress || '') !== nextMac) {
       onChange({ deviceSerial: row.deviceSerial || fallback, ponSerial: nextPon, macAddress: nextMac });
     }
@@ -155,6 +189,7 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
       setState('checking');
       try {
         const row = await lookup(typed);
+        if (latestSerial.current.trim() !== typed) return;
         if (row) {
           applyRow(row, typed, classifyRegisterRow(row, ctx));
         } else {
@@ -162,6 +197,7 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
           setResolved(null);
         }
       } catch {
+        if (latestSerial.current.trim() !== typed) return;
         setState('not-found');
         setResolved(null);
       }
@@ -170,6 +206,24 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
     setState(register && register.length > 0 ? 'not-found' : 'idle');
     setResolved(null);
   };
+
+  // Resolve while the operator types (request: feedback before they leave the
+  // field). A scanner still ends with Enter, which resolves immediately; a hand
+  // typed serial resolves after a short pause instead of waiting for a blur the
+  // operator may never give it before clicking Submit.
+  const resolveRef = useRef(resolve);
+  resolveRef.current = resolve;
+  useEffect(() => {
+    if (disabled) return;
+    const typed = deviceSerial.trim();
+    if (!typed) {
+      setState('idle');
+      setResolved(null);
+      return;
+    }
+    const timer = setTimeout(() => { void resolveRef.current(); }, RESOLVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [deviceSerial, branchId, productId, productName, disabled]);
 
   const handleChange = (next: string) => {
     setState('idle');
@@ -226,7 +280,7 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
       {state !== 'ok' && state !== 'checking' && state !== 'idle' && (
         <div className={`mt-0.5 flex items-center gap-1 text-[9.5px] font-semibold ${stateColor}`}>
           {state === 'not-found' ? <AlertTriangle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-          <span>{STATE_TEXT[state]}</span>
+          <span>{describeInlineState(state, resolved)}</span>
         </div>
       )}
     </div>

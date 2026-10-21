@@ -205,11 +205,14 @@ export async function exchangeCustomerDevice(payload: {
   newMacAddress?: string;
   notes?: string;
   branchId?: string;
-}): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
+}, options?: { silentErrorToast?: boolean }): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
+  // Both exchange dialogs show the server's refusal in their own dialog, so the
+  // global toast is suppressed there: one refusal, one place, no duplicate that
+  // auto-dismisses while the dialog stays open.
   return fetchJson('/api/customer-devices/exchange', {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
+  }, { silent: options?.silentErrorToast });
 }
 
 export async function updateDeviceSerials(payload: {
@@ -237,6 +240,19 @@ export async function lookupSerial(value: string, exclude?: string[]): Promise<S
   search.append('value', value);
   (exclude || []).forEach((v) => v && search.append('exclude', v));
   return fetchJson<SerialLookupResult>(`/api/inventory/serials/lookup?${search.toString()}`);
+}
+
+// Exchange dialogs resolve a replacement serial before submitting, so a refusal
+// can name the unit's actual state (assigned / damaged / other branch) instead of
+// trusting a register copy loaded when the screen mounted. Its own endpoint keeps
+// the edit-modal lookup's 'edit-device-serials' permission off the exchange
+// audience, which includes FIELD_TECHNICIAN and BRANCH_MANAGER.
+export async function lookupExchangeSerial(value: string, branchId?: string | null): Promise<SerialLookupResult> {
+  // branchId is the exchange's branch: the server's branch-scoped read guard
+  // requires branch-bound roles (FIELD_TECHNICIAN, BRANCH_MANAGER) to name it.
+  const search = new URLSearchParams({ value: value.trim() });
+  if (branchId) search.append('branchId', branchId);
+  return fetchJson<SerialLookupResult>(`/api/customer-devices/exchange/lookup?${search.toString()}`);
 }
 
 // Apply two serial corrections in one operation (supports swaps).

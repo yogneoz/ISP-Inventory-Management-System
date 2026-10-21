@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput, findRegisterRow } from '../../../components/common/DeviceSerialInput';
+import { describeReplacementRefusal } from '../../../utils/serialRefusal';
 import {
   CustomerDeviceRecord,
 } from '../../../types';
@@ -23,7 +24,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const DeviceExchangePanel: React.FC = () => {
-  const { activeTab, alertDialog, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
+  const { activeTab, alertDialog, branches, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
 
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
   const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
@@ -49,28 +50,53 @@ export const DeviceExchangePanel: React.FC = () => {
       return;
     }
     const exchangeBranchId = selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId;
+    const exchangeBranchName =
+      branches.find((b) => b.id === exchangeBranchId)?.name || exchangeBranchId || 'the selected branch';
+    const replacementProductName = exchangeProductName || selectedDeviceForExchange.productName;
     // The DEVICE SERIAL is the only key (one-field UX). The register row must be
     // an IN_STOCK unit of this branch for the same product; its PON/MAC are the
-    // replacement's real identity, not operator-typed values.
-    const registerRow = findRegisterRow(serialRegister, exchangeNewSerial);
-    const legacyRow = customerDevices.find(
-      (device) => device.deviceSerial?.trim().toUpperCase() === exchangeNewSerial.trim().toUpperCase()
-    );
-    const replacementOk = registerRow
-      ? registerRow.branchId === exchangeBranchId &&
-        String(registerRow.status || '') === 'IN_STOCK' &&
-        (!registerRow.productName ||
-          registerRow.productName.trim().toLowerCase() ===
-            (exchangeProductName || selectedDeviceForExchange.productName).trim().toLowerCase())
-      : Boolean(
-          legacyRow &&
-            legacyRow.branchId === exchangeBranchId &&
-            legacyRow.status === 'IN_STOCK'
-        );
+    // replacement's real identity, not operator-typed values. The register copy
+    // this screen loaded at mount can be stale, so a serial it does not know is
+    // looked up on the server before refusing — that is what turns "must match an
+    // IN_STOCK unit" into "CUSTOMER ASSIGNED to Walk Customer".
+    const exchangeSerial = exchangeNewSerial.trim();
+    let registerRow: any = findRegisterRow(serialRegister, exchangeSerial) || null;
+    if (!registerRow) {
+      const legacyRow = customerDevices.find(
+        (device) => device.deviceSerial?.trim().toUpperCase() === exchangeSerial.toUpperCase()
+      );
+      if (legacyRow) {
+        registerRow = { ...legacyRow, status: legacyRow.status };
+      }
+    }
+    if (!registerRow) {
+      try {
+        registerRow = await api.lookupExchangeSerial(exchangeSerial, exchangeBranchId);
+      } catch {
+        registerRow = null;
+      }
+    }
+    const replacementOk =
+      Boolean(registerRow) &&
+      String(registerRow.status || '').toUpperCase() === 'IN_STOCK' &&
+      (!registerRow.branchId || String(registerRow.branchId) === String(exchangeBranchId)) &&
+      (!registerRow.productName ||
+        registerRow.productName.trim().toLowerCase() === replacementProductName.trim().toLowerCase());
     if (!replacementOk) {
-      alertDialog('The replacement device serial must match an IN_STOCK unit at the selected branch in the serial register.');
+      alertDialog(
+        describeReplacementRefusal({
+          serial: exchangeSerial,
+          row: registerRow,
+          branchId: exchangeBranchId,
+          branchName: exchangeBranchName,
+          productName: replacementProductName,
+        })
+      );
       return;
     }
+    // Identity from the register, not from whatever the form still holds.
+    const resolvedPon = String(registerRow.ponSerial ?? exchangeNewPon ?? '').trim();
+    const resolvedMac = String(registerRow.macAddress ?? exchangeNewMac ?? '').trim();
 
     setIsSubmittingExchange(true);
     try {
@@ -79,12 +105,12 @@ export const DeviceExchangePanel: React.FC = () => {
         exchangeReason,
         oldDeviceAction,
         newProductName: exchangeProductName || selectedDeviceForExchange.productName,
-        newDeviceSerial: exchangeNewSerial.trim(),
-        newPonSerial: exchangeNewPon.trim(),
-        newMacAddress: exchangeNewMac.trim() || undefined,
+        newDeviceSerial: exchangeSerial,
+        newPonSerial: resolvedPon,
+        newMacAddress: resolvedMac || undefined,
         notes: exchangeNotes.trim() || undefined,
         branchId: exchangeBranchId,
-      });
+      }, { silentErrorToast: true });
 
       const actionText =
         oldDeviceAction === 'RESTOCK'
@@ -360,6 +386,14 @@ export const DeviceExchangePanel: React.FC = () => {
                     register={serialRegister}
                     branchId={selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId}
                     productName={exchangeProductName || selectedDeviceForExchange?.productName}
+                    lookup={(serial) =>
+                      api
+                        .lookupExchangeSerial(
+                          serial,
+                          selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId
+                        )
+                        .catch(() => null)
+                    }
                   />
                 </div>
               </div>
