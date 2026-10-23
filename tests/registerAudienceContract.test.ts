@@ -218,11 +218,13 @@ describe('register audience contract', () => {
       sidebar.includes('badge: branchInboundCount ?? inTransitShipmentCount'),
       'branch receive nav must show the branch-lane pending count'
     );
-    const app = read('client/src/App.tsx');
+    // A2 moved the sidebar into the app shell, so the shell computes the lane
+    // counts (from the same data props) and passes them down.
+    const shell = read('client/src/components/layout/AppShell.tsx');
     assert.ok(
-      app.includes('warehouseInboundCount={warehouseInboundCount}') &&
-        app.includes('branchInboundCount={branchInboundCount}'),
-      'App must compute and pass both lane counts to the sidebar'
+      shell.includes('warehouseInboundCount={warehouseInboundCount}') &&
+        shell.includes('branchInboundCount={branchInboundCount}'),
+      'the shell must compute and pass both lane counts to the sidebar'
     );
   });
 });

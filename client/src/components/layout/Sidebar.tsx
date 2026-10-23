@@ -619,7 +619,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'clear-demo-data' as NavTab, label: 'Clear Demo / Dummy Data', icon: Trash2, hasSeparatorAbove: true }
     );
   }
-  if (isSuperAdmin && import.meta.env.DEV) {
+  // `?.` because `import.meta.env` only exists under Vite: the A2/A6 render
+  // tests mount this component in Node, where it is undefined.
+  if (isSuperAdmin && import.meta.env?.DEV) {
     // DEV-ONLY: design-review gallery. Also gated at build time so it never
     // appears in production builds (render block is inert there too).
     adminChildren.push({ id: 'dev-statcard' as NavTab, label: 'Dev: StatCard Gallery', icon: Palette });

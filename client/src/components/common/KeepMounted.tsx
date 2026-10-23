@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useMemo, useRef } from 'react';
+import { createScreenSlotCache, memoizeTabElement } from '../../utils/screenElementMemo';
+import type { ScreenSlotCache } from '../../utils/screenElementMemo';
 
 /**
  * Keep-mounted tab container (tab-switch churn refactor, 2026-10-05).
@@ -10,8 +12,9 @@ import React, { createContext, useContext, useMemo, useRef } from 'react';
  * lost form state. Tabs that have never been active are still NOT rendered
  * (nothing is mounted for tabs the user never opens).
  *
- * The container is deliberately dumb: it mounts, hides and re-shows.
- * Everything about DATA freshness is decided by the screens themselves:
+ * The container mounts, hides, re-shows — and (since A1) refuses to hand React
+ * a new element when a screen's inputs did not change. Everything about DATA
+ * freshness is decided by the screens themselves:
  *
  *  - Props-driven screens (the vast majority) are inherently live — every
  *    bootstrap-slice prop update re-renders them in place, exactly as the
@@ -24,6 +27,14 @@ import React, { createContext, useContext, useMemo, useRef } from 'react';
  *    re-activation with `useActivationKey(tabKey)` — all 11 of them
  *    (MOUNT_REFETCH_NO_SSE_KEY in the test guards) are wired this way,
  *    which replaces their old "remount refetches me" behavior.
+ *
+ * A1 (2026-10-23): the tab ELEMENT is memoised per screen slot. App still
+ * rebuilds every tab's element on every root render (a keystroke in the
+ * global search box is enough), but this container now keeps handing React
+ * the same element object while the props a screen consumes are unchanged, so
+ * React bails out of that screen instead of re-rendering every opened tab —
+ * hidden ones included. Callbacks are proxied to their newest closure, so
+ * memoisation cannot pin stale state (see utils/screenElementMemo).
  */
 
 /** Which tab (key) is currently visible; null while the boot overlay shows. */
@@ -77,6 +88,11 @@ export function KeepMounted({
   // all 67 screens on page load.
   const everVisible = useRef(visible);
   if (visible) everVisible.current = true;
+  // One slot cache per mounted tab: a stable element for this screen across
+  // root renders where nothing it consumes changed (A1).
+  const screenCache = useRef<ScreenSlotCache | null>(null);
+  if (!screenCache.current) screenCache.current = createScreenSlotCache();
+  const stableChild = memoizeTabElement(screenCache.current, 'screen', children);
   // `inert` (plus the display:none toggle) keeps hidden tabs out of the
   // a11y tree and blocks focus/interaction inside them. React 19 models
   // `inert` as a real BOOLEAN attribute: passing an empty string logs
@@ -88,7 +104,7 @@ export function KeepMounted({
       aria-hidden={!visible}
       inert={!visible}
     >
-      {everVisible.current ? children : null}
+      {everVisible.current ? stableChild : null}
     </div>
   );
 }

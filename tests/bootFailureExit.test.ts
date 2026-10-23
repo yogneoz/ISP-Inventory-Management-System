@@ -95,6 +95,11 @@ function bootWithUnreachableDatabase(): Promise<BootAttempt> {
       PORT: '5199',
       // Production: no Vite middleware branch — this test only needs the boot.
       NODE_ENV: 'production',
+      // The D1/D2 auth-secret guard runs before the database phase this test is
+      // about, so it needs a usable secret or it would exit ahead of the
+      // PostgreSQL failure under assertion. The missing/placeholder cases are
+      // covered in tests/authSecretGuard.test.ts.
+      AUTH_TOKEN_SECRET: 'boot-failure-exit-test-secret-0123456789abcdef',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

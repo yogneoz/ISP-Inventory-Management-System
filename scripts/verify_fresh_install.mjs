@@ -203,6 +203,11 @@ function bootServerOnBootDb() {
         PORT: String(BOOT_PORT),
         // Production: skip the Vite middleware dev branch; we only need boot.
         NODE_ENV: 'production',
+        // The auth-secret guard (server/src/boot/authSecret.ts) refuses to
+        // start production without a usable secret. This probe is about schema
+        // and boot, so it gets a throwaway ≥32-character value — never used
+        // outside this child process.
+        AUTH_TOKEN_SECRET: 'fresh-install-verify-only-secret-0123456789abcdef',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       // Hide the console window on Windows.

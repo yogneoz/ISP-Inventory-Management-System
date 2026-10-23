@@ -1,6 +1,76 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-21 · Branch: main · Tests: 932/932 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-23 · Branch: main · Tests: 999/999 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ The shell owns its own state, so a modal no longer re-renders the tab tree (A2, 2026-10-23)
+
+A1 stopped a root re-render from re-rendering every opened screen, but the root still
+re-rendered on things that are not data at all: the sidebar drawer, the barcode scanner, the
+global search overlay, the notification panel, the profile modal and the dismissed-notification
+ids all lived in `App`. Opening one rebuilt every tab element in App's render — a lot of work
+whose only visible effect was one overlay appearing.
+
+- **`client/src/components/layout/AppShell.tsx`** now owns those six pieces of state. `App`
+renders `<AppShell>` with the data props it already had, the bootstrap `banners` and the
+workspace `<main>` (tab tree included) as **elements**. A shell state change re-renders the
+shell, and React receives the same `children` element object, so the tab tree is skipped
+entirely — A1's element cache then keeps the screens themselves from re-rendering. Nothing
+about freshness changes: every array, the branch/fiscal-year scope, `activeTab` and the shared
+`searchQuery` still arrive as props.
+- **The badges moved with the ids that silence them.** The low-stock / PO / approval /
+shipment counts read `dismissedNotificationIds`, so they moved next to it; `App` no longer
+computes them. `handleClearAllNotifications` moved unchanged (the BS-coverage notification is
+still collected there).
+- **Screens ask the shell, they don't receive setters.** Help Documentation used to be handed
+`onOpenBarcodeModal`/`onOpenSearchModal` from App — passing them through the shell would have
+put shell state back into App's render. It now calls `useShellOverlays().openBarcodeScanner()`
+([ShellOverlayContext.tsx](../client/src/contexts/ShellOverlayContext.tsx)); the context value
+is memoised on the never-changing setters, so a shell state change cannot re-render a consumer,
+and the default is a no-op for screens rendered outside the shell. `onNavigateTab` keeps its
+one job (tab changes are App's); its old `barcode-scanner` branch is gone with the setter.
+- **The shortcuts moved with the overlays they open** (Alt+H/B/S/D, Ctrl+K), including the
+"not while typing in a field" and fiscal-year-closing-wizard guards, and the notification panel
+still closes on `NAVIGATE_TAB_EVENT` — but from the shell's own listener now, since the panel is
+its state.
+
+Measured, not inferred ([tests/appShellRenderCount.test.ts](../tests/appShellRenderCount.test.ts),
+5 tests, real `AppShell` around a counting workspace): sidebar toggle, opening the search
+overlay, opening the notification panel, Alt+B, Alt+H and Ctrl+K all leave the workspace at
+**1 render** — the mount — while the DOM visibly reacts (backdrop, overlay input, panel title,
+scanner). A data change still reaches it: 2 renders and the new rows/banner value in the DOM,
+which is the regression this refactor could have caused.
+
+Two harness lessons, both real bugs in the first draft of that test: jsdom's `querySelector`
+misses attribute values containing `&` (`button[title="Notifications & Reorder Alerts"]`,
+`input[placeholder^="Scan Barcode or Search & Enter"]`) even though `querySelectorAll` finds
+them — the test now matches attributes in JS. And `assert.equal(element, null)` on failure asks
+Node to diff a DOM node whose `__reactFiber` back-pointer is circular, which **exhausted the
+heap** instead of reporting an assertion; failures are asserted as booleans now.
+
+A fourth test pins the shape so the root cannot quietly take the state back: `App.tsx` must
+not contain any of the six shell flags, must render `<AppShell>`, and the shell must own
+`useState`. The fifth drives Escape.
+
+**Escape closes the overlay on top (same day).** A browser pass found the cheat sheet
+promising "Esc — Close Active Modal or Dropdown" while none of the four shell overlays handled
+it: `GlobalSearchModal` even prints "Tip: Press ESC to close" and had no listener. `AppShell`
+now keeps a recency stack of the overlays it owns (barcode, search, notifications, profile —
+reconciled after every open/close render, so an X or a backdrop click removes the entry too)
+and closes the most recently opened one. The handler runs **before** the "typing in a field"
+shortcut guard, because the global search input is exactly where Escape is pressed; with no
+overlay open the key is left alone for the screen underneath (no `preventDefault`). Stacking is
+explicit in the test: drawer first, search on top → Escape closes the search and leaves the
+drawer, the next Escape closes the drawer. The header's **account menu** is a dropdown, not a
+shell overlay, so `Header` closes it itself with a listener bound only while the menu is open —
+that completes the cheat sheet's "or Dropdown" half.
+
+Also: `Sidebar`'s dev-only gallery gate is `import.meta.env?.DEV` — `import.meta.env` only
+exists under Vite, and the render tests mount it in Node.
+
+Tests: `tests/appShellRenderCount.test.ts` (5). Verification: `npx tsc --noEmit` clean;
+`npm run build` green; full suite 999 tests, 997 pass, 0 fail, 2 skipped; docs-count gate green
+at 999. Backlog A2 ticked. Next stop point: **A6** (client test harness + route-tree smoke
+test), which gates A3/A4.
 
 ## ⭐ One BS calendar integrity engine (API + CLI + boot), provisional years, and no invented dates anywhere (2026-10-17)
 
@@ -1789,7 +1859,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 932 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 999 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2356,7 +2426,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 932 tests, 0 fail). Live-verified:
+  key coverage; suite now 999 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2414,7 +2484,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 932 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 999 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2479,7 +2549,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 932 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 999 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2517,7 +2587,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 932 tests, 0 fail.
+  failures, then reverted). Suite now 999 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2532,7 +2602,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 932 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 999 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -2724,8 +2794,8 @@ Verification: `npx tsc --noEmit` clean; `tests/serialRefusal.test.ts`,
 database: field technician `200` with `branchId` (real status), `403` without it
 (branch-scoped read guard), `403` on the edit lookup, `404` for an unknown serial,
 and a foreign-branch unit returning `CUSTOMER_ASSIGNED` + branch with
-`customerName` masked (HQ saw the name). Full suite 932 tests, 930 pass, 0 fail,
-2 skipped; docs-count gate green at 932.
+`customerName` masked (HQ saw the name). Full suite 940 tests, 938 pass, 0 fail,
+2 skipped; docs-count gate green at 940.
 
 ## ⭐ A refused replacement leaves a trail (2026-10-21)
 
@@ -2765,8 +2835,8 @@ submitting admin; and the `409` duplicate path is audited too, not only the gate
 dialogs' server-call surface.
 
 Verification: `npx tsc --noEmit` clean; the five audit tests plus the refusal,
-toast and surface suites green; full suite 932 tests, 930 pass, 0 fail, 2 skipped;
-docs-count gate green at 932.
+toast and surface suites green; full suite 940 tests, 938 pass, 0 fail, 2 skipped;
+docs-count gate green at 940.
 
 ## ⭐ One serial, every event: the audit trail has a serial focus (2026-10-21)
 
@@ -2805,6 +2875,233 @@ a foreign-branch auditor sees `[]`, plus `403` on an explicit foreign `branchId`
 `tests/registerRefreshDomains.test.ts` pins `getAuditTrail` as the screen's only
 server call, with the reason it is a search rather than a duplicated list.
 
-Verification: `npx tsc --noEmit` clean; full suite 932 tests, 930 pass, 0 fail,
-2 skipped; docs-count gate green at 932.
+Verification: `npx tsc --noEmit` clean; full suite 940 tests, 938 pass, 0 fail,
+2 skipped; docs-count gate green at 940.
+
+## ⭐ Production refuses to boot on an ephemeral auth secret (D1/D2, 2026-10-21)
+
+`middleware/auth.ts` signs login tokens with `AUTH_TOKEN_SECRET` and falls back
+to a per-process `crypto.randomBytes(32)` value when it is unset. That fallback is
+right for `tsx watch` and wrong for production: pm2 restarts this process at 1 GB,
+so every restart silently logged everyone out, and a second instance could never
+verify the first's tokens. Nothing enforced the variable — the module only printed
+a warning — so a deployment could run that way indefinitely.
+
+- **One pure validator** (`server/src/boot/authSecret.ts`): production requires a
+  non-blank secret, not one of the template values published in `.env.example`
+  (compared case-insensitively), and at least 32 characters. Each refusal carries
+  the reason plus the `randomBytes(32)` command to generate a real one; the
+  too-short message names the length and never echoes the value. Development and
+  test still return `ok` so the ephemeral fallback (and its warning) survives.
+- **Checked before anything opens.** `server/index.ts` calls it after
+  `lifecycle.install()` and before `startServer()`, routing a refusal through the
+  existing `failBoot` path: `FATAL: server failed to start` on stderr and a hard
+  exit 1, no database connection attempted, no port opened. Importing the app
+  still evaluates `auth.ts`, but no token can be signed before the process dies.
+- **Docs tell the truth now.** `.env.example` calls the variable REQUIRED in
+  production and shows the generation command; README's "all optional" heading
+  and handoff's "nothing generates-or-persists one for you" text were corrected.
+- **Collateral call sites.** `scripts/verify_fresh_install.mjs` boots the real
+  entry in production, so it now passes a throwaway ≥32-character secret (with a
+  comment); the Dockerfile and the README Docker block state that the container
+  exits on start without a real one. Dev and test are untouched.
+
+Tests: `tests/authSecretGuard.test.ts` (8) — five pure-validator cases (dev/test
+allowed; missing/blank; every placeholder; short without echoing; 32+ accepted)
+and a real production boot with an explicitly EMPTY secret (dotenv never overrides
+an existing key, so a developer `.env` cannot fake a pass) proving exit 1, the
+message, and that the PostgreSQL phase never starts. `tests/bootFailureExit.test.ts`
+now supplies a valid secret so it keeps testing the database failure it exists for.
+
+Verification: `npx tsc --noEmit` clean; the new and neighbouring boot/env suites
+green; full suite 940 tests, 938 pass, 0 fail, 2 skipped; docs-count gate green at
+940. Backlog D1/D2 ticked in `docs/architecture-backlog.md`.
+
+## ⭐ The single-process constraint is written down, not implied (D3, 2026-10-22)
+
+`ecosystem.config.js` has always pinned `instances: 1` / `exec_mode: 'fork'` with a two-line
+comment that said sessions, caches and SSE are process-local. That comment is the only thing
+standing between a scaling "fix" and silent staleness, and it never said what would break or
+what to move first. D3 puts the full constraint where a deployer meets the knob.
+
+- **README → _Single process only (do not raise `instances`)_** (Production Deployment, right
+after the PM2 step): a table of the three unshared concerns — operational caches in
+`runtimeState.ts` (each worker refreshes only after its own committed write, so a save handled
+by the other worker stays invisible), SSE fan-out in `realtime/sse.ts` (an event reaches only
+the clients connected to the worker that handled it), and the per-process rate-limit/connection
+buckets in `authRateLimit.ts` / `sseRateLimit.ts` (N workers multiply the configured budget) —
+plus the one `AUTH_TOKEN_SECRET` every worker must share, and the four prerequisites for
+cluster mode: shared cache store, pub/sub for `broadcastChange`, shared limiters, and a proxy
+that does not cut long-lived streams (`proxy_read_timeout` above the 25 s keep-alive).
+- **`ecosystem.config.js`** now names that README section in the `instances: 1` comment, so the
+next editor cannot read the number without the reason.
+- **handoff §14.2** repeats the constraint in the PM2 section and links both the README section
+and the backlog item.
+
+Tests: `tests/singleInstance.guard.test.ts` (4) — file parsing only: the pm2 config must stay one
+fork-mode worker (a `2`/`max` value fails) and name the README section; the README section must
+name all four source files, all three consequences and every cluster prerequisite, and link D3;
+handoff must repeat it and link both places; the backlog must have D3 ticked with a Done row that
+points at this test. Documentation that drifts now fails the suite instead of misleading a
+deployer.
+
+Verification: `npx tsc --noEmit` clean; full suite 944 tests, 942 pass, 0 fail, 2 skipped;
+docs-count gate green at 944. Backlog D1–D3 ticked in `docs/architecture-backlog.md`; **C1 is next**
+(per-slice `idle / loading / ready / error` status, with the last good rows kept on failure).
+
+## ⭐ Per-slice bootstrap status: a failed refresh is visible, not silent (C1, 2026-10-22)
+
+Three deferred ledgers and every SSE-targeted slice fetch ended in
+`.catch(() => null)`. GET failures are deliberately never toasted (`http.ts`), so a
+slice that failed looked exactly like a slice that was still loading and exactly like a
+ledger that is genuinely empty — the rows on screen stayed (good) but nothing said they
+were no longer current (bad). C1 replaces that silence with one per-slice status table.
+
+- **`client/src/services/bootstrapSlices.ts`** — a pure, import-free reducer: per key
+`{ status: idle | loading | ready | error, dataVersion?, error?, errorDismissed? }`.
+The `dataVersion` is the one that produced the rows currently on screen and is KEPT on
+failure, so "last good data" survives; `beginSliceLoad` keeps the error too, which is why
+the notice does not blink out mid-retry. A retry that fails with the SAME message stays
+dismissed; a different message re-surfaces it.
+- **One loader for both paths.** App's `fetchBootstrapSlice(key, branchId, fiscalYearId)`
+marks loading → fetches `GET /api/bootstrap/local?key=` → applies the payload on success
+(recording the version and advancing `serverDataVersionRef`) or marks the key `error`
+with the server's message. `hydrateDeferredSlices` and the SSE targeted branch both call
+it, so a failure behaves identically wherever the refetch came from — the C1 requirement
+that the deferred keys and targeted refreshes share one state.
+- **A payload proves only what it carried.** `applyBootstrapData` marks ready the keys
+present in the request; the full bootstrap does not include the three deferred ledgers,
+so their errors survive it until their own fetch succeeds. The instant pre-hydration from
+the 2-minute cache passes `{ fromCache: true }` and marks NOTHING — a cached snapshot is
+display data, never proof of freshness.
+- **One notice, not a toast storm.** `client/src/components/common/BootstrapSliceNotice.tsx`
+renders every undismissed failure as a single amber, `role="status"` banner: the friendly
+slice names, the server's reason (or a count when several failed), and the explicit line
+that nothing was cleared. One Retry re-fetches every failed slice for the CURRENT branch/FY
+from `syncScopeRef` (never a stale closure) and spins while any slice is loading; one X
+dismisses them all.
+
+Tests: `tests/bootstrapSlices.test.ts` (10) — the reducer's transitions, version retention
+across failures, payload-only readiness after a full bootstrap, dismissal vs re-appearance,
+immutability, labels, and source pins that both hydration paths use the one loader and the
+notice keeps its single retry/dismiss wiring. C2 (scope guards + version monotonicity) and
+C3 (broader hydration coverage) remain open.
+
+Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 954 tests,
+952 pass, 0 fail, 2 skipped; docs-count gate green at 954. Backlog C1 ticked;
+**C2 is next** (stamp `branchId|fiscalYearId|seq`, discard stale responses, never apply an
+older `dataVersion`).
+
+## ⭐ A slice response for a view you already left is discarded (C2, 2026-10-22)
+
+C1 made a failed refresh visible; C2 closes the other silent corruption. A deferred slice
+or targeted refresh requested for one branch/fiscal year could land after the user
+switched, painting the new view with the previous view's rows — no error, no indicator.
+The full bootstrap had a sequence guard; the slice paths had nothing.
+
+- **`SliceRequestGate`** (same module as C1): `begin(key, scope)` stamps a request with
+`scope = branchId|fiscalYearId` (an absent scope is `ALL`, mirroring the API) and a
+monotonic `seq` per key. Before a payload is applied, `decide(request, currentScope,
+responseVersion)` returns `apply`, `superseded`, `stale-scope` or `older-version`.
+- **`stale-scope`** — the user switched branch/FY while the request was in flight; the
+payload belongs to the view they left. The response is dropped, the loading flag is settled,
+and the notice is NOT raised (a failure or success from an abandoned view is not news about
+the current one). `syncScopeRef` is the current-view source, the same one the SSE handler
+already trusts.
+- **`superseded`** — a newer request for the same key exists (two refreshes in a row). Its
+response must not touch the key's status or data; the newer request owns both.
+- **`older-version`** — same view, but the payload's `dataVersion` is older than the version
+last applied for THAT key (out-of-order arrival). Equal versions still apply. Versions are
+per key, and a full bootstrap records its version for every key it carried
+(`noteApplied`), so a targeted request that started before the bootstrap and returned
+after it cannot overwrite newer rows.
+- **Status hygiene:** `settleSliceDiscarded` turns the `loading` flag set by `beginSliceLoad`
+back into the truth — `ready` with the still-displayed version, the retained `error`, or
+`idle` when nothing ever loaded — so a discarded request cannot leave the Retry button
+disabled forever.
+
+Tests: `tests/bootstrapSlices.test.ts` grew to 19 (9 new): current-view apply; stale scope
+with a *newer* version; supersession; older vs equal versions; per-key isolation; a
+bootstrap version blocking a slower slice; `ALL` scope-key mapping; status settlement; and a
+wiring pin that `decide` runs before `applyBootstrapData` and that the bootstrap records
+applied versions. Live check in the running dev server: with a 4 s delay injected on
+ALL-branch `stock` responses, starting a refresh and switching to BRH01 200 ms later left
+the screen on BRH01's 15 rows when the delayed ALL payload landed at 4 s — the 16-row ALL
+payload was discarded, with no notice.
+
+Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 963 tests,
+961 pass, 0 fail, 2 skipped; docs-count gate green at 963. Backlog C2 ticked;
+**C3 is next** (hydration tests for the remaining behaviours, e.g. the full-bootstrap
+sequence guard and SSE burst → refresh plans).
+
+## ⭐ The hydration reducer and gate, tested together with out-of-order arrivals (C3, 2026-10-22)
+
+C1's tests checked the status reducer one call at a time and C2's checked one gate decision
+at a time. Neither proved the two compose into what a user sees — and the original bugs
+were exactly ORDERING bugs, which unit calls in a comfortable sequence cannot catch. C3
+adds `tests/hydrationFlow.test.ts`: eight scenarios that drive both modules in App's order
+(begin → decide → apply/error/settle) and resolve the stamped requests out of order.
+
+- **A small harness, not a copy of App.** `HydrationHarness` holds the reducer state, the
+`SliceRequestGate`, the current scope and an `applied` log of what would be painted; its
+methods follow the contract App's `fetchBootstrapSlice` implements, which
+`bootstrapSlices.test.ts` pins. The scenarios therefore exercise the real reducer and
+real gate, with arrival order controlled by the test instead of the network.
+- **Scenarios:** bootstrap then a slower older slice payload (discarded, stays on v100);
+branch switch with the old response arriving both before the new request (stale-scope) and
+after it (superseded), asserting the new view's rows are the only ones painted; two bursts
+for one key where the earlier response is superseded and must not paint; the full
+failure → notice → dismissal → same failure quiet → success clears lifecycle; a failure
+from an abandoned view never raising a notice in the new one; per-key version monotonicity
+with equal versions still applying; a deferred ledger error surviving a full bootstrap
+that does not carry it; and discarded-request settlement in all three prior states
+(idle, ready-with-version, retained error).
+
+Tests: `tests/hydrationFlow.test.ts` (8). Existing source guards (`bootstrapTrim`,
+`registerRefreshDomains`, and the C1/C2 wiring pins) still pass unchanged; C4 (the optional
+single hydration entry point) remains parked, and A/B are untouched.
+
+Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 971 tests,
+969 pass, 0 fail, 2 skipped; docs-count gate green at 971. Backlog C3 ticked.
+Next stop point: **A1** (memoize kept-mounted screens) unless C4 is chosen deliberately.
+
+## ⭐ Kept-mounted screens stop re-rendering on unrelated root state (A1, 2026-10-23)
+
+The keep-mounted container (2026-10-05) stopped tab switches from REMOUNTING screens, but
+App rebuilds every tab element on every render — a keystroke in the global search box was
+enough — so React re-rendered every screen the user had ever opened, hidden tabs included.
+A1 fixes that at the container boundary instead of rewriting the 3,294-line root.
+
+- **`client/src/utils/screenElementMemo.ts`** — one slot cache per `KeepMounted` instance. A
+slot returns the *identical element object* while the screen's type and shallow-equal props
+are unchanged; React then bails out of that subtree (`prevChild === nextChild`). Any real
+data change is a new value, so the screen re-renders exactly as before.
+- **Callbacks are proxied, not compared.** App defines its handlers inline, so their identity
+changes on every render — comparing them would disable the cache entirely. Each function prop
+becomes a stable proxy that forwards to the newest closure: the element keeps its identity
+and a click still runs against current state (no stale props). Pinned by the
+"newest closure" test.
+- **Lazy tabs:** a `React.Suspense` wrapper is rebuilt (its `fallback` element is fresh each
+render) but its child screen is the memoised element, so the screen subtree still bails out.
+- **No App.tsx change:** all 67 tabs already render through `<KeepMounted>`, which is where
+the cache lives. A guard asserts the tab count and that every tab's child is an element
+(directly, or one Suspense deep) — the shape the cache can address.
+
+Measured, not inferred from source text: `tests/harness/{dom,mount,keepMountedProbe}` mount
+the same probe tree twice — once through the pre-A1 container (`{everVisible ? children :
+null}`), once through the shipped one — and count **screen body executions** in a real
+`react-dom` render (jsdom). Ten keystrokes after visiting all four tabs: **40 screen renders
+before, 10 after**; the only screen that still re-renders is the one consuming the query.
+Tab switching produces identical render counts in both modes, `useActivationKey` still ticks
+on re-activation (2 on the second activation), and a rows change still reaches all four
+screens.
+
+Tests: `tests/screenElementMemo.test.ts` (14) + `tests/keepMountedRenderCount.test.ts` (9).
+Two devDependencies: `jsdom` + `@types/jsdom` (the measurement needs a real DOM — this is the
+first piece of the A6 harness, not a runtime dependency).
+
+Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 999 tests,
+997 pass, 0 fail, 2 skipped; docs-count gate green at 999. Backlog A1 ticked.
+Next stop point: **A2** (move shell-only UI state out of the data tree), then A6 before A3/A4.
+
 

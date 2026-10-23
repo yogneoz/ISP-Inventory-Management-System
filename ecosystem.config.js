@@ -3,8 +3,10 @@ module.exports = {
     {
       name: 'enterprise-erp',
       script: 'dist/server.cjs',
-      // Runtime sessions, caches, and SSE clients are process-local. Run one
-      // worker until those concerns are moved to shared infrastructure.
+      // ONE worker, in fork mode, by design: operational caches, SSE fan-out
+      // and the rate-limit buckets are process-local. Do not raise this until
+      // they are shared — README.md, "Single process only (do not raise
+      // `instances`)", lists what must move first.
       instances: 1,
       exec_mode: 'fork',
       env: {

@@ -80,7 +80,8 @@ A full-featured enterprise inventory tracking, physical stock audit, and multi-b
 │   │   └── index.ts                  # Shared TypeScript interfaces
 │   ├── utils/                        # BS/AD calendar, depreciation, document numbering,
 │   │                                 # permissions matrix data, session cache, currency formatting
-│   └── App.tsx                       # Root application shell (state, routing, SSE)
+│   └── App.tsx                       # Root application component (data state, routing, SSE;
+│                                     #   chrome + its UI state live in components/layout/AppShell)
 │
 ├── server/
 │   ├── db.ts                         # PostgreSQL pool (DATE columns parsed as 'YYYY-MM-DD')
@@ -176,8 +177,10 @@ POSTGRES_DB="inventory_db"
 POSTGRES_USER="inventory_user"
 POSTGRES_PASSWORD="<YOUR_DB_PASSWORD>"
 
-# Security (all optional — safe defaults apply when unset)
-AUTH_TOKEN_SECRET=<long-random-string>   # persistent HMAC secret for login tokens
+# Security (AUTH_TOKEN_SECRET is REQUIRED in production — the server refuses to
+# start with a missing, template or <32-character value; dev/test fall back to an
+# ephemeral secret and log a warning)
+AUTH_TOKEN_SECRET=<long-random-string>   # persistent HMAC secret for login tokens (32+ chars)
 AUTH_RATE_LIMIT_MAX=10                   # login/forgot-password attempts per window
 AUTH_RATE_LIMIT_WINDOW_MS=900000         # 15 minutes
 JSON_BODY_LIMIT=25mb                     # express.json limit (default 1mb)
@@ -392,6 +395,35 @@ sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -
 
 ---
 
+### Single process only (do not raise `instances`)
+
+`ecosystem.config.js` runs **one** worker (`instances: 1`, `exec_mode: 'fork'`), and that is a
+correctness requirement, not a small-server default. The process keeps state that is not shared:
+
+| Process-local state | Where | What a second worker would break |
+|---|---|---|
+| Operational read caches (products, stock, documents, permission matrix) | `server/src/state/runtimeState.ts` | Each worker hydrates at boot and refreshes **only after its own committed write**. A write handled by the other worker leaves this one serving stale rows — a saved invoice stays invisible, a permission change does not take effect. |
+| SSE fan-out (`sseClients`, `dataVersion`) | `server/src/realtime/sse.ts` | A change handled by worker A is broadcast only to clients connected to A. Screens on B keep their old view until a manual reload, with no error to explain it. |
+| Login/SSE rate-limit buckets and the per-address SSE stream cap | `server/src/middleware/authRateLimit.ts`, `server/src/middleware/sseRateLimit.ts` | Every worker counts separately, so `N` workers silently multiply `AUTH_RATE_LIMIT_MAX` and `SSE_MAX_CONNECTIONS_PER_IP` by `N`. |
+
+Already shared and safe to duplicate: the PostgreSQL data, document numbering and audit writes
+(single DB transactions), and the **one** `AUTH_TOKEN_SECRET` — every worker must read the same value,
+which is exactly what Step 2 above makes mandatory in production.
+
+Before running `instances: 2` (or more than one container), move the three concerns to shared
+infrastructure:
+
+1. **Operational caches** to a shared store invalidated on write (Redis or similar), or read per request.
+2. **SSE fan-out** to publish/subscribe — the write loop inside `broadcastChange` is the only place that has to change.
+3. **Rate-limit and connection buckets** to the same shared store, so a limit stays per-user instead of per-worker.
+
+Also keep long-lived streams alive in the proxy: `proxy_read_timeout` above the 25 s SSE keep-alive and
+no response buffering, otherwise clients on the second worker reconnect in a loop.
+
+Background and the recorded decision: [`docs/architecture-backlog.md`](docs/architecture-backlog.md#d3-document-the-single-instance-constraint).
+
+---
+
 ### Step 5: Configure Nginx Reverse Proxy & SSL
 
 1. Create Nginx site configuration:
@@ -449,6 +481,11 @@ docker run -d \
   --env-file .env \
   inventory-erp:latest
 ```
+
+> The image runs with `NODE_ENV=production`, so the container **exits on start**
+> unless the env file has a real `AUTH_TOKEN_SECRET` (32+ characters, not the
+> `.env.example` placeholder). Check `docker logs inventory-erp-app` if it will
+> not stay up.
 
 ---
 
@@ -614,7 +651,17 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   switch either: each self-fetching screen fetches on its FIRST activation
   and then stays mounted, and all 11 opt in to a refetch on every tab
   re-activation via `useActivationKey(tabKey)` in their fetch effect's deps
-  (pinned by the MOUNT_REFETCH_ACTIVATION_TABS guard).
+  (pinned by the MOUNT_REFETCH_ACTIVATION_TABS guard). The container also
+  memoises each tab's element (A1, `utils/screenElementMemo.ts`): when a root
+  render leaves a screen's inputs unchanged, React receives the same element
+  object and skips that screen — measured at 40 → 10 screen renders for ten
+  keystrokes with four tabs open (tests/keepMountedRenderCount.test.ts).
+  The shell's own UI state — sidebar, barcode/search overlays, notification
+  panel, profile modal, dismissed ids and the keyboard shortcuts that open them —
+  lives in `components/layout/AppShell.tsx`, not the root (A2): App hands it the
+  workspace `<main>` and the bootstrap banners as elements, so a shell state
+  change re-renders the shell and leaves the tab tree untouched — measured at
+  1 workspace render for every shell interaction (tests/appShellRenderCount.test.ts).
 - **Counts stay honest** — `npm test` ends with a docs-count gate
   (`scripts/docsTestCounts.ts`): every current-state test-count claim in this
   README, handoff.md and SESSION_NOTES.md must equal the run's real suite
@@ -656,7 +703,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 932-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 999-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

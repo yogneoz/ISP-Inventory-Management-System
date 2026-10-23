@@ -5,9 +5,13 @@ import type { User } from '../../../client/src/types';
 
 const PASSWORD_HASH_PREFIX = 'scrypt$';
 const AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
-if (!process.env.AUTH_TOKEN_SECRET) {
+// Warn only where the fallback is legitimate. Production never reaches a served
+// request on this secret: server/index.ts refuses to boot (boot/authSecret.ts)
+// with a FATAL line, so warning here too would claim the process is "using" a
+// secret it is about to die over.
+if (!process.env.AUTH_TOKEN_SECRET && process.env.NODE_ENV !== 'production') {
   console.warn(
-    '⚠️  AUTH_TOKEN_SECRET is not set — using an ephemeral in-memory secret. All login tokens will be invalidated on every server restart and multi-instance deployments will not work. Set a persistent AUTH_TOKEN_SECRET in your .env to avoid this.'
+    '⚠️  AUTH_TOKEN_SECRET is not set — using an ephemeral in-memory secret. All login tokens will be invalidated on every server restart and multi-instance deployments will not work. Set a persistent AUTH_TOKEN_SECRET in your .env to avoid this. Production refuses to start without one (see server/src/boot/authSecret.ts).'
   );
 }
 const AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60;

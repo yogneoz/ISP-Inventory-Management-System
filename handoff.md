@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 932 tests; CI runs
+                                        #   drift/concurrency guards — 999 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -235,14 +235,9 @@ ISP-Inventory-Management-System/
                                         #   real-signal checks, so CI is skip-free.
 │
 ├── src/
-│   ├── App.tsx                        # Root React component (~2,200 lines)
-│   │   ├── All state management (useState hooks)
-│   │   ├── All action handlers (CRUD callbacks)
-│   │   ├── Tab routing / navigation
-│   │   ├── SSE subscription
-│   │   ├── Bootstrap data hydration
-│   │   ├── Keyboard shortcuts (Alt+B, Alt+S, Alt+D, Alt+H)
-│   │   └── Badge calculations (low stock, pending POs, in-transit)
+│   ├── App.tsx                        # Root React component: data state, CRUD handlers,
+│   │   │                             #   tab routing, SSE subscription, bootstrap hydration
+│   │   │                             #   (shell chrome moved to AppShell since A2)
 │   │
 │   ├── main.tsx                       # ReactDOM.createRoot entry point
 │   ├── index.css                      # Tailwind CSS v4 import + custom CSS vars
@@ -298,6 +293,9 @@ ISP-Inventory-Management-System/
 │   │
 │   ├── components/
 │   │   ├── layout/
+│   │   │   ├── AppShell.tsx           # Chrome + its own state (sidebar, modals, notifications,
+│   │   │   │                          #   dismissed ids, shortcuts); renders App's workspace
+│   │   │   │                          #   element unchanged, so shell UI never re-renders tabs
 │   │   │   ├── Header.tsx             # Top bar: profile switch, notifications, date mode, search
 │   │   │   └── Sidebar.tsx            # Left navigation rail with 25+ menu items
 │   │   │
@@ -609,7 +607,7 @@ The server registers ~130 routes. The most important ones:
 
 - **Password hashing**: `scrypt` with random 16-byte salt → stored as `scrypt$<salt>$<derived_key_hex>`
 - **Token**: Custom HMAC-signed JWT-like token (not a JWT library), **8-hour TTL** (`AUTH_TOKEN_TTL_SECONDS = 8 * 60 * 60`)
-- **Signing secret**: `AUTH_TOKEN_SECRET` env var. Nothing generates-or-persists one for you: with the variable unset the module falls back to a per-process `crypto.randomBytes(32)` secret and logs a warning, so **every restart invalidates all login tokens and a second instance cannot verify the first instance's tokens**. Set it in `.env` for any real install (`.env.example` documents it). CI sets a test-only value for the same reason the warning exists at all — see §15.11.
+- **Signing secret**: `AUTH_TOKEN_SECRET` env var. **Production refuses to boot without a usable one** (`server/src/boot/authSecret.ts`, wired in `server/index.ts` before the database connects): missing/blank, the `.env.example` template value, or anything under 32 characters exits 1 with a generation command. Outside production the module still falls back to a per-process `crypto.randomBytes(32)` secret and logs a warning, so **every restart invalidates all login tokens and a second instance cannot verify the first instance's tokens** — fine for `tsx watch`, never for a real install. `.env.example` documents it; CI sets a test-only value — see §15.11.
 - **Plaintext fallback**: Legacy plaintext passwords are auto-upgraded to scrypt on successful login
 - **Login rate limiting**: `createAuthRateLimit` (middleware/authRateLimit.ts) guards `/api/auth/login` and `/api/auth/forgot-password` with two sliding-window buckets — per-IP (counts all attempts) and a GLOBAL per-account bucket counting only failures (a successful login revokes its own hit, so attackers cannot lock accounts out). 429 + `Retry-After` when either bucket fills; configured via `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_DISABLED`; fails open if the limiter itself errors
 
@@ -951,9 +949,9 @@ calculateFixedAssetValues({
 # Server
 PORT=3000
 NODE_ENV=development
-AUTH_TOKEN_SECRET=<long-random-string>   # REQUIRED for real installs: without it the
-                                         # secret is per-process and random, so every
-                                         # restart invalidates all login tokens
+AUTH_TOKEN_SECRET=<long-random-string>   # REQUIRED in production (32+ chars): the server
+                                         # exits rather than start without it, because an
+                                         # ephemeral secret logs everyone out on restart
 
 # PostgreSQL
 DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
@@ -1065,6 +1063,23 @@ the drain mid-response. A failed boot, an uncaught exception and an unhandled re
 through the same path, with the reason written synchronously to fd 2 (pm2/docker log pipes are
 async, so an unflushed write can be lost). In development a runtime fatality is logged and the
 process keeps serving, because `tsx watch` does not restart a crashed child.
+
+#### One process, by design (backlog D3)
+
+`instances: 1` with `exec_mode: 'fork'` is a correctness requirement, not a small-server
+default. Three pieces of state live inside the process and are not shared: the operational
+caches (`server/src/state/runtimeState.ts`) hydrate at boot and refresh after **this process's**
+committed writes only; SSE fan-out (`server/src/realtime/sse.ts`) reaches only the clients
+connected to the worker that handled the change; and the login/SSE rate-limit buckets plus the
+per-address stream cap (`authRateLimit.ts`, `sseRateLimit.ts`) count per process, so N workers
+silently multiply the configured limit by N. PostgreSQL data, document numbering and audit
+writes are shared and safe to duplicate, and every worker must read the same
+`AUTH_TOKEN_SECRET` — the production boot check above makes that mandatory. Before
+`instances: 2`, move the caches to a shared store, the write loop in `broadcastChange` to
+pub/sub, and the limiters to the same store, and keep `proxy_read_timeout` above the 25 s SSE
+keep-alive. Deployer-facing text: [README — Single process only (do not raise
+`instances`)](README.md#single-process-only-do-not-raise-instances); rationale:
+[docs/architecture-backlog.md — D3](docs/architecture-backlog.md#d3-document-the-single-instance-constraint).
 
 ### 14.3 Database Setup Options
 
@@ -1211,7 +1226,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 932 tests against a real PostgreSQL 16 service container
+2. `npm test` — 999 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1303,6 +1318,11 @@ so any unwired new fetch fails the suite instead of shipping:
   `useActivationKey(tabKey)` in their fetch effect's deps (screen → tab key
   pinned by the MOUNT_REFETCH_ACTIVATION_TABS guard), and they may not grow
   partial register wiring without a full `DOMAIN_REGISTER_KEYS` decision.
+  Since A1 (2026-10-23) the container also memoises each tab's element
+  (`client/src/utils/screenElementMemo.ts`): a root render that leaves a
+  screen's inputs untouched hands React the same element object, so that
+  screen is skipped instead of re-rendered. Function props are proxied to
+  their newest closure, so memoisation can never serve stale handlers.
 - **Audit footnote (closed)** — SalesInvoices.tsx and ReturnsRegister.tsx now fetch their own
   server-paged rows (`getSalesInvoices` / `getPurchaseReturns` + `getSalesReturns`) and are
   pinned as SSE-wired registers: exact surface, effect deps carrying the refresh key, and
@@ -1474,10 +1494,104 @@ proves the read including the branch and permission refusals, and
 `tests/registerRefreshDomains.test.ts` pins `getAuditTrail` as the screen's only
 server call.
 
-Verification: `npx tsc --noEmit` clean; full suite **932 tests, 930 pass, 0 fail, 2 skipped**
-(the two pre-existing Windows-only real-signal checks); docs-count gate green.
+**Follow-up (2026-10-21): production refuses an ephemeral auth secret (backlog D1/D2).**
+The signing secret had no enforcement: unset `AUTH_TOKEN_SECRET` meant a random
+per-process key and only a stdout warning, so every pm2 restart (1 GB threshold)
+logged everyone out. `server/src/boot/authSecret.ts` now requires a non-blank,
+non-template, 32+ character secret in production; `server/index.ts` runs it before
+`startServer()` and exits 1 through `failBoot` with the generation command, before
+any database connection or listen. Development/test keep the fallback. Docs
+(`.env.example`, README, the auth section above) now mark the variable REQUIRED.
+`tests/authSecretGuard.test.ts` proves the rules and a real production boot;
+`tests/bootFailureExit.test.ts` supplies a valid secret so it still exercises the
+database failure it is about, and `scripts/verify_fresh_install.mjs` does the same
+for its production boot probe. The Dockerfile and README Docker block warn that
+the container exits on start without a real secret.
+
+**Follow-up (2026-10-22): per-slice bootstrap status (backlog C1).**
+A deferred ledger fetch and every SSE-targeted slice refresh used to end in
+`.catch(() => null)`, and GET failures are not toasted, so a failed refresh looked
+identical to loading and to a genuinely empty ledger. `client/src/services/bootstrapSlices.ts`
+now tracks per key `idle / loading / ready / error`, the `dataVersion` whose rows are still
+on screen, the error, and a per-error dismissal. Both hydration paths share App's
+`fetchBootstrapSlice`, so they cannot drift; the full bootstrap marks ready only the keys
+its payload carried (the three deferred ledgers are not in it) and the cache pre-hydration
+marks nothing. `BootstrapSliceNotice` renders all undismissed failures as ONE amber,
+dismissible banner with one Retry (current branch/FY, spins while in flight) — never a
+toast per slice. C3 (broader coverage) remains open under C in
+`docs/architecture-backlog.md`.
+
+**Follow-up (2026-10-22): stale slice responses are discarded (backlog C2).**
+`SliceRequestGate` stamps every slice request with `key + branchId|fiscalYearId + seq`.
+Before a payload paints, `decide` returns `apply`, `superseded` (a newer request for the
+key owns its status), `stale-scope` (the user left that branch/FY mid-flight) or
+`older-version` (same view, but older than the version last applied for that key). The
+full bootstrap now records its version for every key it carried, so a targeted request
+that started before it cannot overwrite newer rows. Discarded responses settle the
+`loading` flag instead of spinning or raising the notice; a failure from a view the user
+left never becomes an error in the current view. Tests: `tests/bootstrapSlices.test.ts`
+(19 total, 9 for the gate + wiring). Live check: a delayed ALL-branch `stock` response
+arriving after switching to BRH01 left BRH01's 15 rows (not ALL's 16) on screen, with no
+notice.
+
+**Follow-up (2026-10-22): hydration tests across the reducer and the gate (backlog C3).**
+`tests/hydrationFlow.test.ts` (8 scenarios) drives the C1 status reducer and the C2
+`SliceRequestGate` together in App's order, resolving stamped requests out of order: a
+bootstrap followed by a slower older slice payload; branch switches where the old response
+arrives both before and after the new view's request; supersession by a second burst;
+failure → one notice → dismissal → same failure quiet → success clears; a failure from an
+abandoned view never raising a notice; per-key version monotonicity (equal applies); a
+deferred ledger error surviving a full bootstrap that does not carry it; and settlement of
+discarded requests in every prior state. The harness mirrors `fetchBootstrapSlice`; App's
+ordering stays pinned by the wiring assertions in `tests/bootstrapSlices.test.ts`.
+
+Verification: `npx tsc --noEmit` clean; full suite **971 tests, 969 pass, 0 fail, 2 skipped**
+(the two pre-existing Windows-only real-signal checks); `npm run build` green; docs-count
+gate green.
 Residual: Slice 5 — demoting the boot serial backfill to a maintenance action —
 remains open.
+
+**Follow-up (2026-10-23): memoised kept-mounted screens (backlog A1).**
+Keep-mounted tabs survived a switch, but App rebuilt every tab element on every root render,
+so any state change — a keystroke in the global search box — re-rendered every screen the
+user had opened, hidden ones included. `client/src/utils/screenElementMemo.ts` now caches one
+element per tab slot inside `KeepMounted` and returns the *identical* element object while the
+screen's type and shallow-equal props are unchanged; React then bails out of that subtree. A
+changed data prop is a new value, so it always produces a new element (and a re-render).
+Inline handlers — new function identities every render — are the reason a naive `React.memo`
+would buy nothing here; each function prop is replaced by a stable proxy that forwards to the
+newest closure, so the cache works and a click still runs against current state. Suspense
+(lazy) tabs are handled by memoising the child screen and rebuilding only the wrapper. No
+App.tsx change was needed: all 67 tabs already render through `KeepMounted`.
+Measured with a real jsdom + `react-dom` render (`tests/harness/`), same probe tree through
+the pre-A1 container and the new one: 10 keystrokes after visiting four tabs = **40 screen
+renders before, 10 after**; tab-switch counts are identical in both modes and
+`useActivationKey` still ticks on re-activation.
+
+Verification: `npx tsc --noEmit` clean; full suite **999 tests, 997 pass, 0 fail, 2 skipped**;
+`npm run build` green; docs-count gate green. Tests: `tests/screenElementMemo.test.ts` (14),
+`tests/keepMountedRenderCount.test.ts` (9). New devDependencies: `jsdom`, `@types/jsdom`
+(first piece of the A6 harness).
+
+**Follow-up (2026-10-23): the shell owns its own UI state (backlog A2).**
+The sidebar, barcode scanner, global search, notification panel, profile modal and
+dismissed-notification ids were root state, so toggling any of them re-rendered App and rebuilt
+every tab element. They now live in `client/src/components/layout/AppShell.tsx`, which App
+renders with its data props, the bootstrap banners and the workspace `<main>` as *elements*:
+a shell state change re-renders the shell only, and React hands the unchanged workspace element
+to the tab tree (where A1 skips the screens). The badge counts moved with the dismissed ids they
+read; Help Documentation now asks the shell to open the scanner through
+`contexts/ShellOverlayContext.tsx` (memoised value, no-op default) instead of receiving a setter,
+and the keyboard shortcuts moved with the overlays they open, guards included.
+Measured with the same jsdom harness around the REAL shell: sidebar toggle, search overlay,
+notification panel, Alt+B, Alt+H and Ctrl+K leave the workspace at **1 render** (the mount)
+while the DOM reacts; a data change still produces a render and the new rows.
+Escape now closes the overlay that was opened LAST — search, notification drawer, profile
+modal or barcode scanner — while leaving an older overlay underneath for the next press. The
+help cheat sheet already promised "Esc — Close Active Modal or Dropdown" and none of the four
+implemented it; the handler sits before the typing guard so it works from inside the search
+input. The header's account menu is a dropdown rather than a shell overlay, so it closes itself:
+`Header` binds an Escape listener only while the menu is open.
 
 ---
 

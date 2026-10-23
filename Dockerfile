@@ -18,6 +18,9 @@ FROM node:24-alpine AS runner
 
 WORKDIR /app
 
+# Production refuses to start without a usable AUTH_TOKEN_SECRET (32+ chars,
+# not the .env.example placeholder) — supply it at run time, e.g.
+# `docker run --env-file .env` with a real value in that file.
 ENV NODE_ENV=production
 ENV PORT=3000
 

@@ -39,8 +39,8 @@ import {
   clearRecentBootstrapCache,
   BOOTSTRAP_CACHE_MAX_AGE_MS,
 } from './utils/sessionCache';
-import { Header } from './components/layout/Header';
-import { Sidebar, NavTab, NAV_TABS } from './components/layout/Sidebar';
+import { AppShell } from './components/layout/AppShell';
+import { NavTab, NAV_TABS } from './components/layout/Sidebar';
 import { isOperationAllowed } from './utils/permissions';
 import {
   DOMAIN_REGISTER_KEYS,
@@ -49,8 +49,6 @@ import {
   type RegisterRefreshKey,
 } from './utils/registerRefreshDomains';
 import { LoginModal } from './components/common/LoginModal';
-import { ToastHost } from './components/common/ToastHost';
-import { ProfileSwitchModal } from './components/common/ProfileSwitchModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
 import { BranchStockTracking } from './features/inventory/BranchStockTracking';
@@ -181,15 +179,12 @@ const ACTIVE_TAB_STORAGE_KEY = 'inventory_active_tab';
 import { SuppliersManagement } from './features/procurement/SuppliersManagement';
 import { UsersManagement } from './features/settings/UsersManagement';
 import { PermissionManagement } from './features/settings/PermissionManagement';
-import { NotificationCenter } from './components/common/NotificationCenter';
 const ApprovalWorkflowCenter = React.lazy(() =>
   import('./features/settings/ApprovalWorkflowCenter').then((m) => ({ default: m.ApprovalWorkflowCenter }))
 );
 const HelpDocumentationLazy = React.lazy(() =>
   import('./components/common/HelpDocumentation').then((m) => ({ default: m.HelpDocumentation }))
 );
-import { BarcodeScannerModal } from './components/common/BarcodeScannerModal';
-import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { DatabaseSetupBanner } from './components/common/DatabaseSetupBanner';
 import { BootstrapBlockedBanner } from './components/common/BootstrapBlockedBanner';
 import { setCurrencyConfig } from './utils/nprFormat';
@@ -208,6 +203,20 @@ function TabLoadingFallback() {
     </div>
   );
 }
+import {
+  beginSliceLoad,
+  dismissSliceErrors,
+  failedSliceKeys,
+  isAnySliceLoading,
+  markSliceError,
+  markSlicesReady,
+  settleSliceDiscarded,
+  sliceScopeKey,
+  visibleSliceErrors,
+  SliceRequestGate,
+  type BootstrapSliceState,
+} from './services/bootstrapSlices';
+import { BootstrapSliceNotice } from './components/common/BootstrapSliceNotice';
 import { applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
 
@@ -369,13 +378,6 @@ export default function App() {
   );
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
-  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
-  const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  /** Whether the sidebar's secondary submenu flyout panel is expanded (desktop push-mode). */
 
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
@@ -411,7 +413,6 @@ export default function App() {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
       if (!tab || !canAccessTabRef.current(tab as NavTab)) return;
       setActiveTab(tab as NavTab);
-      setIsNotificationOpen(false);
     };
     window.addEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
     return () => window.removeEventListener(NAVIGATE_TAB_EVENT, handleNavigateTab);
@@ -567,8 +568,24 @@ export default function App() {
     noCurrentFiscalYear?: boolean;
   } | null>(null);
 
-  // Hydrate state from recent cache for instant 0ms load speed
-  const applyBootstrapData = (data: any) => {
+  // C1/C2 hydration bookkeeping: the per-slice status table and the request
+  // gate that stamps every slice fetch with its view (branch|FY) and sequence.
+  const [sliceState, setSliceState] = useState<BootstrapSliceState>({});
+  const sliceGateRef = useRef(new SliceRequestGate());
+
+  // Hydrate state from recent cache for instant 0ms load speed.
+  //
+  // C1: a payload proves only what it CARRIED -- a full bootstrap marks ready the
+  // keys it contains (the three deferred ledgers are not in it, so their error
+  // state survives until their own fetch succeeds), while the instant cache
+  // pre-hydration passes `fromCache` and marks nothing: a snapshot is display
+  // data, never proof of freshness. C2: the payload's version is recorded per
+  // key too, so a targeted slice request that started before this payload and
+  // returns after it cannot overwrite newer rows.
+  const applyBootstrapData = (
+    data: any,
+    options: { fromCache?: boolean; dataVersion?: number } = {}
+  ) => {
     if (data.branches) setBranches(data.branches);
     if (data.products) setProducts(data.products);
     if (data.stock) setStock(data.stock);
@@ -615,6 +632,13 @@ export default function App() {
         })
         .catch(() => undefined);
     }
+    if (!options.fromCache) {
+      const keys = Object.keys(data).filter(
+        (key) => key !== 'dataVersion' && key !== 'serverTime' && key !== 'postgresDatabaseStatus'
+      );
+      setSliceState((prev) => markSlicesReady(prev, keys, options.dataVersion));
+      sliceGateRef.current.noteApplied(keys, options.dataVersion);
+    }
   };
 
   // Apply the active currency configuration from the company profile so every
@@ -629,17 +653,64 @@ export default function App() {
   // their data with identical freshness while first paint gets a lighter
   // payload. The self-fetching registers don't need these slices at all.
   const DEFERRED_BOOTSTRAP_SLICES = ['stockOperations', 'purchaseOrders', 'purchaseInvoices'];
+  /**
+   * One loader for both hydration paths (C1): the deferred ledgers below and the
+   * SSE targeted refresh both report through here, so a failure behaves
+   * identically wherever the refetch came from. Before any payload paints, the
+   * C2 gate decides whether it still belongs to the current view and whether it
+   * is older than what that key already shows.
+   */
+  const fetchBootstrapSlice = async (key: string, branchId?: string, fiscalYearId?: string) => {
+    const currentScope = () =>
+      sliceScopeKey(syncScopeRef.current.branchId, syncScopeRef.current.fiscalYearId);
+    const request = sliceGateRef.current.begin(key, sliceScopeKey(branchId, fiscalYearId));
+    setSliceState((prev) => beginSliceLoad(prev, key));
+    try {
+      const res = await api.getLocalFor(key, branchId, fiscalYearId);
+      const verdict = sliceGateRef.current.decide(request, currentScope(), res.dataVersion);
+      if (verdict === 'superseded') return; // a newer request owns this key's status
+      if (verdict !== 'apply') {
+        // The user left this view, or the response is older than the rows on
+        // screen: discard it, but settle the `loading` flag it set.
+        setSliceState((prev) => settleSliceDiscarded(prev, key));
+        return;
+      }
+      if (res.slice !== undefined) {
+        applyBootstrapData({ [key]: res.slice });
+        setSliceState((prev) => markSlicesReady(prev, [key], res.dataVersion));
+        if (typeof res.dataVersion === 'number') serverDataVersionRef.current = res.dataVersion;
+      } else {
+        // The server does not serve this key: nothing was proven, nothing failed.
+        setSliceState((prev) => settleSliceDiscarded(prev, key));
+      }
+    } catch (err: any) {
+      const verdict = sliceGateRef.current.decide(request, currentScope());
+      if (verdict === 'superseded') return;
+      if (verdict !== 'apply') {
+        // A failure from a view the user already left is not news about the
+        // current view: settle it and never raise the notice.
+        setSliceState((prev) => settleSliceDiscarded(prev, key));
+        return;
+      }
+      setSliceState((prev) =>
+        markSliceError(prev, key, err?.message || 'Could not refresh this data.')
+      );
+    }
+  };
+
   const hydrateDeferredSlices = (branchId?: string, fiscalYearId?: string) => {
     Promise.all(
-      DEFERRED_BOOTSTRAP_SLICES.map((key) =>
-        api
-          .getLocalFor(key, branchId, fiscalYearId)
-          .then((res) => {
-            if (res.slice !== undefined) applyBootstrapData({ [key]: res.slice });
-          })
-          .catch(() => null) // one slice failing must not break the others
-      )
+      DEFERRED_BOOTSTRAP_SLICES.map((key) => fetchBootstrapSlice(key, branchId, fiscalYearId))
     ).catch(() => undefined);
+  };
+
+  // One Retry for every failed slice, for the CURRENT branch/FY (never a stale
+  // captured scope).
+  const retryFailedSlices = () => {
+    const { branchId, fiscalYearId } = syncScopeRef.current;
+    for (const key of failedSliceKeys(sliceState)) {
+      void fetchBootstrapSlice(key, branchId, fiscalYearId);
+    }
   };
 
   const applyCurrencyConfig = (profile: CompanyProfile) => {
@@ -679,7 +750,7 @@ export default function App() {
       mustHaveDataVersion: serverDataVersionRef.current,
     });
     if (cached) {
-      applyBootstrapData(cached);
+      applyBootstrapData(cached, { fromCache: true });
       setLoading(false);
     }
   }, []);
@@ -705,7 +776,7 @@ export default function App() {
       // Discard stale results if the user switched branch/fiscal year in the meantime
       if (requestSeq !== refreshSequenceRef.current) return;
       if (data) {
-        applyBootstrapData(data);
+        applyBootstrapData(data, { dataVersion: data.dataVersion });
         // The refusal is cleared only by a payload that actually arrived.
         setBootstrapBlocked(null);
         // The three ledgers trimmed from the payload load in parallel with
@@ -971,14 +1042,7 @@ export default function App() {
             domains
               .flatMap((d) => DOMAIN_STATE_KEYS[d])
               .filter((key, idx, all) => all.indexOf(key) === idx)
-              .map((key) =>
-                api.getLocalFor(key, branchId, fiscalYearId)
-                  .then((res) => {
-                    if (res.slice !== undefined) applyBootstrapData({ [key]: res.slice });
-                    if (res.dataVersion) serverDataVersionRef.current = res.dataVersion;
-                  })
-                  .catch(() => null) // single-slice failure must not break the others
-              )
+              .map((key) => fetchBootstrapSlice(key, branchId, fiscalYearId))
           ).catch(() => refreshAllDataRef.current());
         } else {
           // Unknown domain or mixed burst: full bootstrap (previous
@@ -1051,42 +1115,6 @@ export default function App() {
       }
     }
   }, [currentUser, activeTab, permissionsVersion]);
-
-  // Global Keyboard Shortcuts (Alt+H for Help, Alt+B for Barcode, Alt+S/Ctrl+K for Search, Alt+D for Date Mode)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const isEditingField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '');
-      if (isEditingField) return;
-      // While inside the Fiscal Year Closing Wizard, global search & barcode
-      // overlays must not be able to open on top of it (focus-hijack guard).
-      const closingWizardActive = activeTab === 'fiscal-year-closing';
-
-      // Alt + H -> In-App Help & Documentation Center
-      if (e.altKey && (e?.key || '').toLowerCase() === 'h') {
-        e.preventDefault();
-        setActiveTab('help-documentation');
-      }
-      // Alt + B -> Barcode Scanner (suppressed while closing wizard is open)
-      if (e.altKey && (e?.key || '').toLowerCase() === 'b') {
-        e.preventDefault();
-        if (!closingWizardActive) setIsBarcodeModalOpen((prev) => !prev);
-      }
-      // Alt + S or Ctrl + K -> Global Search (suppressed while closing wizard is open)
-      if ((e.altKey && (e?.key || '').toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k')) {
-        e.preventDefault();
-        if (!closingWizardActive) setIsGlobalSearchOpen((prev) => !prev);
-      }
-      // Alt + D -> Date Mode Toggle (BS / AD)
-      if (e.altKey && (e?.key || '').toLowerCase() === 'd') {
-        e.preventDefault();
-        handleToggleDateMode();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab]);
 
   // Handle Branch Selection with restriction for branch users
   const handleSelectBranch = (bId: string) => {
@@ -1512,127 +1540,6 @@ export default function App() {
     return result;
   };
 
-  // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
-  const lowStockProducts = products.filter((prod) => {
-    const activeBr =
-      selectedBranchId === 'ALL'
-        ? branches
-        : branches.filter((b) => b.id === selectedBranchId);
-
-    let totalOnHand = 0;
-    let totalConsolidatedReorder = 0;
-    let isAnyBranchLow = false;
-
-    activeBr.forEach((b) => {
-      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
-      const onHand = item ? item.quantityOnHand : 0;
-      totalOnHand += onHand;
-
-      const threshold =
-        item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
-          ? item.minReorderLevel
-          : prod.minReorderLevel;
-      totalConsolidatedReorder += threshold;
-
-      if (threshold > 0 && onHand <= threshold) {
-        isAnyBranchLow = true;
-      } else if (threshold === 0 && onHand < 0) {
-        isAnyBranchLow = true;
-      }
-    });
-
-    return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
-  });
-
-  // Dismissed notification ids shared across the header badge, sidebar badges
-  // and the Notification Center panel, so clearing notifications in the panel
-  // also clears the matching badges/menus elsewhere in the app.
-  const dismissedSet = new Set(dismissedNotificationIds);
-
-  const pendingPoCount = purchaseOrders.filter(
-    (po) => (po.status === 'SENT' || po.status === 'APPROVED') && !dismissedSet.has(`po-${po.id}`)
-  ).length;
-
-  const pendingBillCount = purchaseInvoices.filter(
-    (inv) => inv.paymentStatus !== 'PAID'
-  ).length;
-
-  const activeBranchContext =
-    selectedBranchId && selectedBranchId !== 'ALL'
-      ? selectedBranchId
-      : currentUser?.branchId && currentUser.branchId !== 'ALL'
-      ? currentUser.branchId
-      : 'ALL';
-
-  const pendingPulloutsCount = stockOperations.filter(
-    (op) =>
-      op.type === 'PULLOUT' &&
-      op.status !== 'RECEIVED' &&
-      (activeBranchContext === 'ALL' || op.branchId === activeBranchContext)
-  ).length;
-
-  const inTransitShipmentCount =
-    shipments.filter(
-      (sh) =>
-        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
-        (activeBranchContext === 'ALL' ||
-          sh.destinationBranchId === activeBranchContext ||
-          sh.sourceBranchId === activeBranchContext) &&
-        !dismissedSet.has(`ship-${sh.id}`)
-    ).length + pendingPulloutsCount;
-
-  // Lane-scoped pending counts: each receive station's badge only counts the
-  // shipments that station can actually receive (warehouse lane incl. pending
-  // pullout bins, vs the active branch's inbound transfer lane) instead of
-  // one shared in-transit number shown on every receive nav item.
-  const isWarehouseDestination = (branchId: string) => {
-    const destBranch = branches.find((x) => x.id === branchId);
-    return (
-      branchId === 'WH001' ||
-      Boolean(destBranch?.isHeadquarters || destBranch?.isWarehouse) ||
-      (destBranch?.code || '').toUpperCase().startsWith('WH') ||
-      /warehouse|head office/i.test(destBranch?.name || '')
-    );
-  };
-  const isPendingShipment = (sh: (typeof shipments)[number]) =>
-    (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
-    !dismissedSet.has(`ship-${sh.id}`);
-  const warehouseInboundCount =
-    shipments.filter(
-      (sh) => isPendingShipment(sh) && isWarehouseDestination(sh.destinationBranchId)
-    ).length + pendingPulloutsCount;
-  const branchInboundCount = shipments.filter(
-    (sh) =>
-      isPendingShipment(sh) &&
-      !isWarehouseDestination(sh.destinationBranchId) &&
-      (activeBranchContext === 'ALL' || sh.destinationBranchId === activeBranchContext)
-  ).length;
-
-  const handleDismissNotification = (id: string) => {
-    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-  };
-
-  const handleClearAllNotifications = () => {
-    // Collect every currently active notification id (same ids the
-    // Notification Center generates) and mark them all dismissed.
-    const activeIds: string[] = [
-      ...lowStockProducts.map((prod) => `lowstock-${prod.id}`),
-      ...approvalRequests
-        .filter((r) => r.status === 'PENDING')
-        .map((r) => `appr-${r.id}`),
-      ...shipments
-        .filter((sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED')
-        .map((sh) => `ship-${sh.id}`),
-      ...purchaseOrders
-        .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
-        .map((po) => `po-${po.id}`),
-      // The BS calendar coverage warning is a notification too, so "Clear All"
-      // must dismiss it (otherwise it reappears on the next render).
-      ...(getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']),
-    ];
-    setDismissedNotificationIds((prev) => Array.from(new Set([...prev, ...activeIds])));
-  };
-
   const activeFy =
     resolveDefaultFiscalYear(fiscalYears)?.code || financialSummary.currentFiscalYear;
 
@@ -1683,6 +1590,9 @@ export default function App() {
     setActiveTab('create-po');
   };
 
+  // ONE aggregated notice for every slice whose last refresh failed (C1).
+  const failedSliceErrors = visibleSliceErrors(sliceState);
+
   if (!currentUser) {
     return (
       <div
@@ -1715,1480 +1625,1377 @@ export default function App() {
     ? (todayAD < selectedFiscalYear.startDateAD ? selectedFiscalYear.startDateAD : todayAD)
     : (selectedFiscalYear?.endDateAD || todayAD);
 
+  // Help Documentation links to tabs by their legacy names; the screen no
+  // longer opens the overlays itself — it asks the shell (A2).
+  const handleHelpNavigateTab = (tab: string) => {
+    if (tab === 'users-management' || tab === 'login') {
+      setActiveTab('users');
+    } else {
+      setActiveTab(tab as NavTab);
+    }
+  };
+
   return (
-    <div
-      className={`h-screen w-screen overflow-hidden font-sans flex flex-col antialiased transition-colors duration-200 bg-[#f0f2f5] text-slate-800 dark:bg-[#0a0c10] dark:text-slate-300`}
-    >
-      {/* Top App Header (Fixed at top) */}
-      <Header
-        companyProfile={companyProfile}
-        currentUser={currentUser}
-        rootUser={rootUser}
-        onSwitchBackToRoot={handleSwitchBackToRoot}
-        users={users}
-        onSwitchProfile={handleSwitchProfile}
-        branches={branches}
-        selectedBranchId={selectedBranchId}
-        onSelectBranch={handleSelectBranch}
-        dateMode={dateMode}
-        onToggleDateMode={handleToggleDateMode}
-        currentFiscalYear={activeFy}
-        fiscalYears={fiscalYears}
-        selectedFiscalYearId={selectedFiscalYearId}
-        onSelectFiscalYear={setSelectedFiscalYearId}
-        onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
-        onOpenSearchModal={
-          activeTab === 'fiscal-year-closing' ? undefined : () => setIsGlobalSearchOpen(true)
-        }
-        onLogout={handleLogout}
-        onSwitchUser={handleLogin}
-        onRefreshData={refreshAllData}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
-        onToggleTheme={handleToggleTheme}
-        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-        isSidebarOpen={isSidebarOpen}
-        products={products}
-        stock={stock}
-        approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
-        shipments={shipments}
-        onSelectTab={setActiveTab}
-        onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
-        onOpenProfileModal={() => setIsProfileModalOpen(true)}
-      />
-
-      {/* Direct PostgreSQL Database Setup Notification Banner */}
-      <DatabaseSetupBanner
-        onRefresh={refreshAllData}
-        loading={loading}
-        postgresConfig={{
-          host: postgresStatus.host,
-          port: postgresStatus.port,
-          database: postgresStatus.database,
-          user: postgresStatus.user,
-          isConnected: postgresStatus.isConnected,
-          errorDetails: postgresStatus.errorDetails,
-        }}
-      />
-
-      {/* Refused bootstrap: the server's own reason, not a database alarm. */}
-      {bootstrapBlocked && (
-        <BootstrapBlockedBanner
-          message={bootstrapBlocked.message}
-          status={bootstrapBlocked.status}
-          // A refused-for-want-of-a-fiscal-year bootstrap names its own remedy in
-          // prose; give it the button too, so the block is one click from fixed.
-          action={
-            bootstrapBlocked.noCurrentFiscalYear
-              ? { label: 'Open Fiscal Year Closing Wizard', tab: 'fiscal-year-closing' }
-              : undefined
-          }
-          onRetry={refreshAllData}
-          onDismiss={() => setBootstrapBlocked(null)}
-        />
-      )}
-
-      {/* Main Workspace Layout */}
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Mobile Backdrop */}
-        {isSidebarOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/60 backdrop-blur-xs md:hidden"
-            onClick={() => setIsSidebarOpen(false)}
-          />
-        )}
-
-        {/* Navigation Sidebar (Drawer on Mobile, Static on Desktop) */}
-        <div
-          className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${
-            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
-        >
-          <Sidebar
-            companyProfile={companyProfile}
-            currentUser={currentUser}
-            activeTab={activeTab}
-            onSelectTab={(tab) => {
-              setActiveTab(tab);
-              setIsSidebarOpen(false); // Auto close sidebar on mobile selection
+    <AppShell
+      companyProfile={companyProfile}
+      currentUser={currentUser}
+      rootUser={rootUser}
+      users={users}
+      onSwitchBackToRoot={handleSwitchBackToRoot}
+      onSwitchProfile={handleSwitchProfile}
+      onUpdateProfile={handleUpdateProfile}
+      onLogout={handleLogout}
+      onLogin={handleLogin}
+      refreshAllData={refreshAllData}
+      permissionsVersion={permissionsVersion}
+      onToggleTheme={handleToggleTheme}
+      branches={branches}
+      selectedBranchId={selectedBranchId}
+      onSelectBranch={handleSelectBranch}
+      dateMode={dateMode}
+      onToggleDateMode={handleToggleDateMode}
+      currentFiscalYear={activeFy}
+      fiscalYears={fiscalYears}
+      selectedFiscalYearId={selectedFiscalYearId}
+      onSelectFiscalYear={setSelectedFiscalYearId}
+      activeTab={activeTab}
+      onSelectTab={setActiveTab}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      products={products}
+      stock={stock}
+      purchaseOrders={purchaseOrders}
+      purchaseInvoices={purchaseInvoices}
+      shipments={shipments}
+      stockOperations={stockOperations}
+      approvalRequests={approvalRequests}
+      assets={assets}
+      customerDevices={customerDevices}
+      suppliers={suppliers}
+      bsCalendarCoverage={bsCalendarCoverage}
+      bsCalendarSeedTab={bsCalendarSeedTab}
+      banners={
+        <>
+          {/* Direct PostgreSQL Database Setup Notification Banner */}
+          <DatabaseSetupBanner
+            onRefresh={refreshAllData}
+            loading={loading}
+            postgresConfig={{
+              host: postgresStatus.host,
+              port: postgresStatus.port,
+              database: postgresStatus.database,
+              user: postgresStatus.user,
+              isConnected: postgresStatus.isConnected,
+              errorDetails: postgresStatus.errorDetails,
             }}
-            lowStockCount={lowStockProducts.filter((p) => !dismissedSet.has(`lowstock-${p.id}`)).length}
-            pendingPoCount={pendingPoCount}
-            pendingBillCount={pendingBillCount}
-            inTransitShipmentCount={inTransitShipmentCount}
-            warehouseInboundCount={warehouseInboundCount}
-            branchInboundCount={branchInboundCount}
-            pendingApprovalCount={approvalRequests.filter(
-              (r) => r.status === 'PENDING' && !dismissedSet.has(`appr-${r.id}`)
-            ).length}
-            onCloseMobile={() => setIsSidebarOpen(false)}
-            permissionsVersion={permissionsVersion}
           />
-        </div>
 
-        {/* Main Content Viewport — the sidebar is a static flex column, so the
-            main area always fills the remaining width at a stable size. */}
-        <main
-          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
-        >
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-64 space-y-3">
-              <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
-              <p className="text-xs font-semibold text-slate-400">
-                Synchronizing multi-branch inventory database...
-              </p>
-            </div>
-          ) : (
-            <KeepMountedRoot activeTab={activeTab}>
-              {(visible) => (
-                <>
-              <KeepMounted visible={visible['dashboard'] === true}>
-                <Dashboard
+          {/* Refused bootstrap: the server's own reason, not a database alarm. */}
+          {bootstrapBlocked && (
+            <BootstrapBlockedBanner
+              message={bootstrapBlocked.message}
+              status={bootstrapBlocked.status}
+              // A refused-for-want-of-a-fiscal-year bootstrap names its own remedy in
+              // prose; give it the button too, so the block is one click from fixed.
+              action={
+                bootstrapBlocked.noCurrentFiscalYear
+                  ? { label: 'Open Fiscal Year Closing Wizard', tab: 'fiscal-year-closing' }
+                  : undefined
+              }
+              onRetry={refreshAllData}
+              onDismiss={() => setBootstrapBlocked(null)}
+            />
+          )}
+
+          {/* A failed slice refresh keeps the last good rows on screen and says so
+              once, with a retry — never a toast per slice. */}
+          <BootstrapSliceNotice
+            slices={failedSliceErrors}
+            retrying={isAnySliceLoading(sliceState)}
+            onRetry={retryFailedSlices}
+            onDismiss={() => setSliceState((prev) => dismissSliceErrors(prev))}
+          />
+        </>
+      }
+    >
+      {/* Main Content Viewport — the sidebar is a static flex column, so the
+          main area always fills the remaining width at a stable size. */}
+      <main
+        className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 bg-[#e9ebee] dark:bg-[#0a0c10]`}
+      >
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-64 space-y-3">
+            <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
+            <p className="text-xs font-semibold text-slate-400">
+              Synchronizing multi-branch inventory database...
+            </p>
+          </div>
+        ) : (
+          <KeepMountedRoot activeTab={activeTab}>
+            {(visible) => (
+              <>
+            <KeepMounted visible={visible['dashboard'] === true}>
+              <Dashboard
+                currentUser={currentUser}
+                products={products}
+                stock={stock}
+                branches={branches}
+                assets={assets}
+                purchaseOrders={purchaseOrders}
+                shipments={shipments}
+                transactionLogs={transactionLogs}
+                financialSummary={financialSummary}
+                categories={categories}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                asOfDateAD={assetReportAsOfDateAD}
+                approvalRequests={approvalRequests}
+                onProcessApproval={handleProcessApprovalRequest}
+                onNavigateTab={setActiveTab}
+                onSelectBranch={handleSelectBranch}
+                onGroupLowStockPO={handleGroupLowStockPO}
+                onUpdateStockLevel={handleUpdateStockLevel}
+                bsCalendarCoverage={bsCalendarCoverage}
+                bsCalendarSeedTab={bsCalendarSeedTab}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['approvals'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ApprovalWorkflowCenter
+                  approvalRequests={approvalRequests}
+                  branches={branches}
+                  currentUser={currentUser}
+                  dateMode={dateMode}
+                  onProcessApproval={handleProcessApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                  onNavigateToStockAudit={(branchId) => {
+                    if (branchId && branchId !== 'ALL') {
+                      setSelectedBranchId(branchId);
+                    }
+                    setActiveTab('physical-stock-audit');
+                  }}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['all-stock'] === true}>
+              <ProductManagement
+                currentUser={currentUser}
+                stock={stock}
+                selectedBranchId={selectedBranchId}
+                onCreateProduct={handleCreateProduct}
+                onUpdateProduct={handleUpdateProduct}
+                onDeleteProduct={handleDeleteProduct}
+                searchQuery={searchQuery}
+                mode="all-stock"
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['product-master'] === true}>
+              <ProductManagement
+                currentUser={currentUser}
+                stock={stock}
+                selectedBranchId={selectedBranchId}
+                onCreateProduct={handleCreateProduct}
+                onUpdateProduct={handleUpdateProduct}
+                onDeleteProduct={handleDeleteProduct}
+                searchQuery={searchQuery}
+                mode="product-master"
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['opening-stock'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <OpeningStockManager
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  products={products}
+                  onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['category-management'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <CategoryManagement
                   currentUser={currentUser}
                   products={products}
-                  stock={stock}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['uom-management'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <UomManagement
+                  currentUser={currentUser}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['import-stock'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ImportStock
                   branches={branches}
-                  assets={assets}
-                  purchaseOrders={purchaseOrders}
-                  shipments={shipments}
-                  transactionLogs={transactionLogs}
-                  financialSummary={financialSummary}
-                  categories={categories}
+                  products={products}
+                  onCreateProduct={handleCreateProduct}
+                  onRefreshData={refreshAllData}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['export-stock'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ExportStock
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  asOfDateAD={assetReportAsOfDateAD}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['branch-stock'] === true}>
+              <BranchStockTracking
+                currentUser={currentUser}
+                products={products}
+                branches={branches}
+                stock={stock}
+                selectedBranchId={selectedBranchId}
+                onUpdateStockLevel={handleUpdateStockLevel}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['reorder-stock'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ReorderStockTracking
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
+                  onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
+                  onGroupLowStockPO={handleGroupLowStockPO}
+                  onNavigateTab={setActiveTab}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['damaged-stock'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <DamagedStockTracking
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  damageRecords={damageRecords}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onCreateOperation={handleCreateOperation}
+                  onNavigateTab={setActiveTab}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['stock-valuation'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <StockValuation
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['stock-ledger'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <StockMovementLedger
+                  transactionLogs={transactionLogs}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  damageRecords={damageRecords}
+                  stockOperations={stockOperations}
+                  shipments={shipments}
+                  purchaseOrders={purchaseOrders}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['physical-stock-audit'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <PhysicalStockAudit
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
                   approvalRequests={approvalRequests}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onReconcileStockAudit={async (payload) => {
+                    await api.reconcileStockAudit(payload);
+                    await refreshAllData();
+                  }}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
-                  onSelectBranch={handleSelectBranch}
-                  onGroupLowStockPO={handleGroupLowStockPO}
-                  onUpdateStockLevel={handleUpdateStockLevel}
-                  bsCalendarCoverage={bsCalendarCoverage}
-                  bsCalendarSeedTab={bsCalendarSeedTab}
+                  companyWideBlindCount={appSettings.companyWideBlindCount === 'true'}
+                  onCompanyWideBlindCountChange={(next) =>
+                    handleAppSettingChange('companyWideBlindCount', next ? 'true' : 'false')
+                  }
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['approvals'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ApprovalWorkflowCenter
-                    approvalRequests={approvalRequests}
-                    branches={branches}
-                    currentUser={currentUser}
-                    dateMode={dateMode}
-                    onProcessApproval={handleProcessApprovalRequest}
-                    onCancelApproval={handleCancelApprovalRequest}
-                    onNavigateToStockAudit={(branchId) => {
-                      if (branchId && branchId !== 'ALL') {
-                        setSelectedBranchId(branchId);
-                      }
-                      setActiveTab('physical-stock-audit');
-                    }}
-                  />
-                </React.Suspense>
-              </KeepMounted>
+            <KeepMounted visible={visible['fixed-assets'] === true}>
+              <FixedAssetRegister
+                currentUser={currentUser}
+                assets={assets}
+                branches={branches}
+                selectedBranchId={selectedBranchId}
+                asOfDateAD={assetReportAsOfDateAD}
+                dateMode={dateMode}
+                onCreateAsset={handleCreateAsset}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
 
-              <KeepMounted visible={visible['all-stock'] === true}>
-                <ProductManagement
+            <KeepMounted visible={visible['dev-statcard'] === true && import.meta.env.DEV}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <StatCardShowcase />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['customers'] === true}>
+              <CustomerMasterDirectory
+                branches={branches}
+                currentUser={currentUser}
+                refreshKey={registerRefresh.customerDevices}
+                onCustomersChanged={refreshAllData}
+                onNavigateToImport={() => setActiveTab('import-customers')}
+                onSelectTab={(tab, filter) => {
+                  setActiveTab(tab as any);
+                  if (filter) setSearchQuery(filter);
+                }}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['customer-devices'] === true}>
+              <CustomersManagement
+                currentUser={currentUser}
+                customerDevices={customerDevices}
+                customers={customers}
+                branches={branches}
+                products={products}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                approvalRequests={approvalRequests}
+                onCreateCustomerDevice={async (newRecord) => {
+                  await api.createCustomerDevice(newRecord);
+                  await refreshAllData();
+                }}
+                onUpdateStatus={async (id, status) => {
+                  await api.updateCustomerDeviceStatus(id, status);
+                  await refreshAllData();
+                }}
+                onExchangeSuccess={refreshAllData}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onNavigateToMaster={() => setActiveTab('customers')}
+                sseRefreshKey={registerRefresh.customerDevices}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['complete-serial-inventory'] === true}>
+              <SerialLogRegister
+                branches={branches}
+                selectedBranchId={selectedBranchId}
+                currentUser={currentUser}
+                dateMode={dateMode}
+                onRefreshData={refreshAllData}
+                refreshKey={registerRefresh.serialLog}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['locations'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <LocationsManagement
+                  branches={branches}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['import-customers'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ImportCustomers
+                  branches={branches}
+                  onImportCustomersSuccess={async (newCustomers) => {
+                    await api.bulkImportCustomers(newCustomers);
+                    await refreshAllData();
+                  }}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-po'] === true}>
+              <PurchaseOrders
+                companyProfile={companyProfile}
+                purchaseInvoices={purchaseInvoices}
+                currentUser={currentUser}
+                purchaseOrders={purchaseOrders}
+                products={products}
+                branches={branches}
+                suppliers={suppliers}
+                stock={stock}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                activeTab="create-po"
+                prepopulatedLines={prepopulatedPOLines}
+                onCreatePO={handleCreatePO}
+                onUpdatePO={handleUpdatePO}
+                onUpdatePOStatus={handleUpdatePOStatus}
+                onDeletePO={handleDeletePO}
+                sseRefreshKey={registerRefresh.purchaseOrders}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['po-list'] === true}>
+              <PurchaseOrders
+                companyProfile={companyProfile}
+                purchaseInvoices={purchaseInvoices}
+                currentUser={currentUser}
+                purchaseOrders={purchaseOrders}
+                products={products}
+                branches={branches}
+                suppliers={suppliers}
+                stock={stock}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                activeTab="po-list"
+                prepopulatedLines={prepopulatedPOLines}
+                onCreatePO={handleCreatePO}
+                onUpdatePO={handleUpdatePO}
+                onUpdatePOStatus={handleUpdatePOStatus}
+                onDeletePO={handleDeletePO}
+                sseRefreshKey={registerRefresh.purchaseOrders}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-purchase'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <PurchaseInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
+                  invoices={purchaseInvoices}
+                  products={products}
+                  branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
+                  purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
-                  onCreateProduct={handleCreateProduct}
-                  onUpdateProduct={handleUpdateProduct}
-                  onDeleteProduct={handleDeleteProduct}
-                  searchQuery={searchQuery}
-                  mode="all-stock"
+                  dateMode={dateMode}
+                  activeTab="create-purchase"
+                  onCreateInvoice={handleCreateInvoice}
+                  onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
+                  onDeleteInvoice={handleDeleteInvoice}
+                  sseRefreshKey={registerRefresh.purchaseInvoices}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['product-master'] === true}>
-                <ProductManagement
+            <KeepMounted visible={visible['purchase-list'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <PurchaseInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
+                  invoices={purchaseInvoices}
+                  products={products}
+                  branches={branches}
+                  suppliers={suppliers}
                   stock={stock}
+                  purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
-                  onCreateProduct={handleCreateProduct}
-                  onUpdateProduct={handleUpdateProduct}
-                  onDeleteProduct={handleDeleteProduct}
-                  searchQuery={searchQuery}
-                  mode="product-master"
+                  dateMode={dateMode}
+                  activeTab="purchase-list"
+                  onCreateInvoice={handleCreateInvoice}
+                  onRecordPayment={handleRecordPayment}
+                  onReversePayment={handleReversePayment}
+                  onReverseInvoicePayments={handleReverseInvoicePayments}
+                  onDeleteInvoice={handleDeleteInvoice}
+                  sseRefreshKey={registerRefresh.purchaseInvoices}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['opening-stock'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <OpeningStockManager
-                    currentUser={currentUser}
-                    fiscalYears={fiscalYears}
-                    branches={branches}
-                    products={products}
-                    onRefreshData={refreshAllData}
-                    selectedFiscalYearId={selectedFiscalYearId}
-                    onSelectFiscalYear={setSelectedFiscalYearId}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['category-management'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <CategoryManagement
-                    currentUser={currentUser}
-                    products={products}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['uom-management'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <UomManagement
-                    currentUser={currentUser}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['import-stock'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ImportStock
-                    branches={branches}
-                    products={products}
-                    onCreateProduct={handleCreateProduct}
-                    onRefreshData={refreshAllData}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['export-stock'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ExportStock
-                    currentUser={currentUser}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    customerDevices={customerDevices}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['branch-stock'] === true}>
-                <BranchStockTracking
+            <KeepMounted visible={visible['create-sale'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <SalesInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
+                  invoices={salesInvoices}
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customers={customers}
+                  inventorySerials={inventorySerials}
                   selectedBranchId={selectedBranchId}
-                  onUpdateStockLevel={handleUpdateStockLevel}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.salesInvoices}
+                  activeTab="create-sale"
+                  onCreateInvoice={handleCreateSalesInvoice}
+                  onRecordPayment={handleRecordCustomerPayment}
+                  onCancelInvoice={handleCancelSalesInvoice}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['reorder-stock'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ReorderStockTracking
-                    currentUser={currentUser}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    selectedBranchId={selectedBranchId}
-                    onUpdateStockLevel={handleUpdateStockLevel}
-                    onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
-                    onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
-                    onGroupLowStockPO={handleGroupLowStockPO}
-                    onNavigateTab={setActiveTab}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['damaged-stock'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <DamagedStockTracking
-                    currentUser={currentUser}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    damageRecords={damageRecords}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    onUpdateStockLevel={handleUpdateStockLevel}
-                    onCreateOperation={handleCreateOperation}
-                    onNavigateTab={setActiveTab}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['stock-valuation'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <StockValuation
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['stock-ledger'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <StockMovementLedger
-                    transactionLogs={transactionLogs}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    damageRecords={damageRecords}
-                    stockOperations={stockOperations}
-                    shipments={shipments}
-                    purchaseOrders={purchaseOrders}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['physical-stock-audit'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <PhysicalStockAudit
-                    currentUser={currentUser}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    approvalRequests={approvalRequests}
-                    onUpdateStockLevel={handleUpdateStockLevel}
-                    onReconcileStockAudit={async (payload) => {
-                      await api.reconcileStockAudit(payload);
-                      await refreshAllData();
-                    }}
-                    onRequestApproval={handleCreateApprovalRequest}
-                    onCancelApproval={handleCancelApprovalRequest}
-                    onProcessApproval={handleProcessApprovalRequest}
-                    onNavigateTab={setActiveTab}
-                    companyWideBlindCount={appSettings.companyWideBlindCount === 'true'}
-                    onCompanyWideBlindCountChange={(next) =>
-                      handleAppSettingChange('companyWideBlindCount', next ? 'true' : 'false')
-                    }
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['fixed-assets'] === true}>
-                <FixedAssetRegister
+            <KeepMounted visible={visible['sales-list'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <SalesInvoices
+                  companyProfile={companyProfile}
                   currentUser={currentUser}
+                  invoices={salesInvoices}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customers={customers}
+                  inventorySerials={inventorySerials}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.salesInvoices}
+                  activeTab="sales-list"
+                  onCreateInvoice={handleCreateSalesInvoice}
+                  onRecordPayment={handleRecordCustomerPayment}
+                  onCancelInvoice={handleCancelSalesInvoice}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['purchase-returns'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ReturnsRegister
+                  kind="PURCHASE"
+                  companyProfile={companyProfile}
+                  currentUser={currentUser}
+                  purchaseInvoices={purchaseInvoices}
+                  salesInvoices={salesInvoices}
+                  returns={purchaseReturns}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.returnsRegister}
+                  onCreateReturn={handleCreatePurchaseReturn}
+                  onCancelReturn={handleCancelPurchaseReturn}
+                  onApproveReturn={handleApprovePurchaseReturn}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-purchase-return'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ReturnsRegister
+                  kind="PURCHASE"
+                  companyProfile={companyProfile}
+                  currentUser={currentUser}
+                  purchaseInvoices={purchaseInvoices}
+                  salesInvoices={salesInvoices}
+                  returns={purchaseReturns}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  autoOpenCreate
+                  sseRefreshKey={registerRefresh.returnsRegister}
+                  onCreateReturn={handleCreatePurchaseReturn}
+                  onCancelReturn={handleCancelPurchaseReturn}
+                  onApproveReturn={handleApprovePurchaseReturn}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['sales-returns'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ReturnsRegister
+                  kind="SALES"
+                  companyProfile={companyProfile}
+                  currentUser={currentUser}
+                  purchaseInvoices={purchaseInvoices}
+                  salesInvoices={salesInvoices}
+                  returns={salesReturns}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.returnsRegister}
+                  onCreateReturn={handleCreateSalesReturn}
+                  onCancelReturn={handleCancelSalesReturn}
+                  onApproveReturn={handleApproveSalesReturn}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-sales-return'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ReturnsRegister
+                  kind="SALES"
+                  companyProfile={companyProfile}
+                  currentUser={currentUser}
+                  purchaseInvoices={purchaseInvoices}
+                  salesInvoices={salesInvoices}
+                  returns={salesReturns}
+                  products={products}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  autoOpenCreate
+                  sseRefreshKey={registerRefresh.returnsRegister}
+                  onCreateReturn={handleCreateSalesReturn}
+                  onCancelReturn={handleCancelSalesReturn}
+                  onApproveReturn={handleApproveSalesReturn}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-shipment'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <Shipments
+                  currentUser={currentUser}
+                  activeTab="create-shipment"
+                  shipments={shipments}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
+                  approvalRequests={approvalRequests}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['create-transfer'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="CREATE_TRANSFER"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['receive-shipment'] === true}>
+              <ReceiveInboundWarehouse
+                currentUser={currentUser}
+                operations={stockOperations}
+                shipments={shipments}
+                products={products}
+                branches={branches}
+                stock={stock}
+                approvalRequests={approvalRequests}
+                dateMode={dateMode}
+                onReceiveOperation={handleReceiveOperation}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['receive-branch-transfer'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="RECEIVE_TRANSFER"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['shipment-list'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <Shipments
+                  currentUser={currentUser}
+                  activeTab={activeTab}
+                  shipments={shipments}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
+                  approvalRequests={approvalRequests}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['pullout'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="PULLOUT"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['damage'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="DAMAGE"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['pullout-report'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="PULLOUT_REPORT"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onReverseOperation={handleReverseStockOperation}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['damage-report'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="DAMAGE_REPORT"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReverseOperation={handleReverseStockOperation}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['stock-out'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="STOCK_OUT"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['assign-asset'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="ASSIGN_ASSET"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['asset-deployments'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <AssetDeployments
+                  assets={assets}
+                  branches={branches}
+                  locations={locations}
+                  customers={customers}
+                  currentUser={currentUser}
+                  dateMode={dateMode}
+                  onUnassignAsset={handleUpdateAssetStatus}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['consumable-issue'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="CONSUMABLE_ISSUE"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['consumables-register'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="CONSUMABLES_REGISTER"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onReverseConsumableIssue={async (id, reason) => {
+                  await api.reverseConsumableIssue(id, reason, currentUser);
+                  refreshAllData();
+                }}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            {/* Device Exchange: StockOperations DEVICE_EXCHANGE tab. The other
+                exchange entry point is the per-device modal in
+                CustomersManagement — both submit api.exchangeCustomerDevice. */}
+            <KeepMounted visible={visible['device-exchange'] === true}>
+              <StockOperations
+                operations={stockOperations}
+                products={products}
+                branches={branches}
+                stock={stock}
+                locations={locations}
+                customerDevices={customerDevices}
+                customers={customers}
+                selectedBranchId={selectedBranchId}
+                dateMode={dateMode}
+                initialType="DEVICE_EXCHANGE"
+                autoOpenModal={false}
+                currentUser={currentUser}
+                shipments={shipments}
+                assets={assets}
+                approvalRequests={approvalRequests}
+                sseRefreshKey={registerRefresh.consumableRegister}
+                onCreateOperation={handleCreateOperation}
+                onReceiveOperation={handleReceiveOperation}
+                onCreateShipment={async (sh) => {
+                  await api.createShipment(sh);
+                  refreshAllData();
+                }}
+                onReceiveShipment={handleReceiveShipment}
+                onCancelReceiveShipment={handleCancelReceiveShipment}
+                onRequestApproval={handleCreateApprovalRequest}
+                onCancelApproval={handleCancelApprovalRequest}
+                onReverseOperation={handleReverseStockOperation}
+                onUpdateAssetStatus={handleUpdateAssetStatus}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['warranty-products'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <WarrantyProducts
+                  customerDevices={customerDevices}
+                  assets={assets}
+                  branches={branches}
+                  products={products}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['branches'] === true}>
+              <BranchesManagement
+                currentUser={currentUser}
+                branches={branches}
+                onCreateBranch={async (b) => {
+                  await api.createBranch(b);
+                  refreshAllData();
+                }}
+                onUpdateBranch={async (id, b) => {
+                  await api.updateBranch(id, b);
+                  refreshAllData();
+                }}
+                onDeleteBranch={async (id) => {
+                  await api.deleteBranch(id);
+                  refreshAllData();
+                }}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['suppliers'] === true}>
+              <SuppliersManagement
+                currentUser={currentUser}
+                suppliers={suppliers}
+                onCreateSupplier={async (s) => {
+                  await api.createSupplier(s);
+                  refreshAllData();
+                }}
+                onUpdateSupplier={async (id, s) => {
+                  await api.updateSupplier(id, s);
+                  refreshAllData();
+                }}
+                onDeleteSupplier={async (id) => {
+                  await api.deleteSupplier(id);
+                  refreshAllData();
+                }}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['users'] === true}>
+              <UsersManagement
+                currentUser={currentUser}
+                users={users}
+                branches={branches}
+                onCreateUser={async (u) => {
+                  await api.createUser(u);
+                  refreshAllData();
+                }}
+                onUpdateUser={async (id, u) => {
+                  await api.updateUser(id, u);
+                  refreshAllData();
+                }}
+                onResetPassword={async (id, newPass) => {
+                  await api.resetUserPassword(id, newPass);
+                  refreshAllData();
+                }}
+                onDeleteUser={async (id) => {
+                  await api.deleteUser(id);
+                  refreshAllData();
+                }}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['permissions'] === true}>
+              <PermissionManagement currentUser={currentUser} permissionsMatrix={permissionsMatrix} />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['company-setup'] === true}>
+              <CompanySetupManagement
+                currentUser={currentUser}
+                companyProfile={companyProfile}
+                initialProfile={companyProfile}
+                onUpdateCompanyProfile={async (updatedProfile) => {
+                  await api.updateCompanyProfile(updatedProfile);
+                  await refreshAllData();
+                  return true;
+                }}
+                onSave={async (updatedProfile) => {
+                  await api.updateCompanyProfile(updatedProfile);
+                  await refreshAllData();
+                  return true;
+                }}
+              />
+            </KeepMounted>
+
+            <KeepMounted visible={visible['clear-demo-data'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <ClearDemoDataView
+                  currentUser={currentUser}
+                  productCount={products.length}
+                  stockCount={stock.length}
+                  assetCount={assets.length}
+                  deviceCount={customerDevices.length}
+                  customerCount={customers.length}
+                  poCount={purchaseOrders.length}
+                  invoiceCount={purchaseInvoices.length}
+                  onClearDemoData={async () => {
+                    const result = await api.clearDemoData();
+                    await refreshAllData();
+                    // The demo Super Admin rows were just deleted — usually
+                    // including the account this session is signed in as.
+                    // Authorization is derived from the signed token (8h TTL)
+                    // with no per-request user lookup, so staying signed in
+                    // would mean acting as a user that no longer exists; the
+                    // real next step is the first-launch setup, which
+                    // LoginModal opens by itself once no Super Admin is left.
+                    if (result.superAdminCount === 0) {
+                      setLoginNotice(
+                        'Demo data was cleared, including the demo Super Admin accounts. Create your own Super Admin account to continue.'
+                      );
+                    }
+                    return result;
+                  }}
+                  needsFiscalYear={!fiscalYears.some((fy) => fy.isCurrent)}
+                  onNavigateFiscalYears={() => setActiveTab('fiscal-year-closing')}
+                  onSignedOut={handleLogout}
+                  onNavigateDashboard={() => setActiveTab('dashboard')}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['financial-statements'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <FinancialStatements
+                  financialSummary={financialSummary}
+                  assets={assets}
+                  invoices={purchaseInvoices}
+                  dateMode={dateMode}
+                  asOfDateAD={assetReportAsOfDateAD}
+                  companyProfile={companyProfile}
+                  branches={branches}
+                  fiscalYears={fiscalYears}
+                  currentFiscalYear={resolveDefaultFiscalYear(fiscalYears) || null}
+                  fiscalYearId={resolveDefaultFiscalYear(fiscalYears)?.id}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['vendor-ledger'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <VendorLedger suppliers={suppliers} branches={branches} dateMode={dateMode} />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['customer-ledger'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <CustomerLedger customers={customers} branches={branches} dateMode={dateMode} />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['vendor-opening-balances'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <VendorOpeningBalances
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
+                  branches={branches}
+                  onRefreshData={refreshAllData}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['vat-register'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <VatRegister
+                  invoices={purchaseInvoices}
+                  dateMode={dateMode}
+                  companyProfile={companyProfile}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['depreciation-register'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <DepreciationRegister
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   asOfDateAD={assetReportAsOfDateAD}
                   dateMode={dateMode}
-                  onCreateAsset={handleCreateAsset}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                  companyProfile={companyProfile}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['dev-statcard'] === true && import.meta.env.DEV}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <StatCardShowcase />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['customers'] === true}>
-                <CustomerMasterDirectory
-                  branches={branches}
-                  currentUser={currentUser}
-                  refreshKey={registerRefresh.customerDevices}
-                  onCustomersChanged={refreshAllData}
-                  onNavigateToImport={() => setActiveTab('import-customers')}
-                  onSelectTab={(tab, filter) => {
-                    setActiveTab(tab as any);
-                    if (filter) setSearchQuery(filter);
-                  }}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['customer-devices'] === true}>
-                <CustomersManagement
-                  currentUser={currentUser}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  branches={branches}
+            <KeepMounted visible={visible['audit'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <AuditTrailReports
+                  auditLogs={auditLogs}
+                  transactionLogs={transactionLogs}
+                  financialSummary={financialSummary}
                   products={products}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  approvalRequests={approvalRequests}
-                  onCreateCustomerDevice={async (newRecord) => {
-                    await api.createCustomerDevice(newRecord);
-                    await refreshAllData();
-                  }}
-                  onUpdateStatus={async (id, status) => {
-                    await api.updateCustomerDeviceStatus(id, status);
-                    await refreshAllData();
-                  }}
-                  onExchangeSuccess={refreshAllData}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onNavigateToMaster={() => setActiveTab('customers')}
-                  sseRefreshKey={registerRefresh.customerDevices}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['complete-serial-inventory'] === true}>
-                <SerialLogRegister
                   branches={branches}
-                  selectedBranchId={selectedBranchId}
-                  currentUser={currentUser}
+                  assets={assets}
+                  invoices={purchaseInvoices}
                   dateMode={dateMode}
+                  companyProfile={companyProfile}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['data-recalculation'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <DataRecalculationMaintenance
+                  currentUser={currentUser}
+                  fiscalYears={fiscalYears}
                   onRefreshData={refreshAllData}
-                  refreshKey={registerRefresh.serialLog}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['locations'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <LocationsManagement
-                    branches={branches}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['import-customers'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ImportCustomers
-                    branches={branches}
-                    onImportCustomersSuccess={async (newCustomers) => {
-                      await api.bulkImportCustomers(newCustomers);
-                      await refreshAllData();
-                    }}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-po'] === true}>
-                <PurchaseOrders
-                  companyProfile={companyProfile}
+            <KeepMounted visible={visible['fiscal-year-closing'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <FiscalYearClosingWizard
+                  fiscalYears={fiscalYears}
+                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  onCloseFiscalYear={handleCloseFiscalYear}
+                  onReopenFiscalYear={handleReopenFiscalYear}
+                  onCreateFiscalYear={handleCreateFiscalYear}
+                  onDeleteFiscalYear={handleDeleteFiscalYear}
+                  onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
+                  onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
+                  dateMode={dateMode}
+                  financialSummary={financialSummary}
+                  products={products}
+                  stock={stock}
+                  assets={assets}
                   purchaseInvoices={purchaseInvoices}
-                  currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  stock={stock}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  activeTab="create-po"
-                  prepopulatedLines={prepopulatedPOLines}
-                  onCreatePO={handleCreatePO}
-                  onUpdatePO={handleUpdatePO}
-                  onUpdatePOStatus={handleUpdatePOStatus}
-                  onDeletePO={handleDeletePO}
-                  sseRefreshKey={registerRefresh.purchaseOrders}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['po-list'] === true}>
-                <PurchaseOrders
+                  shipments={shipments}
+                  approvalRequests={approvalRequests}
+                  currentUser={currentUser}
+                  onRefreshData={refreshAllData}
                   companyProfile={companyProfile}
-                  purchaseInvoices={purchaseInvoices}
+                  selectedFiscalYearId={selectedFiscalYearId}
+                  onSelectFiscalYear={setSelectedFiscalYearId}
+                  onNavigateTab={setActiveTab}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['bs-calendar'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <BsCalendarUtility
                   currentUser={currentUser}
-                  purchaseOrders={purchaseOrders}
-                  products={products}
-                  branches={branches}
-                  suppliers={suppliers}
-                  stock={stock}
-                  selectedBranchId={selectedBranchId}
+                />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['fiscal-year-management'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <DocumentNumbering />
+              </React.Suspense>
+            </KeepMounted>
+
+            <KeepMounted visible={visible['nepali-fiscal'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <NepaliFiscalManagement
+                  fiscalYears={fiscalYears}
+                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
                   dateMode={dateMode}
-                  activeTab="po-list"
-                  prepopulatedLines={prepopulatedPOLines}
-                  onCreatePO={handleCreatePO}
-                  onUpdatePO={handleUpdatePO}
-                  onUpdatePOStatus={handleUpdatePOStatus}
-                  onDeletePO={handleDeletePO}
-                  sseRefreshKey={registerRefresh.purchaseOrders}
                 />
-              </KeepMounted>
+              </React.Suspense>
+            </KeepMounted>
 
-              <KeepMounted visible={visible['create-purchase'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <PurchaseInvoices
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    invoices={purchaseInvoices}
-                    products={products}
-                    branches={branches}
-                    suppliers={suppliers}
-                    stock={stock}
-                    purchaseOrders={purchaseOrders}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    activeTab="create-purchase"
-                    onCreateInvoice={handleCreateInvoice}
-                    onRecordPayment={handleRecordPayment}
-                    onReversePayment={handleReversePayment}
-                    onReverseInvoicePayments={handleReverseInvoicePayments}
-                    onDeleteInvoice={handleDeleteInvoice}
-                    sseRefreshKey={registerRefresh.purchaseInvoices}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['purchase-list'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <PurchaseInvoices
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    invoices={purchaseInvoices}
-                    products={products}
-                    branches={branches}
-                    suppliers={suppliers}
-                    stock={stock}
-                    purchaseOrders={purchaseOrders}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    activeTab="purchase-list"
-                    onCreateInvoice={handleCreateInvoice}
-                    onRecordPayment={handleRecordPayment}
-                    onReversePayment={handleReversePayment}
-                    onReverseInvoicePayments={handleReverseInvoicePayments}
-                    onDeleteInvoice={handleDeleteInvoice}
-                    sseRefreshKey={registerRefresh.purchaseInvoices}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-sale'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <SalesInvoices
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    invoices={salesInvoices}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    customers={customers}
-                    inventorySerials={inventorySerials}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    sseRefreshKey={registerRefresh.salesInvoices}
-                    activeTab="create-sale"
-                    onCreateInvoice={handleCreateSalesInvoice}
-                    onRecordPayment={handleRecordCustomerPayment}
-                    onCancelInvoice={handleCancelSalesInvoice}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['sales-list'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <SalesInvoices
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    invoices={salesInvoices}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    customers={customers}
-                    inventorySerials={inventorySerials}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    sseRefreshKey={registerRefresh.salesInvoices}
-                    activeTab="sales-list"
-                    onCreateInvoice={handleCreateSalesInvoice}
-                    onRecordPayment={handleRecordCustomerPayment}
-                    onCancelInvoice={handleCancelSalesInvoice}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['purchase-returns'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ReturnsRegister
-                    kind="PURCHASE"
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    purchaseInvoices={purchaseInvoices}
-                    salesInvoices={salesInvoices}
-                    returns={purchaseReturns}
-                    products={products}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    sseRefreshKey={registerRefresh.returnsRegister}
-                    onCreateReturn={handleCreatePurchaseReturn}
-                    onCancelReturn={handleCancelPurchaseReturn}
-                    onApproveReturn={handleApprovePurchaseReturn}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-purchase-return'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ReturnsRegister
-                    kind="PURCHASE"
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    purchaseInvoices={purchaseInvoices}
-                    salesInvoices={salesInvoices}
-                    returns={purchaseReturns}
-                    products={products}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    autoOpenCreate
-                    sseRefreshKey={registerRefresh.returnsRegister}
-                    onCreateReturn={handleCreatePurchaseReturn}
-                    onCancelReturn={handleCancelPurchaseReturn}
-                    onApproveReturn={handleApprovePurchaseReturn}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['sales-returns'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ReturnsRegister
-                    kind="SALES"
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    purchaseInvoices={purchaseInvoices}
-                    salesInvoices={salesInvoices}
-                    returns={salesReturns}
-                    products={products}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    sseRefreshKey={registerRefresh.returnsRegister}
-                    onCreateReturn={handleCreateSalesReturn}
-                    onCancelReturn={handleCancelSalesReturn}
-                    onApproveReturn={handleApproveSalesReturn}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-sales-return'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ReturnsRegister
-                    kind="SALES"
-                    companyProfile={companyProfile}
-                    currentUser={currentUser}
-                    purchaseInvoices={purchaseInvoices}
-                    salesInvoices={salesInvoices}
-                    returns={salesReturns}
-                    products={products}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    autoOpenCreate
-                    sseRefreshKey={registerRefresh.returnsRegister}
-                    onCreateReturn={handleCreateSalesReturn}
-                    onCancelReturn={handleCancelSalesReturn}
-                    onApproveReturn={handleApproveSalesReturn}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-shipment'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <Shipments
-                    currentUser={currentUser}
-                    activeTab="create-shipment"
-                    shipments={shipments}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    customerDevices={customerDevices}
-                    approvalRequests={approvalRequests}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    onCreateShipment={async (sh) => {
-                      await api.createShipment(sh);
-                      refreshAllData();
-                    }}
-                    onReceiveShipment={handleReceiveShipment}
-                    onCancelReceiveShipment={handleCancelReceiveShipment}
-                    onRequestApproval={handleCreateApprovalRequest}
-                    onCancelApproval={handleCancelApprovalRequest}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['create-transfer'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="CREATE_TRANSFER"
-                  autoOpenModal={false}
+            <KeepMounted visible={visible['help-documentation'] === true}>
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <HelpDocumentationLazy
                   currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                  onNavigateTab={handleHelpNavigateTab}
                 />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['receive-shipment'] === true}>
-                <ReceiveInboundWarehouse
-                  currentUser={currentUser}
-                  operations={stockOperations}
-                  shipments={shipments}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  approvalRequests={approvalRequests}
-                  dateMode={dateMode}
-                  onReceiveOperation={handleReceiveOperation}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['receive-branch-transfer'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="RECEIVE_TRANSFER"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['shipment-list'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <Shipments
-                    currentUser={currentUser}
-                    activeTab={activeTab}
-                    shipments={shipments}
-                    products={products}
-                    branches={branches}
-                    stock={stock}
-                    customerDevices={customerDevices}
-                    approvalRequests={approvalRequests}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                    onCreateShipment={async (sh) => {
-                      await api.createShipment(sh);
-                      refreshAllData();
-                    }}
-                    onReceiveShipment={handleReceiveShipment}
-                    onCancelReceiveShipment={handleCancelReceiveShipment}
-                    onRequestApproval={handleCreateApprovalRequest}
-                    onCancelApproval={handleCancelApprovalRequest}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['pullout'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="PULLOUT"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['damage'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="DAMAGE"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['pullout-report'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="PULLOUT_REPORT"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onReverseOperation={handleReverseStockOperation}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['damage-report'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="DAMAGE_REPORT"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReverseOperation={handleReverseStockOperation}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['stock-out'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="STOCK_OUT"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['assign-asset'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="ASSIGN_ASSET"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['asset-deployments'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <AssetDeployments
-                    assets={assets}
-                    branches={branches}
-                    locations={locations}
-                    customers={customers}
-                    currentUser={currentUser}
-                    dateMode={dateMode}
-                    onUnassignAsset={handleUpdateAssetStatus}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['consumable-issue'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="CONSUMABLE_ISSUE"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['consumables-register'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="CONSUMABLES_REGISTER"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onReverseConsumableIssue={async (id, reason) => {
-                    await api.reverseConsumableIssue(id, reason, currentUser);
-                    refreshAllData();
-                  }}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              {/* Device Exchange: StockOperations DEVICE_EXCHANGE tab. The other
-                  exchange entry point is the per-device modal in
-                  CustomersManagement — both submit api.exchangeCustomerDevice. */}
-              <KeepMounted visible={visible['device-exchange'] === true}>
-                <StockOperations
-                  operations={stockOperations}
-                  products={products}
-                  branches={branches}
-                  stock={stock}
-                  locations={locations}
-                  customerDevices={customerDevices}
-                  customers={customers}
-                  selectedBranchId={selectedBranchId}
-                  dateMode={dateMode}
-                  initialType="DEVICE_EXCHANGE"
-                  autoOpenModal={false}
-                  currentUser={currentUser}
-                  shipments={shipments}
-                  assets={assets}
-                  approvalRequests={approvalRequests}
-                  sseRefreshKey={registerRefresh.consumableRegister}
-                  onCreateOperation={handleCreateOperation}
-                  onReceiveOperation={handleReceiveOperation}
-                  onCreateShipment={async (sh) => {
-                    await api.createShipment(sh);
-                    refreshAllData();
-                  }}
-                  onReceiveShipment={handleReceiveShipment}
-                  onCancelReceiveShipment={handleCancelReceiveShipment}
-                  onRequestApproval={handleCreateApprovalRequest}
-                  onCancelApproval={handleCancelApprovalRequest}
-                  onReverseOperation={handleReverseStockOperation}
-                  onUpdateAssetStatus={handleUpdateAssetStatus}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['warranty-products'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <WarrantyProducts
-                    customerDevices={customerDevices}
-                    assets={assets}
-                    branches={branches}
-                    products={products}
-                    selectedBranchId={selectedBranchId}
-                    dateMode={dateMode}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['branches'] === true}>
-                <BranchesManagement
-                  currentUser={currentUser}
-                  branches={branches}
-                  onCreateBranch={async (b) => {
-                    await api.createBranch(b);
-                    refreshAllData();
-                  }}
-                  onUpdateBranch={async (id, b) => {
-                    await api.updateBranch(id, b);
-                    refreshAllData();
-                  }}
-                  onDeleteBranch={async (id) => {
-                    await api.deleteBranch(id);
-                    refreshAllData();
-                  }}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['suppliers'] === true}>
-                <SuppliersManagement
-                  currentUser={currentUser}
-                  suppliers={suppliers}
-                  onCreateSupplier={async (s) => {
-                    await api.createSupplier(s);
-                    refreshAllData();
-                  }}
-                  onUpdateSupplier={async (id, s) => {
-                    await api.updateSupplier(id, s);
-                    refreshAllData();
-                  }}
-                  onDeleteSupplier={async (id) => {
-                    await api.deleteSupplier(id);
-                    refreshAllData();
-                  }}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['users'] === true}>
-                <UsersManagement
-                  currentUser={currentUser}
-                  users={users}
-                  branches={branches}
-                  onCreateUser={async (u) => {
-                    await api.createUser(u);
-                    refreshAllData();
-                  }}
-                  onUpdateUser={async (id, u) => {
-                    await api.updateUser(id, u);
-                    refreshAllData();
-                  }}
-                  onResetPassword={async (id, newPass) => {
-                    await api.resetUserPassword(id, newPass);
-                    refreshAllData();
-                  }}
-                  onDeleteUser={async (id) => {
-                    await api.deleteUser(id);
-                    refreshAllData();
-                  }}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['permissions'] === true}>
-                <PermissionManagement currentUser={currentUser} permissionsMatrix={permissionsMatrix} />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['company-setup'] === true}>
-                <CompanySetupManagement
-                  currentUser={currentUser}
-                  companyProfile={companyProfile}
-                  initialProfile={companyProfile}
-                  onUpdateCompanyProfile={async (updatedProfile) => {
-                    await api.updateCompanyProfile(updatedProfile);
-                    await refreshAllData();
-                    return true;
-                  }}
-                  onSave={async (updatedProfile) => {
-                    await api.updateCompanyProfile(updatedProfile);
-                    await refreshAllData();
-                    return true;
-                  }}
-                />
-              </KeepMounted>
-
-              <KeepMounted visible={visible['clear-demo-data'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <ClearDemoDataView
-                    currentUser={currentUser}
-                    productCount={products.length}
-                    stockCount={stock.length}
-                    assetCount={assets.length}
-                    deviceCount={customerDevices.length}
-                    customerCount={customers.length}
-                    poCount={purchaseOrders.length}
-                    invoiceCount={purchaseInvoices.length}
-                    onClearDemoData={async () => {
-                      const result = await api.clearDemoData();
-                      await refreshAllData();
-                      // The demo Super Admin rows were just deleted — usually
-                      // including the account this session is signed in as.
-                      // Authorization is derived from the signed token (8h TTL)
-                      // with no per-request user lookup, so staying signed in
-                      // would mean acting as a user that no longer exists; the
-                      // real next step is the first-launch setup, which
-                      // LoginModal opens by itself once no Super Admin is left.
-                      if (result.superAdminCount === 0) {
-                        setLoginNotice(
-                          'Demo data was cleared, including the demo Super Admin accounts. Create your own Super Admin account to continue.'
-                        );
-                      }
-                      return result;
-                    }}
-                    needsFiscalYear={!fiscalYears.some((fy) => fy.isCurrent)}
-                    onNavigateFiscalYears={() => setActiveTab('fiscal-year-closing')}
-                    onSignedOut={handleLogout}
-                    onNavigateDashboard={() => setActiveTab('dashboard')}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['financial-statements'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <FinancialStatements
-                    financialSummary={financialSummary}
-                    assets={assets}
-                    invoices={purchaseInvoices}
-                    dateMode={dateMode}
-                    asOfDateAD={assetReportAsOfDateAD}
-                    companyProfile={companyProfile}
-                    branches={branches}
-                    fiscalYears={fiscalYears}
-                    currentFiscalYear={resolveDefaultFiscalYear(fiscalYears) || null}
-                    fiscalYearId={resolveDefaultFiscalYear(fiscalYears)?.id}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['vendor-ledger'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <VendorLedger suppliers={suppliers} branches={branches} dateMode={dateMode} />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['customer-ledger'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <CustomerLedger customers={customers} branches={branches} dateMode={dateMode} />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['vendor-opening-balances'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <VendorOpeningBalances
-                    currentUser={currentUser}
-                    fiscalYears={fiscalYears}
-                    branches={branches}
-                    onRefreshData={refreshAllData}
-                    selectedFiscalYearId={selectedFiscalYearId}
-                    onSelectFiscalYear={setSelectedFiscalYearId}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['vat-register'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <VatRegister
-                    invoices={purchaseInvoices}
-                    dateMode={dateMode}
-                    companyProfile={companyProfile}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['depreciation-register'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <DepreciationRegister
-                    assets={assets}
-                    branches={branches}
-                    selectedBranchId={selectedBranchId}
-                    asOfDateAD={assetReportAsOfDateAD}
-                    dateMode={dateMode}
-                    companyProfile={companyProfile}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['audit'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <AuditTrailReports
-                    auditLogs={auditLogs}
-                    transactionLogs={transactionLogs}
-                    financialSummary={financialSummary}
-                    products={products}
-                    branches={branches}
-                    assets={assets}
-                    invoices={purchaseInvoices}
-                    dateMode={dateMode}
-                    companyProfile={companyProfile}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['data-recalculation'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <DataRecalculationMaintenance
-                    currentUser={currentUser}
-                    fiscalYears={fiscalYears}
-                    onRefreshData={refreshAllData}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['fiscal-year-closing'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <FiscalYearClosingWizard
-                    fiscalYears={fiscalYears}
-                    onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
-                    onCloseFiscalYear={handleCloseFiscalYear}
-                    onReopenFiscalYear={handleReopenFiscalYear}
-                    onCreateFiscalYear={handleCreateFiscalYear}
-                    onDeleteFiscalYear={handleDeleteFiscalYear}
-                    onInitializeOpeningStock={handleInitializeFiscalYearOpeningStock}
-                    onRollForwardVendorOpenings={handleRollForwardVendorOpenings}
-                    dateMode={dateMode}
-                    financialSummary={financialSummary}
-                    products={products}
-                    stock={stock}
-                    assets={assets}
-                    purchaseInvoices={purchaseInvoices}
-                    purchaseOrders={purchaseOrders}
-                    shipments={shipments}
-                    approvalRequests={approvalRequests}
-                    currentUser={currentUser}
-                    onRefreshData={refreshAllData}
-                    companyProfile={companyProfile}
-                    selectedFiscalYearId={selectedFiscalYearId}
-                    onSelectFiscalYear={setSelectedFiscalYearId}
-                    onNavigateTab={setActiveTab}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['bs-calendar'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <BsCalendarUtility
-                    currentUser={currentUser}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['fiscal-year-management'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <DocumentNumbering />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['nepali-fiscal'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <NepaliFiscalManagement
-                    fiscalYears={fiscalYears}
-                    onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
-                    dateMode={dateMode}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-
-              <KeepMounted visible={visible['help-documentation'] === true}>
-                <React.Suspense fallback={<TabLoadingFallback />}>
-                  <HelpDocumentationLazy
-                    currentUser={currentUser}
-                    onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
-                    onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
-                    onNavigateTab={(tab) => {
-                      if (tab === 'barcode-scanner') {
-                        setIsBarcodeModalOpen(true);
-                      } else if (tab === 'users-management' || tab === 'login') {
-                        setActiveTab('users');
-                      } else {
-                        setActiveTab(tab as NavTab);
-                      }
-                    }}
-                  />
-                </React.Suspense>
-              </KeepMounted>
-                </>
-              )}
-            </KeepMountedRoot>
-          )}
-        </main>
-      </div>
-
-      {/* Barcode & Serial Scanner / Printable Label Modal */}
-      <BarcodeScannerModal
-        isOpen={isBarcodeModalOpen}
-        onClose={() => setIsBarcodeModalOpen(false)}
-        products={products}
-        companyProfile={companyProfile}
-      />
-
-      {/* Global Quick Search Modal */}
-      <GlobalSearchModal
-        isOpen={isGlobalSearchOpen}
-        onClose={() => setIsGlobalSearchOpen(false)}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        products={products}
-        purchaseOrders={purchaseOrders}
-        invoices={purchaseInvoices}
-        shipments={shipments}
-        assets={assets}
-        customerDevices={customerDevices}
-        suppliers={suppliers}
-        branches={branches}
-        stock={stock}
-        selectedBranchId={selectedBranchId}
-        onSelectResult={(tab, filterText) => {
-          setActiveTab(tab);
-          if (filterText !== undefined) {
-            setSearchQuery(filterText);
-          }
-          setIsGlobalSearchOpen(false);
-        }}
-      />
-
-      {/* Realtime Notification & Action Center Modal */}
-      <NotificationCenter
-        isOpen={isNotificationOpen}
-        onClose={() => setIsNotificationOpen(false)}
-        products={products}
-        stock={stock}
-        approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
-        shipments={shipments}
-        branches={branches}
-        selectedBranchId={selectedBranchId}
-        onSelectTab={(tab) => {
-          setActiveTab(tab as NavTab);
-          setIsNotificationOpen(false);
-        }}
-        dismissedIds={dismissedNotificationIds}
-        onDismiss={handleDismissNotification}
-        onClearAll={handleClearAllNotifications}
-        bsCalendarCoverage={bsCalendarCoverage}
-        bsCalendarSeedTab={bsCalendarSeedTab}
-      />
-
-      {/* User Profile Info & Profile Switching Modal */}
-      <ProfileSwitchModal
-        isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
-        currentUser={currentUser}
-        rootUser={rootUser}
-        onSwitchBackToRoot={handleSwitchBackToRoot}
-        users={users}
-        branches={branches}
-        onSwitchProfile={handleSwitchProfile}
-        onUpdateProfile={handleUpdateProfile}
-        onLogout={handleLogout}
-      />
-
-      {/* Global API-failure toast (fetchJson broadcasts the intent) */}
-      <ToastHost />
-    </div>
+              </React.Suspense>
+            </KeepMounted>
+              </>
+            )}
+          </KeepMountedRoot>
+        )}
+      </main>
+    </AppShell>
   );
 }

@@ -28,11 +28,10 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { User } from '../../types';
+import { useShellOverlays } from '../../contexts/ShellOverlayContext';
 
 interface HelpDocumentationProps {
   currentUser: User | null;
-  onOpenBarcodeModal?: () => void;
-  onOpenSearchModal?: () => void;
   onNavigateTab?: (tab: string) => void;
 }
 
@@ -215,10 +214,11 @@ const USER_GUIDES: UserGuide[] = [
 
 export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   currentUser,
-  onOpenBarcodeModal,
-  onOpenSearchModal,
   onNavigateTab,
 }) => {
+  // The barcode scanner is shell state (A2): ask the shell to open it instead
+  // of receiving a setter through props.
+  const { openBarcodeScanner } = useShellOverlays();
   const [activeTab, setActiveTab] = useState<HelpTab>('guides');
   const [activeGuideId, setActiveGuideId] = useState<string>(USER_GUIDES[0].id);
   const [manualSearch, setManualSearch] = useState('');
@@ -1139,11 +1139,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                         <button
                           onClick={() => {
                             if (st.actionTab === 'barcode-scanner') {
-                              if (onOpenBarcodeModal) {
-                                onOpenBarcodeModal();
-                              } else if (onNavigateTab) {
-                                onNavigateTab('barcode-scanner');
-                              }
+                              openBarcodeScanner();
                             } else if (st.actionTab === 'users-management' || st.actionTab === 'login') {
                               if (onNavigateTab) onNavigateTab('users');
                             } else if (onNavigateTab && st.actionTab) {

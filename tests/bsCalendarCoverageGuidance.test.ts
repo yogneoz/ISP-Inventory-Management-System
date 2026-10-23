@@ -225,14 +225,16 @@ describe('BS-seeding guidance — the countdown is visible before it bites', () 
     assert.ok(center.includes("id: 'bs-calendar-coverage'"), 'the alert needs a stable dismissible id');
     assert.ok(center.includes('calendarAlerts'), 'the alert must be part of the notification list');
 
-    const app = read('client/src/App.tsx');
+    // A2 moved the notification panel's Clear All into the app shell, together
+    // with the dismissed-id state that makes it work.
+    const shell = read('client/src/components/layout/AppShell.tsx');
     assert.ok(
-      app.includes("'bs-calendar-coverage'"),
+      shell.includes("'bs-calendar-coverage'"),
       'Clear All must dismiss the coverage alert too, or it reappears immediately'
     );
     assert.ok(
-      app.includes("getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']"),
-      'App must only dismiss the alert while coverage is unhealthy'
+      shell.includes("getBsCalendarCoverage().status === 'OK' ? [] : ['bs-calendar-coverage']"),
+      'the shell must only dismiss the alert while coverage is unhealthy'
     );
   });
 

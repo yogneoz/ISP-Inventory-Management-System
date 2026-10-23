@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { PORT, syncDatabaseAndIndexes, createApp, registerAllRoutes } from './src/app';
 import { realPoolInstance } from './db';
 import { createLifecycle } from './src/boot/lifecycle';
+import { validateAuthSecret } from './src/boot/authSecret';
 
 /**
  * Every terminal exit of this process goes through ONE lifecycle:
@@ -47,6 +48,17 @@ function failBoot(err: unknown): never {
 // Registered before the boot starts, so a signal that arrives while
 // syncDatabaseAndIndexes() is still running is not a silent hard kill.
 lifecycle.install();
+
+// Production must not run on the ephemeral secret middleware/auth.ts falls back
+// to: that would silently invalidate every session on each restart and make a
+// second instance unable to verify the first's tokens. Checked before the
+// database connects or the port opens, through the same fatal path as any other
+// failed boot (D1/D2).
+const authSecretCheck = validateAuthSecret({
+  NODE_ENV: process.env.NODE_ENV,
+  AUTH_TOKEN_SECRET: process.env.AUTH_TOKEN_SECRET,
+});
+if (!authSecretCheck.ok) failBoot(new Error(authSecretCheck.message));
 
 async function startServer() {
   const app = createApp();

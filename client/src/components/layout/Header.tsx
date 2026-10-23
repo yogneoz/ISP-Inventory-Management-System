@@ -118,6 +118,19 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Escape closes the account menu, completing the help cheat sheet's "Close
+  // Active Modal or Dropdown". Bound only while it is open, so the header adds
+  // no keydown listener (and never competes with the shell's Escape handling)
+  // when the menu is closed.
+  useEffect(() => {
+    if (!isProfileDropdownOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsProfileDropdownOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isProfileDropdownOpen]);
+
   const todayAD = new Date().toISOString().split('T')[0];
   const bsInfo = convertADToBS(todayAD);
 
