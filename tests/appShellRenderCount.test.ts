@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createElement as h } from 'react';
+import { NAVIGATE_TAB_EVENT } from '../client/src/services/api/http';
 import { inAct, mountTree } from './harness/mount';
 import { ShellProbe, createShellHandles } from './harness/appShellProbe';
 
@@ -152,6 +153,11 @@ describe('A2 — shell state stays out of the tab tree', () => {
     press({ key: 'Escape' });
     assert.equal(searchOverlayOpen(tree.container), false, 'Escape must close the search overlay');
 
+    // Closing the dialog put focus back in the header search field; leave the
+    // field so the next shortcut is not treated as typing (same guard the app
+    // applies to a focused input).
+    inAct(() => (document.activeElement as HTMLElement | null)?.blur());
+
     // Drawer first, search on top of it: the dialog goes, the drawer stays.
     inAct(() => buttonByTitle(tree.container, 'Notifications')!.click());
     assert.ok(text(tree.container).includes('Notification Center'));
@@ -196,6 +202,7 @@ describe('A2 — shell state stays out of the tab tree', () => {
     );
 
     // Barcode scanner (Alt+B).
+    inAct(() => (document.activeElement as HTMLElement | null)?.blur());
     press({ key: 'b', altKey: true });
     assert.ok(text(tree.container).includes('Barcode & Serial Scanner'));
     press({ key: 'Escape' });
@@ -205,7 +212,86 @@ describe('A2 — shell state stays out of the tab tree', () => {
       'Escape must close the barcode scanner'
     );
 
+    // Account menu open UNDER a shell overlay: one Escape closes the overlay
+    // only; the menu waits for the next press.
+    inAct(() => query(tree.container, '[data-shell-trigger="profile"]').click());
+    assert.ok(text(tree.container).includes('Switch User Account'));
+    press({ key: 'k', ctrlKey: true });
+    assert.equal(searchOverlayOpen(tree.container), true, 'precondition: search over the menu');
+    press({ key: 'Escape' });
+    assert.equal(searchOverlayOpen(tree.container), false, 'the overlay on top goes first');
+    assert.ok(
+      text(tree.container).includes('Switch User Account'),
+      'the account menu underneath must stay open'
+    );
+    press({ key: 'Escape' });
+    assert.equal(
+      text(tree.container).includes('Switch User Account'),
+      false,
+      'the next Escape closes the account menu'
+    );
+
     assert.equal(handles.tabRenders, 1, 'closing overlays must not re-render the tab tree');
+    tree.unmount();
+  });
+
+  test('closing an overlay hands focus back to the control that opened it', () => {
+    const handles = createShellHandles();
+    const tree = mountTree(h(ShellProbe, { handles }));
+    const press = (init: KeyboardEventInit) =>
+      inAct(() => {
+        window.dispatchEvent(new window.KeyboardEvent('keydown', init));
+      });
+    /** Never `assert.equal(activeElement, node)`: a DOM node in the failure diff
+     *  carries React's circular fiber pointer and exhausts the heap. */
+    const activeIs = (element: HTMLElement | null) => document.activeElement === element;
+
+    // Search, opened from the header search box: focus returns to the field the
+    // user was in, not to <body>.
+    const searchInput = query(tree.container, 'input[data-shell-trigger="search"]');
+    inAct(() => searchInput.focus());
+    inAct(() => (searchInput.parentElement as HTMLElement).click());
+    assert.equal(searchOverlayOpen(tree.container), true, 'precondition: search is open');
+    press({ key: 'Escape' });
+    assert.equal(searchOverlayOpen(tree.container), false);
+    assert.equal(activeIs(searchInput), true, 'Escape returns focus to the header search field');
+
+    // Notification drawer, opened from the bell: focus returns to the bell even
+    // when it is closed by something other than Escape.
+    const bell = buttonByTitle(tree.container, 'Notifications');
+    assert.ok(bell, 'the header notification bell must be rendered');
+    inAct(() => bell.focus());
+    inAct(() => bell.click());
+    assert.ok(text(tree.container).includes('Notification Center'));
+    inAct(() => window.dispatchEvent(new Event(NAVIGATE_TAB_EVENT)));
+    assert.equal(text(tree.container).includes('Notification Center'), false);
+    assert.equal(activeIs(bell), true, 'closing the drawer returns focus to the bell');
+
+    // Profile modal, opened from a menu item that unmounts with the menu: the
+    // recorded origin is gone, so focus falls back to the profile chip.
+    const chip = query(tree.container, '[data-shell-trigger="profile"]');
+    inAct(() => chip.focus());
+    inAct(() => chip.click());
+    inAct(() => (document.activeElement as HTMLElement | null)?.blur());
+    inAct(() => buttonByText(tree.container, 'Account Settings').click());
+    assert.ok(text(tree.container).includes('Switch Profile'), 'precondition: profile modal open');
+    press({ key: 'Escape' });
+    assert.equal(text(tree.container).includes('Switch Profile'), false);
+    assert.equal(activeIs(chip), true, 'the profile chip takes focus back');
+
+    // Barcode scanner from Alt+B while nothing is focused: the header's camera
+    // button is the standing trigger, so that is where focus goes.
+    inAct(() => (document.activeElement as HTMLElement | null)?.blur());
+    press({ key: 'b', altKey: true });
+    assert.ok(text(tree.container).includes('Barcode & Serial Scanner'));
+    press({ key: 'Escape' });
+    assert.equal(
+      activeIs(query(tree.container, '[data-shell-trigger="barcode"]')),
+      true,
+      'the barcode trigger takes focus back'
+    );
+
+    assert.equal(handles.tabRenders, 1, 'focus restoration must not re-render the tab tree');
     tree.unmount();
   });
 

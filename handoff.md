@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 999 tests; CI runs
+                                        #   drift/concurrency guards — 1000 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1226,7 +1226,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 999 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1000 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1568,7 +1568,7 @@ the pre-A1 container and the new one: 10 keystrokes after visiting four tabs = *
 renders before, 10 after**; tab-switch counts are identical in both modes and
 `useActivationKey` still ticks on re-activation.
 
-Verification: `npx tsc --noEmit` clean; full suite **999 tests, 997 pass, 0 fail, 2 skipped**;
+Verification: `npx tsc --noEmit` clean; full suite **1000 tests, 998 pass, 0 fail, 2 skipped**;
 `npm run build` green; docs-count gate green. Tests: `tests/screenElementMemo.test.ts` (14),
 `tests/keepMountedRenderCount.test.ts` (9). New devDependencies: `jsdom`, `@types/jsdom`
 (first piece of the A6 harness).
@@ -1591,7 +1591,14 @@ modal or barcode scanner — while leaving an older overlay underneath for the n
 help cheat sheet already promised "Esc — Close Active Modal or Dropdown" and none of the four
 implemented it; the handler sits before the typing guard so it works from inside the search
 input. The header's account menu is a dropdown rather than a shell overlay, so it closes itself:
-`Header` binds an Escape listener only while the menu is open.
+`Header` binds an Escape listener only while the menu is open, and skips when a shell overlay is
+open above it (`isShellOverlayOpen`), so one press still closes only the topmost surface.
+Closing an overlay now also hands focus back to the control that opened it: the origin is
+recorded when the overlay opens (before its own autofocus) and restored on every open→closed
+transition, falling back to the header's `data-shell-trigger` button when the origin unmounted
+(the profile modal is opened from a menu item that disappears). The desktop header search field
+no longer opens search on focus — restoring focus there would have reopened what Escape just
+closed, and tabbing through the header no longer hijacks the screen.
 
 ---
 

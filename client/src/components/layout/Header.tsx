@@ -61,6 +61,8 @@ interface HeaderProps {
   onSelectTab?: (tab: NavTab) => void;
   onOpenNotification?: () => void;
   onOpenProfileModal?: () => void;
+  /** True while a shell overlay sits on top of the account menu. */
+  isShellOverlayOpen?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -99,6 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTab = (_tab: string) => {},
   onOpenNotification = () => {},
   onOpenProfileModal = () => {},
+  isShellOverlayOpen = false,
 }) => {
   const { isDarkMode } = useDarkMode();
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
@@ -106,6 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSwitchingId, setIsSwitchingId] = useState<string | null>(null);
 
   const profileDropdownRef = useRef<HTMLDivElement>(null);
+  const profileChipRef = useRef<HTMLButtonElement>(null);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -125,11 +129,19 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     if (!isProfileDropdownOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsProfileDropdownOpen(false);
+      if (e.key !== 'Escape') return;
+      // A shell overlay opened on top of the menu (search via Ctrl+K, the
+      // notification drawer, the profile modal, the scanner) is the topmost
+      // surface: AppShell closes it, and the menu waits for the next press.
+      if (isShellOverlayOpen) return;
+      setIsProfileDropdownOpen(false);
+      // The menu's own search field unmounts with it, so hand focus back to the
+      // chip that owns the menu instead of dropping it on <body>.
+      profileChipRef.current?.focus();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isProfileDropdownOpen]);
+  }, [isProfileDropdownOpen, isShellOverlayOpen]);
 
   const todayAD = new Date().toISOString().split('T')[0];
   const bsInfo = convertADToBS(todayAD);
@@ -300,13 +312,15 @@ export const Header: React.FC<HeaderProps> = ({
           <input
             type="text"
             value={searchQuery}
-            onFocus={() => {
-              if (onOpenSearchModal) onOpenSearchModal();
-            }}
+            // NOT on focus: closing the search overlay returns focus to this
+            // field, and opening on focus would immediately reopen what was
+            // just dismissed (and tabbing through the header would hijack the
+            // screen). A click or typing still opens the overlay.
             onChange={(e) => {
               onSearchChange(e.target.value);
               if (onOpenSearchModal) onOpenSearchModal();
             }}
+            data-shell-trigger="search"
             placeholder="Scan Barcode or Search Product Name / SKU:"
             className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20 dark:border dark:border-slate-800 dark:bg-[#0f1218] dark:text-slate-200 dark:placeholder-slate-500 dark:focus:bg-slate-900 dark:focus:border-indigo-500`}
           />
@@ -318,6 +332,7 @@ export const Header: React.FC<HeaderProps> = ({
                   e.stopPropagation();
                   onOpenBarcodeModal();
                 }}
+                data-shell-trigger="barcode"
                 title="Scan Barcode with Camera"
                 className="p-1 rounded bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white transition-colors cursor-pointer"
               >
@@ -390,6 +405,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             onClick={onOpenNotification}
+            data-shell-trigger="notifications"
             title="Notifications & Reorder Alerts"
             className={`p-1.5 rounded-lg transition-colors relative cursor-pointer text-white/80 hover:text-white hover:bg-white/20 dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-slate-800/60`}
           >
@@ -406,6 +422,8 @@ export const Header: React.FC<HeaderProps> = ({
         {currentUser && (
           <div className="relative ml-1" ref={profileDropdownRef}>
             <button
+              ref={profileChipRef}
+              data-shell-trigger="profile"
               onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
               title="Click to expand switch user menu & profile options"
               className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs dark:bg-slate-800/90 dark:text-white dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:border-slate-600`}

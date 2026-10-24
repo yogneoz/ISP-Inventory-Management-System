@@ -123,6 +123,37 @@ export function AppShell(props: AppShellProps) {
   // is reconciled after every open/close render, so a close by X or backdrop
   // removes its entry too.
   const overlayOrderRef = useRef<ShellOverlayId[]>([]);
+
+  // Focus origin of each overlay, so closing it hands focus BACK to the control
+  // that opened it instead of dropping it on <body> (which also resets keyboard
+  // users to the top of the page). It is recorded when the overlay OPENS, before
+  // its own autofocus can run, so the modal's input cannot become the origin.
+  const focusOriginRef = useRef<Record<ShellOverlayId, HTMLElement | null>>({
+    barcode: null,
+    search: null,
+    notifications: null,
+    profile: null,
+  });
+
+  const rememberFocusOrigin = useCallback((id: ShellOverlayId) => {
+    const active = document.activeElement;
+    focusOriginRef.current[id] =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+  }, []);
+
+  const restoreFocusOrigin = useCallback((id: ShellOverlayId) => {
+    const origin = focusOriginRef.current[id];
+    focusOriginRef.current[id] = null;
+    // The origin can be gone by now: the profile modal is opened from a menu
+    // item that unmounts when the menu closes. Those fall back to the header
+    // control that represents the overlay.
+    const target =
+      origin && origin.isConnected
+        ? origin
+        : document.querySelector<HTMLElement>(`[data-shell-trigger="${id}"]`);
+    target?.focus();
+  }, []);
+
   useEffect(() => {
     const open: Record<ShellOverlayId, boolean> = {
       barcode: isBarcodeModalOpen,
@@ -137,6 +168,33 @@ export function AppShell(props: AppShellProps) {
     overlayOrderRef.current = stillOpen;
   }, [isBarcodeModalOpen, isGlobalSearchOpen, isNotificationOpen, isProfileModalOpen]);
 
+  // Restore focus on every open→closed transition, whichever path closed it
+  // (Escape, the X, the backdrop, picking a result, or a navigation event).
+  const previouslyOpenRef = useRef<Record<ShellOverlayId, boolean>>({
+    barcode: false,
+    search: false,
+    notifications: false,
+    profile: false,
+  });
+  useEffect(() => {
+    const open: Record<ShellOverlayId, boolean> = {
+      barcode: isBarcodeModalOpen,
+      search: isGlobalSearchOpen,
+      notifications: isNotificationOpen,
+      profile: isProfileModalOpen,
+    };
+    for (const id of SHELL_OVERLAY_IDS) {
+      if (previouslyOpenRef.current[id] && !open[id]) restoreFocusOrigin(id);
+    }
+    previouslyOpenRef.current = open;
+  }, [
+    isBarcodeModalOpen,
+    isGlobalSearchOpen,
+    isNotificationOpen,
+    isProfileModalOpen,
+    restoreFocusOrigin,
+  ]);
+
   // Setters are stable, so this never changes identity — safe for the global
   // key listener's deps and for anything that wants to close an overlay.
   const closeShellOverlay = useCallback((id: ShellOverlayId) => {
@@ -145,6 +203,33 @@ export function AppShell(props: AppShellProps) {
     else if (id === 'notifications') setIsNotificationOpen(false);
     else setIsProfileModalOpen(false);
   }, []);
+
+  // Opening is centralised so the focus origin is recorded exactly once, before
+  // the overlay renders (and its input autofocuses).
+  const openShellOverlay = useCallback(
+    (id: ShellOverlayId) => {
+      rememberFocusOrigin(id);
+      if (id === 'barcode') setIsBarcodeModalOpen(true);
+      else if (id === 'search') setIsGlobalSearchOpen(true);
+      else if (id === 'notifications') setIsNotificationOpen(true);
+      else setIsProfileModalOpen(true);
+    },
+    [rememberFocusOrigin]
+  );
+
+  const toggleShellOverlay = useCallback(
+    (id: ShellOverlayId) => {
+      // `previouslyOpenRef` mirrors the committed open state, so a toggle that
+      // opens records the origin and one that closes leaves restoration to the
+      // transition effect above.
+      if (!previouslyOpenRef.current[id]) rememberFocusOrigin(id);
+      if (id === 'barcode') setIsBarcodeModalOpen((prev) => !prev);
+      else if (id === 'search') setIsGlobalSearchOpen((prev) => !prev);
+      else if (id === 'notifications') setIsNotificationOpen((prev) => !prev);
+      else setIsProfileModalOpen((prev) => !prev);
+    },
+    [rememberFocusOrigin]
+  );
 
   const {
     companyProfile,
@@ -298,13 +383,18 @@ export function AppShell(props: AppShellProps) {
   // consumers of this context.
   const overlayActions = useMemo<ShellOverlayActions>(
     () => ({
-      openBarcodeScanner: () => setIsBarcodeModalOpen(true),
-      openGlobalSearch: () => setIsGlobalSearchOpen(true),
-      openNotifications: () => setIsNotificationOpen(true),
-      openProfile: () => setIsProfileModalOpen(true),
+      openBarcodeScanner: () => openShellOverlay('barcode'),
+      openGlobalSearch: () => openShellOverlay('search'),
+      openNotifications: () => openShellOverlay('notifications'),
+      openProfile: () => openShellOverlay('profile'),
     }),
-    []
+    [openShellOverlay]
   );
+
+  // A shell overlay is a surface ABOVE the header's account menu: the menu's own
+  // Escape handler defers to this flag, so one press closes one thing.
+  const isShellOverlayOpen =
+    isBarcodeModalOpen || isGlobalSearchOpen || isNotificationOpen || isProfileModalOpen;
 
   // Global keyboard shortcuts (A2 moved them here with the overlays they open):
   // Alt+H help, Alt+B barcode, Alt+S / Ctrl+K search, Alt+D date mode. They used
@@ -340,7 +430,7 @@ export function AppShell(props: AppShellProps) {
       // Alt + B -> Barcode Scanner (suppressed while closing wizard is open)
       if (e.altKey && (e?.key || '').toLowerCase() === 'b') {
         e.preventDefault();
-        if (!closingWizardActive) setIsBarcodeModalOpen((prev) => !prev);
+        if (!closingWizardActive) toggleShellOverlay('barcode');
       }
       // Alt + S or Ctrl + K -> Global Search (suppressed while closing wizard is open)
       if (
@@ -348,7 +438,7 @@ export function AppShell(props: AppShellProps) {
         ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k')
       ) {
         e.preventDefault();
-        if (!closingWizardActive) setIsGlobalSearchOpen((prev) => !prev);
+        if (!closingWizardActive) toggleShellOverlay('search');
       }
       // Alt + D -> Date Mode Toggle (BS / AD)
       if (e.altKey && (e?.key || '').toLowerCase() === 'd') {
@@ -359,7 +449,7 @@ export function AppShell(props: AppShellProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, onSelectTab, onToggleDateMode, closeShellOverlay]);
+  }, [activeTab, onSelectTab, onToggleDateMode, closeShellOverlay, toggleShellOverlay]);
 
   // Sibling tabs / toasts can request a tab change (App owns the permission
   // check); the notification panel is shell state, so close it here.
@@ -415,9 +505,9 @@ export function AppShell(props: AppShellProps) {
         fiscalYears={fiscalYears}
         selectedFiscalYearId={selectedFiscalYearId}
         onSelectFiscalYear={onSelectFiscalYear}
-        onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
+        onOpenBarcodeModal={() => openShellOverlay('barcode')}
         onOpenSearchModal={
-          activeTab === 'fiscal-year-closing' ? undefined : () => setIsGlobalSearchOpen(true)
+          activeTab === 'fiscal-year-closing' ? undefined : () => openShellOverlay('search')
         }
         onLogout={onLogout}
         onSwitchUser={onLogin}
@@ -434,8 +524,9 @@ export function AppShell(props: AppShellProps) {
         purchaseOrders={purchaseOrders}
         shipments={shipments}
         onSelectTab={onSelectTab}
-        onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
-        onOpenProfileModal={() => setIsProfileModalOpen(true)}
+        onOpenNotification={() => toggleShellOverlay('notifications')}
+        onOpenProfileModal={() => openShellOverlay('profile')}
+        isShellOverlayOpen={isShellOverlayOpen}
       />
 
       {banners}

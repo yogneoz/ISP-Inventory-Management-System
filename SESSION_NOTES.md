@@ -1,6 +1,6 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-23 · Branch: main · Tests: 999/999 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-23 · Branch: main · Tests: 1000/1000 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
 ## ⭐ The shell owns its own state, so a modal no longer re-renders the tab tree (A2, 2026-10-23)
 
@@ -49,7 +49,7 @@ heap** instead of reporting an assertion; failures are asserted as booleans now.
 
 A fourth test pins the shape so the root cannot quietly take the state back: `App.tsx` must
 not contain any of the six shell flags, must render `<AppShell>`, and the shell must own
-`useState`. The fifth drives Escape.
+`useState`. The fifth drives Escape, the sixth focus return.
 
 **Escape closes the overlay on top (same day).** A browser pass found the cheat sheet
 promising "Esc — Close Active Modal or Dropdown" while none of the four shell overlays handled
@@ -62,14 +62,33 @@ overlay open the key is left alone for the screen underneath (no `preventDefault
 explicit in the test: drawer first, search on top → Escape closes the search and leaves the
 drawer, the next Escape closes the drawer. The header's **account menu** is a dropdown, not a
 shell overlay, so `Header` closes it itself with a listener bound only while the menu is open —
-that completes the cheat sheet's "or Dropdown" half.
+that completes the cheat sheet's "or Dropdown" half. When an overlay is opened ON TOP of the menu
+(Ctrl+K while the account menu is open), one press must still close one thing: `AppShell` passes
+`isShellOverlayOpen` and the menu's handler bails out, so the overlay closes first and the menu
+waits for the next press. Covered by the Escape test (menu open → search open → two presses).
+
+**Closing an overlay hands focus back to the control that opened it (same day).** Closing the
+search dialog with Escape dropped focus on `<body>`, which resets a keyboard user to the top of
+the document (the dialogs have no focus trap either). `AppShell` now records
+`document.activeElement` when an overlay OPENS — synchronously in the open helper, before the
+modal's own autofocus can become the "origin" — and restores it on every open→closed
+transition, whichever path closed it (Escape, the X, the backdrop, picking a result, or the
+`NAVIGATE_TAB_EVENT` that closes the drawer). If the recorded origin has unmounted — the profile
+modal is opened from an account-menu item that disappears with the menu — focus falls back to
+the header control marked `data-shell-trigger`, so it still lands on the profile chip, not
+`<body>`. Alt+B from nowhere focuses the header camera button for the same reason.
+
+One behaviour change fell out of this, and it is a bug fix in its own right: the desktop header
+search field opened the Global Search overlay on **focus**. Restoring focus to it after Escape
+would therefore reopen the overlay instantly, and tabbing through the header used to hijack the
+screen with a modal. It now opens on click or typing only (both still call the shell).
 
 Also: `Sidebar`'s dev-only gallery gate is `import.meta.env?.DEV` — `import.meta.env` only
 exists under Vite, and the render tests mount it in Node.
 
-Tests: `tests/appShellRenderCount.test.ts` (5). Verification: `npx tsc --noEmit` clean;
-`npm run build` green; full suite 999 tests, 997 pass, 0 fail, 2 skipped; docs-count gate green
-at 999. Backlog A2 ticked. Next stop point: **A6** (client test harness + route-tree smoke
+Tests: `tests/appShellRenderCount.test.ts` (6, includes focus return). Verification:
+`npx tsc --noEmit` clean; `npm run build` green; full suite 1000 tests, 998 pass, 0 fail,
+2 skipped; docs-count gate green at 1000. Backlog A2 ticked. Next stop point: **A6** (client test harness + route-tree smoke
 test), which gates A3/A4.
 
 ## ⭐ One BS calendar integrity engine (API + CLI + boot), provisional years, and no invented dates anywhere (2026-10-17)
@@ -1859,7 +1878,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 999 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 1000 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -2426,7 +2445,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 999 tests, 0 fail). Live-verified:
+  key coverage; suite now 1000 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -2484,7 +2503,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 999 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 1000 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -2549,7 +2568,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 999 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 1000 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -2587,7 +2606,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 999 tests, 0 fail.
+  failures, then reverted). Suite now 1000 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -2602,7 +2621,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 999 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 1000 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 
@@ -3100,8 +3119,8 @@ Tests: `tests/screenElementMemo.test.ts` (14) + `tests/keepMountedRenderCount.te
 Two devDependencies: `jsdom` + `@types/jsdom` (the measurement needs a real DOM — this is the
 first piece of the A6 harness, not a runtime dependency).
 
-Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 999 tests,
-997 pass, 0 fail, 2 skipped; docs-count gate green at 999. Backlog A1 ticked.
+Verification: `npx tsc --noEmit` clean; `npm run build` green; full suite 1000 tests,
+998 pass, 0 fail, 2 skipped; docs-count gate green at 1000. Backlog A1 ticked.
 Next stop point: **A2** (move shell-only UI state out of the data tree), then A6 before A3/A4.
 
 
