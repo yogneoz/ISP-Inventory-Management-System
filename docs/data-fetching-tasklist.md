@@ -39,7 +39,7 @@ ships a task.
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `done` | — |
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `done` | — |
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `done` | DF-06 (for live calendar events) |
-| DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `todo` | — |
+| DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `done` | — |
 | DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `todo` | DF-03, DF-05 (soft) |
 
 Legend: `todo` · `wip` · `blocked` · `done`.
@@ -520,6 +520,14 @@ plus a manual timezone check (`TZ=Asia/Kathmandu` unit test for the helper).
 ---
 
 ## DF-11 — Distinguish "failed to load" from "empty" on setup lists (P2-9)
+
+**Status: `done` (2026-10-24).** New `components/common/LoadStateNotice.tsx` renders
+an initial-load spinner or a retryable failure notice; Category, UoM, Locations and
+Document Numbering now keep a read loading flag and a `loadError`, retry their own
+loader, and their empty slot/header says the list could not be loaded instead of
+implying zero rows. Product Management's catalog error was already rendered; its
+write-only category error state is removed. Evidence and suite numbers are in
+`SESSION_NOTES.md` under "DF-11 shipped".
 
 **Problem.** Category, UoM, Locations and Document Numbering log load failures
 to the console and render an empty table. Product Management keeps its error

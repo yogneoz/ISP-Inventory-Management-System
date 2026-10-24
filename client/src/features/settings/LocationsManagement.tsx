@@ -6,6 +6,7 @@ import { api } from '../../services/api';
 import StatCard from '../../components/common/StatCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
 interface LocationsManagementProps {
   branches: Branch[];
@@ -15,7 +16,9 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   branches,
 }) => {
   const [locations, setLocations] = useState<LocationRecord[]>([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  // A failed read must not render as "no locations configured" (DF-11).
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('ALL');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('ALL');
@@ -40,8 +43,10 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       setLoading(true);
       const data = await api.getLocations(selectedBranchFilter);
       setLocations(data || []);
-    } catch (err) {
+      setLoadError('');
+    } catch (err: any) {
       console.error('Failed to load locations:', err);
+      setLoadError(err?.message || 'The location list could not be read.');
     } finally {
       setLoading(false);
     }
@@ -133,25 +138,25 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-none">
         <StatCard
           label="Total Network Sites"
-          value={`${locations.length} Sites`}
+          value={loadError ? '—' : `${locations.length} Sites`}
           icon={<Globe className="h-4 w-4" />}
           tone="indigo"
         />
         <StatCard
           label="POP Server Rooms"
-          value={`${locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms`}
+          value={loadError ? '—' : `${locations.filter((l) => l.type === 'POP_SERVER_ROOM').length} Rooms`}
           icon={<Server className="h-4 w-4" />}
           tone="violet"
         />
         <StatCard
           label="Fiber Route Nodes"
-          value={`${locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes`}
+          value={loadError ? '—' : `${locations.filter((l) => l.type === 'FIBER_NETWORK_NODE').length} Nodes`}
           icon={<Navigation className="h-4 w-4" />}
           tone="sky"
         />
         <StatCard
           label="Assigned Equipment"
-          value={`${locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units`}
+          value={loadError ? '—' : `${locations.reduce((sum, l) => sum + (l.activeAssetsCount || 0), 0)} Units`}
           icon={<Building2 className="h-4 w-4" />}
           tone="emerald"
         />
@@ -201,8 +206,25 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
         }
       />
 
+      <LoadStateNotice
+        subject="locations"
+        loading={loading}
+        error={loadError}
+        hasCachedRows={locations.length > 0}
+        onRetry={loadLocations}
+      />
+
       {/* Grid of Locations */}
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {filteredLocations.length === 0 && (
+          <div className="pb-4 text-center text-xs text-slate-500">
+            {loading
+              ? 'Loading locations…'
+              : loadError
+                ? 'The location list could not be loaded — use Retry above.'
+                : 'No locations match the current filters.'}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
           {filteredLocations.map((loc) => {
             const branchObj = branches.find((b) => b.id === loc.branchId);

@@ -7,6 +7,7 @@ import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
 interface UomManagementProps {
   currentUser?: User | null;
@@ -16,7 +17,9 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
   const { confirm: confirmDialog } = useDialog();
   const canManageUom = isOperationAllowed('uom-manage', currentUser?.role);
   const [uoms, setUoms] = useState<UnitOfMeasure[]>([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  // A failed read must not render as "no units defined" (DF-11).
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUom, setEditingUom] = useState<UnitOfMeasure | null>(null);
@@ -31,8 +34,10 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
       setLoading(true);
       const data = await api.getUoms();
       setUoms(data || []);
-    } catch (err) {
+      setLoadError('');
+    } catch (err: any) {
       console.error('Failed to load UOMs:', err);
+      setLoadError(err?.message || 'The unit-of-measure list could not be read.');
     } finally {
       setLoading(false);
     }
@@ -103,7 +108,11 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
       {/* Header */}
       <PageHeader
         title="Unit of Measure (UoM) Management"
-        description={`${uoms.length} defined units · Base: Pcs & Mtr · Count, Length, Package, Weight`}
+        description={
+          loadError && uoms.length === 0
+            ? 'Unit-of-measure list unavailable — retry below'
+            : `${uoms.length} defined units · Base: Pcs & Mtr · Count, Length, Package, Weight`
+        }
         icon={<Ruler className="h-5 w-5 text-indigo-500" />}
         actions={
           canManageUom ? (
@@ -130,6 +139,14 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
         onClearAll={() => setSearchQuery('')}
       />
 
+      <LoadStateNotice
+        subject="units of measure"
+        loading={loading}
+        error={loadError}
+        hasCachedRows={uoms.length > 0}
+        onRetry={loadUoms}
+      />
+
       {/* Table */}
       <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
@@ -147,7 +164,11 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser }) => 
               {filteredUoms.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-slate-500">
-                    No Unit of Measure entries found.
+                    {loading
+                      ? 'Loading units of measure…'
+                      : loadError
+                        ? 'The unit-of-measure list could not be loaded — use Retry above.'
+                        : 'No Unit of Measure entries found.'}
                   </td>
                 </tr>
               ) : (

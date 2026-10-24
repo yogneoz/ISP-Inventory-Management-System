@@ -7,6 +7,7 @@ import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
 interface CategoryManagementProps {
   products: Product[];
@@ -20,7 +21,9 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   const { confirm: confirmDialog, alert: alertDialog } = useDialog();
   const canEdit = isOperationAllowed('category-manage', currentUser?.role);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true);
+  // A failed read must not render as an empty category list (DF-11).
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
@@ -31,13 +34,16 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   const [isSpecialTracked, setIsSpecialTracked] = useState(false);
 
   const loadCategoriesFromDb = async () => {
+    setLoading(true);
     try {
       const data = await api.getCategories();
       if (Array.isArray(data)) {
         setCategories(data);
       }
-    } catch (err) {
+      setLoadError('');
+    } catch (err: any) {
       console.warn('Could not load categories from database:', err);
+      setLoadError(err?.message || 'The category list could not be read.');
     } finally {
       setLoading(false);
     }
@@ -143,7 +149,11 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
       {/* Header */}
       <PageHeader
         title="Category Management"
-        description={`${categories.length} categories · ${products.length} catalog SKUs classified · Primary group: Fixed Assets & Fiber Gear`}
+        description={
+          loadError && categories.length === 0
+            ? 'Category list unavailable — retry below'
+            : `${categories.length} categories · ${products.length} catalog SKUs classified · Primary group: Fixed Assets & Fiber Gear`
+        }
         icon={<Grid className="h-5 w-5 text-indigo-500" />}
         actions={
           canEdit ? (
@@ -169,6 +179,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
         onClearAll={() => setSearchQuery('')}
       />
 
+      <LoadStateNotice
+        subject="categories"
+        loading={loading}
+        error={loadError}
+        hasCachedRows={categories.length > 0}
+        onRetry={loadCategoriesFromDb}
+      />
+
       {/* Categories Table */}
       <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
@@ -187,7 +205,11 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
               {filteredCategories.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-6 text-center text-slate-500">
-                    No categories found matching your filter criteria.
+                    {loading
+                      ? 'Loading categories…'
+                      : loadError
+                        ? 'The category list could not be loaded — use Retry above.'
+                        : 'No categories found matching your filter criteria.'}
                   </td>
                 </tr>
               ) : (

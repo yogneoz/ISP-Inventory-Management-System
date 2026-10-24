@@ -172,7 +172,6 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [categoryOptions, setCategoryOptions] = useState<string[]>(['ALL']);
   const [categories, setCategories] = useState<string[]>(['ALL']);
   const availableCategories = categories.filter(Boolean);
-  const [, setCategoryLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,29 +202,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     };
   }, [selectedBranchId, catalogVersion, activationKey]);
 
+  // Derived from the categories the catalog fetch above already loaded — this
+  // effect cannot fail on its own, so it carries no error flag (DF-11). The
+  // fetch failure is reported once, through catalogLoadError.
   useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const cats = masterCategories.map((c) => c.name).filter(Boolean);
-        const options = ['ALL', ...Array.from(new Set(cats))].sort();
-        const list = ['ALL', ...cats].sort();
-
-        if (!cancelled) {
-          setCategoryOptions(options);
-          setCategories(list);
-          setCategoryLoadError(false);
-        }
-      } catch {
-        if (!cancelled) setCategoryLoadError(true);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+    const cats = masterCategories.map((c) => c.name).filter(Boolean);
+    setCategoryOptions(['ALL', ...Array.from(new Set(cats))].sort());
+    setCategories(['ALL', ...cats].sort());
   }, [masterCategories]);
 
   const effectiveSearch = localSearch || searchQuery;

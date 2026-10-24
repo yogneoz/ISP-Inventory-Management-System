@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
 type DocCategory = 'ALL' | 'PROCUREMENT_SALES' | 'INVENTORY_OPS' | 'FIXED_ASSETS' | 'FINANCE_TAX';
 
@@ -47,20 +48,28 @@ const getDocCategory = (id: string): DocCategory => {
  * Fiscal Year Closing Wizard, so this page stays focused on voucher numbering.
  */
 export const DocumentNumbering: React.FC = () => {
+  // Document Numbering State
+  const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  // A failed read must not render as "0 document types configured" (DF-11).
+  const [loadError, setLoadError] = useState('');
+
   // Load document-numbering configs from the database on mount.
   // The client NEVER stores a bootstrap copy locally — every number pattern
   // and prefix is fetched fresh from PostgreSQL via GET /api/document-number-configs.
   async function loadDocumentNumberConfigs() {
+    setLoading(true);
     try {
       const configs = await api.getDocumentNumberConfigs();
       if (Array.isArray(configs)) setDocConfigs(configs);
-    } catch (err) {
+      setLoadError('');
+    } catch (err: any) {
       console.warn('Failed to load document-numbering configs:', err instanceof Error ? err.message : err);
+      setLoadError(err?.message || 'The document-numbering configs could not be read.');
+    } finally {
+      setLoading(false);
     }
   }
-
-  // Document Numbering State
-  const [docConfigs, setDocConfigs] = useState<DocumentNumberConfig[]>([]);
 
   // Refetch configs on every tab re-activation (keep-mounted: no remount refetch anymore).
   const activationKey = useActivationKey('fiscal-year-management');
@@ -123,6 +132,14 @@ export const DocumentNumbering: React.FC = () => {
         icon={<Hash className="h-5 w-5 text-indigo-500" />}
       />
 
+      <LoadStateNotice
+        subject="document numbering configurations"
+        loading={loading}
+        error={loadError}
+        hasCachedRows={docConfigs.length > 0}
+        onRetry={loadDocumentNumberConfigs}
+      />
+
       {/* Success Notification Banner */}
       {saveSuccessMsg && (
         <div className={`p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2 shadow-sm bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/80 dark:border-emerald-500/40 dark:text-emerald-300`}>
@@ -169,7 +186,7 @@ export const DocumentNumbering: React.FC = () => {
           </div>
 
           <span className={`text-[11px] font-mono px-3 py-1 rounded-lg border font-bold bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800`}>
-            {docConfigs.length} Document Types Configured
+            {loadError ? 'Could not read document types' : `${docConfigs.length} Document Types Configured`}
           </span>
         </div>
 
@@ -241,7 +258,11 @@ export const DocumentNumbering: React.FC = () => {
               {filteredDocConfigs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
-                    No document numbering configuration matching "{docSearchQuery}".
+                    {loading
+                      ? 'Loading document numbering configurations…'
+                      : loadError
+                        ? 'The document numbering configurations could not be loaded — use Retry above.'
+                        : `No document numbering configuration matching "${docSearchQuery}".`}
                   </td>
                 </tr>
               ) : (
