@@ -1619,6 +1619,10 @@ reported as an uncaughtException. Both suites (and `bsCalendarMirrorInvariant`) 
 `error` listeners to their pools and to the app's `realPoolInstance`, and terminate backends only
 when a plain `DROP DATABASE` fails. Stress run: 10 consecutive rounds of the three DB-creating
 suites, 0 failures.
+Once `npm test` reached the end of the gate list, `npm audit --omit=dev` failed on advisories
+published since the gate last ran: `body-parser` <1.20.9 / <2.4.0 and `vite` <=6.4.3. `npm audit
+fix` cleared them within the existing ranges (`body-parser` 2.4.0, express's nested 1.20.9,
+`vite` 6.4.5); only `package-lock.json` changed.
 
 ---
 

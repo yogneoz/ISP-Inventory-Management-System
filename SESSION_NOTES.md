@@ -47,6 +47,14 @@ though every test in it passed. Both suites (and the calendar suite added above)
 terminate is off the common path. Stress run: 10 consecutive rounds of the three DB-creating
 suites, 0 failures (the old teardown failed one round in three).
 
+With `npm test` finally reaching the end of the gate list, the **audit gate** failed on
+advisories published since the last time that gate actually ran (the earlier red runs skipped
+it): `body-parser` <1.20.9 / <2.4.0 (GHSA-27r3-jxmh-p828) and `vite` <=6.4.3 (the launch-editor
+and middleware advisories). `npm audit fix` cleared all three inside the existing semver
+ranges — `body-parser` 2.3.0→2.4.0 with express's nested copy 1.20.8→1.20.9, and `vite`
+6.4.3→6.4.5 — and touched only `package-lock.json`; `package.json` is unchanged. Verified:
+`npm audit --omit=dev` clean, `npm run build` green, full suite still 1000/998/0/2.
+
 ## ⭐ The shell owns its own state, so a modal no longer re-renders the tab tree (A2, 2026-10-23)
 
 A1 stopped a root re-render from re-rendering every opened screen, but the root still
