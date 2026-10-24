@@ -21,6 +21,30 @@ envelope shape, page 2, status/branch/search filters, page-size clamp, `all=1`, 
 row set — no seeded data). Suite now 1014 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
 `npx tsc --noEmit` clean. Next: **DF-02** (refresh the product catalog after save).
 
+## ✅ DF-02 shipped — product catalog refreshes after save (2026-10-24)
+
+`ProductManagement` owns a local catalog fetch, so the App-level `refreshAllData()` never
+reached either list: a created/edited product stayed invisible until a branch switch or
+reload. The component now bumps a local `catalogVersion` after its own create, edit and
+delete and includes it in the catalog effect, and it opts into
+`useActivationKey(mode)` so the keep-mounted tabs refetch once when re-activated. The
+catalog surface and its two tab keys (`all-stock`, `product-master`) are pinned in
+`tests/registerRefreshDomains.test.ts`.
+
+A failed catalog fetch keeps the last loaded rows and shows a rose "Could not load the
+product catalog" banner with Retry (the empty state says the catalog could not be
+loaded rather than "no matching items").
+
+Live pass on the dev app as superadmin: created a product in Product Master and saw it
+immediately; edited its name/category and saw the row update; created one in All
+Available Stock and saw it in the full list; deleted both and saw the rows go. Tab
+switches produced exactly one `GET /api/products` each (no loop, counted through a
+fetch wrapper), and a rejected product fetch kept all rows plus the banner until Retry.
+All test rows were removed afterwards (DB back to its 14 products).
+
+Suite now 1014 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
+`npx tsc --noEmit` clean. Next: **DF-03** (one shared serial-register cache).
+
 ## ⭐ Data-fetching audit → tracked task list (2026-10-24)
 
 A read-only audit of every screen's fetch/refresh path ([docs/data-fetching-audit.md](docs/data-fetching-audit.md))

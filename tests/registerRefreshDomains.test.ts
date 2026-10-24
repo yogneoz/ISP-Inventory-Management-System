@@ -848,7 +848,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'sales/SalesInvoices.tsx',
   ]);
 
-  // The 12 screens that fetch their own rendered list/report data. They are
+  // The 13 screens that fetch their own rendered list/report data. They are
   // still whole-list (no register wiring — see the guards below), but since
   // the keep-mounted tab container they no longer remount on a tab switch;
   // instead each one opts in to refetch-on-reactivation via
@@ -857,6 +857,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // Calendar Health panel is the one non-tab entry: it is nested in
   // BsCalendarUtility and keys off the same 'bs-calendar' tab, so a seed or
   // repair applied from the year table also re-audits the findings.
+  // ProductManagement is the one two-tab screen ('all-stock' and
+  // 'product-master'): it keys off its own mode prop and refetches after its
+  // own saves as well as on re-activation.
   const MOUNT_REFETCH_NO_SSE_KEY = [
     'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
@@ -868,6 +871,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VendorLedger.tsx',
     'finance/VendorOpeningBalances.tsx',
     'inventory/CategoryManagement.tsx',
+    'inventory/ProductManagement.tsx',
     'inventory/UomManagement.tsx',
     'settings/LocationsManagement.tsx',
   ];
@@ -978,8 +982,10 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   // Keep-mounted tab keys for the mount-refetch screens: the useActivationKey
   // argument must equal the App.tsx tab the screen renders under, or the
   // activation counter never ticks (and the refetch-on-reactivation never
-  // happens). Pinned screen → tab key, checked against App.tsx itself.
-  const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string> = {
+  // happens). Pinned screen → tab key(s), checked against App.tsx itself. An
+  // array means the screen renders under several tabs and keys off its own
+  // mode prop (ProductManagement); every listed tab must still exist.
+  const MOUNT_REFETCH_ACTIVATION_TABS: Record<string, string | string[]> = {
     'finance/BsCalendarHealthPanel.tsx': 'bs-calendar',
     'finance/BsCalendarUtility.tsx': 'bs-calendar',
     'finance/CustomerLedger.tsx': 'customer-ledger',
@@ -990,6 +996,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/VendorLedger.tsx': 'vendor-ledger',
     'finance/VendorOpeningBalances.tsx': 'vendor-opening-balances',
     'inventory/CategoryManagement.tsx': 'category-management',
+    'inventory/ProductManagement.tsx': ['all-stock', 'product-master'],
     'inventory/UomManagement.tsx': 'uom-management',
     'settings/LocationsManagement.tsx': 'locations',
   };
@@ -1001,20 +1008,24 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       [...MOUNT_REFETCH_NO_SSE_KEY].sort(),
       'the activation-tab table and the mount-refetch list must cover the same screens — a screen that opts in (or stops) must be pinned in both'
     );
-    for (const [screen, tabKey] of Object.entries(MOUNT_REFETCH_ACTIVATION_TABS)) {
+    for (const [screen, pinned] of Object.entries(MOUNT_REFETCH_ACTIVATION_TABS)) {
+      const tabKeys = Array.isArray(pinned) ? pinned : [pinned];
       const source = readFeatureSource(screen);
+      const call = Array.isArray(pinned) ? 'useActivationKey(mode)' : `useActivationKey('${pinned}')`;
       assert.ok(
-        source.includes(`useActivationKey('${tabKey}')`),
-        `client/src/features/${screen} no longer opts in to refetch-on-reactivation via useActivationKey('${tabKey}') — tabs stay mounted, so without it the list is fetched once per session and goes stale`
+        source.includes(call),
+        `client/src/features/${screen} no longer opts in to refetch-on-reactivation via ${call} — tabs stay mounted, so without it the list is fetched once per session and goes stale`
       );
       assert.ok(
         /\[[^\]]*activationKey[^\]]*\]/.test(source),
         `client/src/features/${screen} calls useActivationKey but its fetch effect does not depend on activationKey — the key must be in the effect's dependency array or re-activations never refetch`
       );
-      assert.ok(
-        appSource.includes(`visible['${tabKey}'] === true`),
-        `App.tsx no longer renders a tab '${tabKey}' — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
-      );
+      for (const tabKey of tabKeys) {
+        assert.ok(
+          appSource.includes(`visible['${tabKey}'] === true`),
+          `App.tsx no longer renders a tab '${tabKey}' — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
+        );
+      }
     }
   });
 

@@ -30,7 +30,7 @@ ships a task.
 | ID | Task | Findings | Severity | Status | Depends on |
 |----|------|----------|----------|--------|------------|
 | DF-01 | Restore the Customer Master Directory (server-side paging) | P0-1 | P0 | `done` | — |
-| DF-02 | Refresh the product catalog after save/re-activation | P1-1 | P1 | `todo` | — |
+| DF-02 | Refresh the product catalog after save/re-activation | P1-1 | P1 | `done` | — |
 | DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `todo` | — |
 | DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `todo` | — |
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `todo` | — |
@@ -109,6 +109,11 @@ screen.
 ---
 
 ## DF-02 — Refresh the product catalog after save/re-activation (P1-1)
+
+**Status: `done` (2026-10-24).** The catalog now re-reads after its own saves and on
+tab re-activation, keeps the last rows on failure with a visible Retry banner, and
+both mounts are pinned by the keep-mounted guard. Live evidence is in
+`SESSION_NOTES.md` under "DF-02 shipped".
 
 **Problem.** `ProductManagement` owns a local `catalog` fetched once per branch.
 Saves go out through `onCreateProduct`/`onUpdateProduct`/`onDeleteProduct`

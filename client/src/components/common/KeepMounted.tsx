@@ -24,7 +24,7 @@ import type { ScreenSlotCache } from '../../utils/screenElementMemo';
  *    tab is hidden. Already correct, no change needed.
  *  - Self-fetching screens (mount/selection-fetched lists, ledgers) keep
  *    their mount fetch for the FIRST paint and opt in to re-fetch-on-
- *    re-activation with `useActivationKey(tabKey)` — all 11 of them
+ *    re-activation with `useActivationKey(tabKey)` — all 13 of them
  *    (MOUNT_REFETCH_NO_SSE_KEY in the test guards) are wired this way,
  *    which replaces their old "remount refetches me" behavior.
  *
@@ -122,8 +122,8 @@ export function KeepMounted({
  * in a loop (observed live: CategoryManagement refetching /api/categories
  * continuously until this was fixed).
  *
- * All 11 mount-refetch screens (ledgers, BS calendars, Category/Uom/
- * Locations, doc numbering, FinancialStatements — see
+ * All 13 mount-refetch screens (ledgers, BS calendars, Category/Uom/
+ * Locations, doc numbering, FinancialStatements, ProductManagement — see
  * MOUNT_REFETCH_NO_SSE_KEY + MOUNT_REFETCH_ACTIVATION_TABS in the test
  * guards) pass their activation key into their fetch effect's deps.
  */

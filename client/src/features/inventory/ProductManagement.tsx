@@ -6,6 +6,7 @@ import { formatNPR } from '../../utils/nprFormat';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
 import { PageHeader } from '../../components/common/PageHeader';
 import { useDialog } from '../../components/common/DialogProvider';
+import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
 import {
   Package,
@@ -24,6 +25,8 @@ import {
   Wrench,
   Download,
   FileSpreadsheet,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 
 const CODE39_MAP: Record<string, string> = {
@@ -152,7 +155,16 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   // Server-driven catalog and category options (never bootstrap slices)
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [masterCategories, setMasterCategories] = useState<Category[]>([]);
-  const [, setCatalogLoadError] = useState(false);
+  const [catalogLoadError, setCatalogLoadError] = useState('');
+  // Bumped after this screen's own create/edit/delete and by Retry. The list is
+  // server-owned, so a save must re-read it instead of leaving the new row out
+  // until the next branch switch.
+  const [catalogVersion, setCatalogVersion] = useState(0);
+
+  // Keep-mounted tabs are never remounted: refetch when this tab becomes
+  // visible again. `mode` is the App tab key for both mounts ('all-stock',
+  // 'product-master'), so each instance tracks its own activation.
+  const activationKey = useActivationKey(mode);
 
   // Categories fetched from the database table: never fall back to a
   // client-computed list of every product's category (which also leaked
@@ -177,10 +189,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         if (!cancelled) {
           setCatalog(Array.isArray(prod) ? prod : (prod as { data?: Product[] }).data || []);
           setMasterCategories(cat || []);
-          setCatalogLoadError(false);
+          setCatalogLoadError('');
         }
-      } catch {
-        if (!cancelled) setCatalogLoadError(true);
+      } catch (err: any) {
+        // Keep the last loaded rows; the banner says they may be stale.
+        if (!cancelled) setCatalogLoadError(err?.message || 'Could not load the product catalog.');
       }
     };
 
@@ -188,7 +201,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchId]);
+  }, [selectedBranchId, catalogVersion, activationKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,7 +399,19 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     } else {
       await onCreateProduct(payload as Omit<Product, 'id'>);
     }
+    // Re-read this tab's catalog so the saved row (or its edit) is visible
+    // immediately, without waiting for a branch switch or tab re-activation.
+    setCatalogVersion((version) => version + 1);
     setIsModalOpen(false);
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    try {
+      await onDeleteProduct(product.id);
+      setCatalogVersion((version) => version + 1);
+    } catch (err: any) {
+      alertDialog(`Delete Failed: ${err?.message || 'Could not delete the product.'}`);
+    }
   };
 
   const getBulkLabelsList = () => {
@@ -607,6 +632,29 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         </div>
       </div>
 
+      {catalogLoadError && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Could not load the product catalog</p>
+              <p className="text-[11px] leading-5">
+                {catalogLoadError}
+                {catalog.length > 0 ? ' Showing the last loaded catalog — it may be out of date.' : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCatalogVersion((version) => version + 1)}
+            className="flex items-center gap-1.5 rounded-lg border border-rose-300 px-2.5 py-1 text-[11px] font-bold hover:bg-rose-100 dark:border-rose-500/40 dark:hover:bg-rose-900/40"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Products Table */}
       <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}>
         <div className="flex-1 min-h-0 overflow-auto relative">
@@ -632,7 +680,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               {filteredProducts.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="p-6 text-center text-slate-500 text-xs">
-                    No matching available stock items found. Toggle "Available Stock (&gt;0)" to view all stock items including zero-stock products.
+                    {catalogLoadError
+                      ? 'The product catalog could not be loaded — use Retry above.'
+                      : 'No matching available stock items found. Toggle "Available Stock (>0)" to view all stock items including zero-stock products.'}
                   </td>
                 </tr>
               ) : (
@@ -749,7 +799,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                                 <Edit2 className="h-3.5 w-3.5" />
                               </button>
                               <button
-                                onClick={() => onDeleteProduct(p.id)}
+                                onClick={() => { void handleDeleteProduct(p); }}
                                 title="Delete Product"
                                 className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
                               >
