@@ -228,31 +228,90 @@ export const CATEGORY_DELETE_SQL = 'DELETE FROM categories WHERE id = $1;';
 export const CUSTOMER_SELECT_COLUMNS =
   'id, customer_id AS "customerId", customer_name AS "customerName", username, contact_number AS "contactNumber", branch_id AS "branchId", address, email, status, credit_limit AS "creditLimit", assigned_devices_count AS "assignedDevicesCount"';
 
+export const CUSTOMER_PAGE_SIZE_DEFAULT = 15;
+export const CUSTOMER_PAGE_SIZE_MAX = 100;
+
+/** Options shared by the list, aggregate and count queries. */
+export interface CustomerListQueryOptions {
+  branchId?: unknown;
+  query?: unknown;
+  /** 'ACTIVE' | 'INACTIVE'; anything else (including 'ALL') means no filter. */
+  status?: unknown;
+  page?: unknown;
+  pageSize?: unknown;
+  /** CSV export path: one envelope with every matching row. */
+  all?: boolean;
+}
+
+/** Only the two statuses the directory offers are filters; never trust the query string. */
+function customerStatus(status: unknown): 'ACTIVE' | 'INACTIVE' | undefined {
+  const value = typeof status === 'string' ? status.trim().toUpperCase() : '';
+  return value === 'ACTIVE' || value === 'INACTIVE' ? value : undefined;
+}
+
 /**
- * Builds the customer list query with optional branch filter and a case-
- * insensitive search across the six searchable columns. Mirrors the inline
- * SQL assembled in the controller verbatim.
+ * WHERE fragment for the customer directory: branch, a case-insensitive search
+ * across the six searchable columns, and status. Shared by the paged list and
+ * the aggregate query so a KPI can never disagree with the rows it describes.
  */
-export function buildCustomerListQuery(branchId?: unknown, query?: unknown): { sql: string; params: unknown[] } {
+export function buildCustomerListWhere(opts: CustomerListQueryOptions = {}): { whereSql: string; params: unknown[] } {
   const params: unknown[] = [];
   const conditions: string[] = [];
-  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records`;
 
-  if (branchId && branchId !== 'ALL') {
-    params.push(branchId);
+  if (opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId);
     conditions.push(`branch_id = $${params.length}`);
   }
 
-  if (query && typeof query === 'string' && query.trim()) {
-    params.push(`%${query.trim().toLowerCase()}%`);
+  if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
+    params.push(`%${opts.query.trim().toLowerCase()}%`);
     conditions.push(`(LOWER(customer_id) LIKE $${params.length} OR LOWER(customer_name) LIKE $${params.length} OR LOWER(username) LIKE $${params.length} OR LOWER(contact_number) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(address) LIKE $${params.length})`);
   }
 
-  if (conditions.length > 0) {
-    sql += ' WHERE ' + conditions.join(' AND ');
+  const status = customerStatus(opts.status);
+  if (status) {
+    params.push(status);
+    conditions.push(`status = $${params.length}`);
   }
-  sql += ' ORDER BY customer_name ASC';
-  return { sql, params };
+
+  return { whereSql: conditions.length ? ' WHERE ' + conditions.join(' AND ') : '', params };
+}
+
+/** Clamped paging values, echoed back to the client so its footer can trust them. */
+export function normalizeCustomerPaging(page?: unknown, pageSize?: unknown): { page: number; pageSize: number } {
+  const requestedSize = Math.floor(Number(pageSize));
+  const size = Number.isFinite(requestedSize) && requestedSize > 0
+    ? Math.min(CUSTOMER_PAGE_SIZE_MAX, requestedSize)
+    : CUSTOMER_PAGE_SIZE_DEFAULT;
+  const requestedPage = Math.floor(Number(page));
+  return { page: Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1, pageSize: size };
+}
+
+/**
+ * Paged customer list. `all` skips LIMIT/OFFSET for the CSV export and reports
+ * pageSize as 0 here; the caller replaces it with the row count.
+ */
+export function buildCustomerListQuery(opts: CustomerListQueryOptions = {}): { sql: string; params: unknown[]; page: number; pageSize: number } {
+  const { whereSql, params } = buildCustomerListWhere(opts);
+  const paging = normalizeCustomerPaging(opts.page, opts.pageSize);
+  let sql = `SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records${whereSql} ORDER BY customer_name ASC, customer_id ASC`;
+  if (!opts.all) {
+    sql += ` LIMIT ${paging.pageSize} OFFSET ${(paging.page - 1) * paging.pageSize}`;
+  }
+  return { sql, params, page: paging.page, pageSize: opts.all ? 0 : paging.pageSize };
+}
+
+/** One aggregate row for the directory KPIs under the same WHERE. */
+export function buildCustomerListAggregateQuery(opts: CustomerListQueryOptions = {}): { sql: string; params: unknown[] } {
+  const { whereSql, params } = buildCustomerListWhere(opts);
+  return {
+    sql:
+      'SELECT COUNT(*)::int AS count, ' +
+      "COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS active, " +
+      'COALESCE(SUM(credit_limit), 0)::float AS credit ' +
+      'FROM customer_records' + whereSql,
+    params,
+  };
 }
 
 export const CUSTOMER_UPSERT_SQL = `INSERT INTO customer_records (id, customer_id, customer_name, username, contact_number, branch_id, address, email, status, credit_limit, assigned_devices_count)

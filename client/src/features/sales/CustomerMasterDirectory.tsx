@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types';
 import { formatNPR } from '../../utils/nprFormat';
@@ -26,8 +26,11 @@ import {
   ExternalLink,
   Copy,
   Check,
+  AlertTriangle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
-import { useClientPagination, TablePagination } from '../../components/common/TablePagination';
+import { TablePagination } from '../../components/common/TablePagination';
 import { useDialog } from '../../components/common/DialogProvider';
 import { FilterCard } from '../../components/common/FilterCard';
 import StatCard from '../../components/common/StatCard';
@@ -216,22 +219,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   };
 
   const refreshCustomersFromDb = async () => {
-    try {
-      const envelope = await api.getCustomers({
-        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
-        query: searchQuery.trim() || undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        page: customersPage,
-        pageSize: customersPageSize,
-      });
-      setCustomersRows((envelope as { data?: CustomerRecord[] }).data || []);
-      setCustomersTotalItems((envelope as { totalItems?: number }).totalItems || 0);
-      setCustomersLoadError(false);
-    } catch {
-      setCustomersLoadError(true);
-    }
-    // Mutations are the only callers of this helper, so telling the app shell
-    // here covers create, update and delete without firing on filter changes.
+    // Re-run the current server page through the load effect below; App also
+    // refreshes its bootstrap customer slice for the pickers and dashboards.
+    // Mutations are the only callers, so this never fires on filter changes.
+    setCustomersRefreshKey((key) => key + 1);
     onCustomersChanged?.();
   };
 
@@ -248,51 +239,62 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     }
   };
 
-  // Server-side read: page+pageSize are forwarded to the paged GET /api/customers
-  // endpoint, where PostgreSQL applies branch + search + status filters.
-  // React holds ONLY the current page slice; the previous bootstrap slice is
-  // never filtered in memory.
-  const [customersPage] = useState(1);
-  const [customersPageSize] = useState(15);
+  // Server-side read: page/pageSize/status are forwarded to the paged
+  // GET /api/customers endpoint. React holds ONLY the current page slice; the
+  // response also carries the filtered totals so the KPI cards describe the
+  // whole result set, not just the visible page.
+  const [customersPage, setCustomersPage] = useState(1);
+  const [customersPageSize, setCustomersPageSize] = useState(15);
   const [customersRows, setCustomersRows] = useState<CustomerRecord[]>([]);
-  const [, setCustomersTotalItems] = useState(0);
-  const [, setCustomersLoadError] = useState(false);
+  const [customersTotalItems, setCustomersTotalItems] = useState(0);
+  const [customersActiveItems, setCustomersActiveItems] = useState(0);
+  const [customersTotalCredit, setCustomersTotalCredit] = useState(0);
+  const [customersLoadError, setCustomersLoadError] = useState('');
+  const [customersLoading, setCustomersLoading] = useState(true);
+  const [customersRefreshKey, setCustomersRefreshKey] = useState(0);
+  const customersFetchSeq = useRef(0);
 
-  const customersPagination = useClientPagination(
-    customersRows,
-    customersPageSize,
-    [customersPage, customersPageSize]
-  );
-
-  // Server-side read
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const envelope = await api.getCustomers({
-          branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
-          query: searchQuery.trim() || undefined,
-          status: statusFilter !== 'ALL' ? statusFilter : undefined,
-          page: customersPage,
-          pageSize: customersPageSize,
-        });
-
-        if (!cancelled) {
-          setCustomersRows((envelope as { data?: CustomerRecord[] }).data || []);
-          setCustomersTotalItems((envelope as { totalItems?: number }).totalItems || 0);
-          setCustomersLoadError(false);
-        }
-      } catch {
-        if (!cancelled) setCustomersLoadError(true);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+  const loadCustomersPage = useCallback(async () => {
+    const seq = ++customersFetchSeq.current;
+    setCustomersLoading(true);
+    setCustomersLoadError('');
+    try {
+      const envelope = await api.getCustomers({
+        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+        query: searchQuery.trim() || undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        page: customersPage,
+        pageSize: customersPageSize,
+      });
+      if (seq !== customersFetchSeq.current) return; // a newer request owns the page
+      setCustomersRows(envelope.data);
+      setCustomersTotalItems(envelope.totalItems);
+      setCustomersActiveItems(envelope.activeItems);
+      setCustomersTotalCredit(envelope.totalCreditLimit);
+    } catch (err: any) {
+      if (seq !== customersFetchSeq.current) return;
+      // Keep the last good page on screen; the banner says it may be stale.
+      setCustomersLoadError(err?.message || 'Could not load the customer directory.');
+    } finally {
+      if (seq === customersFetchSeq.current) setCustomersLoading(false);
+    }
   }, [selectedBranchFilter, searchQuery, statusFilter, customersPage, customersPageSize]);
+
+  useEffect(() => {
+    loadCustomersPage();
+  }, [loadCustomersPage, customersRefreshKey, sseRefreshKey]);
+
+  // A delete can remove the last row of the last page; never keep asking the
+  // server for a page that no longer exists.
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(customersTotalItems / customersPageSize));
+    if (customersPage > lastPage) setCustomersPage(lastPage);
+  }, [customersTotalItems, customersPageSize, customersPage]);
+
+  const customersPageCount = Math.max(1, Math.ceil(customersTotalItems / customersPageSize));
+  const customersSafePage = Math.min(customersPage, customersPageCount);
+  const customersRangeStart = customersTotalItems === 0 ? 0 : (customersSafePage - 1) * customersPageSize + 1;
+  const customersRangeEnd = Math.min(customersSafePage * customersPageSize, customersTotalItems);
 
   // Server-side device reads for the Assigned Hardware column. The endpoint is
   // paged and applies branch + text filter in PostgreSQL; user-facing page
@@ -337,51 +339,67 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     ).length;
   };
 
-  // Export CSV (server-side rows only; inactive filtered-out rows are never
-  // shipped to the client for a CSV download).
-  const handleExportCSV = () => {
-    if (customersRows.length === 0) {
+  // Export CSV: ask for every row matching the current filters (`all=1`), not
+  // just the page on screen — a "master database" export that silently stops
+  // at page 1 is worse than no export at all.
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExportCSV = async () => {
+    if (customersTotalItems === 0) {
       alertDialog('No customer master records available to export.');
       return;
     }
+    setIsExporting(true);
+    try {
+      const envelope = await api.getCustomers({
+        branchId: selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
+        query: searchQuery.trim() || undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        all: true,
+      });
+      const exportRows = envelope.data.map((c) => {
+        const branchObj = branches.find((b) => b.id === c.branchId);
+        return {
+          'Cus. Code': c.customerId || c.id,
+          'Customer Name': c.customerName,
+          'Username': c.username,
+          'Primary Mobile': c.contactNumber,
+          'Branch Code': branchObj ? branchObj.code : c.branchId,
+          'Branch Name': branchObj ? branchObj.name : c.branchId,
+          'Address': c.address || '',
+          'Email': c.email || '',
+          'Status': c.status,
+          'Credit Limit (NPR)': c.creditLimit || 0,
+          'Assigned Hardware Count': getAssignedDeviceCount(c),
+        };
+      });
 
-    const exportRows = customersRows.map((c) => {
-      const branchObj = branches.find((b) => b.id === c.branchId);
-      return {
-        'Cus. Code': c.customerId || c.id,
-        'Customer Name': c.customerName,
-        'Username': c.username,
-        'Primary Mobile': c.contactNumber,
-        'Branch Code': branchObj ? branchObj.code : c.branchId,
-        'Branch Name': branchObj ? branchObj.name : c.branchId,
-        'Address': c.address || '',
-        'Email': c.email || '',
-        'Status': c.status,
-        'Credit Limit (NPR)': c.creditLimit || 0,
-        'Assigned Hardware Count': getAssignedDeviceCount(c),
-      };
-    });
-
-    exportToCSV({
-      filename: `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}`,
-      reportTitle: 'Customer Master Database Directory',
-      branchName: 'All Branches (Consolidated)',
-      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : 'System User',
-      data: exportRows,
-      columns: [
-        { key: 'Cus. Code', label: 'Cus. Code' },
-        { key: 'Customer Name', label: 'Customer Name' },
-        { key: 'Username', label: 'Username' },
-        { key: 'Primary Mobile', label: 'Primary Mobile' },
-        { key: 'Branch Code', label: 'Branch Code' },
-        { key: 'Branch Name', label: 'Branch Name' },
-        { key: 'Address', label: 'Address' },
-        { key: 'Email', label: 'Email' },
-        { key: 'Status', label: 'Status' },
-        { key: 'Credit Limit (NPR)', label: 'Credit Limit (NPR)' },
-        { key: 'Assigned Hardware Count', label: 'Assigned Hardware Count' },
-      ],
-    });
+      exportToCSV({
+        filename: `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}`,
+        reportTitle: 'Customer Master Database Directory',
+        branchName: selectedBranchFilter === 'ALL'
+          ? 'All Branches (Consolidated)'
+          : branches.find((b) => b.id === selectedBranchFilter)?.name || selectedBranchFilter,
+        generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : 'System User',
+        data: exportRows,
+        columns: [
+          { key: 'Cus. Code', label: 'Cus. Code' },
+          { key: 'Customer Name', label: 'Customer Name' },
+          { key: 'Username', label: 'Username' },
+          { key: 'Primary Mobile', label: 'Primary Mobile' },
+          { key: 'Branch Code', label: 'Branch Code' },
+          { key: 'Branch Name', label: 'Branch Name' },
+          { key: 'Address', label: 'Address' },
+          { key: 'Email', label: 'Email' },
+          { key: 'Status', label: 'Status' },
+          { key: 'Credit Limit (NPR)', label: 'Credit Limit (NPR)' },
+          { key: 'Assigned Hardware Count', label: 'Assigned Hardware Count' },
+        ],
+      });
+    } catch (err: any) {
+      alertDialog(`Export Failed: ${err?.message || 'Could not load the customer records to export.'}`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -407,11 +425,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           <div className="flex flex-wrap items-center gap-2">
             {canExportImport && (
               <button
-                onClick={handleExportCSV}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
+                onClick={() => { void handleExportCSV(); }}
+                disabled={isExporting}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors cursor-pointer border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200`}
               >
-                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                <span>Export CSV</span>
+                {isExporting
+                  ? <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                  : <FileSpreadsheet className="h-4 w-4 text-emerald-600" />}
+                <span>{isExporting ? 'Exporting…' : 'Export CSV'}</span>
               </button>
             )}
 
@@ -441,13 +462,13 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
           <StatCard
             label="Total Registered Customers"
-            value={`${customersRows.length} Accounts`}
+            value={`${customersTotalItems} Accounts`}
             tone="slate"
           />
 
           <StatCard
             label="Active Status Accounts"
-            value={`${customersRows.filter((c) => c.status === 'ACTIVE').length} Active`}
+            value={`${customersActiveItems} Active`}
             tone="emerald"
           />
 
@@ -459,7 +480,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
           <StatCard
             label="Total Credit Capacity"
-            value={formatNPR(customersRows.reduce((sum, c) => sum + (c.creditLimit || 0), 0))}
+            value={formatNPR(customersTotalCredit)}
             tone="amber"
           />
         </div>
@@ -469,12 +490,16 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       <FilterCard
         searchPlaceholder="Search by Cus. Code, Name, Username, Primary Mobile, Email, or Address..."
         searchValue={searchQuery}
-        onSearchApply={setSearchQuery}
+        onSearchApply={(query) => {
+          setSearchQuery(query);
+          setCustomersPage(1);
+        }}
         hasActiveFilters={Boolean(searchQuery) || selectedBranchFilter !== 'ALL' || statusFilter !== 'ALL'}
         onClearAll={() => {
           setSearchQuery('');
           setSelectedBranchFilter('ALL');
           setStatusFilter('ALL');
+          setCustomersPage(1);
         }}
         filterChildren={
           <>
@@ -482,7 +507,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branch</label>
               <select
                 value={selectedBranchFilter}
-                onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                onChange={(e) => {
+                  setSelectedBranchFilter(e.target.value);
+                  setCustomersPage(1);
+                }}
                 className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Branches ({branches.length})</option>
@@ -497,7 +525,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Status</label>
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as any);
+                  setCustomersPage(1);
+                }}
                 className="px-3 py-2 text-xs rounded-xl border outline-none font-medium bg-white border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-white cursor-pointer"
               >
                 <option value="ALL">All Statuses</option>
@@ -508,6 +539,30 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </>
         }
       />
+
+      {customersLoadError && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-rose-800 dark:border-rose-500/40 dark:bg-rose-950/30 dark:text-rose-300">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Could not load the customer directory</p>
+              <p className="text-[11px] leading-5">
+                {customersLoadError}
+                {customersRows.length > 0 ? ' Showing the last loaded page — it may be out of date.' : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void loadCustomersPage(); }}
+            disabled={customersLoading}
+            className="flex items-center gap-1.5 rounded-lg border border-rose-300 px-2.5 py-1 text-[11px] font-bold hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/40 dark:hover:bg-rose-900/40"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${customersLoading ? 'animate-spin' : ''}`} />
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Customer Master Directory Table */}
       <div className={`rounded-2xl border shadow-sm overflow-hidden bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
@@ -527,18 +582,31 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {customersRows.length === 0 ? (
+              {customersLoading && customersRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
+                    <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin text-indigo-500" />
+                    <p className="text-xs font-semibold">Loading customer records…</p>
+                  </td>
+                </tr>
+              ) : customersRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                    <p className="font-semibold text-base">No Customer Records Found</p>
+                    <p className="font-semibold text-base">
+                      {customersLoadError ? 'Customer records could not be loaded' : 'No Customer Records Found'}
+                    </p>
                     <p className="text-xs text-slate-400 mt-1">
-                      {searchQuery ? 'Try adjusting your search query or filters.' : 'Add a customer or import from CSV.'}
+                      {customersLoadError
+                        ? 'Use Retry above to load the directory again.'
+                        : searchQuery
+                          ? 'Try adjusting your search query or filters.'
+                          : 'Add a customer or import from CSV.'}
                     </p>
                   </td>
                 </tr>
               ) : (
-                customersPagination.pagedItems.map((customer) => {
+                customersRows.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
                   const matchingDevices = customerDevicesRows.filter(
                     (d) =>
@@ -772,14 +840,17 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </table>
         </div>
         <TablePagination
-          page={customersPagination.page}
-          pageCount={customersPagination.pageCount}
-          totalItems={customersPagination.totalItems}
-          rangeStart={customersPagination.rangeStart}
-          rangeEnd={customersPagination.rangeEnd}
-          pageSize={customersPagination.pageSize}
-          onPageChange={customersPagination.setPage}
-          onPageSizeChange={customersPagination.setPageSize}
+          page={customersSafePage}
+          pageCount={customersPageCount}
+          totalItems={customersTotalItems}
+          rangeStart={customersRangeStart}
+          rangeEnd={customersRangeEnd}
+          pageSize={customersPageSize}
+          onPageChange={setCustomersPage}
+          onPageSizeChange={(size) => {
+            setCustomersPageSize(size);
+            setCustomersPage(1);
+          }}
           className="mt-1"
         />
       </div>

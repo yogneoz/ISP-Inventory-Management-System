@@ -331,24 +331,39 @@ export async function getSerialLogs(params?: {
 }
 
 // Customer Master Database (paged server-side queries)
+
+/** The one shape `GET /api/customers` returns (never a bare array). */
+export interface CustomerListEnvelope {
+  data: CustomerRecord[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  /** ACTIVE rows under the same filters (directory KPI cards). */
+  activeItems: number;
+  /** Sum of credit_limit under the same filters. */
+  totalCreditLimit: number;
+}
+
 export async function getCustomers(params?: {
   branchId?: string;
   query?: string;
   status?: 'ACTIVE' | 'INACTIVE';
   page?: number;
   pageSize?: number;
-}):
-  Promise<CustomerRecord[] | { data: CustomerRecord[]; page: number; pageSize: number; totalItems: number }> {
+  /** CSV export: one envelope containing every filtered row. */
+  all?: boolean;
+}): Promise<CustomerListEnvelope> {
   const search = new URLSearchParams();
   if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
   if (params?.query) search.append('query', params.query);
-  // status filter is applied server-side via POST body, not as a query param
+  if (params?.status) search.append('status', params.status);
   if (params?.page !== undefined) {
     search.append('page', String(params.page));
     if (params.pageSize) search.append('pageSize', String(params.pageSize));
   }
+  if (params?.all) search.append('all', '1');
   const queryString = search.toString() ? `?${search.toString()}` : '';
-  return fetchJson(`/api/customers${queryString}`);
+  return fetchJson<CustomerListEnvelope>(`/api/customers${queryString}`);
 }
 
 // Customer Master Database

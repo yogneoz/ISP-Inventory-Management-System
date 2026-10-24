@@ -13,6 +13,7 @@ import {
   productUpdateParams,
   categoryUpdateParams,
   buildCustomerListQuery,
+  buildCustomerListAggregateQuery,
   customerUpsertParams,
   CUSTOMER_SELECT_COLUMNS,
 } from '../server/src/models/masterdata.repo';
@@ -107,42 +108,93 @@ describe('categoryUpdateParams', () => {
 });
 
 describe('buildCustomerListQuery', () => {
-  test('base query has no WHERE and orders by customer_name', () => {
-    const { sql, params } = buildCustomerListQuery();
+  test('base query has no WHERE, orders deterministically and pages by default', () => {
+    const { sql, params, page, pageSize } = buildCustomerListQuery();
     assert.ok(sql.startsWith(`SELECT ${CUSTOMER_SELECT_COLUMNS} FROM customer_records`));
     assert.ok(!sql.includes(' WHERE '));
-    assert.match(sql, / ORDER BY customer_name ASC$/);
+    assert.match(sql, / ORDER BY customer_name ASC, customer_id ASC LIMIT 15 OFFSET 0$/);
     assert.deepEqual(params, []);
+    assert.equal(page, 1);
+    assert.equal(pageSize, 15);
   });
 
   test('ALL behaves like no branch filter', () => {
-    const { sql, params } = buildCustomerListQuery('ALL');
+    const { sql, params } = buildCustomerListQuery({ branchId: 'ALL' });
     assert.ok(!sql.includes(' WHERE '));
     assert.deepEqual(params, []);
   });
 
   test('branch filter uses the first placeholder', () => {
-    const { sql, params } = buildCustomerListQuery('BR1');
+    const { sql, params } = buildCustomerListQuery({ branchId: 'BR1' });
     assert.match(sql, / WHERE branch_id = \$1 ORDER BY/);
     assert.deepEqual(params, ['BR1']);
   });
 
   test('search wraps the term in lowercase wildcards', () => {
-    const { params } = buildCustomerListQuery(undefined, '  Sharma ');
+    const { params } = buildCustomerListQuery({ query: '  Sharma ' });
     assert.deepEqual(params, ['%sharma%']);
   });
 
-  test('combines branch + search with AND and correct placeholder order', () => {
-    const { sql, params } = buildCustomerListQuery('BR2', 'cus');
+  test('combines branch + search + status in placeholder order', () => {
+    const { sql, params } = buildCustomerListQuery({ branchId: 'BR2', query: 'cus', status: 'active' });
     assert.match(sql, /WHERE branch_id = \$1 AND \(LOWER\(customer_id\) LIKE \$2/);
-    assert.deepEqual(params, ['BR2', '%cus%']);
+    assert.match(sql, /AND status = \$3/);
+    assert.deepEqual(params, ['BR2', '%cus%', 'ACTIVE']);
   });
 
   test('search clause covers all six searchable columns', () => {
-    const { sql } = buildCustomerListQuery(undefined, 'x');
+    const { sql } = buildCustomerListQuery({ query: 'x' });
     for (const col of ['customer_id', 'customer_name', 'username', 'contact_number', 'email', 'address']) {
       assert.ok(sql.includes(`LOWER(${col}) LIKE`), `missing ${col}`);
     }
+  });
+
+  test('clamps page and pageSize before they reach SQL', () => {
+    const low = buildCustomerListQuery({ page: '0', pageSize: '9999' });
+    assert.equal(low.page, 1);
+    assert.equal(low.pageSize, 100);
+    assert.match(low.sql, /LIMIT 100 OFFSET 0$/);
+
+    const later = buildCustomerListQuery({ page: '3', pageSize: '25' });
+    assert.equal(later.page, 3);
+    assert.equal(later.pageSize, 25);
+    assert.match(later.sql, /LIMIT 25 OFFSET 50$/);
+
+    const garbage = buildCustomerListQuery({ page: 'abc', pageSize: '' });
+    assert.equal(garbage.page, 1);
+    assert.equal(garbage.pageSize, 15);
+  });
+
+  test('all=1 omits LIMIT/OFFSET for the CSV export', () => {
+    const { sql, page, pageSize } = buildCustomerListQuery({ all: true, page: '4' });
+    assert.ok(!sql.includes('LIMIT'));
+    assert.ok(!sql.includes('OFFSET'));
+    assert.equal(page, 4);
+    assert.equal(pageSize, 0, 'the caller replaces 0 with the exported row count');
+  });
+
+  test('an unknown status is ignored rather than injected', () => {
+    const { sql, params } = buildCustomerListQuery({ status: "ACTIVE' OR 1=1 --" });
+    assert.ok(!sql.includes('status ='));
+    assert.deepEqual(params, []);
+  });
+});
+
+describe('buildCustomerListAggregateQuery', () => {
+  test('counts all, active-only rows and credit under the same WHERE', () => {
+    const { sql, params } = buildCustomerListAggregateQuery({ branchId: 'BR1', query: 'sh', status: 'INACTIVE' });
+    assert.match(sql, /SELECT COUNT\(\*\)::int AS count/);
+    assert.match(sql, /COUNT\(\*\) FILTER \(WHERE status = 'ACTIVE'\)::int AS active/);
+    assert.match(sql, /COALESCE\(SUM\(credit_limit\), 0\)::float AS credit/);
+    assert.match(sql, /WHERE branch_id = \$1 AND \(LOWER\(customer_id\) LIKE \$2/);
+    assert.match(sql, /AND status = \$3/);
+    assert.deepEqual(params, ['BR1', '%sh%', 'INACTIVE']);
+  });
+
+  test('no filters means an unfiltered aggregate', () => {
+    const { sql, params } = buildCustomerListAggregateQuery();
+    assert.ok(!sql.includes(' WHERE '));
+    assert.deepEqual(params, []);
   });
 });
 

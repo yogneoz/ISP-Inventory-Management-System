@@ -26,7 +26,7 @@ import {
   SUPPLIER_SELECT, SUPPLIER_UPSERT_SQL, supplierUpsertParams, SUPPLIER_UPDATE_SQL, supplierUpdateParams, SUPPLIER_DELETE_SQL,
   PRODUCT_SELECT, PRODUCT_UPSERT_SQL, productUpsertParams, PRODUCT_UPDATE_SQL, productUpdateParams, PRODUCT_DELETE_SQL, STOCK_INIT_SQL, stockInitParams,
   CATEGORY_SELECT, CATEGORY_UPSERT_SQL, categoryUpsertParams, CATEGORY_UPDATE_SQL, categoryUpdateParams, CATEGORY_DELETE_SQL,
-  buildCustomerListQuery, CUSTOMER_UPSERT_SQL, customerUpsertParams,
+  buildCustomerListQuery, buildCustomerListAggregateQuery, normalizeCustomerPaging, CUSTOMER_UPSERT_SQL, customerUpsertParams,
   CUSTOMER_UPDATE_BY_ID_OR_CODE_SQL, customerUpdateByIdOrCodeParams, CUSTOMER_DELETE_BY_ID_OR_CODE_SQL,
 } from '../models/masterdata.repo';
 /** Forwarded from masterdata.routes.ts (get_uom). */
@@ -473,15 +473,38 @@ try {
 
 }
 
-/** Forwarded from masterdata.routes.ts (get_customers). */
+/**
+ * Forwarded from masterdata.routes.ts (get_customers).
+ *
+ * Paged envelope: `{ data, page, pageSize, totalItems, activeItems,
+ * totalCreditLimit }`. The directory screen reads this shape (it has since
+ * 2026-10-05); before this change the handler returned a bare array, so
+ * `envelope.data` was undefined and the screen rendered zero rows. Page and
+ * pageSize are clamped here and echoed back, and the aggregate is computed
+ * with the SAME WHERE as the page so the KPI cards always describe the rows.
+ * `all=1` returns every filtered row for the CSV export.
+ */
 export async function get_customers(req: any, res: Response): Promise<any> {
-const { branchId, query } = req.query;
+const { branchId, query, status, page, pageSize, all } = req.query;
+  const exportAll = all === '1' || all === 'true';
+  const options = { branchId, query, status, page, pageSize, all: exportAll };
 
   if (getPgConnected()) {
     try {
-      const { sql, params } = buildCustomerListQuery(branchId, query);
-      const r = await pgPool.query(sql, params as any[]);
-      res.json(r.rows);
+      const list = buildCustomerListQuery(options);
+      const aggregate = buildCustomerListAggregateQuery(options);
+      const [rows, totals] = await Promise.all([
+        pgPool.query(list.sql, list.params as any[]),
+        pgPool.query(aggregate.sql, aggregate.params as any[]),
+      ]);
+      res.json({
+        data: rows.rows,
+        page: list.page,
+        pageSize: exportAll ? rows.rows.length : list.pageSize,
+        totalItems: Number(totals.rows[0]?.count) || 0,
+        activeItems: Number(totals.rows[0]?.active) || 0,
+        totalCreditLimit: Number(totals.rows[0]?.credit) || 0,
+      });
       return;
     } catch (err) {
       console.error('Error fetching customers from DB:', err);
@@ -514,7 +537,30 @@ const { branchId, query } = req.query;
     );
   }
 
-  res.json(list);
+  const statusValue = typeof status === 'string' ? status.trim().toUpperCase() : '';
+  const statusFilter = statusValue === 'ACTIVE' || statusValue === 'INACTIVE' ? statusValue : undefined;
+  if (statusFilter) {
+    list = list.filter((c) => String(c.status || '').toUpperCase() === statusFilter);
+  }
+
+  // Same ordering as the SQL list (name, then code) so paging is stable.
+  const sorted = [...list].sort((a, b) =>
+    String(a.customerName || '').localeCompare(String(b.customerName || '')) ||
+    String(a.customerId || '').localeCompare(String(b.customerId || ''))
+  );
+  const paging = normalizeCustomerPaging(page, pageSize);
+  const data = exportAll
+    ? sorted
+    : sorted.slice((paging.page - 1) * paging.pageSize, paging.page * paging.pageSize);
+
+  res.json({
+    data,
+    page: paging.page,
+    pageSize: exportAll ? data.length : paging.pageSize,
+    totalItems: sorted.length,
+    activeItems: sorted.filter((c) => String(c.status || '').toUpperCase() === 'ACTIVE').length,
+    totalCreditLimit: sorted.reduce((sum, c) => sum + (Number(c.creditLimit) || 0), 0),
+  });
 
 }
 
