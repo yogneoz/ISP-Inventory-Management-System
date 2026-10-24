@@ -112,12 +112,17 @@ export interface StockOperationsCtx {
   saleOperations: StockOperation[];
   selectedBranchId: any;
   /**
-   * The serial register (`serial_log`) as the host fetched it (mount-once):
-   * the authority for IN_STOCK units since the purchase bill registers them
-   * transactionally (serial-register audit, Slice 1). Panels validate pairs
-   * and branch/status against this instead of fetching their own copy.
+   * The shared serial register (`serial_log`) snapshot: the authority for
+   * IN_STOCK units since the purchase bill registers them transactionally
+   * (serial-register audit, Slice 1 + DF-03). Panels validate pairs and
+   * branch/status against this instead of fetching their own copy; the host
+   * refreshes it from App's SSE/refresh invalidation.
    */
   serialRegister: SerialLog[];
+  /** Last failure refreshing the shared register ('' when healthy). */
+  serialRegisterError: string;
+  serialRegisterLoading: boolean;
+  refreshSerialRegister: () => void;
   setBranchFilter: (v: any) => void;
   setExchangeCustomerDevices: (v: any) => void;
   shipments: Shipment[];

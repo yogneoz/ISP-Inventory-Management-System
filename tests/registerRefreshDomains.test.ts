@@ -26,7 +26,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   DOMAIN_REGISTER_KEYS,
+  SERIAL_REGISTER_DOMAINS,
   bumpAllRegisterRefresh,
+  domainsTouchSerialRegister,
   SseDomainBurst,
   type RegisterRefreshKey,
 } from '../client/src/utils/registerRefreshDomains';
@@ -634,7 +636,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     );
   });
 
-  test('StockOperations: host api surface pinned; the assign panel keeps the mount-once serialLog cache', () => {
+  test('StockOperations: host api surface pinned; it reads the shared serial-register cache', () => {
     const source = readFeatureSource('inventory/StockOperations.tsx');
     // §G commit 2 relocated every submit handler — and with it 10 of the
     // original 12 methods — into the owning stockops/*Panel.tsx. What stays
@@ -643,29 +645,23 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.deepEqual(serverCallsIn(source), [
       'getBsDayRecordByAdDate',
       'getCustomerDevices',
-      'getSerialLogs',
     ]);
     assertNoRawFetch(source, 'StockOperations.tsx');
 
-    // The serial register cache lives in the HOST (serial-register audit,
-    // Slice 1): the host's own stock-out gate validates serials against
-    // `serial_log` — the customer-device table no longer carries stock units,
-    // because the purchase bill registers every received unit in its own
-    // transaction — and the panels read that same cache through the context.
-    // EXACTLY ONE fetch for the screen: mount-once ([] deps) behind
-    // serialRegisterLoaded, deliberately NOT sse-wired (the bootstrap payload
-    // excludes serialLogs). A second fetch in a panel, an effect with deps, or
-    // a dropped fetch fails these assertions and forces an explicit decision.
+    // The serial register itself moved to the app-wide cache (DF-03): the
+    // host's stock-out gate validates serials against `serial_log`, but it no
+    // longer fetches its own copy — all 11 mounted hosts + the dispatch form
+    // share one snapshot (serialRegisterCache.ts) that App invalidates on
+    // every serial_log-writing SSE domain and every full refresh. A
+    // per-screen fetch reappearing here would reintroduce the session-old
+    // snapshot the cache exists to remove.
     const hostSerialFetches = source.match(/api\.getSerialLogs/g) || [];
-    assert.equal(
-      hostSerialFetches.length,
-      1,
-      'StockOperations hosts exactly one serial-register fetch, shared with its panels'
-    );
+    assert.equal(hostSerialFetches.length, 0, 'StockOperations must read the shared register cache, not fetch its own copy');
+    assert.match(source, /useSerialRegister\(\)/, 'the host must subscribe to the shared serial-register cache');
     assert.match(
       source,
-      /useEffect\(\(\) => \{\s*if \(serialRegisterLoaded\.current\) return;\s*serialRegisterLoaded\.current = true;\s*api\.getSerialLogs\(\{ all: true \}\)/,
-      'the host register cache must stay mount-once behind serialRegisterLoaded'
+      /serialRegisterError && \(/,
+      'the host must surface a failed register refresh instead of silently gating on stale rows'
     );
     const assignSource = readFeatureSource('inventory/stockops/AssignAssetPanel.tsx');
     const serialFetches = assignSource.match(/api\.getSerialLogs/g) || [];
@@ -675,6 +671,52 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
       /serialRegister\.some\(/,
       'the assign panel must validate its serial pair against the context register cache'
     );
+  });
+
+  test('shared serial-register cache: every serial_log writer invalidates it, and App wires both paths', () => {
+    assert.deepEqual([...SERIAL_REGISTER_DOMAINS].sort(), [
+      'ASSETS',
+      'CUSTOMER_DEVICES',
+      'PROCUREMENT',
+      'SALES',
+      'SERIALS',
+      'SHIPMENTS',
+      'STOCK',
+      'STOCK_OPERATIONS',
+    ]);
+    for (const domain of SERIAL_REGISTER_DOMAINS) {
+      assert.equal(
+        domainsTouchSerialRegister([domain]),
+        true,
+        `${domain} writes serial_log but would not invalidate the shared cache`
+      );
+    }
+    assert.equal(domainsTouchSerialRegister(['PRODUCTS', 'FISCAL']), false);
+    assert.equal(domainsTouchSerialRegister([]), false);
+
+    const app = readAppSource();
+    const invalidations = app.match(/invalidateSerialRegister\(\)/g) || [];
+    assert.ok(
+      invalidations.length >= 2,
+      'App must invalidate the shared register from both the SSE burst and refreshAllData'
+    );
+    assert.match(
+      app,
+      /domainsTouchSerialRegister\(domains\)[\s\S]{0,120}invalidateSerialRegister\(\)/,
+      'the SSE handler must invalidate the cache for a serial_log-writing burst'
+    );
+  });
+
+  test('serial-gated stock screens read the shared cache instead of fetching their own register', () => {
+    for (const screen of ['inventory/StockOperations.tsx', 'procurement/CreateShipmentForm.tsx']) {
+      const source = readFeatureSource(screen);
+      assert.match(source, /useSerialRegister\(\)/, `${screen} must read the shared serial-register cache`);
+      assert.equal(
+        (source.match(/api\.getSerialLogs/g) || []).length,
+        0,
+        `${screen} must not fetch its own serial register`
+      );
+    }
   });
 });
 
@@ -749,11 +791,11 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   into a thin host (header, tab bar, manifest viewer, toast — zero
     //   server calls) plus ShipmentRegister (the three cancel/receive
     //   fallbacks moved with their flows) and CreateShipmentForm (submits
-    //   through App callbacks, and reads the serial register once to refuse a
-    //   dispatch of a serial that is not an IN_STOCK unit of the source branch
-    //   — serial-register audit, Slice 1; PurchaseInvoiceForm / PurchaseOrderForm
-    //   must stay fetch-free).
-    'procurement/CreateShipmentForm.tsx': ['getSerialLogs'],
+    //   through App callbacks, and reads the SHARED serial-register cache to
+    //   refuse a dispatch of a serial that is not an IN_STOCK unit of the
+    //   source branch — serial-register audit, Slice 1 + DF-03; no GET of its
+    //   own. PurchaseInvoiceForm / PurchaseOrderForm must stay fetch-free).
+    'procurement/CreateShipmentForm.tsx': [],
     'procurement/Shipments.tsx': [],
     'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
     // lookupExchangeSerial: the exchange modal resolves a serial the cached

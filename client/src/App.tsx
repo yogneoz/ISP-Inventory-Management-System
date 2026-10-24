@@ -45,9 +45,11 @@ import { isOperationAllowed } from './utils/permissions';
 import {
   DOMAIN_REGISTER_KEYS,
   bumpAllRegisterRefresh,
+  domainsTouchSerialRegister,
   SseDomainBurst,
   type RegisterRefreshKey,
 } from './utils/registerRefreshDomains';
+import { invalidateSerialRegister } from './services/serialRegisterCache';
 import { LoginModal } from './components/common/LoginModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
@@ -771,6 +773,10 @@ export default function App() {
     // their current paged fetch. Done before the fetch so the
     // registers refresh even if the bootstrap call fails.
     setRegisterRefresh(bumpAllRegisterRefresh);
+    // The shared serial-register cache is the other self-fetching surface:
+    // a manual refresh must re-read it too, or the stock gates keep their
+    // pre-refresh availability snapshot.
+    invalidateSerialRegister();
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -1023,6 +1029,9 @@ export default function App() {
           // converts with, so re-read the mirror immediately instead of waiting
           // for the next mount.
           if (domains.includes('BS_CALENDAR')) syncBsCalendarMirrorRef.current();
+          // Any serial_log writer makes the shared register snapshot stale
+          // for every open stock/dispatch gate, not just the paged register.
+          if (domainsTouchSerialRegister(domains)) invalidateSerialRegister();
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {

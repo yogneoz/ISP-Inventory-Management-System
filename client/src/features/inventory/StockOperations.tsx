@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
   StockOperation,
@@ -11,14 +11,15 @@ import {
   LocationRecord,
   CustomerRecord,
   CustomerDeviceRecord,
-  SerialLog,
   ApprovalRequest,
 } from '../../types';
 import { hasExactBSDayRecord, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { api } from '../../services/api';
+import { useSerialRegister } from '../../services/serialRegisterCache';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
   AlertOctagon,
+  AlertTriangle,
   X,
   RefreshCw,
   ShieldAlert,
@@ -138,19 +139,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
 
   // The serial register (`serial_log`) is the authority for IN_STOCK units: the
-  // purchase bill registers them inside its own transaction, so this cache
-  // replaces the customer-device rows that used to carry purchased stock. The
-  // bootstrap payload excludes serialLogs, so this mount-once fetch IS the
-  // register the gate below validates against (serial-register audit, Slice 1).
-  const [serialRegister, setSerialRegister] = useState<SerialLog[]>([]);
-  const serialRegisterLoaded = useRef(false);
-  useEffect(() => {
-    if (serialRegisterLoaded.current) return;
-    serialRegisterLoaded.current = true;
-    api.getSerialLogs({ all: true })
-      .then((res) => setSerialRegister(Array.isArray(res) ? res : res.data || []))
-      .catch(() => setSerialRegister([]));
-  }, []);
+  // purchase bill registers them inside its own transaction, so this replaces
+  // the customer-device rows that used to carry purchased stock. One shared
+  // cache backs all 11 mounted hosts and the dispatch form; App invalidates it
+  // whenever an SSE domain writes serial_log (serial-register audit, Slice 1
+  // + DF-03). A failed refresh keeps the last rows and is surfaced below — the
+  // gate never silently validates against an empty register.
+  const {
+    rows: serialRegister,
+    error: serialRegisterError,
+    loading: serialRegisterLoading,
+    refresh: refreshSerialRegister,
+  } = useSerialRegister();
   // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
     currentUser?.role === 'SUPER_ADMIN' ||
@@ -364,6 +364,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             const where = known
               ? `it is registered at "${branches.find((b) => b.id === known.branchId)?.name || known.branchId}" with status "${known.status}"`
               : `no device with that serial exists in the register yet`;
+            if (serialRegisterError) {
+              alertDialog(
+                `Serial Register Unavailable: ${serialRegisterError}\n\n` +
+                  `The shared serial register could not be refreshed, so availability cannot be verified. Use Retry on the orange notice above, then try this operation again.`
+              );
+              return false;
+            }
             alertDialog(
               `Serial Register Error: Device Serial #${cleanSerial}${cleanPon ? ` / PON #${cleanPon}` : ''} cannot be used for "${item.productName}" at ${branchName} — ${where}.\n\n` +
                 `This product is serial-tracked, so the serial must already be in "${branchName}"'s register with status IN_STOCK before stock can move.\n\n` +
@@ -424,6 +431,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     customers,
     customerDevices,
     serialRegister,
+    serialRegisterError,
+    serialRegisterLoading,
+    refreshSerialRegister,
     dateMode,
     damageOperations,
     ensureBsDateAvailable,
@@ -491,6 +501,29 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Re-check BS Date
+          </button>
+        </div>
+      )}
+
+      {serialRegisterError && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+            <div>
+              <p className="text-sm font-bold">Serial register could not be refreshed</p>
+              <p className="mt-1 text-xs opacity-90">
+                {serialRegisterError} Serial-tracked moves are checked against the last loaded register, which may be out of date.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => refreshSerialRegister()}
+            disabled={serialRegisterLoading}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${serialRegisterLoading ? 'animate-spin' : ''}`} />
+            {serialRegisterLoading ? 'Retrying…' : 'Retry'}
           </button>
         </div>
       )}

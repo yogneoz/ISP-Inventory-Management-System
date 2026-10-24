@@ -60,6 +60,32 @@ export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
 };
 
 /**
+ * Domains whose mutations write `serial_log` rows. The shared client
+ * serial-register cache (services/serialRegisterCache.ts) invalidates on any
+ * of them: a stock move, serial edit, purchase or sale/return, goods receipt,
+ * CPE flow or asset deployment anywhere makes every open stock gate re-read
+ * the register instead of trusting a session-old snapshot.
+ *
+ * Deliberately a superset, like DOMAIN_REGISTER_KEYS: one extra register GET
+ * is harmless, a missed event leaves a gate blocking (or accepting) wrongly.
+ */
+export const SERIAL_REGISTER_DOMAINS: ReadonlySet<string> = new Set([
+  'STOCK',
+  'STOCK_OPERATIONS',
+  'SERIALS',
+  'PROCUREMENT',
+  'SALES',
+  'SHIPMENTS',
+  'CUSTOMER_DEVICES',
+  'ASSETS',
+]);
+
+/** True when any domain in a flushed SSE burst writes `serial_log`. */
+export function domainsTouchSerialRegister(domains: readonly string[]): boolean {
+  return domains.some((domain) => SERIAL_REGISTER_DOMAINS.has(domain));
+}
+
+/**
  * Advance every paged-register counter by one. App.tsx's full
  * bootstrap refresh (the header's manual "Refresh realtime stock
  * and logs" button, and every action handler that calls it) uses

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   Shipment,
   ShipmentItem,
@@ -7,16 +7,15 @@ import {
   InventoryStock,
   User,
   CustomerDeviceRecord,
-  SerialLog,
 } from '../../types';
 import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { getAllowedBranches } from '../../utils/permissions';
 import { ProductSearchBar } from '../inventory/ProductSearchBar';
-import { Plus, Send, Barcode, Boxes, Trash2 } from 'lucide-react';
+import { Plus, Send, Barcode, Boxes, Trash2, AlertTriangle } from 'lucide-react';
 import { FormCard } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
-import { api } from '../../services/api';
+import { useSerialRegister } from '../../services/serialRegisterCache';
 import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
 
 export interface ShipmentFormLine {
@@ -69,16 +68,15 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
   // Serial register (`serial_log`) cache: purchases register every received
   // unit transactionally, so the register — not the customer-device table — is
   // where a dispatched serial's branch/status is answered (serial-register
-  // audit, Slice 1). customerDevices stays as a legacy fallback below.
-  const [serialRegister, setSerialRegister] = useState<SerialLog[]>([]);
-  const serialRegisterLoaded = useRef(false);
-  useEffect(() => {
-    if (serialRegisterLoaded.current) return;
-    serialRegisterLoaded.current = true;
-    api.getSerialLogs({ all: true })
-      .then((res) => setSerialRegister(Array.isArray(res) ? res : res.data || []))
-      .catch(() => setSerialRegister([]));
-  }, []);
+  // audit, Slice 1). DF-03: this form shares the app-wide cache with the
+  // stock gates, so a receipt or sale elsewhere reaches it without a reload;
+  // customerDevices stays as a legacy fallback below.
+  const {
+    rows: serialRegister,
+    error: serialRegisterError,
+    loading: serialRegisterLoading,
+    refresh: refreshSerialRegister,
+  } = useSerialRegister();
 
   // Form State - Strict Inter-Branch Stock Transfer
   const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'WH001');
@@ -203,6 +201,13 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
       const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
       if (isSerialized) {
+        if (serialRegisterError) {
+          alertDialog(
+            `Serial Register Unavailable: ${serialRegisterError}\n\n` +
+              `The dispatch check cannot verify serials against a stale register. Use Retry on the notice above, then submit again.`
+          );
+          return;
+        }
         if (!l.deviceSerials || l.deviceSerials.length < l.quantitySent) {
           alertDialog(`Validation Error: Please enter serial numbers for all ${l.quantitySent} unit(s) of "${prodName}".`);
           return;
@@ -329,6 +334,28 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
           Switch to Register List
         </button>
       </div>
+
+      {serialRegisterError && (
+        <div className="m-4 mb-0 flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <p className="text-xs font-bold">Serial register could not be refreshed</p>
+              <p className="mt-1 text-[11px] opacity-90">
+                {serialRegisterError} Dispatch checks use the last loaded register, which may be out of date.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => refreshSerialRegister()}
+            disabled={serialRegisterLoading}
+            className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {serialRegisterLoading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* 12-col alignment pattern (matches PO / Purchase Bill forms):

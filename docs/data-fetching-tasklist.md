@@ -31,7 +31,7 @@ ships a task.
 |----|------|----------|----------|--------|------------|
 | DF-01 | Restore the Customer Master Directory (server-side paging) | P0-1 | P0 | `done` | — |
 | DF-02 | Refresh the product catalog after save/re-activation | P1-1 | P1 | `done` | — |
-| DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `todo` | — |
+| DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `done` | — |
 | DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `todo` | — |
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `todo` | — |
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `todo` | — |
@@ -153,6 +153,12 @@ plus a manual pass in the two tabs.
 ---
 
 ## DF-03 — One shared serial-register cache (P1-2)
+
+**Status: `done` (2026-10-24).** The app-wide cache lives in
+`services/serialRegisterCache.ts` (React hook + singleton) with its pure,
+unit-tested core in `services/serialRegisterStore.ts`; App invalidates it from
+the SSE burst and every full refresh. Live evidence is in `SESSION_NOTES.md`
+under "DF-03 shipped".
 
 **Problem.** Every mounted `StockOperations` instance (App mounts **11**) and
 `CreateShipmentForm` fetch `getSerialLogs({all:true})` once behind a
