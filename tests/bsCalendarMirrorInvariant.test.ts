@@ -169,6 +169,7 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
       max: 2,
       connectionTimeoutMillis: 2000,
     });
+    adminPool.on('error', () => undefined);
     await adminPool.query('SELECT 1');
 
     // A stale throwaway from an earlier run can hold connections; nothing else
@@ -196,6 +197,13 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
       max: 4,
       connectionTimeoutMillis: 5000,
     });
+    // Teardown drops this database. An idle client still attached when that
+    // happens receives "terminating connection due to administrator command",
+    // and pg reports it as an 'error' event on the pool: unhandled, node turns
+    // it into an uncaughtException that fails the whole file even though every
+    // test passed. These errors are expected here, so they are absorbed; a
+    // failing query still rejects normally during the tests.
+    pool.on('error', () => undefined);
 
     // The fixture is the real bundled calendar, seeded the way an install seeds
     // it: the year master first, then that year's day rows from the server's own
@@ -219,16 +227,19 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
   after(async () => {
     if (pool) await pool.end();
     if (adminPool && dbReachable) {
-      await adminPool
-        .query(
-          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-           WHERE datname = $1 AND pid <> pg_backend_pid()`,
-          [TEST_DB]
-        )
-        .catch(() => undefined);
+      // The pool is closed, so a plain DROP should find no backends. Only a
+      // client that raced the shutdown needs terminating; doing it on the
+      // common path is what used to kill an idle client mid-teardown.
       try {
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
       } catch {
+        await adminPool
+          .query(
+            `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+             WHERE datname = $1 AND pid <> pg_backend_pid()`,
+            [TEST_DB]
+          )
+          .catch(() => undefined);
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => undefined);
       }
     }

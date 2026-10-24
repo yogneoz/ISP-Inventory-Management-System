@@ -129,6 +129,7 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
         max: 2,
         connectionTimeoutMillis: 2000,
       });
+      adminPool.on('error', () => undefined);
       await adminPool.query('SELECT 1');
       dbReachable = true;
     } catch {
@@ -161,6 +162,13 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
     }
 
     dbPool = new pg.Pool({ connectionString: throwawayUrl, max: 4, connectionTimeoutMillis: 5000 });
+    // Teardown drops this database. An idle client still attached when that
+    // happens receives "terminating connection due to administrator command",
+    // and pg reports it as an 'error' event on the pool: unhandled, node turns
+    // it into an uncaughtException that fails the whole file even though every
+    // test passed. These errors are expected here, so they are absorbed; a
+    // failing query still rejects normally during the tests.
+    dbPool.on('error', () => undefined);
 
     const seededCurrent = INITIAL_MASTER_FISCAL_YEARS.find((fy) => fy.isCurrent);
     const nonCurrent = INITIAL_MASTER_FISCAL_YEARS.find((fy) => !fy.isCurrent);
@@ -172,6 +180,11 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
     // its pool from DATABASE_URL at module load.
     process.env.DATABASE_URL = throwawayUrl;
     const { createApp, registerAllRoutes } = await import('../server/src/app');
+    // The app's pool lives in this process and is pointed at the throwaway
+    // database; it is closed in after(), and a client still attached to the
+    // drop must not surface as an uncaughtException (see dbPool above).
+    const serverDb = await import('../server/db');
+    serverDb.realPoolInstance?.on?.('error', () => undefined);
     const { issueAuthToken } = await import('../server/src/middleware/auth');
     token = issueAuthToken(SUPER_USER);
 
@@ -200,16 +213,19 @@ describe('GET /api/bootstrap: an unusable fiscal-year master is reported honestl
     }
     if (dbPool) await dbPool.end();
     if (adminPool && dbReachable) {
-      await adminPool
-        .query(
-          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-           WHERE datname = $1 AND pid <> pg_backend_pid()`,
-          [TEST_DB]
-        )
-        .catch(() => undefined);
+      // Both pools are closed, so a plain DROP should find no backends. Only a
+      // client that raced the shutdown needs terminating; doing it on the
+      // common path is what used to kill an idle client mid-teardown.
       try {
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
       } catch {
+        await adminPool
+          .query(
+            `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+             WHERE datname = $1 AND pid <> pg_backend_pid()`,
+            [TEST_DB]
+          )
+          .catch(() => undefined);
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => undefined);
       }
     }

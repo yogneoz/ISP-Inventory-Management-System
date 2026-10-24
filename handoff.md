@@ -1610,9 +1610,15 @@ removing both in `after()`; `tests/bsCalendarMirrorInvariant.test.ts` builds a t
 `inventory_bs_mirror_test` database from `schema.sql` and seeds the bundled calendar through the
 server's own `buildBsDayRecordsForYear()`, so it never reads or writes an install's database.
 Run against a locally created schema-only database (CI's state), those three files pass 14/14.
-Suite size is unchanged at 1000. `bootstrapFiscalYearHonesty` still fails intermittently at
-file level in CI for a separate, undiagnosed reason (it creates its own database; not a seed
-dependency).
+Suite size is unchanged at 1000.
+The *other* CI failure — `bootstrapFiscalYearHonesty` (or `fiscalYearFirstCreation`) failing at
+file level with no test name — turned out to be a teardown race, not a data dependency: after
+closing their pools, those suites ran `pg_terminate_backend` on the throwaway database before
+dropping it, and an idle client killed by that command emitted an unhandled `error` that node
+reported as an uncaughtException. Both suites (and `bsCalendarMirrorInvariant`) now attach
+`error` listeners to their pools and to the app's `realPoolInstance`, and terminate backends only
+when a plain `DROP DATABASE` fails. Stress run: 10 consecutive rounds of the three DB-creating
+suites, 0 failures.
 
 ---
 

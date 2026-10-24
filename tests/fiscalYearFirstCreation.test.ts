@@ -115,6 +115,7 @@ describe('first fiscal year creation unblocks the app (post-demo-clear journey)'
         max: 2,
         connectionTimeoutMillis: 2000,
       });
+      adminPool.on('error', () => undefined);
       await adminPool.query('SELECT 1');
       dbReachable = true;
     } catch {
@@ -147,6 +148,13 @@ describe('first fiscal year creation unblocks the app (post-demo-clear journey)'
     }
 
     dbPool = new pg.Pool({ connectionString: throwawayUrl, max: 4, connectionTimeoutMillis: 5000 });
+    // Teardown drops this database. An idle client still attached when that
+    // happens receives "terminating connection due to administrator command",
+    // and pg reports it as an 'error' event on the pool: unhandled, node turns
+    // it into an uncaughtException that fails the whole file even though every
+    // test passed. These errors are expected here, so they are absorbed; a
+    // failing query still rejects normally during the tests.
+    dbPool.on('error', () => undefined);
 
     // Repoint the server at the throwaway BEFORE it is imported: db.ts builds
     // its pool from DATABASE_URL at module load.
@@ -157,7 +165,11 @@ describe('first fiscal year creation unblocks the app (post-demo-clear journey)'
     // something pings it (the request middleware normally does). Deliberately
     // NOT the boot sync: syncDatabaseAndIndexes seeds fy-1..fy-4, and this test
     // needs a database with no fiscal years at all.
-    const { ensurePostgresConnection } = await import('../server/db');
+    const { ensurePostgresConnection, realPoolInstance } = await import('../server/db');
+    // The app's pool lives in this process and is pointed at the throwaway
+    // database; it is closed in after(), and a client still attached to the
+    // drop must not surface as an uncaughtException (see dbPool above).
+    realPoolInstance?.on?.('error', () => undefined);
     assert.equal(await ensurePostgresConnection(), true, 'the throwaway database must be reachable');
     ({ post_fiscalYears: postFiscalYears } = await import('../server/src/controllers/admin.controller'));
     // GET /api/bootstrap is authenticated once the database layer is live, so the
@@ -194,16 +206,19 @@ describe('first fiscal year creation unblocks the app (post-demo-clear journey)'
     }
     if (dbPool) await dbPool.end();
     if (adminPool && dbReachable) {
-      await adminPool
-        .query(
-          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-           WHERE datname = $1 AND pid <> pg_backend_pid()`,
-          [TEST_DB]
-        )
-        .catch(() => undefined);
+      // Both pools are closed, so a plain DROP should find no backends. Only a
+      // client that raced the shutdown needs terminating; doing it on the
+      // common path is what used to kill an idle client mid-teardown.
       try {
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
       } catch {
+        await adminPool
+          .query(
+            `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+             WHERE datname = $1 AND pid <> pg_backend_pid()`,
+            [TEST_DB]
+          )
+          .catch(() => undefined);
         await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => undefined);
       }
     }

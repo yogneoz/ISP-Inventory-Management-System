@@ -30,10 +30,22 @@ Verified by creating a schema-only database locally (exactly CI's state) and run
 three files against it: **14/14 pass**, where CI had ten failures. The full suite is unchanged
 at 1000 tests.
 
-One CI failure lies outside this arc: `bootstrapFiscalYearHonesty` fails at file level ("test
-failed", with no test name) in some runs. Its `before()` creates its own database from
-`schema.sql` and seeds only the fiscal-year master, so it is not a seed-data dependency; the
-cause is still undiagnosed without the job log (the log endpoint requires admin rights).
+The remaining CI failure was a teardown race, not a data dependency. `bootstrapFiscalYearHonesty`
+(or `fiscalYearFirstCreation` in other runs) failed at FILE level with "test failed" and no test
+name. It reproduces locally when the database-creating suites run together:
+
+    Test hook "before" at tests\fiscalYearFirstCreation.test.ts:108:3 generated asynchronous
+    activity after the test ended ... "error: terminating connection due to administrator command"
+    ✖ tests\fiscalYearFirstCreation.test.ts
+
+Both suites closed their pools and then ran `pg_terminate_backend` on the throwaway database
+before dropping it. An idle pooled client killed by that command makes `pg` emit an `error` on
+the pool; with no listener, node turns it into an uncaughtException and fails the whole file even
+though every test in it passed. Both suites (and the calendar suite added above) now attach
+`error` listeners to their own pools and to the app's `realPoolInstance`, and they try a plain
+`DROP DATABASE` first — terminating lingering backends only when that drop fails — so the
+terminate is off the common path. Stress run: 10 consecutive rounds of the three DB-creating
+suites, 0 failures (the old teardown failed one round in three).
 
 ## ⭐ The shell owns its own state, so a modal no longer re-renders the tab tree (A2, 2026-10-23)
 
