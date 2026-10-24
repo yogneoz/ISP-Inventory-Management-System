@@ -2,6 +2,29 @@
 
 _Date: 2026-10-24 · Branch: main · Tests: 1085/1085 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
+## ✅ Data-fetching list closed — DF-01…DF-12 all shipped (2026-10-24)
+
+All twelve tasks are `done` on `main`, one commit each, and every one has a
+green `typecheck-and-test` run on its own head (twelve consecutive successes).
+The close-out review in `docs/data-fetching-tasklist.md` re-checked the
+cross-task invariants: five paged registers carry the error notice + page clamp
++ render-phase reset; no `window.location.reload` call survives; every
+`StockOperations` host refreshes through App; the statements matrix uses the
+single batch call; server and client domain maps still agree; and the paged
+`GET /api/customers` envelope is documented in README and handoff with no other
+caller expecting the old array.
+
+Residual minors recorded (none a regression from this work): Locations seeds a
+new location's branch from `branches[0]`, the BS health panel still lacks a
+sequence guard, the two customer-device registers keep stale rows without a
+notice on their own failed read, and the batch summary resolves pairs
+sequentially inside one request.
+
+One review-driven hardening is on disk, not yet committed: the page-reset hook
+now compares against STATE instead of a ref, so an aborted render cannot record
+a filter change whose page reset never happened. `tests/df12Cleanup.test.ts`
+still passes (7 tests) and `npx tsc --noEmit` is clean.
+
 ## ✅ DF-12 shipped — cleanup: no full reloads, one summary request, no dead paging state (2026-10-24)
 
 Six audit leftovers, verified by the new `tests/df12Cleanup.test.ts` (7 tests)

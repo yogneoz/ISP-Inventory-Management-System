@@ -605,6 +605,45 @@ Independent small items; split into `a/b` if any grows.
 
 ---
 
+## Close-out review (2026-10-24)
+
+All twelve tasks are `done` and on `main`. Each shipped as its own commit
+(`7b7d8ff` DF-01 … `7d3228a` DF-12) with a green `typecheck-and-test` run on
+its exact head — twelve consecutive successes, including typecheck, the full
+suite against the PostgreSQL service container, the fresh-install schema-parity
+boot, both convention guards, the production builds, the bundle budget and
+`npm audit`. The suite closed at **1085 tests, 0 fail** (2 Windows-only skips).
+
+Cross-checks run for this review:
+
+- The five paged registers each carry `RegisterLoadError`, `useServerPageClamp`
+  and `useFilterPageReset`; no register still runs the mount-era page-reset
+  effect.
+- `grep -rn "window.location.reload" client/src` returns only prose; every
+  `StockOperations` host passes `onRefreshData`.
+- `getFinancialSummary` is no longer called for the statements matrix; the
+  batch path and the JSON shape agree with the single read (live test).
+- Server `DOMAIN_BY_MODULE` and client `DOMAIN_REGISTER_KEYS` still agree on
+  the `SHIPMENTS` / `RECALC` / `BS_CALENDAR` domains DF-06 and DF-10 added.
+- `GET /api/customers`' paged envelope is documented in both README and
+  handoff, and no other caller expects the old bare array.
+
+### Residual minors (not regressions, not in DF scope)
+
+1. Locations still seeds a new location's branch from `branches[0]` at mount
+   (`LocationsManagement.tsx`), so with a slow bootstrap or a non-first home
+   branch the pre-filled branch can be wrong until changed. The user can always
+   change it; DF-11 only covered the failure-vs-empty distinction.
+2. `BsCalendarHealthPanel` still has no sequence/cancel guard on its integrity
+   read (the audit's "minor"): a slow first response can overwrite a newer
+   report after a fast re-activation.
+3. The two customer device registers keep their last successful rows when
+   their own read fails, with no visible notice. DF-12 removed the write-only
+   error flag rather than inventing a surface DF-11 never scoped.
+4. The batch summary endpoint resolves pairs sequentially in one request, and
+   a single read without `fiscalYearId` now resolves the current FY — matching
+   the bootstrap slice and the client, which always sends one.
+
 ## Suggested sequence
 
 Two-week shape, but ship in whatever order you like as long as DF-01 is first:

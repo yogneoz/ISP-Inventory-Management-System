@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useState } from 'react';
 
 /**
  * Keeps a SERVER-paged register on page 1 when its filters change (DF-12).
@@ -14,6 +14,10 @@ import { useRef } from 'react';
  * whose loader is rebuilt with page 1 — runs exactly once. Nothing is
  * dispatched on mount or on a re-render that leaves the filters alone.
  *
+ * The previous key is STATE, not a ref: React discards these updates with the
+ * aborted render pass, so an interrupted render retries the comparison instead
+ * of recording a key whose page reset never happened.
+ *
  * `filterKey` must encode only the filters: putting the page in it would make
  * paging reset itself.
  */
@@ -22,8 +26,8 @@ export function useFilterPageReset(
   page: number,
   setPage: (page: number) => void
 ): void {
-  const previousKey = useRef(filterKey);
-  if (previousKey.current === filterKey) return;
-  previousKey.current = filterKey;
+  const [previousKey, setPreviousKey] = useState(filterKey);
+  if (previousKey === filterKey) return;
+  setPreviousKey(filterKey);
   if (page !== 1) setPage(1);
 }

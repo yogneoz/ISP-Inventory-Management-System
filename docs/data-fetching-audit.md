@@ -362,7 +362,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Customer Device Serials | self devices + props customers | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). |
 | Locations | self list | Silent failure (P2-9); default branch captured before branches load. |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
-| Purchase Orders, Purchase Invoices | paged | Guards fine; silent fallback (P1-3); page clamp fixed by DF-09. |
+| Purchase Orders, Purchase Invoices | paged | Guards fine; fetch failures render the retryable notice and exports refuse a partial file (DF-04); page clamp fixed by DF-09. |
 | Purchase / Sales Returns Register | paged | Same as above. |
 | Sales Invoices | paged | Same as above. |
 | Consumables Register | paged | Same; also depends on the shared serial cache for its form host. |
@@ -390,15 +390,26 @@ green. No batch needs a dependency.
 1. **P0** — settle the `/api/customers` contract (server paged envelope) and
    rewire the directory to the real page/total/status params. Add a repo test
    for the query builder + one HTTP test for the envelope. This is the only
-   page that is outright broken.
+   page that is outright broken. **Landed as DF-01 (2026-10-24):** the paged
+   envelope, status filtering, client paging and a visible load error are in,
+   pinned by `tests/customerPaging.api.test.ts` and the render tests.
 2. **P1-1** — refresh the product catalog after save (local `refreshKey`
-   bumped by the save handler).
+   bumped by the save handler). **Landed as DF-02 (2026-10-24):** a local
+   `catalogVersion` plus activation refetch on both mounts, and the catalog
+   error is rendered instead of discarded.
 3. **P1-2** — one shared serial-register cache, re-fetched from the existing
-   domain counters; stop each host fetching its own copy.
+   domain counters; stop each host fetching its own copy. **Landed as DF-03
+   (2026-10-24):** one singleton store serves all 11 hosts and the dispatch
+   form; `tests/serialRegisterCache.test.ts` pins the single in-flight read.
 4. **P1-3** — render the fetch error above each paged register; disable
    export-all while the page request is in error. Reuse Serial Log's pattern.
+   **Landed as DF-04 (2026-10-24):** the shared `RegisterLoadError` names the
+   failed page, retries it, and exports abort instead of writing a partial file.
 5. **P1-4** — a `financialSummary` slice (server + client) or a self-fetch in
-   the two consumers, then add it to the owning domains.
+   the two consumers, then add it to the owning domains. **Landed as DF-05
+   (2026-10-24):** `GET /api/bootstrap/local?key=financialSummary` is live and
+   the owning domains re-fetch it; DF-12 later put the reports endpoint on the
+   same producer.
 6. **P2-1/P2-2** — extend the domain maps: `SHIPMENTS → transactionLogs,
    serialLog`; `RECALC → transactionLogs, BS_CALENDAR`; add BS calendar
    handling to the RECALC branch. Then a mapping test (extend
@@ -406,7 +417,7 @@ green. No batch needs a dependency.
    covered. **Landed as DF-06 (2026-10-24):** `SHIPMENTS` refreshes
    `transactionLogs` plus the `serialLog`/`purchaseOrders` registers, and
    `RECALC` refreshes `transactionLogs` and re-reads the BS mirror. Live
-   calendar events for the BS screens themselves remain DF-10.
+   calendar events for the BS screens themselves landed as DF-10.
 7. **P2-3** — fiscal year in `cacheKey` (one line) plus a unit test for the
    dedup key. **Landed as DF-07 (2026-10-24):** `tests/apiDedup.test.ts` pins
    same-year coalescing, cross-year separation and the existing branch/user
@@ -423,7 +434,10 @@ green. No batch needs a dependency.
    registers.
 10. **P2-7/P2-8/P2-9** — replace the silent fallbacks with a visible notice and
     a refresh action; use `localTodayAD()`; surface load errors in the setup
-    lists.
+    lists. **Landed as DF-10 (BS screens) and DF-11 (setup lists):** a failed
+    calendar read is labelled, the gate checks today's LOCAL date and re-checks
+    on activation, and Category/UoM/Locations/Document Numbering render the
+    retryable `LoadStateNotice` instead of an empty list.
 
 Anything that touches the client today is pinned only by source-text guards —
 there is no behavioural client test suite (backlog item **A6**). The safest
