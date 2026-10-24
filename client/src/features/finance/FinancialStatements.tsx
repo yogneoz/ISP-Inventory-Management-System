@@ -167,6 +167,8 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   const [summaryMap, setSummaryMap] = useState<Record<string, FinancialSummary>>({});
   const [summariesLoading, setSummariesLoading] = useState(false);
   const [summariesError, setSummariesError] = useState<string | null>(null);
+  // A failed batch used to wait for the next tab activation to try again.
+  const [summariesRetryKey, setSummariesRetryKey] = useState(0);
 
   const activeBranches = useMemo(
     () => (branches || []).filter((b) => b.active),
@@ -222,7 +224,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeBranches, currentFy, priorFy, activationKey]);
+  }, [activeBranches, currentFy, priorFy, activationKey, summariesRetryKey]);
 
   // ----- Figures per branch × fiscal year ------------------------------------
   const figuresFor = (branchId: string, fy: FiscalYear | null): BranchFigures => {
@@ -542,9 +544,20 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
         </div>
       )}
       {summariesError && (
-        <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/60 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
-          <Info className="h-4 w-4 shrink-0" />
-          {summariesError}
+        <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/60 text-xs text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Info className="h-4 w-4 shrink-0" />
+            {summariesError}
+          </div>
+          <button
+            type="button"
+            onClick={() => setSummariesRetryKey((k) => k + 1)}
+            disabled={summariesLoading}
+            className="flex items-center gap-1.5 rounded-lg border border-amber-300 px-2.5 py-1 text-[11px] font-bold hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/40 dark:hover:bg-amber-900/40"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${summariesLoading ? 'animate-spin' : ''}`} />
+            Retry
+          </button>
         </div>
       )}
 

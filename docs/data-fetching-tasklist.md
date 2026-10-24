@@ -612,7 +612,7 @@ All twelve tasks are `done` and on `main`. Each shipped as its own commit
 its exact head — twelve consecutive successes, including typecheck, the full
 suite against the PostgreSQL service container, the fresh-install schema-parity
 boot, both convention guards, the production builds, the bundle budget and
-`npm audit`. The suite closed at **1102 tests, 0 fail** (2 Windows-only skips).
+`npm audit`. The suite closed at **1104 tests, 0 fail** (2 Windows-only skips).
 
 Cross-checks run for this review:
 
@@ -647,6 +647,14 @@ Cross-checks run for this review:
    preserved), instead of one after another — kept bounded so nine aggregate
    queries per pair cannot monopolise the 20-connection pool.
    `tests/mapWithConcurrency.test.ts`.
+
+A follow-up pass over those screens found two missed states and fixed them:
+the statements batch error now has its own Retry (and disables while the batch
+runs), and the customer device register's empty row says the read failed
+instead of "no matching devices" — the notice now sits above the stat cards it
+explains, and CSV export is disabled while the read is in error. The
+directory's hardware-count notice moved above its summary cards for the same
+reason. All pinned in `tests/closeoutResiduals.test.ts`.
 
 A single read without `fiscalYearId` still resolves the current FY — matching
 both the bootstrap slice and the client, which always sends one.

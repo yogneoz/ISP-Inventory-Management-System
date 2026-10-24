@@ -121,6 +121,41 @@ describe('BS calendar health — latest read wins', () => {
   });
 });
 
+describe('review follow-up — retry state reachable from the screen', () => {
+  test('a failed batch summary read has its own Retry, not just a tab switch', () => {
+    const source = read('client/src/features/finance/FinancialStatements.tsx');
+    assert.ok(
+      source.includes('setSummariesRetryKey((k) => k + 1)'),
+      'the error line must offer a retry'
+    );
+    assert.ok(
+      source.includes('activationKey, summariesRetryKey])'),
+      'the retry key must re-run the batch effect'
+    );
+    assert.ok(
+      source.includes('disabled={summariesLoading}'),
+      'the retry must be disabled while the batch is already running'
+    );
+  });
+
+  test('a failed device read does not leave the empty table claiming no matches', () => {
+    const source = read('client/src/features/sales/CustomersManagement.tsx');
+    assert.ok(
+      source.includes('The device register could not be loaded — use Retry above.'),
+      'the empty row must name the failed read, not a search result'
+    );
+    assert.match(
+      source,
+      /\{devicesFetchError\s*\n\s*\? 'The device register could not be loaded/,
+      'the two empty states must be chosen by the read result'
+    );
+    assert.ok(
+      source.includes('disabled={Boolean(devicesFetchError)}'),
+      'CSV export must not emit stale rows while the current read is failing'
+    );
+  });
+});
+
 describe('reports batch — bounded parallelism', () => {
   test('pairs are computed through mapWithConcurrency, not a serial loop', () => {
     const source = read('server/src/controllers/reports.controller.ts');

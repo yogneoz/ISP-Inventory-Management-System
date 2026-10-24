@@ -553,9 +553,13 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         icon={<Wifi className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />}
         actions={
           <>
+            {/* Exporting the last successful rows while the current read is
+                failing would write a file as if it were this filter's answer. */}
             <button
               onClick={handleExportCSV}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white"
+              disabled={Boolean(devicesFetchError)}
+              title={devicesFetchError ? 'Retry the device read before exporting' : undefined}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white border-slate-300 text-slate-700 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white"
             >
               <Download className="h-4 w-4 text-blue-500 dark:text-blue-400" />
               <span>Export CSV ({customerDevicesRows.length})</span>
@@ -583,6 +587,18 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         }
       />
 
+      {/* A failed device read must not look like an empty register — or like
+          real zeroes in the cards below. */}
+      {devicesFetchError && (
+        <LoadStateNotice
+          subject="the device register"
+          loading={devicesFetchLoading}
+          error={devicesFetchError}
+          hasCachedRows={customerDevicesRows.length > 0}
+          onRetry={() => setDevicesRetryKey((k) => k + 1)}
+        />
+      )}
+
       {/* Overview Stat Cards — shared compact StatCard component */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <StatCard
@@ -606,17 +622,6 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           tone="rose"
         />
       </div>
-
-      {/* A failed device read must not look like an empty register. */}
-      {devicesFetchError && (
-        <LoadStateNotice
-          subject="the device register"
-          loading={devicesFetchLoading}
-          error={devicesFetchError}
-          hasCachedRows={customerDevicesRows.length > 0}
-          onRetry={() => setDevicesRetryKey((k) => k + 1)}
-        />
-      )}
 
       {/* Search & Filter Bar */}
       <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
@@ -670,7 +675,9 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               {customerDevicesRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs break-words">
-                    No matching customer devices found. Use the search bar above to query Device Serial or PON Serial numbers.
+                    {devicesFetchError
+                      ? 'The device register could not be loaded — use Retry above.'
+                      : 'No matching customer devices found. Use the search bar above to query Device Serial or PON Serial numbers.'}
                   </td>
                 </tr>
               ) : (

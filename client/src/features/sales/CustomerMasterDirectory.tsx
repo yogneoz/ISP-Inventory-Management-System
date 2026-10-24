@@ -464,6 +464,22 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </div>
         </div>
 
+        {/* The assigned-hardware count is a second read; failing it silently
+            left it at 0, which reads as a real answer. */}
+        {devicesFetchError && (
+          <div className="mt-3">
+            <LoadStateNotice
+              subject="the assigned hardware counts"
+              loading={devicesFetchLoading}
+              error={devicesFetchError}
+              hasCachedRows={customerDevicesRows.length > 0}
+              cachedNote=" Assigned device counts may be out of date."
+              emptyNote=" Assigned device counts may show 0 until this loads."
+              onRetry={() => setDevicesRetryKey((k) => k + 1)}
+            />
+          </div>
+        )}
+
         {/* Quick Summary Cards — shared compact StatCard component */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
           <StatCard
@@ -568,20 +584,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             Retry
           </button>
         </div>
-      )}
-
-      {/* The assigned-hardware column is a second read; failing it silently
-          left every count at 0, which reads as a real answer. */}
-      {devicesFetchError && (
-        <LoadStateNotice
-          subject="the assigned hardware counts"
-          loading={devicesFetchLoading}
-          error={devicesFetchError}
-          hasCachedRows={customerDevicesRows.length > 0}
-          cachedNote=" Assigned device counts may be out of date."
-          emptyNote=" Assigned device counts may show 0 until this loads."
-          onRetry={() => setDevicesRetryKey((k) => k + 1)}
-        />
       )}
 
       {/* Customer Master Directory Table */}
