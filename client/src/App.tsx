@@ -940,7 +940,10 @@ export default function App() {
     // route non-restockable returns into the damage register and flip
     // serial_log rows (paged — covered by the register mapping below).
     SALES: ['salesInvoices', 'salesReturns', 'stock', 'transactionLogs', 'damageRecords', 'financialSummary'],
-    SHIPMENTS: ['shipments', 'stock', 'financialSummary'],
+    // A receipt credits the destination's stock, flips serial_log rows (paged
+    // register mapping below) and writes TRANSFER_IN transaction_log rows, so
+    // the Stock Movement Ledger must re-read along with the transfer register.
+    SHIPMENTS: ['shipments', 'stock', 'transactionLogs', 'financialSummary'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
@@ -949,7 +952,10 @@ export default function App() {
     CUSTOMER_DEVICES: ['customerDevices', 'stock'],
     ASSETS: ['assets'],
     APPROVALS: ['approvalRequests'],
-    RECALC: ['stock', 'assets', 'financialSummary'],
+    // The admin recalculation jobs rebuild live stock and fixed assets, and the
+    // ledger backfill rewrites transaction_logs' before/after balances — the
+    // movement ledger must re-read or it keeps the placeholders it had at mount.
+    RECALC: ['stock', 'assets', 'transactionLogs', 'financialSummary'],
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
     // Sync-audit improvements #2/#3: first-class slice domains so the
@@ -1031,8 +1037,12 @@ export default function App() {
           const domains = plan.domains;
           // A calendar seed/repair changes the AD<->BS mapping every screen
           // converts with, so re-read the mirror immediately instead of waiting
-          // for the next mount.
-          if (domains.includes('BS_CALENDAR')) syncBsCalendarMirrorRef.current();
+          // for the next mount. RECALC covers *Rebuild BS Calendar Days*, which
+          // regenerates the server's day-by-day lookup rows; the mirror is the
+          // client's copy of the same authority, so it is re-read too.
+          if (domains.includes('BS_CALENDAR') || domains.includes('RECALC')) {
+            syncBsCalendarMirrorRef.current();
+          }
           // Any serial_log writer makes the shared register snapshot stale
           // for every open stock/dispatch gate, not just the paged register.
           if (domainsTouchSerialRegister(domains)) invalidateSerialRegister();

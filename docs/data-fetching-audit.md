@@ -347,11 +347,11 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Executive Dashboard | props (stock, products, POs, shipments, logs, assets) | Live via targeted slices. `financialSummary` prop is unused here. |
 | Global search, notifications, help | props / static | Hydration only; no defect found. |
 | All Available Stock, Branch Stock | props stock/products | Fine. |
-| Stock Movement Ledger | props transactionLogs + ops/damage | Stale after shipment receipt and ledger backfill (P2-1, P2-2). |
+| Stock Movement Ledger | props transactionLogs + ops/damage | Fixed by DF-06: `SHIPMENTS` and `RECALC` refresh `transactionLogs`. |
 | Physical Stock Audit | props stock + appSettings | Fine. |
 | Reorder Stock, Stock Valuation, Warranty, Asset Deployments | props | Fine. |
 | Import / Export Stock | props | Fine. |
-| Serial Log Register | paged | Seq + error correct; page clamp missing (P2-6); stale after shipment receipt (P2-1). |
+| Serial Log Register | paged | Seq + error correct; page clamp missing (P2-6). Shipment-receipt refresh fixed by DF-06. |
 | Product Master Catalog | self catalog | Stale after every save (P1-1); error state dead (P2-9). |
 | Category / UoM Management | self list | Silent failure, no loading UI (P2-9). |
 | Customer Master Directory | self paged | **P0: always empty**; status filter ignored. |
@@ -374,7 +374,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | BS Calendar health panel | self | Error surfaced correctly; no sequence guard (minor). |
 | Audit Activities Log | props + debounced serial fetch | Seq guard + error correct. |
 | Company Setup, Users, Permissions, Branches, Approvals, Clear Demo Data | props / mutation handlers | Fine; permission save re-reads the server matrix on failure. |
-| Data Recalculation & Repair | mutations + `onRefreshData` | Local refresh correct; other clients' ledgers stay stale (P2-2). |
+| Data Recalculation & Repair | mutations + `onRefreshData` | Local refresh correct; other clients' movement ledger and BS mirror now follow `RECALC` (DF-06). |
 
 ---
 
@@ -399,7 +399,10 @@ green. No batch needs a dependency.
    serialLog`; `RECALC → transactionLogs, BS_CALENDAR`; add BS calendar
    handling to the RECALC branch. Then a mapping test (extend
    `registerRefreshDomains.test.ts`) that fails when a domain's writes are not
-   covered.
+   covered. **Landed as DF-06 (2026-10-24):** `SHIPMENTS` refreshes
+   `transactionLogs` plus the `serialLog`/`purchaseOrders` registers, and
+   `RECALC` refreshes `transactionLogs` and re-reads the BS mirror. Live
+   calendar events for the BS screens themselves remain DF-10.
 7. **P2-3** — fiscal year in `cacheKey` (one line) plus a unit test for the
    dedup key.
 8. **P2-4/P2-5** — sequence guards in the two ledgers and the two opening

@@ -163,7 +163,7 @@ describe('SSE domain → register refresh mapping', () => {
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SERIALS, ['serialLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.PROCUREMENT, ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.SALES, ['serialLog', 'salesInvoices', 'returnsRegister']);
-    assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['purchaseOrders']);
+    assert.deepEqual(DOMAIN_REGISTER_KEYS.SHIPMENTS, ['purchaseOrders', 'serialLog']);
     assert.deepEqual(DOMAIN_REGISTER_KEYS.CUSTOMER_DEVICES, ['serialLog', 'customerDevices']);
     // ASSETS also moves the customer-device register: the deploy-from-stock
     // endpoint writes the rental-CPE row in the same transaction as the asset,
@@ -178,6 +178,36 @@ describe('SSE domain → register refresh mapping', () => {
       .filter(([, regs]) => regs.includes('consumableRegister'))
       .map(([domain]) => domain);
     assert.deepEqual(sources, ['STOCK_OPERATIONS']);
+  });
+
+  test('shipment receipts and recalculation jobs refresh every surface they rewrite', () => {
+    // Receiving a transfer writes TRANSFER_IN movement-ledger rows and flips
+    // serial_log rows; the admin recalculation jobs rebuild live stock and
+    // fixed assets and backfill the ledger's before/after balances. The
+    // paged registers are covered by DOMAIN_REGISTER_KEYS; the movement
+    // ledger reads the transactionLogs bootstrap slice, so it is pinned in
+    // App.tsx's DOMAIN_STATE_KEYS below.
+    const app = readAppSource();
+    const map = app.slice(
+      app.indexOf('const DOMAIN_STATE_KEYS'),
+      app.indexOf('// Paged-register refresh counters')
+    );
+    assert.ok(map.length > 0, 'DOMAIN_STATE_KEYS must remain a single readable map');
+    for (const domain of ['SHIPMENTS', 'RECALC']) {
+      const line = map.split('\n').find((l) => l.trim().startsWith(`${domain}:`));
+      assert.ok(line, `${domain} must stay in DOMAIN_STATE_KEYS`);
+      assert.ok(
+        line!.includes("'transactionLogs'"),
+        `${domain} writes movement-ledger rows, so the transactionLogs slice must be re-fetched`
+      );
+    }
+    // "Rebuild BS Calendar Days" runs under RECALC and regenerates the server's
+    // day-by-day calendar rows, so the burst must also re-read the mirror.
+    assert.match(
+      app,
+      /domains\.includes\('BS_CALENDAR'\)\s*\|\|\s*domains\.includes\('RECALC'\)[\s\S]{0,160}syncBsCalendarMirrorRef\.current\(\)/,
+      'a RECALC burst must re-read the BS calendar mirror'
+    );
   });
 
   test('purchase document registers are refreshed only by procurement and shipment events', () => {
@@ -324,6 +354,9 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     for (const d of plan.mode === 'targeted' ? plan.domains : []) {
       for (const reg of DOMAIN_REGISTER_KEYS[d]) next[reg] = prev[reg] + 1;
     }
+    // SALES and SHIPMENTS both write serial_log rows. The counter is a refresh
+    // trigger, not a tally: a register mapped by two domains in one burst is
+    // bumped once, which is enough to re-run its paged fetch.
     assert.deepEqual(next, { serialLog: 2, purchaseOrders: 3, purchaseInvoices: 3, consumableRegister: 4, returnsRegister: 6, salesInvoices: 7, customerDevices: 6 });
   });
 

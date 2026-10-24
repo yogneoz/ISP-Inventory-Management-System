@@ -34,6 +34,9 @@ export type RegisterRefreshKey =
  *   flips (SALES) all write serial_log rows.
  * - purchaseOrders: procurement document events (PROCUREMENT) and goods
  *   receipts (SHIPMENTS).
+ *   SHIPMENTS also refreshes serialLog: receiving a transfer resolves the
+ *   source units out of IN_TRANSIT and writes serial_log IN_STOCK rows for
+ *   the destination, so the Serial Log Register is stale until it re-reads.
  * - purchaseInvoices: procurement invoice/payment events (PROCUREMENT).
  * - consumableRegister: the CONSUMABLE_ISSUE-filtered stock-operations
  *   register; only stock-operation events create or reverse those rows
@@ -54,7 +57,7 @@ export const DOMAIN_REGISTER_KEYS: Record<string, RegisterRefreshKey[]> = {
   SERIALS: ['serialLog'],
   PROCUREMENT: ['serialLog', 'purchaseOrders', 'purchaseInvoices', 'returnsRegister'],
   SALES: ['serialLog', 'salesInvoices', 'returnsRegister'],
-  SHIPMENTS: ['purchaseOrders'],
+  SHIPMENTS: ['purchaseOrders', 'serialLog'],
   CUSTOMER_DEVICES: ['serialLog', 'customerDevices'],
   ASSETS: ['serialLog', 'customerDevices'],
 };

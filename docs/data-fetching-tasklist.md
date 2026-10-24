@@ -34,7 +34,7 @@ ships a task.
 | DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `done` | — |
 | DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `done` | — |
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `done` | — |
-| DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `todo` | — |
+| DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `done` | — |
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `todo` | — |
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `todo` | — |
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `todo` | — |
@@ -309,6 +309,14 @@ shipping.
 ---
 
 ## DF-06 — Complete the SSE domain coverage (P2-1, P2-2)
+
+**Status: `done` (2026-10-24).** `SHIPMENTS` now refreshes the
+`transactionLogs` slice (a receipt writes `TRANSFER_IN` rows) and bumps the
+`serialLog` register alongside `purchaseOrders`; `RECALC` refreshes
+`transactionLogs` and re-reads the BS calendar mirror, covering live-stock and
+fixed-asset recalculation, the ledger-balance backfill and *Rebuild BS Calendar
+Days*. Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-06
+shipped".
 
 **Problem.** `SHIPMENTS` refreshes only `shipments`+`stock` (and only the
 `purchaseOrders` register), but receiving writes `transaction_log` rows and
