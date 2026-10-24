@@ -35,7 +35,7 @@ ships a task.
 | DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `done` | — |
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `done` | — |
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `done` | — |
-| DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `todo` | — |
+| DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `done` | — |
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `todo` | — |
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `todo` | — |
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `todo` | DF-06 (for live calendar events) |
@@ -355,6 +355,11 @@ watch one burst in DevTools.
 ---
 
 ## DF-07 — Include the fiscal year in the GET dedup key (P2-3)
+
+**Status: `done` (2026-10-24).** `cacheKey` now ends with the active fiscal
+year, so a GET issued after a fiscal-year switch can no longer join the
+still-in-flight pre-switch request; identical same-scope GETs still coalesce.
+Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-07 shipped".
 
 **Problem.** `cacheKey` is user + branch + URL. A GET issued after a fiscal-year
 switch can join the still-in-flight pre-switch request and receive its body.

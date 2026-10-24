@@ -84,7 +84,12 @@ export interface ApiToastIntent {
   dismissAfterMs?: number;
 }
 
-// In-flight promise cache to deduplicate simultaneous duplicate requests
+// In-flight promise cache to deduplicate simultaneous duplicate requests.
+// The key is the FULL request identity the server scopes a body by: the
+// signed-in user, the branch, the URL — and the fiscal year, which travels
+// only as the `x-fiscal-year-id` header. Without the FY in the key, a GET
+// issued right after a fiscal-year switch joins the still-in-flight
+// pre-switch request and renders the old year's rows.
 const inFlightRequests = new Map<string, Promise<any>>();
 
 export interface FetchJsonConfig {
@@ -99,7 +104,7 @@ export interface FetchJsonConfig {
 export async function fetchJson<T>(endpoint: string, options?: RequestInit, config?: FetchJsonConfig): Promise<T> {
   const isGet = !options?.method || options.method === 'GET';
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
-  const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${currentUserContext?.branchId || ''}`;
+  const cacheKey = `${isGet ? 'GET' : 'MUT'}:${url}:${currentUserContext?.id || ''}:${currentUserContext?.branchId || ''}:${currentFiscalYearId || ''}`;
 
   if (isGet && inFlightRequests.has(cacheKey)) {
     return inFlightRequests.get(cacheKey)! as Promise<T>;

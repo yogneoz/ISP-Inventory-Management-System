@@ -218,6 +218,7 @@ trusting a bootstrap-only prop.
    and `transactionLogs` are missing from the `RECALC` list.
 
 3. **GET dedup can serve pre-mutation / previous-FY data.**
+   **Fixed by DF-07 (2026-10-24) for the fiscal-year half.**
    `cacheKey` includes user and branch but not the fiscal-year header
    ([http.ts:102](../client/src/services/api/http.ts#L102)). A GET issued
    immediately after a mutation (or after a FY switch) joins the still-in-flight
@@ -404,7 +405,9 @@ green. No batch needs a dependency.
    `RECALC` refreshes `transactionLogs` and re-reads the BS mirror. Live
    calendar events for the BS screens themselves remain DF-10.
 7. **P2-3** — fiscal year in `cacheKey` (one line) plus a unit test for the
-   dedup key.
+   dedup key. **Landed as DF-07 (2026-10-24):** `tests/apiDedup.test.ts` pins
+   same-year coalescing, cross-year separation and the existing branch/user
+   identity.
 8. **P2-4/P2-5** — sequence guards in the two ledgers and the two opening
    registers (copy the `useRef` + `seq !== ref.current` pattern from
    `SerialLogRegister`).
