@@ -27,11 +27,21 @@ and guards were corrected, and one residual was closed:
   opening registers' activation/Retry refresh.
 - **Task list** now records the close-out cross-checks and the residual under
   DF-17; the audit's F-5 fix summary names the failed-bootstrap path.
+- **Manual forced-failure pass (2026-10-24, running dev app).** An in-page
+  fetch shim returned 503 for `/api/bootstrap` and `/api/serial-log`, then the
+  header switched Branch 1 → Warehouse. The bootstrap 503 was followed by
+  `GET /api/serial-log?branchId=WH001&status=IN_STOCK` → 503 from the new
+  failure path; the form showed the **empty-state** “Could not load sellable
+  serials” notice, so Branch 1's rows had been cleared rather than carried
+  over. Re-enabling only serial-log and pressing Retry returned WH001's 5
+  `IN_STOCK` rows and cleared the notice while the bootstrap banner stayed
+  503. Shim removed; header restored to All Branches; real bootstrap and
+  serial reads returned 200.
 
 `npx tsc --noEmit` clean; the `df13`, `df14`, `df15`, `df17`,
 `exchangeDevices` and `registerRefreshDomains` tests pass; full suite
-**1147 tests, 1145 pass, 2
-Windows-only skips, 0 fail** (docs-count gate included).
+**1147 tests, 1145 pass, 2 Windows-only skips, 0 fail** (docs-count gate
+included).
 
 ## ✅ DF-17 shipped — the last three silent reads are visible and retryable (2026-10-24)
 
@@ -59,8 +69,10 @@ applies the server matrix through the existing update event.
 loader and notice, the toggle's unknown state, branch-scope clearing and the
 form's gate/notice, and the permission resync/disabled-Save wiring). Full suite
 **1147 tests, 1145 pass, 2 Windows-only skips, 0 fail**; `npx tsc --noEmit`
-clean. No manual forced-failure pass was run; all three are UI wiring around
-existing fetch paths, pinned at source like the other screen-level fixes (A6).
+clean. The manual forced-failure limitation was closed by the close-out
+review's run above (bootstrap + serial-log 503s, then a Retry that repopulated
+WH001); all three remain UI wiring around existing fetch paths, pinned at
+source like the other screen-level fixes (A6).
 
 ## ✅ DF-16 shipped — one branch-safe, retryable exchange-device read (2026-10-24)
 
