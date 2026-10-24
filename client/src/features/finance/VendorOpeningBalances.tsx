@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
@@ -96,22 +97,29 @@ export const VendorOpeningBalances: React.FC<VendorOpeningBalancesProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFiscalYearId, fiscalYears]);
 
+  // Sequence guard (DF-08): switching fiscal year while a request is in flight
+  // must not let the slower previous response paint over the newer one.
+  const fetchSeq = useRef(createLatestOnly()).current;
+
   const fetchVendorRegister = useCallback(async (fyId: string) => {
     if (!fyId) return;
+    const ticket = fetchSeq.begin();
     setVendorLoading(true);
     setVendorLoadError('');
     setVendorSaveMessage(null);
     setVendorDrafts({});
     try {
       const res = await api.getVendorOpeningBalances(fyId);
+      if (!fetchSeq.isCurrent(ticket)) return;
       setVendorData(res);
     } catch (error) {
+      if (!fetchSeq.isCurrent(ticket)) return;
       setVendorData(null);
       setVendorLoadError(error instanceof Error ? error.message : 'Unable to load the vendor opening-balance register.');
     } finally {
-      setVendorLoading(false);
+      if (fetchSeq.isCurrent(ticket)) setVendorLoading(false);
     }
-  }, []);
+  }, [fetchSeq]);
 
   // Refetch the register on every tab re-activation (keep-mounted: no remount refetch anymore).
   const activationKey = useActivationKey('vendor-opening-balances');

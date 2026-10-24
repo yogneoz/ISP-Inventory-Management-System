@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { createLatestOnly } from '../../utils/latestOnly';
 import { exportToCSV, CSVColumn } from '../../utils/exportUtils';
 import { filterFiscalYears, isOperationAllowed } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
@@ -119,22 +120,29 @@ export const OpeningStockManager: React.FC<OpeningStockManagerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFiscalYearId, fiscalYears]);
 
+  // Sequence guard (DF-08): switching fiscal year while a request is in flight
+  // must not let the slower previous response paint over the newer one.
+  const fetchSeq = useRef(createLatestOnly()).current;
+
   const fetchRegister = useCallback(async (fyId: string) => {
     if (!fyId) return;
+    const ticket = fetchSeq.begin();
     setLoading(true);
     setLoadError('');
     setSaveMessage(null);
     setDrafts({});
     try {
       const res = await api.getFiscalYearOpeningStock(fyId);
+      if (!fetchSeq.isCurrent(ticket)) return;
       setData(res);
     } catch (error) {
+      if (!fetchSeq.isCurrent(ticket)) return;
       setData(null);
       setLoadError(error instanceof Error ? error.message : 'Unable to load the opening-stock register.');
     } finally {
-      setLoading(false);
+      if (fetchSeq.isCurrent(ticket)) setLoading(false);
     }
-  }, []);
+  }, [fetchSeq]);
 
   // Refetch the register on every tab re-activation (keep-mounted: no remount refetch anymore).
   const activationKey = useActivationKey('opening-stock');

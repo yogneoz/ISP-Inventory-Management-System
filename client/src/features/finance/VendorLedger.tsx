@@ -10,7 +10,7 @@
  * healthy when NEGATIVE, the mirror image of the customer ledger) — and owns
  * the api.getVendorLedger call.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   LedgerView,
@@ -20,6 +20,7 @@ import {
 } from '../../components/common/LedgerView';
 import { Supplier, Branch } from '../../types';
 import { api } from '../../services/api';
+import { createLatestOnly } from '../../utils/latestOnly';
 import { ArrowDownRight, ArrowUpRight, Building, Undo2, Wallet } from 'lucide-react';
 
 interface VendorLedgerProps {
@@ -35,8 +36,13 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({ suppliers, branches,
   const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
 
+  // Sequence guard (DF-08): switching supplier while a request is in flight
+  // must not let the slower previous response paint over the newer one.
+  const fetchSeq = useRef(createLatestOnly()).current;
+
   const fetchLedger = async () => {
     if (!selectedSupplierId) return;
+    const ticket = fetchSeq.begin();
     setLoading(true);
     setError('');
     try {
@@ -45,6 +51,7 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({ suppliers, branches,
         toAd: filters.toAd || undefined,
         branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
       });
+      if (!fetchSeq.isCurrent(ticket)) return;
       setLedgerData({
         partyName: data.supplier.name,
         openingBalance: data.openingBalance,
@@ -54,10 +61,11 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({ suppliers, branches,
         ledger: data.ledger,
       });
     } catch (err: any) {
+      if (!fetchSeq.isCurrent(ticket)) return;
       setError(err?.message || 'Failed to load vendor ledger.');
       setLedgerData(null);
     } finally {
-      setLoading(false);
+      if (fetchSeq.isCurrent(ticket)) setLoading(false);
     }
   };
 

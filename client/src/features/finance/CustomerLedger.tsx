@@ -10,7 +10,7 @@
  * the party picker, the number labels and the color direction (a receivable is
  * healthy when positive) — and owns the api.getCustomerLedger call.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import {
   LedgerView,
@@ -20,6 +20,7 @@ import {
 } from '../../components/common/LedgerView';
 import { CustomerRecord, Branch } from '../../types';
 import { api } from '../../services/api';
+import { createLatestOnly } from '../../utils/latestOnly';
 import { ArrowDownRight, ArrowUpRight, Undo2, Users, Wallet } from 'lucide-react';
 
 interface CustomerLedgerProps {
@@ -35,8 +36,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({ customers, branc
   const [error, setError] = useState('');
   const [ledgerData, setLedgerData] = useState<SubLedgerData | null>(null);
 
+  // Sequence guard (DF-08): switching customer while a request is in flight
+  // must not let the slower previous response paint over the newer one.
+  const fetchSeq = useRef(createLatestOnly()).current;
+
   const fetchLedger = async () => {
     if (!selectedCustomerId) return;
+    const ticket = fetchSeq.begin();
     setLoading(true);
     setError('');
     try {
@@ -45,6 +51,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({ customers, branc
         toAd: filters.toAd || undefined,
         branchId: filters.branchId === 'ALL' ? undefined : filters.branchId,
       });
+      if (!fetchSeq.isCurrent(ticket)) return;
       setLedgerData({
         partyName: data.customer.name,
         partyCode: data.customer.customerId,
@@ -55,10 +62,11 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({ customers, branc
         ledger: data.ledger,
       });
     } catch (err: any) {
+      if (!fetchSeq.isCurrent(ticket)) return;
       setError(err?.message || 'Failed to load customer ledger.');
       setLedgerData(null);
     } finally {
-      setLoading(false);
+      if (fetchSeq.isCurrent(ticket)) setLoading(false);
     }
   };
 

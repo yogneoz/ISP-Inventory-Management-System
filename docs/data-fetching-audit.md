@@ -226,13 +226,15 @@ trusting a bootstrap-only prop.
    entry after it settles, so this is a real window, not a cache.
 
 4. **Party ledgers can paint the previous party.**
-   `VendorLedger` / `CustomerLedger` have no sequence guard
+   **Fixed by DF-08 (2026-10-24).**
+   `VendorLedger` / `CustomerLedger` had no sequence guard
    ([VendorLedger.tsx:37-62](../client/src/features/finance/VendorLedger.tsx#L37-L62),
    [CustomerLedger.tsx:37-62](../client/src/features/finance/CustomerLedger.tsx#L37-L62)).
    Selecting supplier A then B quickly, A's slower response can land last and
    render A's rows under B's name.
 
 5. **Opening registers can paint the previous fiscal year.**
+   **Fixed by DF-08 (2026-10-24).**
    Same missing guard after a quick FY switch
    ([OpeningStockManager.tsx:119-136](../client/src/features/finance/OpeningStockManager.tsx#L119-L136),
    [VendorOpeningBalances.tsx:100-117](../client/src/features/finance/VendorOpeningBalances.tsx#L100-L117)).
@@ -367,8 +369,8 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Create Shipment / Create Transfer / Pullout / Damage Label / Product Sale / Assign Asset | form + `serialRegister` | Validation uses the session-old snapshot (P1-2). |
 | Shipment Register, Receive Inbound, Asset Deployments, Suppliers | props | Fine (host refreshes via `refreshAllData`). |
 | Financial Statements | self (direct `getFinancialSummary`) | Cancel flag + error are correct; N+1 requests (P3-1); summary prop stale cross-client (P1-4). |
-| Vendor / Customer Ledger | self | Party-switch race (P2-4); filters apply on Load by design. |
-| Opening Stock, Vendor Opening Balances | self | FY-switch race (P2-5). |
+| Vendor / Customer Ledger | self | Party-switch sequence guard added by DF-08; filters apply on Load by design. |
+| Opening Stock, Vendor Opening Balances | self | FY-switch sequence guard added by DF-08. |
 | VAT Register, Fixed Asset Register, Depreciation Schedule, Fiscal Year Closing | props | Closing-wizard totals depend on the stale financial summary (P1-4). |
 | Document Numbering Setup | self list | Silent failure (P2-9). |
 | BS Calendar Utility, Nepali Fiscal & BS Calendar | self | Silent fallback to compiled calendar; no live BS event refresh (P2-7). |
@@ -410,7 +412,9 @@ green. No batch needs a dependency.
    identity.
 8. **P2-4/P2-5** — sequence guards in the two ledgers and the two opening
    registers (copy the `useRef` + `seq !== ref.current` pattern from
-   `SerialLogRegister`).
+   `SerialLogRegister`). **Landed as DF-08 (2026-10-24)** as one shared
+   `utils/latestOnly.ts` ticket guard, unit-tested in `tests/latestOnly.test.ts`
+   and used by all four screens.
 9. **P2-6** — clamp the page when `pageCount < page` inside each register.
 10. **P2-7/P2-8/P2-9** — replace the silent fallbacks with a visible notice and
     a refresh action; use `localTodayAD()`; surface load errors in the setup

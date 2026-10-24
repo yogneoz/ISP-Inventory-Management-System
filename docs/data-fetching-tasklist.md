@@ -36,7 +36,7 @@ ships a task.
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `done` | — |
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `done` | — |
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `done` | — |
-| DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `todo` | — |
+| DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `done` | — |
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `todo` | — |
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `todo` | DF-06 (for live calendar events) |
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `todo` | — |
@@ -386,6 +386,12 @@ npx tsc --noEmit && node --import tsx --test tests/apiDedup.test.ts && npm test
 ---
 
 ## DF-08 — Sequence guards for ledgers and opening registers (P2-4, P2-5)
+
+**Status: `done` (2026-10-24).** A shared `utils/latestOnly.ts` ticket guard is
+held in a ref by `VendorLedger`, `CustomerLedger`, `OpeningStockManager` and
+`VendorOpeningBalances`; only the newest request may paint data, raise its
+error or settle loading. Evidence and suite numbers are in `SESSION_NOTES.md`
+under "DF-08 shipped".
 
 **Problem.** Four screens have no request sequencing: switching party (ledgers)
 or fiscal year (opening registers) quickly can let an older response land last
