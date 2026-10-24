@@ -11,6 +11,7 @@ import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGa
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
   SHIPMENT_LIST_SQL, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
+  SHIPMENT_FIND_ONE_SQL,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
   SHIPMENT_FIND_FOR_CANCEL_SQL, SHIPMENT_CANCEL_SQL, SHIPMENT_CANCEL_RESTORE_SOURCE_SQL, SHIPMENT_CANCEL_RELEASE_DEST_SQL,
@@ -157,6 +158,7 @@ export async function get_shipments(req: any, res: Response): Promise<any> {
       return;
     } catch (err) {
       console.error('Error fetching shipments from DB:', err);
+      return res.status(500).json({ message: 'Could not load shipments from the database. Reload to retry.' });
     }
   }
   res.json(scoped(shipments));
@@ -238,11 +240,12 @@ try {
     // shipment. Overwriting its status/items is only allowed when that
     // shipment touches the caller's own branches; otherwise it is an
     // out-of-scope overwrite.
-    let existingRow: { sourceBranchId?: string | null; destinationBranchId?: string | null } | null =
-      (shipments.find((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode) as any) || null;
+    let existingRow: { sourceBranchId?: string | null; destinationBranchId?: string | null } | null = null;
     if (getPgConnected()) {
       const existing = await pgPool.query(SHIPMENT_FIND_FOR_OVERWRITE_SQL, [newShipment.id, newShipment.trackingCode]);
-      if (existing.rows[0]) existingRow = existing.rows[0];
+      existingRow = existing.rows[0] || null;
+    } else {
+      existingRow = (shipments.find((s) => s.id === newShipment.id || s.trackingCode === newShipment.trackingCode) as any) || null;
     }
     const shipmentAlreadyExists = Boolean(existingRow);
     if (existingRow && !hqWideCreator) {
@@ -254,8 +257,12 @@ try {
       }
     }
 
-    const idx = shipments.findIndex((s) => s.id === newShipment.id);
-    setShipments(idx >= 0 ? withReplaced(shipments, idx, newShipment) : withPrepended(shipments, newShipment));
+    // Demo-mode mirror write only; PostgreSQL is the single source of truth
+    // when connected (bootstrap-trim step 5).
+    if (!getPgConnected()) {
+      const idx = shipments.findIndex((s) => s.id === newShipment.id);
+      setShipments(idx >= 0 ? withReplaced(shipments, idx, newShipment) : withPrepended(shipments, newShipment));
+    }
 
     if (getPgConnected()) {
       await withTransaction(async (client) => {
@@ -402,7 +409,16 @@ export async function post_receive(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
     const { receivedItems, receivedByNotes } = req.body || {};
-    let sh = shipments.find((s) => s.id === id);
+    // PostgreSQL first: a stale mirror must never report a live shipment as
+    // missing (or its old status) to a receive request.
+    let sh: any;
+    if (getPgConnected()) {
+      const found = await pgPool.query(SHIPMENT_FIND_ONE_SQL, [id]);
+      sh = found.rows[0];
+      if (sh && typeof sh.items === 'string') sh.items = JSON.parse(sh.items);
+    } else {
+      sh = shipments.find((s) => s.id === id);
+    }
     if (!sh) return res.status(404).json({ message: 'Shipment not found' });
     if (['RECEIVED', 'DELIVERED', 'CANCELLED'].includes(sh.status)) {
       res.status(409).json({ message: `Shipment ${sh.trackingCode} is already ${sh.status.toLowerCase()} and cannot be received again.` });
@@ -578,8 +594,9 @@ try {
     }
     // Mirror the settlement in memory: demo mode has no other path that ever
     // credited destination stock on receipt, so the ledger and QOH both lived
-    // only on the PG path before this.
-    if (sh.destinationBranchId) {
+    // only on the PG path before this. The PostgreSQL path already committed
+    // the credit, so it must not be applied twice here.
+    if (!getPgConnected() && sh.destinationBranchId) {
       const receiveDestId = sh.destinationBranchId;
       sh.items.forEach((item: any, idx: number) => {
         const receivedQty = shipmentReceivedQty(item);
@@ -606,16 +623,19 @@ try {
       });
     }
     // Demo-mode register mirror: the received units land at the destination.
-    flipShipmentSerialsMirror(
-      sh.items.flatMap((item: any) => (item.receivedSerials || []).map((s: any) => String(s.deviceSerial || ''))),
-      'IN_TRANSIT',
-      'IN_STOCK',
-      sh.destinationBranchId || null,
-      sh.trackingCode,
-      sh.receivedDateAD || new Date().toISOString().split('T')[0],
-      `Received on transfer ${sh.trackingCode}`
-    );
-    appendLedgerMirror(receiveTxns);
+    // PostgreSQL already flipped them inside the receive transaction.
+    if (!getPgConnected()) {
+      flipShipmentSerialsMirror(
+        sh.items.flatMap((item: any) => (item.receivedSerials || []).map((s: any) => String(s.deviceSerial || ''))),
+        'IN_TRANSIT',
+        'IN_STOCK',
+        sh.destinationBranchId || null,
+        sh.trackingCode,
+        sh.receivedDateAD || new Date().toISOString().split('T')[0],
+        `Received on transfer ${sh.trackingCode}`
+      );
+      appendLedgerMirror(receiveTxns);
+    }
     logAuditEvent(req, 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received Shipment #${sh.trackingCode}`);
     res.json(sh);
   } catch (err: any) {
@@ -635,7 +655,14 @@ try {
     // (VULN-002): a spoofed body user must not reach the audit trail.
     const cancelActor = req.user || getUserFromReq(req) || {};
 
-    let sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+    let sh: any;
+    if (getPgConnected()) {
+      const found = await pgPool.query(SHIPMENT_FIND_ONE_SQL, [id]);
+      sh = found.rows[0];
+      if (sh && typeof sh.items === 'string') sh.items = JSON.parse(sh.items);
+    } else {
+      sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+    }
     if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
     if (sh.status === 'RECEIVED' || sh.status === 'DELIVERED') {
       res.status(400).json({ message: 'Transfers that have already been received cannot be cancelled.' });
@@ -765,7 +792,14 @@ try {
     // Actor identity comes from the verified session, never the request body.
     const undoActor = req.user || getUserFromReq(req) || {};
 
-    let sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+    let sh: any;
+    if (getPgConnected()) {
+      const found = await pgPool.query(SHIPMENT_FIND_ONE_SQL, [id]);
+      sh = found.rows[0];
+      if (sh && typeof sh.items === 'string') sh.items = JSON.parse(sh.items);
+    } else {
+      sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+    }
     if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
     if (sh.status !== 'RECEIVED' && sh.status !== 'DISCREPANCY') {
       return res.status(400).json({

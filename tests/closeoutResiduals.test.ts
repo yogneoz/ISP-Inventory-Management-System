@@ -129,7 +129,7 @@ describe('review follow-up — retry state reachable from the screen', () => {
       'the error line must offer a retry'
     );
     assert.ok(
-      source.includes('activationKey, summariesRetryKey])'),
+      source.includes('activationKey, summariesRetryKey, financialSummary])'),
       'the retry key must re-run the batch effect'
     );
     assert.ok(

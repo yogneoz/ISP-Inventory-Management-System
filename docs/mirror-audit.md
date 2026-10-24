@@ -136,13 +136,23 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
 
 ### 10. `purchaseOrders` / `purchaseInvoices` / `shipments` / `vendorPayments`
 
-- Registers already read PG via paged endpoints (recent work). Remaining
-  mirror reads: bootstrap assembly (still ships these arrays), PI's
-  pending-PO dropdown, movement ledger join data, dashboard KPIs. Writes
-  mirror-append after PG commit — safe direction.
-- **Action:** retire consumer-by-consumer per the bootstrap trim roadmap
-  (already documented in bootstrap.controller). The mirrors die when the
-  last bootstrap consumer moves to PG fetches.
+- Registers read PG via paged endpoints; PO/PI/stockOperations slices are
+  hydrated from PG (`/api/bootstrap/local`). Remaining window-shipped arrays:
+  `shipments` and `vendorPayments` in the bootstrap payload, plus PC/branch
+  dashboards that read them.
+- **Bootstrap trim step 5 (done, 2026-10-24):** every server decision site is
+  now PG-first, and the mirror is PG-down demo mode only — PO update/delete/
+  status response, linked-PO and duplicate-bill pre-checks, invoice payment
+  reversal, vendor-payment reversal, shipment receive/cancel/undo pre-checks,
+  approval-driven transfer cancellation, purchase returns, and the asset's
+  inherited invoice date. Register reads fail with a retryable 500 instead of
+  substituting a stale mirror, and the shipment receive mirror can no longer
+  double-credit destination stock after the PG transaction committed.
+  Pinned by `tests/bootstrapTrimStep5.test.ts`.
+- **Action (remaining):** trim `shipments` / `vendorPayments` from the
+  bootstrap payload once their dashboard readers move to paged fetches; the
+  server mirrors can then be deleted (keep them for PG-down demo mode until
+  demo mode itself is retired).
 
 ### 11. Master-data mirrors (`branches`, `suppliers`, `users`, `categories`, `uomList`, `locationRecords`, `customerMasterRecords`)
 
@@ -210,9 +220,11 @@ Not mirrors (correctly in-memory): `sseClients` (connection handles),
    rename); PG checks/writes in the same request are authoritative and
    cacheRefreshHook re-derives the mirror from PG after the response.
    Guarded by `tests/serialLogsMirrorGate.test.ts`.
-5. **Consumer-driven:** PO/PI/shipments/vendorPayments mirrors die as the
-   last bootstrap consumers move to PG fetches (finding 10) — tracked in
-   the bootstrap trim list in bootstrap.controller.ts.
+5. ⏳ **PARTIAL (step 5, 2026-10-24):** every server decision site for
+   PO/PI/shipments/vendorPayments is PG-first and the mirrors are PG-down
+   demo mode only (finding 10; `tests/bootstrapTrimStep5.test.ts`). The
+   mirrors themselves die when the last bootstrap consumers (`shipments`,
+   `vendorPayments` arrays + dashboard readers) move to PG fetches.
 6. **Keep forever (documented caches):** `permissionMatrix`,
    `docNumberConfigs`, `fiscalYears`, BS calendar (findings 12–14, 16).
 

@@ -24,6 +24,22 @@ export const SHIPMENT_LIST_SQL =
 export const SHIPMENT_FIND_FOR_OVERWRITE_SQL =
   'SELECT id, source_branch_id AS "sourceBranchId", destination_branch_id AS "destinationBranchId" FROM shipments WHERE id = $1 OR tracking_code = $2 LIMIT 1';
 
+/**
+ * Full single-shipment lookup (no lock) for receive/cancel/approval
+ * pre-checks. PostgreSQL is the only decision source when connected; the
+ * mirror is consulted only in PG-down demo mode (bootstrap-trim step 5).
+ */
+export const SHIPMENT_FIND_ONE_SQL = `SELECT ${SHIPMENT_SELECT_COLUMNS} FROM shipments WHERE id = $1 OR tracking_code = $1 LIMIT 1`;
+
+/**
+ * Resolves a shipment from a mixed candidate list (row id, stored tracking
+ * code, repacked/upper-cased code) in one query so approval reversal never
+ * scans the mirror while PostgreSQL is connected.
+ */
+export const SHIPMENT_FIND_CANDIDATES_SQL = `SELECT ${SHIPMENT_SELECT_COLUMNS} FROM shipments
+ WHERE id = ANY($1::text[]) OR UPPER(tracking_code) = ANY($2::text[])
+ LIMIT 1`;
+
 // ---------------------------------------------------------------------------
 // Create (dispatch)
 // ---------------------------------------------------------------------------

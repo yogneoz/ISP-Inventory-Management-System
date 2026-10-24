@@ -542,6 +542,26 @@ export const LEDGER_PAYMENTS_SQL_SUFFIX =
 // Misc lookups
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Bootstrap-trim step 5: single-row lookups
+// ---------------------------------------------------------------------------
+// Mutations and pre-checks used to scan the in-memory mirrors (and only fall
+// back to PostgreSQL) which let a stale mirror decide whether a PO exists, a
+// bill number was taken, or a payment could be reversed. These queries make
+// PostgreSQL the only decision source whenever it is connected.
+
+export const PO_FIND_BY_ID_SQL = `SELECT ${PO_SELECT_COLUMNS} FROM purchase_orders WHERE id = $1 LIMIT 1`;
+
+export const PI_FIND_BY_ID_SQL = `SELECT ${PI_SELECT_COLUMNS} FROM purchase_invoices WHERE id = $1 LIMIT 1`;
+
+/** Duplicate-bill-number pre-check: one row means the number is taken. */
+export const PI_FIND_BY_NUMBER_SQL = 'SELECT id FROM purchase_invoices WHERE invoice_number = $1 LIMIT 1';
+
+/** Existing invoice linked to a PO (by row id or PO number). */
+export const PI_EXISTS_FOR_PO_SQL =
+  'SELECT id FROM purchase_invoices WHERE po_reference_id = $1 OR po_reference_id = $2 LIMIT 1';
+
+
 /** Updates only a PO's status (patch handler). */
 export const PO_PATCH_STATUS_SQL = 'UPDATE purchase_orders SET status = $1 WHERE id = $2';
 
@@ -587,6 +607,12 @@ export const VENDOR_PAYMENT_SELECT = `
          fiscal_year_id AS "fiscalYearId", is_demo AS "isDemo",
          created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"
   FROM vendor_payments`;
+
+/** Posted payments on an invoice, used by the reverse-payment pre-check. */
+export const VP_POSTED_BY_INVOICE_SQL = `${VENDOR_PAYMENT_SELECT} WHERE invoice_id = $1 AND status = 'POSTED' ORDER BY payment_date_ad DESC, created_at DESC`;
+
+/** Single vendor payment lookup for reversal/status pre-checks. */
+export const VP_FIND_BY_ID_SQL = `${VENDOR_PAYMENT_SELECT} WHERE id = $1 LIMIT 1`;
 
 
 

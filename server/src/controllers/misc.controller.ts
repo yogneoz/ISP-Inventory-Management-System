@@ -34,7 +34,7 @@ import {
   AUDIT_RECONCILE_STOCK_SQL,
   auditReconcileStockParams,
 } from '../models/misc.repo';
-import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL } from '../models/shipments.repo';
+import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_FIND_CANDIDATES_SQL } from '../models/shipments.repo';
 import { SERIAL_LOG_SYNC_ON_CDR_SQL, serialLogCdrSyncParams } from '../models/inventory.repo';
 import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror } from '../services/cdrSerialSync';
 /** Forwarded from misc.routes.ts (get_status). */
@@ -336,14 +336,26 @@ try {
           const code2 = (request.customerName || '').trim().toUpperCase();
           const code3 = (request.shipmentData?.trackingCode || '').trim().toUpperCase();
 
-          const sh = shipments.find(
-            (s) =>
-              (targetId && s.id === targetId) ||
-              (code1 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code1) ||
-              (code2 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code2) ||
-              (code3 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code3) ||
-              (targetId && s.trackingCode && s.trackingCode.trim().toUpperCase() === targetId.toUpperCase())
-          );
+          // PostgreSQL is the only source when connected: the approval must
+          // act on the live shipment row, not a mirror copy that another
+          // instance may already have received or cancelled.
+          const idCandidates = [targetId].filter(Boolean);
+          const codeCandidates = [code1, code2, code3, targetId.toUpperCase()].filter(Boolean);
+          let sh: any;
+          if (getPgConnected()) {
+            const found = await client.query(SHIPMENT_FIND_CANDIDATES_SQL, [idCandidates, codeCandidates]);
+            sh = found.rows[0];
+            if (sh && typeof sh.items === 'string') sh.items = JSON.parse(sh.items);
+          } else {
+            sh = shipments.find(
+              (s) =>
+                (targetId && s.id === targetId) ||
+                (code1 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code1) ||
+                (code2 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code2) ||
+                (code3 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code3) ||
+                (targetId && s.trackingCode && s.trackingCode.trim().toUpperCase() === targetId.toUpperCase())
+            );
+          }
 
           // A CANCEL_RECEIVE_TRANSFER approval on a RECEIVED/DISCREPANCY shipment
           // undoes the receipt (destination stock reversed, shipment back

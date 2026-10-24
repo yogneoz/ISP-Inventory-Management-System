@@ -41,6 +41,11 @@ ships a task.
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `done` | DF-06 (for live calendar events) |
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `done` | — |
 | DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `done` | DF-03, DF-05 (soft) |
+| DF-13 | Refresh the Financial Statements branch matrix with the live summary | F-1 | P1 | `done` | DF-05, DF-12 |
+| DF-14 | Refresh party ledgers on live and local ledger events | F-2 | P2 | `todo` | — |
+| DF-15 | Distinguish a failed serial lookup from "not in the register" | F-3 | P2 | `todo` | — |
+| DF-16 | Branch-safe, retryable exchange device read (one shared cache) | F-4 | P2 | `todo` | DF-03 (pattern) |
+| DF-17 | Silent-read cleanup: settings backfill, sellable serials, permission resync | F-5 | P3 | `todo` | — |
 
 Legend: `todo` · `wip` · `blocked` · `done`.
 
@@ -605,6 +610,176 @@ Independent small items; split into `a/b` if any grows.
 
 ---
 
+## Follow-up pass (2026-10-24, after DF-12 and bootstrap trim step 5)
+
+Five findings from the fresh pass in
+[data-fetching-audit.md §9](data-fetching-audit.md#9-follow-up-pass--2026-10-24-after-df-12-and-bootstrap-trim-step-5).
+They are independent of each other; ship in the order below unless a screen
+owner reorders them. DF-13 is done; the remaining four are open.
+
+## DF-13 — Financial Statements follows the live summary (F-1, P1)
+
+**Status: `done` (2026-10-24).** The batch effect now takes `financialSummary`
+as a trigger, and the memoized statement/comparison tables depend on it too, so
+the fallback path cannot keep a stale closure. A new `useTabActive` hook keeps
+the prop-driven read to the visible tab: a hidden Statements screen no longer
+issues a branch × FY batch for every stock edit nobody is looking at, and the
+next activation re-runs it. The activation key and Retry still trigger the
+batch. Pinned by `tests/df13StatementsRefresh.test.ts`, the `useTabActive`
+render test in `tests/keepMountedRenderCount.test.ts`, and the updated Retry
+dep pin in `tests/closeoutResiduals.test.ts`.
+
+**Problem.** The per-branch `summaryMap` was fetched only on tab activation
+and preferred over the `financialSummary` prop, so DF-05's live value was
+hidden behind the activation-time map.
+
+**Fix.** `financialSummary` is a dependency of the batch effect and of both
+rendered-table memos; `useTabActive('financial-statements')` skips the read
+while the keep-mounted tab is hidden; activation and Retry keep working. The
+map is intentionally not cleared on a FY switch: its keys include the FY id,
+and clearing it would make the prior-year column fall back to the current
+summary while the fresh batch is in flight.
+
+**Acceptance**
+
+- With the statements tab visible, a sale/payment posted from another tab (or
+  simulated by replacing the `financialSummary` prop) re-fetches the branch
+  pairs and the matrix moves to the new figures.
+- A failed re-fetch keeps the last good matrix **and** the error line; Retry
+  re-runs it.
+- Leaving and re-entering the tab makes one batch request (no loop); a hidden
+  tab issues none on a prop change.
+
+**Verify.** `npx tsc --noEmit && npm test`, plus a two-tab manual pass.
+
+**Risk.** Low. The effect already owns cancellation; this adds one dependency.
+
+---
+
+## DF-14 — Party ledgers refresh on ledger events (F-2, P2)
+
+**Status: `todo`.**
+
+**Problem.** Both ledgers fetch on party change and tab activation only, and
+App passes no refresh key. A payment, reversal or return recorded elsewhere
+leaves the closing balance stale until the tab is re-entered. Filters applying
+on Load stays by design.
+
+**Fix.** Pass the existing register counters into the two screens
+(`purchaseInvoices` for the vendor ledger, `salesInvoices` and
+`returnsRegister` for the customer ledger) and include the key in the fetch
+effect when a party is selected. Do not refetch when the picker is empty.
+
+**Acceptance**
+
+- With a party selected, a procurement event re-fetches the vendor ledger and a
+  sales/return event re-fetches the customer ledger (one request per burst).
+- Changing the party or pressing Load still behaves as today.
+- No request is issued while no party is selected.
+
+**Verify.** `npx tsc --noEmit && npm test`.
+
+**Risk.** Low; reuses the established register counters.
+
+---
+
+## DF-15 — Failed serial lookup is not "not found" (F-3, P2)
+
+**Status: `todo`.**
+
+**Problem.** `DeviceSerialInput` maps a rejected lookup to `not-found`
+([DeviceSerialInput.tsx:186-203](../client/src/components/common/DeviceSerialInput.tsx#L186-L203))
+and the exchange callers pre-map failures to `null`. A 500/503 therefore reads
+"Not in the serial register for this branch" with no Retry.
+
+**Fix.** Add a `lookup-failed` state ("Could not check the register — Retry")
+with a Retry that re-runs `resolve`, let the two callers stop swallowing the
+rejection, and keep 404 as the only `not-found` path.
+
+**Acceptance**
+
+- A rejected lookup shows the failure state and its Retry; pressing Retry
+  re-issues the lookup.
+- A real 404 still shows "Not in the serial register for this branch".
+- A resolved row still fills PON/MAC and reports status/branch.
+
+**Verify.** `npx tsc --noEmit && npm test`; exercise one exchange form with a
+forced lookup failure.
+
+**Risk.** Low, but the state machine gains one branch — update the unit test for
+`classifyRegisterRow` if one exists.
+
+---
+
+## DF-16 — Exchange deployed-device read is branch-safe and retryable (F-4, P2)
+
+**Status: `todo`.**
+
+**Problem.** The host fetch logs failures only
+([StockOperations.tsx:392-405](../client/src/features/inventory/StockOperations.tsx#L392-L405)),
+keeps the previous branch's devices on a failed switch, and is duplicated by
+every mounted host (up to 11). The exchange counter and picker then present a
+stale list as current.
+
+**Fix.** Move the read to one shared per-branch cache (same shape as
+`branchStockCache`), clear the rows when the branch changes, and surface a
+`LoadStateNotice` with Retry in the exchange panel. Keep the server as the
+authority.
+
+**Acceptance**
+
+- Switching the header branch clears the old exchange list immediately; a
+  failure shows the notice and leaves an empty, clearly-failed list (never the
+  previous branch's units).
+- Retry re-reads the new branch.
+- Opening several stock hosts produces one request per branch, not one per
+  host.
+
+**Verify.** `npx tsc --noEmit && npm test`; two-host manual pass with a forced
+failure.
+
+**Risk.** Medium: new shared state plus one context field. Do not change the
+exchange mutation itself.
+
+---
+
+## DF-17 — Remaining silent reads (F-5, P3)
+
+**Status: `todo`.**
+
+**Problem.** Three failures are still indistinguishable from valid empty data:
+
+1. App's cached-payload settings backfill drops `/api/settings` failures
+   ([App.tsx:627-638](../client/src/App.tsx#L627-L638)), so settings silently
+   fall back to defaults.
+2. The sellable-serial read logs and keeps the previous branch's list
+   ([App.tsx:812-824](../client/src/App.tsx#L812-L824)), so the Sell-to-Customer
+   form can offer units from the wrong branch.
+3. A rejected permission save re-reads the server matrix but swallows a failure
+   ([PermissionManagement.tsx:507-514](../client/src/features/settings/PermissionManagement.tsx#L507-L514),
+   [:536-541](../client/src/features/settings/PermissionManagement.tsx#L536-L541)),
+   leaving the rejected edits on screen as if they might be saved.
+
+**Fix.** Surface each with a retryable message on its own screen (or disable the
+control until the read succeeds), and clear branch-scoped lists on a failed
+branch change. Keep each change local; this is three small fixes, not a shared
+abstraction.
+
+**Acceptance**
+
+- A failed settings backfill shows a settings-unknown notice with Retry; the
+  blind-audit toggle cannot silently claim the default.
+- A failed sellable-serial read after a branch switch leaves no old-branch rows
+  and tells the operator the list is unavailable; Retry repopulates it.
+- A rejected permission save whose resync also fails says the server matrix is
+  unknown and keeps Save disabled until a successful re-read.
+
+**Verify.** `npx tsc --noEmit && npm test`; force each read failure.
+
+**Risk.** Low, three independent surfaces.
+
+---
+
 ## Close-out review (2026-10-24)
 
 All twelve tasks are `done` and on `main`. Each shipped as its own commit
@@ -667,7 +842,12 @@ Two-week shape, but ship in whatever order you like as long as DF-01 is first:
 Correctness:   DF-01 → DF-02 → DF-04 → DF-08 → DF-09
 Freshness:     DF-03 → DF-06 → DF-07 → DF-05
 Polish:        DF-10 → DF-11 → DF-12
+Follow-up:     DF-13 → DF-14 → DF-15 → DF-16 → DF-17
 ```
+
+The follow-up line is the 2026-10-24 fresh pass: DF-13 first because it is the
+one remaining place where DF-05's live summary is fetched and then shadowed;
+the rest are independent and can ship in any order.
 
 Rationale: DF-01 is the only page that is outright broken. DF-02/04/08/09 are
 self-contained and low-risk. DF-03 and DF-06 both concern shipment-event

@@ -3,9 +3,10 @@
 _2026-10-24 · HEAD `930cf8c` · read-only audit; no code changed._
 
 **Working checklist and status: [data-fetching-tasklist.md](data-fetching-tasklist.md)** —
-twelve shippable tasks (DF-01…DF-12) with solutions, files, acceptance
-criteria and the suggested order. Update that file as fixes land; this audit
-stays the evidence and rationale.
+the original twelve tasks (DF-01…DF-12) plus the five from the 2026-10-24
+follow-up pass (DF-13…DF-17), with solutions, files, acceptance criteria and
+the suggested order. Update that file as fixes land; this audit stays the
+evidence and rationale.
 
 Scope: how every screen gets its data, when it re-fetches, what it does when a
 fetch fails, and whether a mutation elsewhere in the app (same tab or another
@@ -444,6 +445,137 @@ there is no behavioural client test suite (backlog item **A6**). The safest
 order is P0/P1 first, with small reflector tests where a pure function exists
 (customer query builder, domain map, dedup key), rather than growing the pin
 files.
+
+---
+
+## 9. Follow-up pass — 2026-10-24 (after DF-12 and bootstrap trim step 5)
+
+A second read-only pass over the screens that fetch their own data, the
+bootstrap cache path and every client `catch` that does not render anything.
+DF-01…DF-12 and bootstrap trim step 5 are assumed shipped; this pass looks for
+what those tasks left behind. Method: trace every self-fetching effect's
+dependency list and failure branch, then compare the screen's refresh triggers
+with the SSE domains and local `refreshAllData()` calls that write the same
+data. No browser session was run; every finding names the current lines.
+
+### F-1 (P1). Financial Statements keeps its old branch matrix and shadows the live summary
+
+**Fixed by DF-13 (2026-10-24).** `financialSummary` is now a trigger for the
+batch and a dependency of both rendered-table memos; a new `useTabActive` keeps
+the prop-driven refetch to the visible tab. The finding below is the pre-fix
+evidence.
+
+`FinancialStatements` loads the per-branch summaries once per activation
+([FinancialStatements.tsx:203-227](../client/src/features/finance/FinancialStatements.tsx#L203-L227);
+deps end at `activationKey` + `summariesRetryKey`). `figuresFor` then prefers
+the stored map over the prop for every active branch
+([FinancialStatements.tsx:236](../client/src/features/finance/FinancialStatements.tsx#L236)).
+
+DF-05 gave `financialSummary` a live slice and App re-fetches it on every
+domain that moves it, but this screen never re-runs its batch when that prop
+changes. Because the map wins, the refreshed prop is only a fallback for a
+branch/FY pair that was never fetched — not the numbers on screen. Another
+client's sale/payment/purchase (or a local one performed in another tab) leaves
+the statement matrix at the activation-time values while the closing wizard
+updates. A failed batch also keeps the old map with only a small error line.
+
+**Fix (shipped):** refetch the pairs when the `financialSummary` identity
+changes, depend on it in the statement/comparison memos, and skip the read
+while the keep-mounted tab is hidden. The map is not cleared on a FY switch:
+its keys already include the FY id, and clearing it would make a prior-year
+column fall back to the current summary mid-read. DF-13.
+
+### F-2 (P2). Party ledgers do not refresh while visible
+
+Both ledgers re-run only when the party changes or the tab is re-activated
+([VendorLedger.tsx:73-78](../client/src/features/finance/VendorLedger.tsx#L73-L78),
+[CustomerLedger.tsx:74-79](../client/src/features/finance/CustomerLedger.tsx#L74-L79)),
+and App passes no refresh key
+([App.tsx:2914](../client/src/App.tsx#L2914),
+[:2920](../client/src/App.tsx#L2920)). `PROCUREMENT` and `SALES` SSE events
+update the invoice/payment slices, and local mutations call `refreshAllData()`
+(which bumps every register counter), but neither reaches the open ledger.
+Recording a payment, reversing one or posting a return in another tab therefore
+leaves the selected party's closing balance stale until the operator leaves and
+re-enters the tab. Filters applying on Load is intentional and not a defect.
+
+**Fix shape:** pass the existing register counters (`purchaseInvoices` for the
+vendor ledger, `salesInvoices` + `returnsRegister` for the customer ledger) and
+include them in the fetch effect only when a party is selected. DF-14.
+
+### F-3 (P2). A failed serial lookup is rendered as "not in the register"
+
+`DeviceSerialInput` catches a rejected lookup and sets `not-found`
+([DeviceSerialInput.tsx:186-203](../client/src/components/common/DeviceSerialInput.tsx#L186-L203)),
+whose text is "Not in the serial register for this branch". The exchange
+screens collapse the same rejection to `null` before it even reaches the
+component ([DeviceExchangePanel.tsx:393-397](../client/src/features/inventory/stockops/DeviceExchangePanel.tsx#L393-L397),
+[CustomersManagement.tsx:1673-1676](../client/src/features/sales/CustomersManagement.tsx#L1673-L1676)).
+The server distinguishes a real miss (404) from a failed lookup (500/503)
+([inventory.controller.ts:2462-2467](../server/src/controllers/inventory.controller.ts#L2462-L2467)),
+but the operator sees the same definitive "does not exist" for a database
+outage, a permission failure or a dropped request — with no Retry. That invites
+re-scanning, duplicate entry work, or escalation for the wrong reason.
+
+**Fix shape:** add a distinct `lookup-failed` state with a Retry, let the
+exchange callers propagate the rejection instead of mapping it to no-row, and
+keep the plain 404 "not found" wording. DF-15.
+
+### F-4 (P2). Exchange tab's deployed-device read fails silently and can show another branch
+
+The exchange host fetches customer devices on branch change and only logs a
+failure ([StockOperations.tsx:392-405](../client/src/features/inventory/StockOperations.tsx#L392-L405)).
+`exchangeCustomerDevices` starts as `[]` and is replaced only on success, so a
+failed switch keeps the previous branch's deployed units; the tab counter and
+the device picker then render them as the current branch
+([DeviceExchangePanel.tsx:178](../client/src/features/inventory/stockops/DeviceExchangePanel.tsx#L178),
+[:219](../client/src/features/inventory/stockops/DeviceExchangePanel.tsx#L219)).
+There is no error notice or Retry. App mounts up to 11 `StockOperations` hosts,
+so the same list is also fetched once per host, not shared.
+
+**Fix shape:** take a request ticket, clear the rows when the branch changes,
+keep an error visible with Retry in the exchange panel, and move the read into
+one shared per-branch cache (the same shape as `branchStockCache`) so 11 hosts
+produce one request. DF-16.
+
+### F-5 (P3). Three remaining silent read failures
+
+1. **Cached-bootstrap settings backfill.** When a cached payload predates the
+   settings slices, App fetches `/api/settings` and discards any failure
+   ([App.tsx:627-638](../client/src/App.tsx#L627-L638)). The app then runs with
+   `{}` — for example `companyWideBlindCount` silently reads false while the
+   database may hold true, and nothing says the configuration is unknown.
+2. **Sellable-serial list.** The bootstrap path fetches the IN_STOCK serials for
+   the Sell-to-Customer form and only `console.error`s a failure
+   ([App.tsx:812-824](../client/src/App.tsx#L812-L824)). `inventorySerials`
+   keeps the list from the previous branch, so after a failed branch switch the
+   form offers units that the server will refuse.
+3. **Permission-save resync.** After a rejected save, the editor re-reads the
+   server matrix but swallows a failure
+   ([PermissionManagement.tsx:507-514](../client/src/features/settings/PermissionManagement.tsx#L507-L514),
+   [:536-541](../client/src/features/settings/PermissionManagement.tsx#L536-L541)).
+   The save error is visible, but the checkbox state still shows the rejected
+   edits with no way to know the server's actual matrix.
+
+**Fix shape:** one small retryable load notice per surface (or disable the
+control until the read succeeds), and clear branch-scoped lists on a failed
+branch change rather than keeping another branch's rows. DF-17.
+
+### What this pass re-checked and found sound
+
+- Deferred-slice gate: per-slice status, stale-scope discard and version
+  monotonicity still hold.
+- `financialSummary` slice and its owning domains (DF-05) are live; the
+  statements screen's own map above now follows that prop (DF-13), so the
+  remaining follow-ups do not touch the summary producer.
+- Paged registers still render `RegisterLoadError`, abort partial exports, clamp
+  pages and sequence-guard their responses (DF-04/09).
+- Setup lists, customer-device screens, BS calendar screens, branch stock cache
+  and the BS-date gate keep their DF-10/11 and close-out notices.
+- The party ledgers and opening registers keep their latest-only guards; the
+  missing piece is refresh triggers, not response ordering.
+- Bootstrap trim step 5 removed the last server mirror reads; this pass found
+  no client consumer that now silently receives a missing slice.
 
 ---
 

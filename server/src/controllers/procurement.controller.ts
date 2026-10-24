@@ -22,6 +22,8 @@ import {
   VP_REVERSE_SQL, VP_INSERT_SQL, vpInsertParams, buildVendorPaymentWhere, VP_ORDER_BY, VP_BY_INVOICE_SQL_SUFFIX,
   LEDGER_INVOICES_SQL, ledgerNameParams, LEDGER_PAYMENTS_SQL_SUFFIX,
   PO_PATCH_STATUS_SQL, PI_EXISTS_SQL, PI_FIND_FOR_DELETE_SQL,
+  PO_FIND_BY_ID_SQL, PI_FIND_BY_ID_SQL, PI_EXISTS_FOR_PO_SQL, VP_POSTED_BY_INVOICE_SQL, VP_FIND_BY_ID_SQL,
+  buildPoListSql, buildPiListSql,
   FY_BY_ID_SQL, FY_BY_START_SQL, FY_CURRENT_SQL, VENDOR_OPENING_BALANCE_SQL,
   buildPurchaseOrderPagedQuery, buildPurchaseOrderAggregateQuery, buildPurchaseOrderStatusCountQuery,
   buildPurchaseInvoicePagedQuery, buildPurchaseInvoiceAggregateQuery, buildPurchaseInvoiceStatusCountQuery,
@@ -52,8 +54,15 @@ const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize,
   // callers (bootstrap consumers, PI PO dropdowns, movement ledger).
   const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
   const wantsFiltering = wantsPaged || status || supplier || query || dateFromAD || dateToAD;
-  if (getPgConnected() && wantsFiltering) {
+  if (getPgConnected()) {
     try {
+      if (!wantsFiltering) {
+        // Legacy full-array shape, still read from PostgreSQL so the register
+        // never serves a stale mirror copy.
+        const list = buildPoListSql(branchId);
+        const allRows = await pgPool.query(list.sql, list.params as any[]);
+        return res.json(allRows.rows);
+      }
       const opts = { branchId, status, supplier, query, dateFromAD, dateToAD };
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
@@ -82,6 +91,7 @@ const { branchId, status, supplier, query, dateFromAD, dateToAD, page, pageSize,
       return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching POs from DB:', err);
+      return res.status(500).json({ message: 'Could not load purchase orders from the database. Reload to retry.' });
     }
   }
   if (branchId && branchId !== 'ALL') {
@@ -122,9 +132,6 @@ try {
       totalAmount,
     };
 
-    const idx = purchaseOrders.findIndex((p) => p.id === newPO.id);
-    setPurchaseOrders(idx >= 0 ? withReplaced(purchaseOrders, idx, newPO) : withPrepended(purchaseOrders, newPO));
-
     if (getPgConnected()) {
       // PO header + reserved incoming stock commit atomically: a failure after
       // the upsert would otherwise leave incoming_qty reserved with no PO.
@@ -137,9 +144,13 @@ try {
           }
         }
       });
+    } else {
+      // Demo mode only: PostgreSQL is the single source of truth when connected.
+      const idx = purchaseOrders.findIndex((p) => p.id === newPO.id);
+      setPurchaseOrders(idx >= 0 ? withReplaced(purchaseOrders, idx, newPO) : withPrepended(purchaseOrders, newPO));
     }
 
-    if (newPO.branchId && Array.isArray(items)) {
+    if (!getPgConnected() && newPO.branchId && Array.isArray(items)) {
       items.forEach((item: any) => {
         let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === newPO.branchId);
         if (stk) {
@@ -161,8 +172,19 @@ try {
 export async function put_Id(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    const index = purchaseOrders.findIndex((p) => p.id === id);
-    const existingPO = purchaseOrders[index];
+    // PostgreSQL is the only decision source when connected; the mirror is a
+    // demo-mode (PG-down) fallback only.
+    let existingPO: any;
+    if (getPgConnected()) {
+      const result = await pgPool.query(PO_FIND_BY_ID_SQL, [id]);
+      existingPO = result.rows[0];
+    } else {
+      existingPO = purchaseOrders.find((p) => p.id === id);
+    }
+    if (getPgConnected() && !existingPO) {
+      return res.status(404).json({ message: 'Purchase Order not found' });
+    }
+    if (existingPO && typeof existingPO.items === 'string') existingPO.items = JSON.parse(existingPO.items);
 
     const items = req.body.items || existingPO?.items || [];
     const subtotalAmount = items.reduce((s: number, i: any) => s + (i.subtotal || (i.quantity * i.unitPrice)), 0);
@@ -177,10 +199,11 @@ try {
       totalAmount,
       items,
     };
-    if (index >= 0) setPurchaseOrders(withReplaced(purchaseOrders, index, updatedPO));
-
     if (getPgConnected()) {
       await pgPool.query(PO_UPDATE_SQL, poUpdateParams(updatedPO, JSON.stringify(items), id));
+    } else {
+      const index = purchaseOrders.findIndex((p) => p.id === id);
+      if (index >= 0) setPurchaseOrders(withReplaced(purchaseOrders, index, updatedPO));
     }
     logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber}`);
     res.json(updatedPO);
@@ -195,10 +218,12 @@ try {
 export async function delete_Id(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    let po: any = purchaseOrders.find((entry) => entry.id === id);
-    if (getPgConnected() && !po) {
+    let po: any;
+    if (getPgConnected()) {
       const result = await pgPool.query(PO_FIND_FOR_DELETE_SQL, [id]);
       po = result.rows[0];
+    } else {
+      po = purchaseOrders.find((entry) => entry.id === id);
     }
     if (!po) return res.status(404).json({ message: 'Purchase Order not found' });
     if (['RECEIVED', 'IN_PROGRESS'].includes(po.status)) {
@@ -206,7 +231,13 @@ try {
       return;
     }
 
-    const linkedInvoice = purchaseInvoices.some((invoice) => invoice.poReferenceId === po.id || invoice.poReferenceId === po.poNumber);
+    let linkedInvoice: boolean;
+    if (getPgConnected()) {
+      const linked = await pgPool.query(PI_EXISTS_FOR_PO_SQL, [po.id, po.poNumber]);
+      linkedInvoice = (linked.rowCount || 0) > 0;
+    } else {
+      linkedInvoice = purchaseInvoices.some((invoice) => invoice.poReferenceId === po.id || invoice.poReferenceId === po.poNumber);
+    }
     if (linkedInvoice) return res.status(409).json({ message: 'Delete the linked Purchase Invoice before deleting this Purchase Order.' });
 
     const items = typeof po.items === 'string' ? JSON.parse(po.items) : (po.items || []);
@@ -219,12 +250,14 @@ try {
       });
     }
 
-    setPurchaseOrders(purchaseOrders.filter((entry) => entry.id !== id));
-    inventoryStock.forEach((stock) => {
-      if (stock.branchId !== po.branchId) return;
-      const item = items.find((entry: any) => entry.productId === stock.productId);
-      if (item) stock.incomingQty = Math.max(0, (stock.incomingQty || 0) - (Number(item.quantity) || 0));
-    });
+    if (!getPgConnected()) {
+      setPurchaseOrders(purchaseOrders.filter((entry) => entry.id !== id));
+      inventoryStock.forEach((stock) => {
+        if (stock.branchId !== po.branchId) return;
+        const item = items.find((entry: any) => entry.productId === stock.productId);
+        if (item) stock.incomingQty = Math.max(0, (stock.incomingQty || 0) - (Number(item.quantity) || 0));
+      });
+    }
     logAuditEvent(req, 'DELETE_PURCHASE_ORDER', 'PROCUREMENT', `Deleted Purchase Order #${po.poNumber}`);
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
@@ -239,12 +272,16 @@ export async function patch_status(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
     const { status } = req.body;
-    const po = purchaseOrders.find((p) => p.id === id);
-    if (po) po.status = status;
-
     if (getPgConnected()) {
       await pgPool.query(PO_PATCH_STATUS_SQL, [status, id]);
+      const updated = await pgPool.query(PO_FIND_BY_ID_SQL, [id]);
+      const po = updated.rows[0];
+      if (po && typeof po.items === 'string') po.items = JSON.parse(po.items);
+      logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
+      return res.json(po || { ...req.body, id, status });
     }
+    const po = purchaseOrders.find((p) => p.id === id);
+    if (po) po.status = status;
     logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order status to ${status}`);
     res.json(po || req.body);
   } catch (err: any) {
@@ -263,8 +300,15 @@ const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pa
   // (CSV export). No page param keeps the legacy full-array shape.
   const wantsPaged = page !== undefined || pageSize !== undefined || all === '1';
   const wantsFiltering = wantsPaged || paymentStatus || supplier || query || dateFromAD || dateToAD;
-  if (getPgConnected() && wantsFiltering) {
+  if (getPgConnected()) {
     try {
+      if (!wantsFiltering) {
+        // Legacy full-array shape, still read from PostgreSQL so the register
+        // never serves a stale mirror copy.
+        const list = buildPiListSql(branchId);
+        const allRows = await pgPool.query(list.sql, list.params as any[]);
+        return res.json(allRows.rows);
+      }
       const opts = { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD };
       if (wantsPaged) {
         const n = Math.max(1, Number(page) || 1);
@@ -297,6 +341,7 @@ const { branchId, paymentStatus, supplier, query, dateFromAD, dateToAD, page, pa
       return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching purchase invoices from DB:', err);
+      return res.status(500).json({ message: 'Could not load purchase invoices from the database. Reload to retry.' });
     }
   }
   if (branchId && branchId !== 'ALL') {
@@ -436,19 +481,21 @@ try {
     }
     const poReference = newInv.poReferenceId || req.body.poId;
     if (poReference) {
-      let linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
-      if (!linkedPO && getPgConnected()) {
+      let linkedPO: any;
+      if (getPgConnected()) {
         const poResult = await pgPool.query(PO_FIND_BY_REF_SQL, [poReference]);
         linkedPO = poResult.rows[0];
         if (linkedPO && typeof linkedPO.items === 'string') linkedPO.items = JSON.parse(linkedPO.items);
+      } else {
+        linkedPO = purchaseOrders.find((po) => po.id === poReference || po.poNumber === poReference);
       }
       if (!linkedPO) return res.status(400).json({ message: 'The selected Purchase Order was not found.' });
 
-      const poItems = new Map(linkedPO.items.map((item) => [item.productId, item]));
+      const poItems = new Map<string, any>((linkedPO.items as any[]).map((item: any) => [item.productId, item]));
       const invoiceItems = new Map(items.map((item: any) => [item.productId, item]));
       const exceeding = items.find((item: any) => Number(item.quantity) > Number(poItems.get(item.productId)?.quantity || 0));
       const quantityMismatch = items.find((item: any) => Number(item.quantity) !== Number(poItems.get(item.productId)?.quantity || 0));
-      const missing = linkedPO.items.find((item) => !invoiceItems.has(item.productId));
+      const missing = (linkedPO.items as any[]).find((item: any) => !invoiceItems.has(item.productId));
       const extra = items.find((item: any) => !poItems.has(item.productId));
       const typeMismatch = items.find((item: any) => {
         const poItem = poItems.get(item.productId);
@@ -463,12 +510,13 @@ try {
       if (invoiceItems.size !== poItems.size) return res.status(400).json({ message: 'Purchase Order and vendor bill products must match exactly.' });
     }
 
-    let invoiceAlreadyExists = purchaseInvoices.some((invoice) => invoice.id === newInv.id || invoice.invoiceNumber === newInv.invoiceNumber);
-    if (getPgConnected() && !invoiceAlreadyExists) {
+    let invoiceAlreadyExists: boolean;
+    if (getPgConnected()) {
       const existing = await pgPool.query(PI_EXISTS_SQL, [newInv.id, newInv.invoiceNumber]);
       invoiceAlreadyExists = existing.rowCount === 1;
+    } else {
+      invoiceAlreadyExists = purchaseInvoices.some((invoice) => invoice.id === newInv.id || invoice.invoiceNumber === newInv.invoiceNumber);
     }
-    const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
 
     // Slice 1 (serial register): plan and validate the units this bill will
     // register. Runs before ANY write, so an invalid bill posts nothing at all.
@@ -537,8 +585,12 @@ try {
 
     // The invoice joins the in-memory mirror only after the transaction
     // committed: a refusal (duplicate serial, stock race) must not leave a
-    // phantom invoice behind.
-    setPurchaseInvoices(idx >= 0 ? withReplaced(purchaseInvoices, idx, newInv) : withPrepended(purchaseInvoices, newInv));
+    // phantom invoice behind. PostgreSQL is the single source of truth when
+    // connected, so the mirror is demo-mode only (bootstrap-trim step 5).
+    if (!getPgConnected()) {
+      const idx = purchaseInvoices.findIndex((i) => i.id === newInv.id);
+      setPurchaseInvoices(idx >= 0 ? withReplaced(purchaseInvoices, idx, newInv) : withPrepended(purchaseInvoices, newInv));
+    }
 
     // Demo mode (PG down) twin of the register write above.
     if (!getPgConnected() && !invoiceAlreadyExists && serialPlan.entries.length > 0) {
@@ -556,12 +608,15 @@ try {
       setSerialLogs(rows);
     }
 
-    // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory mirror for non-DB mode; DB mode is updated above)
-    const billPoRef = newInv.poReferenceId || req.body.poId;
-    const billLinkedPO = purchaseOrders.find((p) => p.id === billPoRef || p.poNumber === billPoRef);
-    if (billLinkedPO) billLinkedPO.status = 'RECEIVED';
+    // Detect the PO used in this vendor bill and mark it RECEIVED (in-memory
+    // mirror for non-DB mode; DB mode is updated inside the transaction above).
+    if (!getPgConnected()) {
+      const billPoRef = newInv.poReferenceId || req.body.poId;
+      const billLinkedPO = purchaseOrders.find((p) => p.id === billPoRef || p.poNumber === billPoRef);
+      if (billLinkedPO) billLinkedPO.status = 'RECEIVED';
+    }
 
-    if (!invoiceAlreadyExists) {
+    if (!getPgConnected() && !invoiceAlreadyExists) {
       const demoTxns: TransactionLog[] = [];
       items.forEach((item: any, itemIdx: number) => {
         let stk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === targetBranchId);
@@ -620,10 +675,12 @@ try {
 export async function delete_Id2(req: any, res: Response): Promise<any> {
 try {
     const { id } = req.params;
-    let invoice: any = purchaseInvoices.find((entry) => entry.id === id);
-    if (getPgConnected() && !invoice) {
+    let invoice: any;
+    if (getPgConnected()) {
       const result = await pgPool.query(PI_FIND_FOR_DELETE_SQL, [id]);
       invoice = result.rows[0];
+    } else {
+      invoice = purchaseInvoices.find((entry) => entry.id === id);
     }
     if (!invoice) return res.status(404).json({ message: 'Purchase Invoice not found' });
 
@@ -699,23 +756,27 @@ try {
       logAuditEvent(req, 'DELETE_PURCHASE_INVOICE', 'PROCUREMENT', `Deleted Purchase Invoice #${invoice.invoiceNumber} and reversed its stock`);
     }
 
-    setPurchaseInvoices(purchaseInvoices.filter((entry) => entry.id !== id));
-    inventoryStock.forEach((stock) => {
-      if (stock.branchId !== invoice.branchId) return;
-      const quantity = quantities.get(stock.productId);
-      if (quantity) stock.quantityOnHand = Math.max(0, stock.quantityOnHand - quantity);
-    });
-    setCustomerDeviceRecords(customerDeviceRecords.filter(
-      (record) => !(serials.includes(record.deviceSerial) && purchaseRefs.includes(record.purchaseBillRef || '') && record.status === 'IN_STOCK')
-    ));
-    // Mirror of the transactional register cleanup (still-IN_STOCK rows only),
-    // keyed the same way: this bill's own serials, never source_type/source_id.
-    const invoiceSerialKeys = new Set(serials.map((s: string) => String(s).trim().toUpperCase()));
-    setSerialLogs(serialLogs.filter(
-      (record) => !(invoiceSerialKeys.has(String(record.deviceSerial || '').trim().toUpperCase()) && String(record.status || '') === 'IN_STOCK')
-    ));
-    const linkedPO = purchaseOrders.find((entry) => entry.id === invoice.poReferenceId || entry.poNumber === invoice.poReferenceId);
-    if (linkedPO) linkedPO.status = 'APPROVED';
+    // Demo-mode mirror cleanup only: the PostgreSQL path already reversed
+    // stock, register rows and PO status inside the transaction above.
+    if (!getPgConnected()) {
+      setPurchaseInvoices(purchaseInvoices.filter((entry) => entry.id !== id));
+      inventoryStock.forEach((stock) => {
+        if (stock.branchId !== invoice.branchId) return;
+        const quantity = quantities.get(stock.productId);
+        if (quantity) stock.quantityOnHand = Math.max(0, stock.quantityOnHand - quantity);
+      });
+      setCustomerDeviceRecords(customerDeviceRecords.filter(
+        (record) => !(serials.includes(record.deviceSerial) && purchaseRefs.includes(record.purchaseBillRef || '') && record.status === 'IN_STOCK')
+      ));
+      // Mirror of the transactional register cleanup (still-IN_STOCK rows only),
+      // keyed the same way: this bill's own serials, never source_type/source_id.
+      const invoiceSerialKeys = new Set(serials.map((s: string) => String(s).trim().toUpperCase()));
+      setSerialLogs(serialLogs.filter(
+        (record) => !(invoiceSerialKeys.has(String(record.deviceSerial || '').trim().toUpperCase()) && String(record.status || '') === 'IN_STOCK')
+      ));
+      const linkedPO = purchaseOrders.find((entry) => entry.id === invoice.poReferenceId || entry.poNumber === invoice.poReferenceId);
+      if (linkedPO) linkedPO.status = 'APPROVED';
+    }
     res.json({ success: true, deletedId: id });
   } catch (err: any) {
     console.error('Error deleting purchase invoice:', err);
@@ -798,7 +859,15 @@ try {
       return;
     }
 
-    const inv = purchaseInvoices.find((i) => i.id === id);
+    // PostgreSQL is the only decision source when connected: a mirror copy
+    // must never decide whether a bill is settled or which payments reverse.
+    let inv: any;
+    if (getPgConnected()) {
+      const invRes = await pgPool.query(PI_FIND_FOR_PAYMENT_SQL, [id]);
+      inv = invRes.rows[0];
+    } else {
+      inv = purchaseInvoices.find((i) => i.id === id);
+    }
     if (!inv) {
       res.status(404).json({ message: 'Purchase invoice not found.' });
       return;
@@ -814,7 +883,9 @@ try {
     }
 
     // Find all POSTED payments for this invoice
-    const paymentsToReverse = vendorPayments.filter((p) => p.invoiceId === id && p.status === 'POSTED');
+    const paymentsToReverse: VendorPayment[] = getPgConnected()
+      ? ((await pgPool.query(VP_POSTED_BY_INVOICE_SQL, [id])).rows as VendorPayment[])
+      : vendorPayments.filter((p) => p.invoiceId === id && p.status === 'POSTED');
     if (paymentsToReverse.length === 0) {
       res.status(409).json({ message: `No posted payments found for invoice #${inv.invoiceNumber}.` });
       return;
@@ -849,17 +920,17 @@ try {
       });
     }
 
-    // Update in-memory state
-    for (const payment of paymentsToReverse) {
-      payment.status = 'REVERSED';
-      payment.reversalReason = reason;
-      payment.reversedBy = getUserFromReq(req).email || 'system';
-      payment.reversedAtAD = new Date().toISOString();
-    }
-    inv.amountPaid = 0;
-    inv.paymentStatus = 'UNPAID';
-
+    // Demo-mode mirror state only; PostgreSQL already committed the reversal.
     if (!getPgConnected()) {
+      for (const payment of paymentsToReverse) {
+        payment.status = 'REVERSED';
+        payment.reversalReason = reason;
+        payment.reversedBy = getUserFromReq(req).email || 'system';
+        payment.reversedAtAD = new Date().toISOString();
+      }
+      inv.amountPaid = 0;
+      inv.paymentStatus = 'UNPAID';
+
       logAuditEvent(
         req,
         'REVERSE_INVOICE_PAYMENTS',
@@ -894,6 +965,7 @@ const { supplierId, invoiceId, branchId, status, fromAd, toAd, fiscalYearId } = 
       return;
     } catch (err: any) {
       console.error('Error fetching vendor payments from DB:', err);
+      return res.status(500).json({ message: 'Could not load vendor payments from the database. Reload to retry.' });
     }
   }
   let list = vendorPayments;
@@ -924,6 +996,7 @@ const { id } = req.params;
       return;
     } catch (err: any) {
       console.error('Error fetching invoice payments from DB:', err);
+      return res.status(500).json({ message: 'Could not load invoice payments from the database. Reload to retry.' });
     }
   }
   res.json(vendorPayments.filter((p) => p.invoiceId === id));
@@ -941,12 +1014,15 @@ try {
     }
 
     // Resolve the invoice first so supplier + branch can be inherited from it.
-    let linkedInvoice: any = body.invoiceId
-      ? purchaseInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId)
-      : undefined;
-    if (!linkedInvoice && body.invoiceId && getPgConnected()) {
-      const invRes = await pgPool.query(PI_FIND_FOR_PAYMENT_SQL, [body.invoiceId]);
-      linkedInvoice = invRes.rows[0];
+    // PostgreSQL is the only source when connected (bootstrap-trim step 5).
+    let linkedInvoice: any;
+    if (body.invoiceId) {
+      if (getPgConnected()) {
+        const invRes = await pgPool.query(PI_FIND_FOR_PAYMENT_SQL, [body.invoiceId]);
+        linkedInvoice = invRes.rows[0];
+      } else {
+        linkedInvoice = purchaseInvoices.find((inv) => inv.id === body.invoiceId || inv.invoiceNumber === body.invoiceId);
+      }
     }
 
     // Resolve supplier: explicit supplierId, else supplierName, else from invoice.
@@ -1025,10 +1101,10 @@ try {
       createdBy: getUserFromReq(req).email || 'system',
     };
 
-    setVendorPayments(withPrepended(vendorPayments, newPayment));
-
     if (getPgConnected()) {
       await pgPool.query(VP_INSERT_SQL, vpInsertParams(newPayment));
+    } else {
+      setVendorPayments(withPrepended(vendorPayments, newPayment));
     }
     logAuditEvent(
       req,
@@ -1055,7 +1131,13 @@ try {
       res.status(400).json({ message: 'A reversal reason is required.' });
       return;
     }
-    const payment = vendorPayments.find((p) => p.id === id);
+    let payment: any;
+    if (getPgConnected()) {
+      const payRes = await pgPool.query(VP_FIND_BY_ID_SQL, [id]);
+      payment = payRes.rows[0];
+    } else {
+      payment = vendorPayments.find((p) => p.id === id);
+    }
     if (!payment) {
       res.status(404).json({ message: 'Vendor payment not found.' });
       return;
@@ -1107,10 +1189,13 @@ try {
       );
     }
 
-    payment.status = 'REVERSED';
-    payment.reversalReason = reason;
-    payment.reversedBy = getUserFromReq(req).email || 'system';
-    payment.reversedAtAD = new Date().toISOString();
+    // Demo-mode mirror only; PostgreSQL already committed the reversal.
+    if (!getPgConnected()) {
+      payment.status = 'REVERSED';
+      payment.reversalReason = reason;
+      payment.reversedBy = getUserFromReq(req).email || 'system';
+      payment.reversedAtAD = new Date().toISOString();
+    }
 
     // Mirror the invoice decrement in memory (only when not pg-connected).
     if (!getPgConnected() && payment.invoiceId) {
@@ -1157,15 +1242,13 @@ try {
       inv.supplierId && inv.supplierId === supplier.id;
     const byLegacyName = (inv: any) => !inv.supplierId && nameMatcher(inv.supplierName);
 
-    let invoices: any[] = purchaseInvoices.filter((inv) => bySupplierId(inv) || byLegacyName(inv));
-    let payments: VendorPayment[] = vendorPayments.filter((p) =>
-      (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
-    );
-    let returns: any[] = purchaseReturns.filter((r: any) =>
-      (r.supplierId && r.supplierId === supplier.id) || byLegacyName(r)
-    );
+    let invoices: any[];
+    let payments: VendorPayment[];
+    let returns: any[];
 
     if (getPgConnected()) {
+      // PostgreSQL is the ledger's only source: a failed read is an error, not
+      // a cue to substitute a possibly stale mirror.
       try {
         const invRes = await pgPool.query(LEDGER_INVOICES_SQL, ledgerNameParams(supplier));
         invoices = invRes.rows;
@@ -1178,8 +1261,17 @@ try {
         const retRes = await pgPool.query(LEDGER_RETURNS_SQL, ledgerNameParams(supplier));
         returns = retRes.rows;
       } catch (err: any) {
-        console.error('Vendor ledger DB query failed, using cache:', err?.message || err);
+        console.error('Vendor ledger DB query failed:', err?.message || err);
+        return res.status(500).json({ message: 'Could not load the vendor ledger from the database. Reload to retry.' });
       }
+    } else {
+      invoices = purchaseInvoices.filter((inv) => bySupplierId(inv) || byLegacyName(inv));
+      payments = vendorPayments.filter((p) =>
+        (p.supplierId && p.supplierId === supplier.id) || byLegacyName(p)
+      );
+      returns = purchaseReturns.filter((r: any) =>
+        (r.supplierId && r.supplierId === supplier.id) || byLegacyName(r)
+      );
     }
 
     // Apply branch + fiscal-year/date scoping.
@@ -1391,6 +1483,7 @@ export async function get_purchaseReturns(req: any, res: Response): Promise<any>
       return res.json(r.rows);
     } catch (err) {
       console.error('Error fetching purchase returns from DB:', err);
+      return res.status(500).json({ message: 'Could not load purchase returns from the database. Reload to retry.' });
     }
   }
   const list = branchId && branchId !== 'ALL'
@@ -1489,11 +1582,15 @@ export async function post_purchaseReturns(req: any, res: Response): Promise<any
     if (!prReturnDateBS) return;
     const returnNumber = req.body.returnNumber || (await issueNextDocNumber(targetBranchId, 'DN', retDate));
 
-    let invoiceRow: any = purchaseInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
-    if (!invoiceRow && getPgConnected()) {
+    // PostgreSQL first: a stale mirror invoice must never gate a return or
+    // supply its item lines (bootstrap-trim step 5 applies to returns too).
+    let invoiceRow: any;
+    if (getPgConnected()) {
       const r = await pgPool.query(PR_LOCK_INVOICE_SQL, [originalRef]);
       invoiceRow = r.rows[0];
       if (invoiceRow && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
+    } else {
+      invoiceRow = purchaseInvoices.find((i) => i.id === originalRef || i.invoiceNumber === originalRef);
     }
     if (!invoiceRow) {
       return res.status(400).json({ message: 'The original purchase invoice was not found.' });
@@ -1706,11 +1803,13 @@ export async function post_purchaseReturnApprove(req: any, res: Response): Promi
 
     // Re-validate the over-return guard against the ORIGINAL invoice at
     // approval time (other returns may have posted since the draft was made).
-    let invoiceRow: any = purchaseInvoices.find((i) => i.id === ret.originalInvoiceId);
-    if (!invoiceRow && getPgConnected()) {
+    let invoiceRow: any;
+    if (getPgConnected()) {
       const r = await pgPool.query(PR_LOCK_INVOICE_SQL, [ret.originalInvoiceId]);
       invoiceRow = r.rows[0];
       if (invoiceRow && typeof invoiceRow.items === 'string') invoiceRow.items = JSON.parse(invoiceRow.items);
+    } else {
+      invoiceRow = purchaseInvoices.find((i) => i.id === ret.originalInvoiceId);
     }
     if (!invoiceRow) return res.status(400).json({ message: 'The original purchase invoice no longer exists; the draft return cannot be approved.' });
 

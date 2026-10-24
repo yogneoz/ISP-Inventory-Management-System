@@ -20,6 +20,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement as h } from 'react';
 import { inAct, mountTree } from './harness/mount';
+import { KeepMountedRoot, useTabActive } from '../client/src/components/common/KeepMounted';
 import { Probe, StateProbe, createProbeHandles } from './harness/keepMountedProbe';
 import type { ProbeHandles } from './harness/keepMountedProbe';
 
@@ -138,6 +139,32 @@ describe('A1 — tab switching is unchanged', () => {
     // that their bodies ran the same number of times as before memoisation, so
     // nothing was re-mounted/discarded by the element cache.
     assert.equal(after.afterVisits.dashboard, before.afterVisits.dashboard);
+  });
+});
+
+describe('DF-13 — useTabActive follows the visible tab', () => {
+  function ActiveProbe() {
+    const active = useTabActive('financial-statements');
+    return h('span', { 'data-active': String(active) }, String(active));
+  }
+
+  test('flips with the active tab and stays mounted while hidden', () => {
+    let activeTab: string = 'financial-statements';
+    const root = () =>
+      h(KeepMountedRoot, { activeTab, children: () => h('div', null, h(ActiveProbe)) });
+    const tree = mountTree(root());
+    const state = () => tree.container.querySelector('span')?.getAttribute('data-active');
+
+    assert.equal(state(), 'true', 'the visible statements tab must report active');
+    activeTab = 'dashboard';
+    tree.rerender(root());
+    assert.equal(state(), 'false', 'a hidden keep-mounted tab must report inactive');
+    assert.ok(tree.container.querySelector('span'), 'the probe must stay mounted, not unmount');
+    activeTab = 'financial-statements';
+    tree.rerender(root());
+    assert.equal(state(), 'true', 're-activation must flip the flag back');
+
+    tree.unmount();
   });
 });
 

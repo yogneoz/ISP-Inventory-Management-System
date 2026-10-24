@@ -17,6 +17,7 @@ import { OperationError, errorResponse } from '../utils/operationError';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { isActiveCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
+import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
 import {
   buildStockListQuery,
@@ -697,9 +698,17 @@ try {
       deviceMacAddress: req.body.deviceMacAddress || null,
     };
 
-    const linkedInvoice = newAsset.purchaseInvoiceId
-      ? purchaseInvoices.find((invoice) => invoice.id === newAsset.purchaseInvoiceId)
-      : undefined;
+    // PostgreSQL first: the invoice date stamped onto the asset must come from
+    // the live row, never a stale mirror copy (bootstrap-trim step 5).
+    let linkedInvoice: any;
+    if (newAsset.purchaseInvoiceId) {
+      if (getPgConnected()) {
+        const invRes = await pgPool.query(PI_FIND_BY_ID_SQL, [newAsset.purchaseInvoiceId]);
+        linkedInvoice = invRes.rows[0];
+      } else {
+        linkedInvoice = purchaseInvoices.find((invoice) => invoice.id === newAsset.purchaseInvoiceId);
+      }
+    }
     if (linkedInvoice && !req.body.purchaseInvoiceDateAD && !req.body.purchaseInvoiceDateAd) {
       newAsset.purchaseInvoiceDateAD = linkedInvoice.invoiceDateAD;
       newAsset.purchaseInvoiceDateBS = linkedInvoice.invoiceDateBS;

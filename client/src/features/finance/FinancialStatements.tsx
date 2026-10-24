@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useActivationKey } from '../../components/common/KeepMounted';
+import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import { FinancialSummary, Asset, PurchaseInvoice, CompanyProfile, Branch, FiscalYear } from '../../types';
 import { formatDualDate } from '../../utils/nepaliCalendar';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -199,7 +199,15 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
   // activation. Refetch on every tab re-activation (keep-mounted: no remount
   // refetch anymore).
   const activationKey = useActivationKey('financial-statements');
+  // DF-13: the live financialSummary prop is refreshed by DF-05 on every owning
+  // domain, so it is a trigger for this batch as well. Without it the
+  // activation-time map in `figuresFor` shadowed the fresh prop. The read is
+  // skipped while the tab is hidden — the map stays mounted and the next
+  // activation re-runs it, so an open Statements screen still follows every
+  // sale/payment/purchase without every stock edit issuing a batch nobody sees.
+  const isActive = useTabActive('financial-statements');
   useEffect(() => {
+    if (!isActive) return;
     let cancelled = false;
     const load = async () => {
       if (!activeBranches.length) return;
@@ -224,7 +232,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeBranches, currentFy, priorFy, activationKey, summariesRetryKey]);
+  }, [isActive, activeBranches, currentFy, priorFy, activationKey, summariesRetryKey, financialSummary]);
 
   // ----- Figures per branch × fiscal year ------------------------------------
   const figuresFor = (branchId: string, fy: FiscalYear | null): BranchFigures => {
@@ -304,7 +312,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     }
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statementEntity, currentFy, priorFy, comparativeMode, summaryMap, assets, activeBranches, asOfDateAD]);
+  }, [statementEntity, currentFy, priorFy, comparativeMode, summaryMap, assets, activeBranches, asOfDateAD, financialSummary]);
 
   const varianceFor = (i: number, get: (f: BranchFigures) => number): number => {
     const cur = periodCols[i - 2];
@@ -322,7 +330,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     }));
     return rowsOut;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBranches, currentFy, priorFy, summaryMap, assets, asOfDateAD]);
+  }, [activeBranches, currentFy, priorFy, summaryMap, assets, asOfDateAD, financialSummary]);
 
   const comparisonConsolidated = useMemo(
     () => sumFigures(comparisonRows.map((r) => r.current)),

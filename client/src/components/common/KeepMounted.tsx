@@ -111,6 +111,15 @@ export function KeepMounted({
 }
 
 /**
+ * True while `tabKey` is the visible tab. Keep-mounted screens stay mounted
+ * (and keep receiving fresh props) when hidden, so a prop-driven refetch must
+ * check this before spending a request the operator cannot see (DF-13).
+ */
+export function useTabActive(tabKey: NavTab): boolean {
+  return useContext(ActiveTabContext) === tabKey;
+}
+
+/**
  * For SELF-FETCHING screens: an activation key that changes on first mount
  * AND on every re-activation after being hidden — the keep-mounted
  * replacement for "remount refetches me". An effect with `[activationKey]`
