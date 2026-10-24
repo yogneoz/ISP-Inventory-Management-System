@@ -12,6 +12,14 @@ import {
   type FinancialSummary,
   type FinancialSummaryScope,
 } from '../services/financialSummary.service';
+import { mapWithConcurrency } from '../utils/mapWithConcurrency';
+
+/**
+ * Pairs computed at once in the batch read. Each pair issues nine aggregate
+ * queries, and the pool defaults to 20 connections: three keeps a wide batch
+ * parallel without monopolising the pool for every other request.
+ */
+const SUMMARY_PAIR_CONCURRENCY = 3;
 /** Resolves the branch/fiscal-year scope of one summary read. */
 function resolveSummaryScope(branchId?: string, fiscalYearId?: string): FinancialSummaryScope {
   const currentFy = pickCurrentFiscalYear(mutable(fiscalYears)) || null;
@@ -127,14 +135,19 @@ export async function get_financialSummaries(req: any, res: Response): Promise<a
   const fiscalYearIds = list(req.query.fiscalYearIds);
   const branches = branchIds.length ? branchIds : [undefined];
   const years = fiscalYearIds.length ? fiscalYearIds : [undefined];
+  const pairs = branches.flatMap((branchId) =>
+    years.map((fiscalYearId) => ({
+      key: `${branchId ?? 'ALL'}|${fiscalYearId ?? ''}`,
+      branchId,
+      fiscalYearId,
+    }))
+  );
   const summaries: Record<string, FinancialSummary> = {};
-  for (const branchId of branches) {
-    for (const fiscalYearId of years) {
-      summaries[`${branchId ?? 'ALL'}|${fiscalYearId ?? ''}`] = withRequestedFiscalYear(
-        await readSummary(resolveSummaryScope(branchId, fiscalYearId)),
-        fiscalYearId
-      );
-    }
-  }
+  await mapWithConcurrency(pairs, SUMMARY_PAIR_CONCURRENCY, async (pair) => {
+    summaries[pair.key] = withRequestedFiscalYear(
+      await readSummary(resolveSummaryScope(pair.branchId, pair.fiscalYearId)),
+      pair.fiscalYearId
+    );
+  });
   return res.json({ summaries });
 }

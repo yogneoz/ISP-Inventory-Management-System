@@ -4,6 +4,7 @@ import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../../types'
 import { formatNPR } from '../../utils/nprFormat';
 import { exportToCSV } from '../../utils/exportUtils';
 import { api } from '../../services/api';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import {
   Users,
   Plus,
@@ -300,11 +301,17 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   // returns an unpaged array, so the old constant page state was never written
   // and only kept this effect's dep list noisy (DF-12).
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
+  // A failed read left every "assigned hardware" count at zero with no hint
+  // that the read failed — the column read as a real answer.
+  const [devicesFetchError, setDevicesFetchError] = useState('');
+  const [devicesFetchLoading, setDevicesFetchLoading] = useState(false);
+  const [devicesRetryKey, setDevicesRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
+      setDevicesFetchLoading(true);
       try {
         const rows = await api.getCustomerDevices(
           selectedBranchFilter !== 'ALL' ? selectedBranchFilter : undefined,
@@ -315,10 +322,14 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           // Bare array response (see CustomersManagement): the old envelope
           // cast silently rendered [] here too.
           setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
+          setDevicesFetchError('');
         }
-      } catch {
-        // Keep the last successful rows rather than blanking the assigned-
-        // hardware counts; there is no error surface for this column today.
+      } catch (err: any) {
+        if (!cancelled) {
+          setDevicesFetchError(err?.message || 'The assigned device counts could not be read.');
+        }
+      } finally {
+        if (!cancelled) setDevicesFetchLoading(false);
       }
     };
 
@@ -326,7 +337,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchFilter, searchQuery, sseRefreshKey]);
+  }, [selectedBranchFilter, searchQuery, sseRefreshKey, devicesRetryKey]);
 
   const getAssignedDeviceCount = (customer: CustomerRecord): number => {
     return customerDevicesRows.filter(
@@ -557,6 +568,20 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             Retry
           </button>
         </div>
+      )}
+
+      {/* The assigned-hardware column is a second read; failing it silently
+          left every count at 0, which reads as a real answer. */}
+      {devicesFetchError && (
+        <LoadStateNotice
+          subject="the assigned hardware counts"
+          loading={devicesFetchLoading}
+          error={devicesFetchError}
+          hasCachedRows={customerDevicesRows.length > 0}
+          cachedNote=" Assigned device counts may be out of date."
+          emptyNote=" Assigned device counts may show 0 until this loads."
+          onRetry={() => setDevicesRetryKey((k) => k + 1)}
+        />
       )}
 
       {/* Customer Master Directory Table */}

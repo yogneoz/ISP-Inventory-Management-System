@@ -375,7 +375,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | VAT Register, Fixed Asset Register, Depreciation Schedule, Fiscal Year Closing | props | Closing-wizard totals depend on the stale financial summary (P1-4). |
 | Document Numbering Setup | self list | Silent failure (P2-9). |
 | BS Calendar Utility, Nepali Fiscal & BS Calendar | self | Silent fallback to compiled calendar; no live BS event refresh (P2-7). |
-| BS Calendar health panel | self | Error surfaced correctly; no sequence guard (minor). |
+| BS Calendar health panel | self | Error surfaced correctly; latest-only guard added at close-out (a slow older read cannot paint over a newer report or a repair's re-audit). |
 | Audit Activities Log | props + debounced serial fetch | Seq guard + error correct. |
 | Company Setup, Users, Permissions, Branches, Approvals, Clear Demo Data | props / mutation handlers | Fine; permission save re-reads the server matrix on failure. |
 | Data Recalculation & Repair | mutations + `onRefreshData` | Local refresh correct; other clients' movement ledger and BS mirror now follow `RECALC` (DF-06). |

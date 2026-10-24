@@ -703,7 +703,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // The device fetch effect re-runs when the counter bumps.
     assert.match(
       register,
-      /\}, \[selectedBranchId, searchQuery, sseRefreshKey\]\);/,
+      /\}, \[selectedBranchId, searchQuery, sseRefreshKey, devicesRetryKey\]\);/,
       'the customer-device fetch effect must depend on sseRefreshKey'
     );
     assertNoRawFetch(register, 'CustomersManagement.tsx');
@@ -719,7 +719,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.match(directory, /sseRefreshKey\?: number;/);
     assert.match(
       directory,
-      /\}, \[selectedBranchFilter, searchQuery, sseRefreshKey\]\);/,
+      /\}, \[selectedBranchFilter, searchQuery, sseRefreshKey, devicesRetryKey\]\);/,
       'the directory device fetch effect must depend on its refresh key'
     );
     assertEveryRenderSiteWired(

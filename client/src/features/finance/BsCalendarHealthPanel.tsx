@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../services/api';
 import { useDialog } from '../../components/common/DialogProvider';
+import { createLatestOnly } from '../../utils/latestOnly';
 import {
   useActivationKey,
 } from '../../components/common/KeepMounted';
@@ -48,18 +49,25 @@ export const BsCalendarHealthPanel: React.FC<BsCalendarHealthPanelProps> = ({ ca
   const [busyId, setBusyId] = useState<string | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const activationKey = useActivationKey('bs-calendar');
+  // Two integrity reads can overlap (Re-check pressed twice, or a slow read
+  // followed by a tab re-activation). Only the newest may paint the report,
+  // raise its failure or settle the spinner (DF-08 guard, close-out residual).
+  const auditTicket = useRef(createLatestOnly()).current;
 
   const load = useCallback(async () => {
+    const ticket = auditTicket.begin();
     setIsLoading(true);
     try {
       const result = await api.getBsCalendarIntegrity();
+      if (!auditTicket.isCurrent(ticket)) return;
       setReport(result);
     } catch (err: any) {
+      if (!auditTicket.isCurrent(ticket)) return;
       setStatus({ type: 'error', message: `Unable to audit the BS calendar: ${err.message}` });
     } finally {
-      setIsLoading(false);
+      if (auditTicket.isCurrent(ticket)) setIsLoading(false);
     }
-  }, []);
+  }, [auditTicket]);
 
   useEffect(() => {
     load();
@@ -82,6 +90,10 @@ export const BsCalendarHealthPanel: React.FC<BsCalendarHealthPanelProps> = ({ ca
     setStatus(null);
     try {
       const result = await api.applyBsCalendarIntegrity(finding ? [finding.id] : undefined);
+      // The repair's own re-audit is fresher than any read already in flight;
+      // invalidate those and take the spinner back from the stale ticket.
+      auditTicket.begin();
+      setIsLoading(false);
       setReport(result.report);
       setStatus({
         type: result.applied.length > 0 ? 'success' : 'error',

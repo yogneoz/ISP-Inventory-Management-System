@@ -28,6 +28,10 @@ export interface LoadStateNoticeProps {
   /** True when the list still has rows from an earlier successful load. */
   hasCachedRows?: boolean;
   onRetry: () => void;
+  /** Copy appended when cached rows are on screen (defaults to the list wording). */
+  cachedNote?: string;
+  /** Copy appended when nothing is cached (defaults to the list wording). */
+  emptyNote?: string;
 }
 
 export const LoadStateNotice: React.FC<LoadStateNoticeProps> = ({
@@ -36,6 +40,8 @@ export const LoadStateNotice: React.FC<LoadStateNoticeProps> = ({
   error,
   hasCachedRows = false,
   onRetry,
+  cachedNote = ' Showing the last loaded rows — they may be out of date.',
+  emptyNote = ' Nothing is shown below — this is not an empty list.',
 }) => {
   if (error) {
     return (
@@ -49,9 +55,7 @@ export const LoadStateNotice: React.FC<LoadStateNoticeProps> = ({
             <p className="text-xs font-bold">Could not load {subject}</p>
             <p className="text-[11px] leading-5">
               {error}
-              {hasCachedRows
-                ? ' Showing the last loaded rows — they may be out of date.'
-                : ' Nothing is shown below — this is not an empty list.'}
+              {hasCachedRows ? cachedNote : emptyNote}
             </p>
           </div>
         </div>

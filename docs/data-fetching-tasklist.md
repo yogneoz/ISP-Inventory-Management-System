@@ -612,7 +612,7 @@ All twelve tasks are `done` and on `main`. Each shipped as its own commit
 its exact head — twelve consecutive successes, including typecheck, the full
 suite against the PostgreSQL service container, the fresh-install schema-parity
 boot, both convention guards, the production builds, the bundle budget and
-`npm audit`. The suite closed at **1091 tests, 0 fail** (2 Windows-only skips).
+`npm audit`. The suite closed at **1102 tests, 0 fail** (2 Windows-only skips).
 
 Cross-checks run for this review:
 
@@ -628,23 +628,28 @@ Cross-checks run for this review:
 - `GET /api/customers`' paged envelope is documented in both README and
   handoff, and no other caller expects the old bare array.
 
-The first residual below was fixed straight after this review:
-`LocationsManagement` takes `currentUser`, and a new location's branch defaults
-to the user's own branch whenever the master list contains it, following the
-list as the bootstrap arrives without overwriting an explicit pick. Pinned by
-`tests/locationDefaults.test.ts` (6 tests).
+### Residuals — all closed after the review
 
-### Residual minors (not regressions, not in DF scope)
+1. **Locations default branch.** `LocationsManagement` takes `currentUser`; a
+   new location defaults to the user's own branch whenever the master list has
+   it, follows the list as the bootstrap arrives, and never overwrites an
+   explicit pick. `tests/locationDefaults.test.ts` (6 tests).
+2. **BS health-panel sequence guard.** The integrity read takes a latest-only
+   ticket, so a slow older response can neither paint the report nor settle the
+   spinner, and a repair invalidates reads already in flight.
+   `tests/closeoutResiduals.test.ts` plus the shared guard's own tests.
+3. **Customer-device stale rows.** Both customer screens keep their last rows
+   on a failed device read but now say so through the shared load notice, with
+   a Retry that re-runs the read (the directory's copy names the assigned-
+   hardware counts specifically). Same test file.
+4. **Sequential batch pairs.** The reports batch runs its branch × FY pairs
+   through the new bounded `mapWithConcurrency` (3 at a time, order
+   preserved), instead of one after another — kept bounded so nine aggregate
+   queries per pair cannot monopolise the 20-connection pool.
+   `tests/mapWithConcurrency.test.ts`.
 
-1. `BsCalendarHealthPanel` still has no sequence/cancel guard on its integrity
-   read (the audit's "minor"): a slow first response can overwrite a newer
-   report after a fast re-activation.
-2. The two customer device registers keep their last successful rows when
-   their own read fails, with no visible notice. DF-12 removed the write-only
-   error flag rather than inventing a surface DF-11 never scoped.
-3. The batch summary endpoint resolves pairs sequentially in one request, and
-   a single read without `fiscalYearId` now resolves the current FY — matching
-   the bootstrap slice and the client, which always sends one.
+A single read without `fiscalYearId` still resolves the current FY — matching
+both the bootstrap slice and the client, which always sends one.
 
 ## Suggested sequence
 

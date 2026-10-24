@@ -5,6 +5,7 @@ import { getWarrantyInfo } from '../../utils/warranty';
 import { isOperationAllowed, getAllowedBranches } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import StatCard from '../../components/common/StatCard';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { PageHeader } from '../../components/common/PageHeader';
 import {
   Search,
@@ -110,6 +111,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   // old constant page state was never set by anything and only kept the fetch
   // effect's dep list noisy (DF-12).
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
+  // A failed read used to keep the old rows in silence, so the register — and
+  // the stat cards built from it — looked authoritative while stale or empty.
+  const [devicesFetchError, setDevicesFetchError] = useState('');
+  const [devicesFetchLoading, setDevicesFetchLoading] = useState(false);
+  const [devicesRetryKey, setDevicesRetryKey] = useState(0);
 
   const customerDevicesPagination = useClientPagination(customerDevicesRows, 15);
 
@@ -119,6 +125,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     let cancelled = false;
 
     const load = async () => {
+      setDevicesFetchLoading(true);
       try {
         const rows = await api.getCustomerDevices(
           selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
@@ -131,10 +138,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           // [] and emptied the register while the stat cards — reading the
           // App-level customerDevices prop — kept showing the real count.
           setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
+          setDevicesFetchError('');
         }
-      } catch {
-        // Keep the last successful rows on screen rather than blanking the
-        // register; there is no error surface for this column today.
+      } catch (err: any) {
+        if (!cancelled) {
+          // Keep the last successful rows, but say they may be stale.
+          setDevicesFetchError(err?.message || 'The device register could not be read.');
+        }
+      } finally {
+        if (!cancelled) setDevicesFetchLoading(false);
       }
     };
 
@@ -142,7 +154,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchId, searchQuery, sseRefreshKey]);
+  }, [selectedBranchId, searchQuery, sseRefreshKey, devicesRetryKey]);
 
   // Device Exchange Modal State
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
@@ -594,6 +606,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           tone="rose"
         />
       </div>
+
+      {/* A failed device read must not look like an empty register. */}
+      {devicesFetchError && (
+        <LoadStateNotice
+          subject="the device register"
+          loading={devicesFetchLoading}
+          error={devicesFetchError}
+          hasCachedRows={customerDevicesRows.length > 0}
+          onRetry={() => setDevicesRetryKey((k) => k + 1)}
+        />
+      )}
 
       {/* Search & Filter Bar */}
       <div className={`p-3 rounded-2xl border shadow-xs flex flex-col md:flex-row md:items-center justify-start gap-3 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
