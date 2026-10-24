@@ -17,6 +17,8 @@ import { BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
 import { useBsCalendarGate } from '../../utils/bsCalendarGate';
 import { api } from '../../services/api';
 import { useSerialRegister } from '../../services/serialRegisterCache';
+import { useBranchStock } from '../../services/branchStockCache';
+import { BranchStockNotice } from '../../components/common/BranchStockNotice';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
   AlertOctagon,
@@ -231,6 +233,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
   const canSeeAll = canUserSeeAllBranches(currentUser);
 
+  // Availability rows for the branch each form actually targets. The `stock`
+  // prop is scoped to the header's branch, so computing "N in stock" from it
+  // made a Branch-2 deployment read 0 while the register held the serial at
+  // BRH01. These rows come from GET /api/stock?branchId=<target> and are
+  // merged over the header snapshot (which keeps its fiscal-year semantics
+  // for its own branch). The shared serial register is fetched unscoped for
+  // the same reason: both gates must answer for every selectable branch.
+  const operationStock = useBranchStock(allowedBranchIds, stock);
+
   // Central warehouse dispatch is a warehouse function: only roles granted
   // `wh-restrict-transfer` (Super Admin / Inventory Manager by default) may
   // create inter-branch transfers originating from the warehouse.
@@ -291,7 +302,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
     for (const [poolKey, requested] of requestedByProduct) {
       const productId = poolKey.split('|')[0];
-      const srcStock = stock.find((s) => s.productId === productId && s.branchId === branchId);
+      const srcStock = operationStock.rows.find((s) => s.productId === productId && s.branchId === branchId);
       const availStock = srcStock ? (requested.damaged ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
       if (!srcStock || availStock < requested.quantity) {
         alertDialog(
@@ -397,7 +408,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Shared view derivations — tab-bar counts, the synthesized damage log and
   // the filtered register lists — live in stockops/stockOperationViews.ts.
   const { damageOperations, pulloutOperations, consumableOperations, saleOperations, allCombinedOps, filteredOperations, availableStockAssets } =
-    computeStockOperationViews({ operations, stock, products, assets, canSeeAll, allowedBranchIds, branchFilter, activeTab });
+    computeStockOperationViews({ operations, stock: operationStock.rows, products, assets, canSeeAll, allowedBranchIds, branchFilter, activeTab });
 
   // Panel context (Section G commit 2): the host owns only the shared
   // chrome state — active tab, BS-date gate, toast, shared filters, the
@@ -461,7 +472,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     shipments,
     showToast,
     sseRefreshKey,
-    stock,
+    stock: operationStock.rows,
     userBranchId,
     validateSourceBranchStockAndSerials,
     setActiveTab,
@@ -502,6 +513,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           </button>
         </div>
       )}
+
+      <BranchStockNotice
+        error={operationStock.error}
+        loading={operationStock.loading}
+        onRetry={operationStock.retry}
+      />
 
       {serialRegisterError && (
         <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200 sm:flex-row sm:items-start sm:justify-between">

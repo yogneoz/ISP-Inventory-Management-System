@@ -16,6 +16,8 @@ import { FormCard } from '../../components/common/FormCard';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { useSerialRegister } from '../../services/serialRegisterCache';
+import { useBranchStock } from '../../services/branchStockCache';
+import { BranchStockNotice } from '../../components/common/BranchStockNotice';
 import { DeviceSerialInput } from '../../components/common/DeviceSerialInput';
 
 export interface ShipmentFormLine {
@@ -78,6 +80,14 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     refresh: refreshSerialRegister,
   } = useSerialRegister();
 
+  // The `stock` prop is scoped to the header's branch; this form dispatches
+  // from a branch the operator selects. Read the source branch's rows from
+  // PostgreSQL (shared cache) so availability is never another branch's 0.
+  const operationStock = useBranchStock(
+    getAllowedBranches(currentUser, branches).map((b) => b.id),
+    stock
+  );
+
   // Form State - Strict Inter-Branch Stock Transfer
   const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'WH001');
   const [destinationBranchId, setDestinationBranchId] = useState(branches[1]?.id || 'WH002');
@@ -92,7 +102,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
     Array.from({ length: Math.max(1, qty) }, () => ({ deviceSerial: '', ponSerial: '' }));
 
   const getSourceStock = (pId: string, bId: string) => {
-    const item = stock.find((s) => s.productId === pId && s.branchId === bId);
+    const item = operationStock.rows.find((s) => s.productId === pId && s.branchId === bId);
     return item ? item.quantityOnHand : 0;
   };
 
@@ -185,7 +195,7 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
       requestedPerProduct.set(l.productId, entry);
     }
     for (const [productId, requested] of requestedPerProduct) {
-      const srcStock = stock.find((s) => s.productId === productId && s.branchId === sourceBranchId);
+      const srcStock = operationStock.rows.find((s) => s.productId === productId && s.branchId === sourceBranchId);
       const availStock = srcStock ? srcStock.quantityOnHand : 0;
       if (availStock < requested.qty) {
         alertDialog(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${requested.name}" on hand, but ${requested.qty} unit(s) are requested for transfer shipment.`);
@@ -333,6 +343,14 @@ export const CreateShipmentForm: React.FC<CreateShipmentFormProps> = ({
         >
           Switch to Register List
         </button>
+      </div>
+
+      <div className="m-4 mb-0">
+        <BranchStockNotice
+          error={operationStock.error}
+          loading={operationStock.loading}
+          onRetry={operationStock.retry}
+        />
       </div>
 
       {serialRegisterError && (

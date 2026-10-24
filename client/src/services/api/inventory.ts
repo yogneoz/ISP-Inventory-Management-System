@@ -30,6 +30,21 @@ export function safeParseHistory(v: unknown): SerialLog['history'] {
 }
 
 // Stock
+/**
+ * One branch's stock rows (or every branch when the caller may read all).
+ *
+ * The bootstrap payload's `stock` array is scoped to the branch selected in
+ * the header, but the stock-operation and dispatch forms let the operator
+ * pick a DIFFERENT source branch. Availability for that branch must come
+ * from its own rows, or the form compares against a snapshot that never
+ * contained it and reports "0 in stock" beside a serial the register says
+ * is held there.
+ */
+export async function getStock(branchId?: string): Promise<InventoryStock[]> {
+  const query = branchId && branchId !== 'ALL' ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  return fetchJson<InventoryStock[]>(`/api/stock${query}`);
+}
+
 export async function updateStockLevel(stockId: string, quantityOnHand: number, reason: string, damagedQty?: number, changeType?: string): Promise<InventoryStock> {
   return fetchJson(`/api/stock/${stockId}`, {
     method: 'PATCH',

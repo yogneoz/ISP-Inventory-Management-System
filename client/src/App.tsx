@@ -50,6 +50,7 @@ import {
   type RegisterRefreshKey,
 } from './utils/registerRefreshDomains';
 import { invalidateSerialRegister } from './services/serialRegisterCache';
+import { invalidateBranchStock, resetBranchStock } from './services/branchStockCache';
 import { LoginModal } from './components/common/LoginModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
@@ -778,6 +779,11 @@ export default function App() {
     // a manual refresh must re-read it too, or the stock gates keep their
     // pre-refresh availability snapshot.
     invalidateSerialRegister();
+    // Stock-operation forms read every selectable branch's rows through
+    // GET /api/stock; a refresh must re-read those too. This also covers a
+    // fiscal-year switch, where the bootstrap stock becomes that year's
+    // opening snapshot.
+    invalidateBranchStock();
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -1050,6 +1056,11 @@ export default function App() {
           // Any serial_log writer makes the shared register snapshot stale
           // for every open stock/dispatch gate, not just the paged register.
           if (domainsTouchSerialRegister(domains)) invalidateSerialRegister();
+          // The same domains are the ones that write inventory_stock (serial
+          // edits aside, which cost one harmless extra read), so the
+          // all-branch stock snapshots the forms validate against are stale
+          // for every branch the operator could select, not just the header's.
+          if (domainsTouchSerialRegister(domains)) invalidateBranchStock();
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {
@@ -1171,6 +1182,9 @@ export default function App() {
     setUserContext(null);
     clearUserSession();
     clearRecentBootstrapCache();
+    // Branch stock rows are cached per branch, not per user: the next sign-in
+    // may be allowed fewer branches, so drop them with the session.
+    resetBranchStock();
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
   };
   handleLogoutRef.current = handleLogout;

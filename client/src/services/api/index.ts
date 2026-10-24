@@ -67,6 +67,7 @@ export const api = {
   deleteProduct: procurement.deleteProduct,
 
   // Stock & assets
+  getStock: inventory.getStock,
   updateStockLevel: inventory.updateStockLevel,
   updateStockReorderLevel: inventory.updateStockReorderLevel,
   bulkUpdateStockReorderLevels: inventory.bulkUpdateStockReorderLevels,
