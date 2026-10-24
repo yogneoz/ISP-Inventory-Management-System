@@ -28,6 +28,8 @@ import {
   customerDeviceRecords,
   setCustomerDeviceRecords,
   setPermissionMatrix,
+  products,
+  setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 import { DEFAULT_PERMISSIONS_MATRIX } from '../client/src/utils/permissionMatrixData';
@@ -59,6 +61,13 @@ const TECH_EMAIL = 'rfa-tech@example.com';
 const ADMIN_EMAIL = 'rfa-admin@example.com';
 const AUDITOR_EMAIL = 'rfa-auditor@example.com';
 
+// This suite's own product. CI builds its database from scripts/schema.sql and
+// nothing else, so no seeded catalogue exists there; the fixture row below plus
+// the in-memory entry is what the handlers resolve.
+const PRODUCT_ID = 'rfa-prod';
+const PRODUCT_SKU = 'RFASKU';
+const PRODUCT_NAME = 'RFA Fixture Router';
+
 const user = (id: string, email: string, role: string) => ({
   id, email, name: `RFA ${role}`, role, branchId: BRANCH,
   allowedBranchIds: [BRANCH], canSwitchUser: false,
@@ -88,7 +97,8 @@ describe('refused replacements are audited with the register\'s own facts', () =
   const auditorToken = issueAuthToken(AUDITOR);
   const otherBranchToken = issueAuthToken(OTHER_AUDITOR);
   let origCdr: any[] = [];
-  let productName = '';
+  const origProducts = [...products];
+  let productName = PRODUCT_NAME;
 
   before(async () => {
     origCdr = [...customerDeviceRecords];
@@ -100,14 +110,30 @@ describe('refused replacements are audited with the register\'s own facts', () =
     await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'RFA-%'");
     await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'rfa-%' OR device_serial LIKE 'RFA-%'");
     await pool.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
+    await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
 
-    // A real seeded product: the handlers resolve products through the in-memory
-    // catalogue hydrated at boot, so an invented row would be invisible to them.
-    const product = (
-      await pool.query("SELECT name FROM products WHERE tracking_type <> 'QUANTITY_ONLY' ORDER BY id LIMIT 1")
-    ).rows[0];
-    assert.ok(product, 'seed data must provide a serial-tracked product');
-    productName = product.name;
+    // The product this suite names in its CDR rows. Handlers resolve products
+    // through the in-memory catalogue, so the row AND the catalogue entry are
+    // both provisioned here instead of borrowing a developer's seeded data.
+    await pool.query(
+      `INSERT INTO products
+         (id, sku, name, category, product_group, unit, cost_price, selling_price,
+          requires_serial_tracking, tracking_type)
+       VALUES ($1, $2, $3, 'Equipment', 'Product Item', 'Pcs', 100, 150, TRUE, 'SERIAL_ONLY')`,
+      [PRODUCT_ID, PRODUCT_SKU, PRODUCT_NAME]
+    );
+    setProducts([
+      ...origProducts,
+      {
+        id: PRODUCT_ID,
+        sku: PRODUCT_SKU,
+        name: PRODUCT_NAME,
+        costPrice: 100,
+        sellingPrice: 150,
+        requiresSerialTracking: true,
+        trackingType: 'SERIAL_ONLY',
+      } as any,
+    ] as any);
 
     await pool.query(
       "INSERT INTO branches (id, code, name, location) VALUES ($1, 'RFABR', 'RFA Test Branch', 'T')",
@@ -140,10 +166,12 @@ describe('refused replacements are audited with the register\'s own facts', () =
   after(async () => {
     if (close) await close();
     setCustomerDeviceRecords(origCdr as any);
+    setProducts(origProducts as any);
     if (dbReachable) {
       await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'rfa-%@example.com'");
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'RFA-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'rfa-%' OR device_serial LIKE 'RFA-%'");
+      await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
       await pool.query('DELETE FROM branches WHERE id = $1', [BRANCH]);
       await pool.end();
     }

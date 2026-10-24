@@ -20,7 +20,7 @@
  * bsCalendarPatroData.test.ts), so the shipped calendar has NO overlap left —
  * the rule below is defensive, and is proven against a synthetic overlap.
  *
- * PROVES (pure + source-level, plus a live-DB check that runs in CI):
+ * PROVES (pure + source-level, plus a live-DB check):
  *   - findCalendarOverlaps is pure and flags exactly the shared day of a
  *     synthetic overlapping pair, and nothing for contiguous years;
  *   - the generated mirror holds one record per AD date (count == distinct AD
@@ -32,9 +32,20 @@
  *   - against a reachable PostgreSQL: seeding the mirror exactly the way App.tsx
  *     does (GET /api/bs-calendar/years) yields the same day count and the same
  *     BS date for every AD date the table stores.
+ *
+ * Isolation: the live check builds its OWN throwaway database
+ * (`inventory_bs_mirror_test`) from scripts/schema.sql, then seeds it with the
+ * bundled calendar through the server's own day-record builder. It used to read
+ * the application database, which made it depend on a developer's seed data:
+ * CI applies schema.sql and nothing else, so `bs_calendar_years` was empty there
+ * and the test failed on every run. A developer's install is now never read or
+ * written by this file, and a stale calendar in it cannot mask a generator
+ * disagreement.
  */
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import {
@@ -47,6 +58,8 @@ import {
   type BSYearData,
 } from '../client/src/utils/nepaliCalendar';
 import {
+  DEFAULT_BS_YEARS_SERVER,
+  buildBsDayRecordsForYear,
   setInMemoryBsCalendarYears,
   generateInMemoryBsDayRecords,
   getInMemoryBsDayRecords,
@@ -54,23 +67,174 @@ import {
 
 dotenv.config();
 
-let pool: pg.Pool | null = null;
+const ROOT = path.resolve('.');
+const TEST_DB = 'inventory_bs_mirror_test';
+
+/** Parse DATABASE_URL and swap the database for the throwaway one. */
+function withDbName(baseUrl: string, dbName: string): string {
+  const url = new URL(baseUrl);
+  url.pathname = `/${dbName}`;
+  return url.toString();
+}
+
+// Reachability is decided before the tests are collected, so `skip` is honest
+// (a skip option is evaluated when test() is called, not when before() runs).
 let dbReachable = false;
 try {
   if (process.env.DATABASE_URL) {
-    pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2, connectionTimeoutMillis: 2000 });
-    await pool.query('SELECT 1');
+    const probe = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+      connectionTimeoutMillis: 2000,
+    });
+    await probe.query('SELECT 1');
+    await probe.end();
     dbReachable = true;
   }
 } catch {
   dbReachable = false;
-  pool = null;
 }
 const skipNoDb = !dbReachable && 'needs a reachable PostgreSQL (bs_day_records)';
 
 const TWO_DAYS = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]; // 24-day toy years
 
+/**
+ * Writes generated day rows the way an install's seed path does: `ad_date` is
+ * the primary key and the later year wins, which is exactly the collapse the
+ * client generator mirrors. Batched so 2,900+ rows are a handful of statements.
+ */
+async function insertDayRecords(db: pg.Pool, records: any[]): Promise<void> {
+  const BATCH = 200;
+  for (let start = 0; start < records.length; start += BATCH) {
+    const chunk = records.slice(start, start + BATCH);
+    const params: any[] = [];
+    const tuples: string[] = [];
+    for (const record of chunk) {
+      const base = params.length;
+      params.push(
+        record.adDate,
+        record.bsDate,
+        record.bsYear,
+        record.bsMonth,
+        record.bsMonthName,
+        record.bsMonthNameNp,
+        record.bsDay,
+        record.dayOfWeekName,
+        record.dayOfWeekNameNp,
+        record.fiscalYear,
+        record.quarter,
+        record.isWeekend
+      );
+      // fiscal_year_id stays NULL: the throwaway database has no fiscal-year
+      // master, and this test never reads that column.
+      tuples.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, ` +
+          `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, ` +
+          `NULL, $${base + 11}, $${base + 12})`
+      );
+    }
+    await db.query(
+      `INSERT INTO bs_day_records
+         (ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+          bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, fiscal_year_id,
+          quarter, is_weekend)
+       VALUES ${tuples.join(', ')}
+       ON CONFLICT (ad_date) DO UPDATE SET
+         bs_date = EXCLUDED.bs_date,
+         bs_year = EXCLUDED.bs_year,
+         bs_month = EXCLUDED.bs_month,
+         bs_month_name = EXCLUDED.bs_month_name,
+         bs_month_name_np = EXCLUDED.bs_month_name_np,
+         bs_day = EXCLUDED.bs_day,
+         day_of_week_name = EXCLUDED.day_of_week_name,
+         day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+         fiscal_year = EXCLUDED.fiscal_year,
+         quarter = EXCLUDED.quarter,
+         is_weekend = EXCLUDED.is_weekend`,
+      params
+    );
+  }
+}
+
 describe('AD → BS conversion is a function (one BS date per AD date)', () => {
+  let adminPool: pg.Pool | null = null; // connects to 'postgres' for CREATE/DROP
+  let pool: pg.Pool | null = null; // the throwaway calendar database
+
+  before(async () => {
+    const base = process.env.DATABASE_URL;
+    if (!base || !dbReachable) return;
+
+    adminPool = new pg.Pool({
+      connectionString: withDbName(base, 'postgres'),
+      max: 2,
+      connectionTimeoutMillis: 2000,
+    });
+    await adminPool.query('SELECT 1');
+
+    // A stale throwaway from an earlier run can hold connections; nothing else
+    // owns this database, so terminate them and recreate it.
+    await adminPool
+      .query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [TEST_DB]
+      )
+      .catch(() => undefined);
+    await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
+    await adminPool.query(`CREATE DATABASE ${TEST_DB}`);
+
+    const schemaClient = new pg.Client({ connectionString: withDbName(base, TEST_DB) });
+    await schemaClient.connect();
+    try {
+      await schemaClient.query(fs.readFileSync(path.join(ROOT, 'scripts', 'schema.sql'), 'utf8'));
+    } finally {
+      await schemaClient.end();
+    }
+
+    pool = new pg.Pool({
+      connectionString: withDbName(base, TEST_DB),
+      max: 4,
+      connectionTimeoutMillis: 5000,
+    });
+
+    // The fixture is the real bundled calendar, seeded the way an install seeds
+    // it: the year master first, then that year's day rows from the server's own
+    // builder — so the comparison stays client generator vs server-written rows.
+    for (const year of DEFAULT_BS_YEARS_SERVER) {
+      await pool.query(
+        `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (year_bs) DO UPDATE SET
+           days_in_months = EXCLUDED.days_in_months,
+           start_ad = EXCLUDED.start_ad`,
+        [year.yearBS, year.daysInMonths, year.startAD]
+      );
+      await insertDayRecords(
+        pool,
+        buildBsDayRecordsForYear(year.yearBS, year.daysInMonths, year.startAD)
+      );
+    }
+  });
+
+  after(async () => {
+    if (pool) await pool.end();
+    if (adminPool && dbReachable) {
+      await adminPool
+        .query(
+          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+           WHERE datname = $1 AND pid <> pg_backend_pid()`,
+          [TEST_DB]
+        )
+        .catch(() => undefined);
+      try {
+        await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
+      } catch {
+        await adminPool.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => undefined);
+      }
+    }
+    if (adminPool) await adminPool.end();
+  });
+
   test('findCalendarOverlaps flags the shared day of an overlapping pair', () => {
     const contiguous: Record<number, BSYearData> = {
       9000: { yearBS: 9000, daysInMonths: TWO_DAYS, startAD: '2020-01-01' },
@@ -162,7 +326,7 @@ describe('AD → BS conversion is a function (one BS date per AD date)', () => {
         'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs'
       )
     ).rows as Array<{ yearBS: number; daysInMonths: number[]; startAD: string }>;
-    assert.ok(years.length > 0, 'bs_calendar_years must be seeded');
+    assert.ok(years.length > 0, 'the fixture must seed the calendar years');
 
     // Exactly what App.tsx's bootstrap does with GET /api/bs-calendar/years.
     resetBsCalendarData();

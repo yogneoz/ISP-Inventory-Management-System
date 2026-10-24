@@ -1,6 +1,39 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-23 · Branch: main · Tests: 1000/1000 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-24 · Branch: main · Tests: 1000/1000 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ⭐ CI's schema-only database is provisioned by the suites, not by the workflow (2026-10-24)
+
+The GitHub run for `1432446` failed in `npm test` with ten annotations, and nothing it touched
+was the cause: the CI service container is built from `scripts/schema.sql`, which contains no
+`INSERT` at all, while a developer's `inventory_db` has been seeded by `npm run setup:pg`.
+Three live-DB suites read that seed data, so they only ever passed locally:
+`bsCalendarMirrorInvariant` (live test, "bs_calendar_years must be seeded"),
+`exchangeRefusalAudit` and `assignmentExchange.concurrency` (both, "seed data must provide a
+serial-tracked product"). CI was last green on 2026-10-15 (`6597f09`); `e42ccfc` added the
+calendar live test and every push since has been red.
+
+The fix belongs in the tests — the rule `tests/fixtures/referenceData.ts` already states — not
+in a CI seed step that would hide the same gap from the next suite:
+
+- `tests/exchangeRefusalAudit.test.ts` and `tests/assignmentExchange.concurrency.test.ts`
+  insert their own serial-tracked product (`rfa-prod` / `asx-prod`) and register it in the
+  in-memory catalogue with `setProducts(...)`, then delete the row and restore the catalogue in
+  `after()`. No seeded product is read any more.
+- `tests/bsCalendarMirrorInvariant.test.ts` builds a throwaway `inventory_bs_mirror_test`
+  database from `schema.sql` and seeds it with the bundled calendar through the server's own
+  `buildBsDayRecordsForYear()` (batched inserts, AD date as PK with the later year winning).
+  The client generator is still compared against server-written rows, but the app database — a
+  developer's or a CI container's — is never read or written.
+
+Verified by creating a schema-only database locally (exactly CI's state) and running those
+three files against it: **14/14 pass**, where CI had ten failures. The full suite is unchanged
+at 1000 tests.
+
+One CI failure lies outside this arc: `bootstrapFiscalYearHonesty` fails at file level ("test
+failed", with no test name) in some runs. Its `before()` creates its own database from
+`schema.sql` and seeds only the fiscal-year master, so it is not a seed-data dependency; the
+cause is still undiagnosed without the job log (the log endpoint requires admin rights).
 
 ## ⭐ The shell owns its own state, so a modal no longer re-renders the tab tree (A2, 2026-10-23)
 

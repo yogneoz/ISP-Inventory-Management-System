@@ -1600,6 +1600,20 @@ transition, falling back to the header's `data-shell-trigger` button when the or
 no longer opens search on focus — restoring focus there would have reopened what Escape just
 closed, and tabbing through the header no longer hijacks the screen.
 
+**Follow-up (2026-10-24): CI's schema-only database is provisioned by the suites, not the workflow.**
+`npm test` had been red since `e42ccfc` (2026-10-15) because three live-DB suites read rows a
+developer's `npm run setup:pg` leaves behind — `bs_calendar_years`, and a serial-tracked
+product — while CI's database is built from `scripts/schema.sql`, which seeds nothing.
+`tests/exchangeRefusalAudit.test.ts` and `tests/assignmentExchange.concurrency.test.ts` now
+insert their own product row and register it in the in-memory catalogue (`setProducts`),
+removing both in `after()`; `tests/bsCalendarMirrorInvariant.test.ts` builds a throwaway
+`inventory_bs_mirror_test` database from `schema.sql` and seeds the bundled calendar through the
+server's own `buildBsDayRecordsForYear()`, so it never reads or writes an install's database.
+Run against a locally created schema-only database (CI's state), those three files pass 14/14.
+Suite size is unchanged at 1000. `bootstrapFiscalYearHonesty` still fails intermittently at
+file level in CI for a separate, undiagnosed reason (it creates its own database; not a seed
+dependency).
+
 ---
 
 *End of Handoff Document*

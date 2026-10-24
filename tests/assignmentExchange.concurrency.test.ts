@@ -33,6 +33,8 @@ import {
   registerAllRoutes,
   customerDeviceRecords,
   setCustomerDeviceRecords,
+  products,
+  setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 
@@ -56,6 +58,13 @@ const BRANCH = 'asx-branch';
 const SERIAL = 'ASX-SN';
 const INITIAL_STOCK = 4;
 
+// This suite's own product. CI's database is schema-only — no seeded catalogue
+// exists there — so the fixture row and its in-memory entry are provisioned by
+// the suite and removed again in after().
+const PRODUCT_ID = 'asx-prod';
+const PRODUCT_SKU = 'ASXSKU';
+const PRODUCT_NAME = 'ASX Fixture Router';
+
 const SUPER_USER = {
   id: 'asx-super', email: 'asx-super@example.com', name: 'ASX Test',
   role: 'SUPER_ADMIN', branchId: BRANCH,
@@ -68,8 +77,8 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
   let close: (() => Promise<void>) | null = null;
   const token = issueAuthToken(SUPER_USER);
   let origCdr: any[] = [];
-  let productId = '';
-  let productName = '';
+  const origProducts = [...products];
+  const productName = PRODUCT_NAME;
 
   before(async () => {
     origCdr = [...customerDeviceRecords];
@@ -80,15 +89,29 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
     await pool.query("DELETE FROM inventory_stock WHERE id = 'asx-stock'");
     await pool.query("DELETE FROM branches WHERE id = $1", [BRANCH]);
 
-    // A real seeded serial-tracked product: the handlers resolve products through
-    // the in-memory catalog hydrated at boot, so a row invented here would not be
-    // visible to them.
-    const product = (
-      await pool.query("SELECT id, name FROM products WHERE tracking_type <> 'QUANTITY_ONLY' ORDER BY id LIMIT 1")
-    ).rows[0];
-    assert.ok(product, 'seed data must provide a serial-tracked product');
-    productId = product.id;
-    productName = product.name;
+    await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
+
+    // A serial-tracked product of this suite's own, in the database AND in the
+    // in-memory catalogue the handlers resolve products through.
+    await pool.query(
+      `INSERT INTO products
+         (id, sku, name, category, product_group, unit, cost_price, selling_price,
+          requires_serial_tracking, tracking_type)
+       VALUES ($1, $2, $3, 'Equipment', 'Product Item', 'Pcs', 100, 150, TRUE, 'SERIAL_ONLY')`,
+      [PRODUCT_ID, PRODUCT_SKU, PRODUCT_NAME]
+    );
+    setProducts([
+      ...origProducts,
+      {
+        id: PRODUCT_ID,
+        sku: PRODUCT_SKU,
+        name: PRODUCT_NAME,
+        costPrice: 100,
+        sellingPrice: 150,
+        requiresSerialTracking: true,
+        trackingType: 'SERIAL_ONLY',
+      } as any,
+    ] as any);
 
     await pool.query(
       "INSERT INTO branches (id, code, name, location) VALUES ($1, 'ASXBR', 'ASX Test Branch', 'T')",
@@ -97,19 +120,19 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
     await pool.query(
       `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty)
        VALUES ('asx-stock', $1, $2, $3, 0, 0, 0)`,
-      [productId, BRANCH, INITIAL_STOCK]
+      [PRODUCT_ID, BRANCH, INITIAL_STOCK]
     );
     await pool.query(
       `INSERT INTO serial_log (id, device_serial, pon_serial, mac_address, product_id, product_name, branch_id, status, source_type) VALUES
        ('asx-sl-new', $4, 'ASX-PON', 'AA:BB:CC:00:00:01', $1, $2, $3, 'IN_STOCK', 'PURCHASE'),
        ('asx-sl-old', 'ASX-OLD', 'ASX-OLDPON', 'AA:BB:CC:00:00:00', $1, $2, $3, 'CUSTOMER_ASSIGNED', 'PURCHASE')`,
-      [productId, productName, BRANCH, SERIAL]
+      [PRODUCT_ID, PRODUCT_NAME, BRANCH, SERIAL]
     );
     await pool.query(
       `INSERT INTO customer_device_records
          (id, customer_name, customer_code, branch_id, product_name, device_serial, pon_serial, status, notes)
        VALUES ('asx-cdr', 'Exchange Customer', 'ASXC', $1, $2, 'ASX-OLD', 'ASX-OLDPON', 'RENTAL', 'asx fixture')`,
-      [BRANCH, productName]
+      [BRANCH, PRODUCT_NAME]
     );
 
     const app = createApp();
@@ -126,10 +149,12 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
   after(async () => {
     if (close) await close();
     setCustomerDeviceRecords(origCdr as any);
+    setProducts(origProducts as any);
     if (dbReachable) {
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'ASX-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'asx-%' OR device_serial LIKE 'ASX-%'");
       await pool.query("DELETE FROM inventory_stock WHERE id = 'asx-stock'");
+      await pool.query('DELETE FROM products WHERE id = $1', [PRODUCT_ID]);
       await pool.query("DELETE FROM branches WHERE id = $1", [BRANCH]);
       await pool.end();
     }
