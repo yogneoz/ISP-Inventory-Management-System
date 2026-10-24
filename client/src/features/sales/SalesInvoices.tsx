@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
@@ -54,6 +55,11 @@ interface SalesInvoicesProps {
   customers?: CustomerRecord[];
   /** Sellable inventory serials (serial_log IN_STOCK) — the pre-post gate. */
   inventorySerials?: SerialLog[];
+  /** Failure reading that list (DF-17); '' once it succeeds. */
+  inventorySerialsError?: string;
+  inventorySerialsLoading?: boolean;
+  /** Re-reads the list for the current branch (the notice's Retry). */
+  onRetryInventorySerials?: () => void;
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   activeTab?: 'create-sale' | 'sales-list';
@@ -95,6 +101,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   stock,
   customers = [],
   inventorySerials = [],
+  inventorySerialsError = '',
+  inventorySerialsLoading = false,
+  onRetryInventorySerials,
   selectedBranchId,
   dateMode,
   activeTab = 'sales-list',
@@ -435,6 +444,12 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         const mac = norm(slots[s]?.macAddress);
 
         if (!serial) { setFormError(`Device serial is required for "${l.productName}" (unit #${unit}).`); return; }
+        // An unread list cannot prove a unit is in inventory; say that instead
+        // of pinning a valid serial to "not in inventory" (DF-17).
+        if (inventorySerialsError) {
+          setFormError('The sellable serial list could not be read — use Retry above before posting this invoice.');
+          return;
+        }
         if (seenDevice.has(serial)) { setFormError(`Duplicate device serial ${serial} on this invoice.`); return; }
         if (seenPon.has(pon)) { setFormError(`Duplicate PON serial ${pon} on this invoice.`); return; }
         if (mac && seenMac.has(mac)) { setFormError(`Duplicate MAC address ${mac} on this invoice.`); return; }
@@ -675,6 +690,16 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
         </div>
       ) : internalTab === 'CREATE' ? (
         <div className={`${formCardClass} space-y-4`}>
+          {/* DF-17: the pre-post serial gate reads this list; a failure clears
+              it (never the previous branch's units) and offers the retry here. */}
+          <LoadStateNotice
+            subject="sellable serials"
+            loading={inventorySerialsLoading}
+            error={inventorySerialsError}
+            hasCachedRows={inventorySerials.length > 0}
+            onRetry={() => onRetryInventorySerials?.()}
+            emptyNote=" The serial gate cannot verify units until this succeeds."
+          />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className={labelClass}>Branch *</label>

@@ -43,6 +43,33 @@ export function serialStatusLabel(status?: string | null): string {
   return STATUS_LABELS[key] || key.replace(/_/g, ' ');
 }
 
+/**
+ * The HTTP status a rejected client call carries, or 0 when it has none.
+ * `fetchJson` attaches `status` to every non-2xx rejection (services/api/http),
+ * and a network drop rejects with a TypeError and no status at all.
+ */
+export function apiErrorStatus(error: unknown): number {
+  const status = Number((error as { status?: unknown } | null | undefined)?.status);
+  return Number.isFinite(status) && status > 0 ? status : 0;
+}
+
+/**
+ * A 404 from the exchange lookup is the register's definitive "no such row".
+ * Anything else — 500, a 503 database-down, 403, a dropped request — means the
+ * register could not be consulted, which is NOT the same fact as "this unit
+ * does not exist" (DF-15). Callers must not collapse the two.
+ */
+export function isSerialLookupNotFound(error: unknown): boolean {
+  return apiErrorStatus(error) === 404;
+}
+
+/**
+ * Copy for a lookup that failed for any reason other than a real 404. Shared so
+ * both exchange dialogs and the inline serial field say the same thing.
+ */
+export const SERIAL_LOOKUP_FAILED_MESSAGE =
+  'Could not check the serial register — the server may be unavailable. Try again.';
+
 export interface ReplacementRefusalContext {
   /** The serial the operator typed or scanned. */
   serial: string;

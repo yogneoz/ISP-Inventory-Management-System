@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput, findRegisterRow } from '../../../components/common/DeviceSerialInput';
-import { describeReplacementRefusal } from '../../../utils/serialRefusal';
+import {
+  describeReplacementRefusal,
+  isSerialLookupNotFound,
+  SERIAL_LOOKUP_FAILED_MESSAGE,
+} from '../../../utils/serialRefusal';
 import {
   CustomerDeviceRecord,
 } from '../../../types';
 import { api } from '../../../services/api';
 import { FormCard } from '../../../components/common/FormCard';
+import { LoadStateNotice } from '../../../components/common/LoadStateNotice';
 import {
   Plus,
   Search,
@@ -24,7 +29,21 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const DeviceExchangePanel: React.FC = () => {
-  const { activeTab, alertDialog, branches, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, onRefreshData, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
+  const {
+    activeTab,
+    alertDialog,
+    branches,
+    customerDevices,
+    ensureBsDateAvailable,
+    exchangeCustomerDevices,
+    exchangeDevicesError,
+    isLoadingExchangeDevices,
+    onRefreshData,
+    products,
+    retryExchangeDevices,
+    serialRegister,
+    selectedBranchId,
+  } = useStockOperationsCtx();
 
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
   const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
@@ -72,7 +91,14 @@ export const DeviceExchangePanel: React.FC = () => {
     if (!registerRow) {
       try {
         registerRow = await api.lookupExchangeSerial(exchangeSerial, exchangeBranchId);
-      } catch {
+      } catch (err) {
+        // Only a 404 says the register has no such unit. Anything else means we
+        // could not consult it, so refusing with "not in the register" would be
+        // a guess — stop and let the operator retry (DF-15).
+        if (!isSerialLookupNotFound(err)) {
+          alertDialog(SERIAL_LOOKUP_FAILED_MESSAGE);
+          return;
+        }
         registerRow = null;
       }
     }
@@ -129,10 +155,9 @@ export const DeviceExchangePanel: React.FC = () => {
       setExchangeNewMac('');
       setExchangeNotes('');
 
-      // Refresh the device list in place, then App's normal refresh so stock,
+      // Refresh the shared list in place, then App's normal refresh so stock,
       // operations and other tabs see the swap without a full page reload.
-      const updatedDevs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
-      setExchangeCustomerDevices(updatedDevs);
+      retryExchangeDevices();
       await onRefreshData?.();
     } catch (err: any) {
       alertDialog(err?.message || 'Failed to exchange device.');
@@ -180,6 +205,16 @@ export const DeviceExchangePanel: React.FC = () => {
           </div>
 
           <form onSubmit={handlePerformExchange} className="space-y-5 text-xs">
+            {/* A failed or not-yet-loaded branch read must never present the
+                previous branch's units as current (DF-16). Kept outside the
+                selection branch so a background refresh failure is visible
+                even after a device has been picked. */}
+            <LoadStateNotice
+              subject="exchange devices"
+              loading={isLoadingExchangeDevices}
+              error={exchangeDevicesError}
+              onRetry={retryExchangeDevices}
+            />
             {/* Step 1: Select Installed Customer Device */}
             <div className={`p-4 rounded-2xl border space-y-3 bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-800`}>
               <div className="flex items-center justify-between">
@@ -216,7 +251,11 @@ export const DeviceExchangePanel: React.FC = () => {
                   </div>
 
                   <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
-                    {isLoadingExchangeDevices ? (
+                    {exchangeDevicesError ? (
+                      <div className="p-4 text-center text-slate-400 text-xs">
+                        The deployed-device list is unavailable until the read above succeeds.
+                      </div>
+                    ) : isLoadingExchangeDevices ? (
                       <div className="p-4 text-center text-slate-400 text-xs">Loading customer devices...</div>
                     ) : filteredExchangeDevices.length === 0 ? (
                       <div className="p-4 text-center text-slate-400 text-xs">No active RENTAL customer devices match your search query. (Sold products are excluded from device exchange).</div>
@@ -387,13 +426,13 @@ export const DeviceExchangePanel: React.FC = () => {
                     register={serialRegister}
                     branchId={selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId}
                     productName={exchangeProductName || selectedDeviceForExchange?.productName}
+                    // A rejection must reach the field so it can show the
+                    // retryable failure state instead of "not in the register".
                     lookup={(serial) =>
-                      api
-                        .lookupExchangeSerial(
-                          serial,
-                          selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId
-                        )
-                        .catch(() => null)
+                      api.lookupExchangeSerial(
+                        serial,
+                        selectedBranchId === 'ALL' ? selectedDeviceForExchange?.branchId : selectedBranchId
+                      )
                     }
                   />
                 </div>

@@ -91,7 +91,7 @@ describe('DF-12 wiring', () => {
   test('device exchange, asset deployment and damage reversal use the refresh path', () => {
     const exchange = read('client/src/features/inventory/stockops/DeviceExchangePanel.tsx');
     assert.ok(exchange.includes('await onRefreshData?.();'), 'device exchange must refresh in place');
-    assert.ok(exchange.includes('setExchangeCustomerDevices(updatedDevs)'), 'and still refetch its devices');
+    assert.ok(exchange.includes('retryExchangeDevices();'), 'and still refetch its devices (shared cache, DF-16)');
 
     const assign = read('client/src/features/inventory/stockops/AssignAssetPanel.tsx');
     assert.ok(assign.includes('await onRefreshData?.();'), 'asset deployment must refresh in place');

@@ -11,7 +11,7 @@
  * the api.getVendorLedger call.
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { useActivationKey } from '../../components/common/KeepMounted';
+import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import {
   LedgerView,
   ledgerExportColumns,
@@ -27,9 +27,22 @@ interface VendorLedgerProps {
   suppliers: Supplier[];
   branches: Branch[];
   dateMode: 'BS' | 'AD';
+  /**
+   * Procurement register counter (App's `registerRefresh.purchaseInvoices`),
+   * bumped by a procurement SSE burst and by every full refresh. With a
+   * supplier selected, a billed/payment/return event re-reads the ledger in
+   * place instead of leaving the closing balance at activation-time figures
+   * (DF-14).
+   */
+  sseRefreshKey?: number;
 }
 
-export const VendorLedger: React.FC<VendorLedgerProps> = ({ suppliers, branches, dateMode }) => {
+export const VendorLedger: React.FC<VendorLedgerProps> = ({
+  suppliers,
+  branches,
+  dateMode,
+  sseRefreshKey,
+}) => {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
   const [loading, setLoading] = useState(false);
@@ -69,13 +82,19 @@ export const VendorLedger: React.FC<VendorLedgerProps> = ({ suppliers, branches,
     }
   };
 
-  // Refetch the selected supplier's ledger on every tab re-activation.
+  // Refetch the selected supplier's ledger on every tab re-activation, and in
+  // place when procurement changes it while the tab is open (DF-14). A hidden
+  // keep-mounted tab skips the read: the next activation re-runs it, so an
+  // event burst elsewhere cannot issue a ledger request nobody can see.
   const activationKey = useActivationKey('vendor-ledger');
+  const isVisible = useTabActive('vendor-ledger');
 
   useEffect(() => {
+    if (!isVisible) return;
+    // fetchLedger() is a no-op while no supplier is selected.
     fetchLedger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSupplierId, activationKey]);
+  }, [selectedSupplierId, activationKey, sseRefreshKey, isVisible]);
 
   return (
     <LedgerView

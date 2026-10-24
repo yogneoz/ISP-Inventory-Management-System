@@ -96,7 +96,7 @@ describe('both exchange dialogs share the refusal path', () => {
 
       assert.match(
         source,
-        /import \{ describeReplacementRefusal \} from '[^']*utils\/serialRefusal'/,
+        /import\s*\{[^}]*\bdescribeReplacementRefusal\b[^}]*\}\s*from\s*'[^']*utils\/serialRefusal'/,
         'the dialog must use the shared refusal wording, not its own sentence'
       );
       assert.ok(

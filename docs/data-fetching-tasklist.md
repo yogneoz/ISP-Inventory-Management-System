@@ -42,10 +42,10 @@ ships a task.
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `done` | — |
 | DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `done` | DF-03, DF-05 (soft) |
 | DF-13 | Refresh the Financial Statements branch matrix with the live summary | F-1 | P1 | `done` | DF-05, DF-12 |
-| DF-14 | Refresh party ledgers on live and local ledger events | F-2 | P2 | `todo` | — |
-| DF-15 | Distinguish a failed serial lookup from "not in the register" | F-3 | P2 | `todo` | — |
-| DF-16 | Branch-safe, retryable exchange device read (one shared cache) | F-4 | P2 | `todo` | DF-03 (pattern) |
-| DF-17 | Silent-read cleanup: settings backfill, sellable serials, permission resync | F-5 | P3 | `todo` | — |
+| DF-14 | Refresh party ledgers on live and local ledger events | F-2 | P2 | `done` | — |
+| DF-15 | Distinguish a failed serial lookup from "not in the register" | F-3 | P2 | `done` | — |
+| DF-16 | Branch-safe, retryable exchange device read (one shared cache) | F-4 | P2 | `done` | DF-03 (pattern) |
+| DF-17 | Silent-read cleanup: settings backfill, sellable serials, permission resync | F-5 | P3 | `done` | — |
 
 Legend: `todo` · `wip` · `blocked` · `done`.
 
@@ -615,7 +615,7 @@ Independent small items; split into `a/b` if any grows.
 Five findings from the fresh pass in
 [data-fetching-audit.md §9](data-fetching-audit.md#9-follow-up-pass--2026-10-24-after-df-12-and-bootstrap-trim-step-5).
 They are independent of each other; ship in the order below unless a screen
-owner reorders them. DF-13 is done; the remaining four are open.
+owner reorders them. DF-13 through DF-17 are done.
 
 ## DF-13 — Financial Statements follows the live summary (F-1, P1)
 
@@ -658,7 +658,18 @@ summary while the fresh batch is in flight.
 
 ## DF-14 — Party ledgers refresh on ledger events (F-2, P2)
 
-**Status: `todo`.**
+**Status: `done` (2026-10-24).** `VendorLedger` takes
+`sseRefreshKey={registerRefresh.purchaseInvoices}`; `CustomerLedger` takes
+`sseRefreshKey={registerRefresh.salesInvoices}` and
+`returnsRefreshKey={registerRefresh.returnsRegister}`. Both include the key(s)
+in the fetch effect, so a procurement/sales/return burst re-reads the selected
+party in place. The read stays a no-op with no party selected, and a hidden
+keep-mounted tab skips it (`useTabActive`, DF-13's precedent) — the next
+activation re-runs it. Pinned by `tests/df14LedgerRefresh.test.ts`;
+`registerRefreshDomains.test.ts` now counts the wiring per render site (a
+counter can feed two screens) and names the mount-refetch list
+`MOUNT_REFETCH_SCREENS`, with the two ledgers positively pinned instead of
+banned from carrying a counter.
 
 **Problem.** Both ledgers fetch on party change and tab activation only, and
 App passes no refresh key. A payment, reversal or return recorded elsewhere
@@ -685,7 +696,16 @@ effect when a party is selected. Do not refetch when the picker is empty.
 
 ## DF-15 — Failed serial lookup is not "not found" (F-3, P2)
 
-**Status: `todo`.**
+**Status: `done` (2026-10-24).** `DeviceSerialState` gained `lookup-failed`,
+rendered in amber as “Could not check the register” with a Retry that re-runs
+`resolve`. The catch reads the status `fetchJson` attaches to the rejection:
+only 404 sets `not-found`. Both exchange dialogs stop pre-mapping rejections
+to `null` — the inline field receives the error, and the submit path stops with
+`SERIAL_LOOKUP_FAILED_MESSAGE` on a non-404 instead of inventing a refusal (and
+never reports that guess to the audit trail); a real 404 still goes through
+`describeReplacementRefusal`. Pinned by `tests/df15SerialLookupFailure.test.ts`
+(8 tests: pure classification, Retry re-issues, 404 wording, resolved
+PON/MAC and status/branch, and the two dialogs' source wiring).
 
 **Problem.** `DeviceSerialInput` maps a rejected lookup to `not-found`
 ([DeviceSerialInput.tsx:186-203](../client/src/components/common/DeviceSerialInput.tsx#L186-L203))
@@ -713,7 +733,17 @@ forced lookup failure.
 
 ## DF-16 — Exchange deployed-device read is branch-safe and retryable (F-4, P2)
 
-**Status: `todo`.**
+**Status: `done` (2026-10-24).** A new `exchangeDeviceStore` / React binding
+(`useExchangeDevices`) is one shared, per-branch cache fed by
+`api.getCustomerDevices`: rows are keyed by branch, so the header switch shows
+an empty list until the new branch's own read lands, a failed read clears that
+scope (never the previous branch's units) and reports the message, and Retry
+re-reads it. Up to 11 mounted hosts now share one request per branch. App
+invalidates on `CUSTOMER_DEVICES` / `ASSETS` SSE bursts and every full
+refresh, and resets on sign-out. The exchange panel renders `LoadStateNotice`
+with the retry, refuses to claim “no devices match” while the read failed, and
+refreshes the shared list after a successful exchange instead of fetching it
+itself. Pinned by `tests/exchangeDevices.test.ts` (8 store tests + 4 wiring).
 
 **Problem.** The host fetch logs failures only
 ([StockOperations.tsx:392-405](../client/src/features/inventory/StockOperations.tsx#L392-L405)),
@@ -745,7 +775,16 @@ exchange mutation itself.
 
 ## DF-17 — Remaining silent reads (F-5, P3)
 
-**Status: `todo`.**
+**Status: `done` (2026-10-24).** All three surfaces now report a failure with a
+Retry: the cached-payload `/api/settings` backfill records its error and renders
+a “company settings” notice, while the audit screen's company-wide blind toggle
+is disabled and reads `UNKNOWN` until the read succeeds; the sellable-serial
+loader clears the previous branch's rows the moment the scope changes, records
+its error, and the Sell-to-Customer form renders a retryable notice and refuses
+to pin a serial to “not in inventory” when the list is unread; the permission
+desync failure is recorded, its notice offers Retry, and Save/Reset stay
+disabled until a successful re-read. Pinned by
+`tests/df17SilentReads.test.ts` (6 tests).
 
 **Problem.** Three failures are still indistinguishable from valid empty data:
 
@@ -845,9 +884,9 @@ Polish:        DF-10 → DF-11 → DF-12
 Follow-up:     DF-13 → DF-14 → DF-15 → DF-16 → DF-17
 ```
 
-The follow-up line is the 2026-10-24 fresh pass: DF-13 first because it is the
-one remaining place where DF-05's live summary is fetched and then shadowed;
-the rest are independent and can ship in any order.
+The follow-up line is the 2026-10-24 fresh pass: DF-13 first because it was the
+one remaining place where DF-05's live summary is fetched and then shadowed,
+then DF-14; the rest are independent and can ship in any order.
 
 Rationale: DF-01 is the only page that is outright broken. DF-02/04/08/09 are
 self-contained and low-risk. DF-03 and DF-06 both concern shipment-event

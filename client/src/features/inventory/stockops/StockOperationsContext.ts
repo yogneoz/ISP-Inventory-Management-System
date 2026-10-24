@@ -86,7 +86,10 @@ export interface StockOperationsCtx {
   customerDevices: CustomerDeviceRecord[];
   dateMode: 'BS' | 'AD';
   ensureBsDateAvailable: any;
+  /** Deployed customer devices for the header's branch (shared per-branch cache, DF-16). */
   exchangeCustomerDevices: CustomerDeviceRecord[];
+  /** Last failure reading that list; '' when the read succeeded. */
+  exchangeDevicesError: string;
   filteredOperations: StockOperation[];
   focusInput: any;
   initialDamageModalOpen: boolean;
@@ -131,7 +134,8 @@ export interface StockOperationsCtx {
   serialRegisterLoading: boolean;
   refreshSerialRegister: () => void;
   setBranchFilter: (v: any) => void;
-  setExchangeCustomerDevices: (v: any) => void;
+  /** Re-read the deployed-device list now (Retry / after an exchange). */
+  retryExchangeDevices: () => void;
   shipments: Shipment[];
   showToast: (msg: string) => void;
   sseRefreshKey: number | undefined;

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
-import { serialStatusLabel } from '../../utils/serialRefusal';
+import { isSerialLookupNotFound, serialStatusLabel } from '../../utils/serialRefusal';
 import { CheckCircle2, AlertTriangle, Loader2, XCircle } from 'lucide-react';
 
 /**
@@ -36,7 +36,21 @@ export interface DeviceSerialValue {
   macAddress?: string;
 }
 
-export type DeviceSerialState = 'idle' | 'checking' | 'ok' | 'not-found' | 'not-in-stock' | 'other-branch' | 'other-product';
+/**
+ * `lookup-failed` is deliberately not `not-found`: a 500/503/dropped lookup
+ * means the register could not be asked, and telling the operator the unit does
+ * not exist sends them to re-scan and re-type a serial that may be perfectly
+ * valid (DF-15). It is the only state with a Retry.
+ */
+export type DeviceSerialState =
+  | 'idle'
+  | 'checking'
+  | 'ok'
+  | 'not-found'
+  | 'lookup-failed'
+  | 'not-in-stock'
+  | 'other-branch'
+  | 'other-product';
 
 const serialKey = (value: unknown) => String(value ?? '').trim().toUpperCase();
 
@@ -104,6 +118,7 @@ const STATE_TEXT: Record<Exclude<DeviceSerialState, 'idle'>, string> = {
   checking: 'Checking register…',
   ok: 'IN_STOCK — PON & MAC filled from the register',
   'not-found': 'Not in the serial register for this branch',
+  'lookup-failed': 'Could not check the register',
   'not-in-stock': 'Not IN_STOCK',
   'other-branch': 'Held at a different branch',
   'other-product': 'Belongs to a different product',
@@ -196,9 +211,11 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
           setState('not-found');
           setResolved(null);
         }
-      } catch {
+      } catch (err) {
         if (latestSerial.current.trim() !== typed) return;
-        setState('not-found');
+        // 404 is the register's only definitive "no such unit"; every other
+        // rejection is a failure to consult it (DF-15).
+        setState(isSerialLookupNotFound(err) ? 'not-found' : 'lookup-failed');
         setResolved(null);
       }
       return;
@@ -236,7 +253,9 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
       ? 'text-emerald-600 dark:text-emerald-400'
       : state === 'checking' || state === 'idle'
         ? 'text-slate-400'
-        : 'text-rose-600 dark:text-rose-400';
+        : state === 'lookup-failed'
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-rose-600 dark:text-rose-400';
 
   const pon = resolved?.ponSerial ?? value?.ponSerial ?? '';
   const mac = resolved?.macAddress ?? value?.macAddress ?? '';
@@ -279,8 +298,22 @@ export const DeviceSerialInput: React.FC<DeviceSerialInputProps> = ({
       )}
       {state !== 'ok' && state !== 'checking' && state !== 'idle' && (
         <div className={`mt-0.5 flex items-center gap-1 text-[9.5px] font-semibold ${stateColor}`}>
-          {state === 'not-found' ? <AlertTriangle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+          {state === 'not-found' || state === 'lookup-failed' ? (
+            <AlertTriangle className="h-3 w-3" />
+          ) : (
+            <XCircle className="h-3 w-3" />
+          )}
           <span>{describeInlineState(state, resolved)}</span>
+          {state === 'lookup-failed' && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => void resolve()}
+              className="ml-0.5 underline font-bold hover:no-underline disabled:no-underline disabled:opacity-60"
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
     </div>

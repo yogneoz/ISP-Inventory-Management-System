@@ -487,6 +487,12 @@ column fall back to the current summary mid-read. DF-13.
 
 ### F-2 (P2). Party ledgers do not refresh while visible
 
+**Fixed by DF-14 (2026-10-24).** `VendorLedger` now takes the procurement
+register counter and `CustomerLedger` the sales plus returns counters; both
+re-read the selected party when the counter moves, skip the read while no
+party is picked or the keep-mounted tab is hidden, and keep the DF-08
+sequence guard. The finding below is the pre-fix evidence.
+
 Both ledgers re-run only when the party changes or the tab is re-activated
 ([VendorLedger.tsx:73-78](../client/src/features/finance/VendorLedger.tsx#L73-L78),
 [CustomerLedger.tsx:74-79](../client/src/features/finance/CustomerLedger.tsx#L74-L79)),
@@ -499,11 +505,21 @@ Recording a payment, reversing one or posting a return in another tab therefore
 leaves the selected party's closing balance stale until the operator leaves and
 re-enters the tab. Filters applying on Load is intentional and not a defect.
 
-**Fix shape:** pass the existing register counters (`purchaseInvoices` for the
-vendor ledger, `salesInvoices` + `returnsRegister` for the customer ledger) and
-include them in the fetch effect only when a party is selected. DF-14.
+**Fix (shipped):** pass the existing register counters (`purchaseInvoices` for
+the vendor ledger, `salesInvoices` + `returnsRegister` for the customer ledger)
+and include them in the fetch effect; the effect returns early while no party
+is selected or the tab is hidden (`useTabActive`), and the next activation
+already re-runs the read. The customer ledger keeps its two counters because a
+credit note moves the receivable even when no invoice event accompanies it.
+DF-14.
 
 ### F-3 (P2). A failed serial lookup is rendered as "not in the register"
+
+**Fixed by DF-15 (2026-10-24).** The field now has `lookup-failed` (amber,
+with Retry), and only a 404 sets `not-found`. Both exchange dialogs let the
+rejection through to the field and stop the submit with retry copy on a
+non-404, so no refusal or audit report is invented from a failed read. The
+finding below is the pre-fix evidence.
 
 `DeviceSerialInput` catches a rejected lookup and sets `not-found`
 ([DeviceSerialInput.tsx:186-203](../client/src/components/common/DeviceSerialInput.tsx#L186-L203)),
@@ -517,11 +533,19 @@ but the operator sees the same definitive "does not exist" for a database
 outage, a permission failure or a dropped request — with no Retry. That invites
 re-scanning, duplicate entry work, or escalation for the wrong reason.
 
-**Fix shape:** add a distinct `lookup-failed` state with a Retry, let the
-exchange callers propagate the rejection instead of mapping it to no-row, and
-keep the plain 404 "not found" wording. DF-15.
+**Fix (shipped):** a distinct `lookup-failed` state with a Retry, the exchange
+callers propagating the rejection instead of mapping it to no-row (inline and
+submit), and the plain 404 "not found" wording kept as the only `not-found`
+path. DF-15.
 
 ### F-4 (P2). Exchange tab's deployed-device read fails silently and can show another branch
+
+**Fixed by DF-16 (2026-10-24).** One shared per-branch cache (`useExchangeDevices`)
+replaces the per-host read: a branch switch cannot show the previous branch's
+rows, a failed read clears the scope and surfaces a `LoadStateNotice` with
+Retry in the exchange panel, and every mounted host shares one request per
+branch. App invalidates it on the CPE/asset SSE domains and full refreshes,
+and resets it on sign-out. The finding below is the pre-fix evidence.
 
 The exchange host fetches customer devices on branch change and only logs a
 failure ([StockOperations.tsx:392-405](../client/src/features/inventory/StockOperations.tsx#L392-L405)).
@@ -533,12 +557,20 @@ the device picker then render them as the current branch
 There is no error notice or Retry. App mounts up to 11 `StockOperations` hosts,
 so the same list is also fetched once per host, not shared.
 
-**Fix shape:** take a request ticket, clear the rows when the branch changes,
-keep an error visible with Retry in the exchange panel, and move the read into
-one shared per-branch cache (the same shape as `branchStockCache`) so 11 hosts
-produce one request. DF-16.
+**Fix (shipped):** the read moved into one shared per-branch cache (the shape
+of `branchStockCache`), with per-scope request tokens, a cleared scope plus an
+visible error on failure, Retry in the exchange panel, and App-side
+invalidation for the domains that write CPE rows. 11 hosts now produce one
+request per branch. DF-16.
 
 ### F-5 (P3). Three remaining silent read failures
+
+**Fixed by DF-17 (2026-10-24).** Each surface now records its failure and
+renders a retryable notice: the settings backfill (with the blind-audit toggle
+disabled and `UNKNOWN`), the sellable-serial list (cleared on a branch change,
+with the serial gate refusing to guess), and the permission-save resync (Save
+and Reset disabled until the server matrix is read). The findings below are the
+pre-fix evidence.
 
 1. **Cached-bootstrap settings backfill.** When a cached payload predates the
    settings slices, App fetches `/api/settings` and discards any failure
@@ -557,9 +589,11 @@ produce one request. DF-16.
    The save error is visible, but the checkbox state still shows the rejected
    edits with no way to know the server's actual matrix.
 
-**Fix shape:** one small retryable load notice per surface (or disable the
-control until the read succeeds), and clear branch-scoped lists on a failed
-branch change rather than keeping another branch's rows. DF-17.
+**Fix (shipped):** one small retryable load notice per surface — plus disabling
+the blind-audit toggle while the settings are unknown — and the sellable-serial
+list clears on a branch change rather than keeping another branch's rows. The
+permission editor treats a failed resync as an unknown matrix and keeps its
+write buttons disabled. DF-17.
 
 ### What this pass re-checked and found sound
 

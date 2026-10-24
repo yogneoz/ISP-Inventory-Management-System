@@ -71,6 +71,12 @@ interface PhysicalStockAuditProps {
    * shared by all users and survives cleared browser storage.
    */
   companyWideBlindCount?: boolean;
+  /**
+   * True while the server-held settings could not be read (DF-17). The toggle
+   * then shows neither ON nor a trustworthy OFF: it is disabled until the
+   * settings notice's Retry succeeds, instead of silently claiming the default.
+   */
+  settingsUnknown?: boolean;
   onCompanyWideBlindCountChange?: (next: boolean) => void;
 }
 
@@ -105,6 +111,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   onProcessApproval,
   onNavigateTab,
   companyWideBlindCount = false,
+  settingsUnknown = false,
   onCompanyWideBlindCountChange,
 }) => {
   const { isDarkMode } = useDarkMode();
@@ -1184,7 +1191,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               {canToggleBlindCount && (
                 <button
                   type="button"
+                  disabled={settingsUnknown}
                   onClick={() => {
+                    if (settingsUnknown) return;
                     const next = !isCompanyWideBlindCount;
                     setIsCompanyWideBlindCount(next);
                     onCompanyWideBlindCountChange?.(next);
@@ -1196,11 +1205,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                     );
                     setTimeout(() => setToastMessage(null), 4000);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${isCompanyWideBlindCount ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'}`}
-                  title="Enable Blind Count Mode across all company branches simultaneously"
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all border disabled:cursor-not-allowed disabled:opacity-60 ${isCompanyWideBlindCount ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'} ${settingsUnknown ? '' : 'cursor-pointer'}`}
+                  title={
+                    settingsUnknown
+                      ? 'Company settings could not be loaded — use Retry on the settings notice above before changing this mode.'
+                      : 'Enable Blind Count Mode across all company branches simultaneously'
+                  }
                 >
                   <Lock className={`h-4 w-4 ${isCompanyWideBlindCount ? 'text-purple-200' : 'text-purple-500'}`} />
-                  <span>Company Blind Count: {isCompanyWideBlindCount ? 'ON (All Branches)' : 'OFF'}</span>
+                  <span>
+                    Company Blind Count:{' '}
+                    {settingsUnknown ? 'UNKNOWN' : isCompanyWideBlindCount ? 'ON (All Branches)' : 'OFF'}
+                  </span>
                 </button>
               )}
 

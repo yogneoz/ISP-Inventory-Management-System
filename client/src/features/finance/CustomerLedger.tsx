@@ -11,7 +11,7 @@
  * healthy when positive) — and owns the api.getCustomerLedger call.
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { useActivationKey } from '../../components/common/KeepMounted';
+import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
 import {
   LedgerView,
   ledgerExportColumns,
@@ -27,9 +27,29 @@ interface CustomerLedgerProps {
   customers: CustomerRecord[];
   branches: Branch[];
   dateMode: 'BS' | 'AD';
+  /**
+   * Sales register counter (App's `registerRefresh.salesInvoices`), bumped by
+   * a sales SSE burst and by every full refresh. With a customer selected, an
+   * invoice/payment event re-reads the ledger in place instead of leaving the
+   * receivable at activation-time figures (DF-14).
+   */
+  sseRefreshKey?: number;
+  /**
+   * Returns register counter (App's `registerRefresh.returnsRegister`): a
+   * posted or cancelled credit note moves the receivable too, and the two
+   * counters are a deliberate superset — one extra read is cheaper than a
+   * missed credit-note event.
+   */
+  returnsRefreshKey?: number;
 }
 
-export const CustomerLedger: React.FC<CustomerLedgerProps> = ({ customers, branches, dateMode }) => {
+export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
+  customers,
+  branches,
+  dateMode,
+  sseRefreshKey,
+  returnsRefreshKey,
+}) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [filters, setFilters] = useState<LedgerFilters>({ fromAd: '', toAd: '', branchId: 'ALL' });
   const [loading, setLoading] = useState(false);
@@ -70,13 +90,19 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({ customers, branc
     }
   };
 
-  // Refetch the selected customer's ledger on every tab re-activation.
+  // Refetch the selected customer's ledger on every tab re-activation, and in
+  // place when sales or a credit note changes it while the tab is open (DF-14).
+  // A hidden keep-mounted tab skips the read: the next activation re-runs it,
+  // so an event burst elsewhere cannot issue a ledger request nobody can see.
   const activationKey = useActivationKey('customer-ledger');
+  const isVisible = useTabActive('customer-ledger');
 
   useEffect(() => {
+    if (!isVisible) return;
+    // fetchLedger() is a no-op while no customer is selected.
     fetchLedger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomerId, activationKey]);
+  }, [selectedCustomerId, activationKey, sseRefreshKey, returnsRefreshKey, isVisible]);
 
   return (
     <LedgerView

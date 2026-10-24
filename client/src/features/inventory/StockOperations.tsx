@@ -18,6 +18,7 @@ import { useBsCalendarGate } from '../../utils/bsCalendarGate';
 import { api } from '../../services/api';
 import { useSerialRegister } from '../../services/serialRegisterCache';
 import { useBranchStock } from '../../services/branchStockCache';
+import { useExchangeDevices } from '../../services/exchangeDeviceCache';
 import { BranchStockNotice } from '../../components/common/BranchStockNotice';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
@@ -222,11 +223,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Filter state (shared: ReceiveTransfer sets it, the register lists read it)
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
 
-  // Exchange tab's deployed-device list — loaded here (not in the panel)
-  // because the Device Exchange tab-bar counter needs it before the panel
-  // first mounts; the exchange FORM state lives in DeviceExchangePanel.
-  const [exchangeCustomerDevices, setExchangeCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
-  const [isLoadingExchangeDevices, setIsLoadingExchangeDevices] = useState<boolean>(false);
+  // Exchange tab's deployed-device list. Read through ONE shared, per-branch
+  // cache (DF-16): the app keeps up to 11 StockOperations hosts mounted, so a
+  // per-host read was duplicated, and a failed branch switch used to keep the
+  // previous branch's units on screen. The cache never carries rows across
+  // branches; the panel surfaces its error with a Retry. The exchange FORM
+  // state still lives in DeviceExchangePanel.
+  const exchangeDevices = useExchangeDevices(selectedBranchId);
 
   // Allowed branches for current user
   const allowedBranches = getAllowedBranches(currentUser, branches);
@@ -387,24 +390,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     return true;
   };
 
-  // Fetch Customer Devices for Exchange Tab — stays with the host: the
-  // Device Exchange tab-bar counter needs the list before the panel first
-  // mounts (the exchange FORM state lives in DeviceExchangePanel).
-  useEffect(() => {
-    const fetchDevices = async () => {
-      setIsLoadingExchangeDevices(true);
-      try {
-        const devs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
-        setExchangeCustomerDevices(devs);
-      } catch (err) {
-        console.error('Failed to load customer devices for exchange tab:', err);
-      } finally {
-        setIsLoadingExchangeDevices(false);
-      }
-    };
-    fetchDevices();
-  }, [selectedBranchId]);
-
   // Shared view derivations — tab-bar counts, the synthesized damage log and
   // the filtered register lists — live in stockops/stockOperationViews.ts.
   const { damageOperations, pulloutOperations, consumableOperations, saleOperations, allCombinedOps, filteredOperations, availableStockAssets } =
@@ -436,15 +421,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     serialRegisterError,
     serialRegisterLoading,
     refreshSerialRegister,
+    retryExchangeDevices: exchangeDevices.retry,
     dateMode,
     damageOperations,
     ensureBsDateAvailable,
-    exchangeCustomerDevices,
+    exchangeCustomerDevices: exchangeDevices.rows,
+    exchangeDevicesError: exchangeDevices.error,
     filteredOperations,
     focusInput,
     initialDamageModalOpen,
     initialPulloutModalOpen,
-    isLoadingExchangeDevices,
+    isLoadingExchangeDevices: exchangeDevices.loading,
     isSuperOrInventory,
     isWarehouseOrHeadOffice,
     locations,
@@ -468,7 +455,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     saleOperations,
     selectedBranchId,
     setBranchFilter,
-    setExchangeCustomerDevices,
     shipments,
     showToast,
     sseRefreshKey,

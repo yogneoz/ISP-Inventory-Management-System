@@ -34,7 +34,11 @@ import { useClientPagination, TablePagination } from '../../components/common/Ta
 import { useDialog } from '../../components/common/DialogProvider';
 import { api } from '../../services/api';
 import { DeviceSerialInput, findRegisterRow } from '../../components/common/DeviceSerialInput';
-import { describeReplacementRefusal } from '../../utils/serialRefusal';
+import {
+  describeReplacementRefusal,
+  isSerialLookupNotFound,
+  SERIAL_LOOKUP_FAILED_MESSAGE,
+} from '../../utils/serialRefusal';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
 
 interface CustomersManagementProps {
@@ -213,7 +217,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     if (!replacementRow) {
       try {
         replacementRow = await api.lookupExchangeSerial(exchangeSerial, exchangeBranchId);
-      } catch {
+      } catch (err) {
+        // Only a 404 says the register has no such unit. Anything else means we
+        // could not consult it, so refusing with "not in the register" would be
+        // a guess — stop and let the operator retry (DF-15).
+        if (!isSerialLookupNotFound(err)) {
+          alertDialog(SERIAL_LOOKUP_FAILED_MESSAGE);
+          return;
+        }
         replacementRow = null;
       }
     }
@@ -1671,9 +1682,9 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     // the server about anything else — the inline hint then says
                     // CUSTOMER ASSIGNED / DAMAGED / other branch instead of
                     // "not in the register".
-                    lookup={(serial) =>
-                      api.lookupExchangeSerial(serial, selectedDeviceForExchange?.branchId).catch(() => null)
-                    }
+                    // A rejection must reach the field so it can show the
+                    // retryable failure state instead of "not in the register".
+                    lookup={(serial) => api.lookupExchangeSerial(serial, selectedDeviceForExchange?.branchId)}
                   />
                 </div>
               </div>

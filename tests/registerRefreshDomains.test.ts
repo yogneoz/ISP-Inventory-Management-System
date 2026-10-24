@@ -95,9 +95,12 @@ const assertNoRawFetch = (source: string, label: string) => {
 };
 
 /**
- * Every App.tsx render site of `tag` must pass `prop`, and the prop must
- * never appear outside a render site — a newly added unwired mount (or a
- * counter attached to the wrong component) fails here.
+ * Every App.tsx render site of `tag` must pass `prop` exactly once — a newly
+ * added unwired mount (or a counter attached to the wrong component) fails
+ * here. Counted per render site, not app-wide: since DF-14 a counter can
+ * legitimately feed two different components (the purchase-invoice counter
+ * also refreshes the vendor ledger), so a global tally would flag the shared
+ * expression instead of a missing one.
  */
 const assertEveryRenderSiteWired = (tag: string, prop: RegExp) => {
   const appSource = readAppSource();
@@ -106,11 +109,14 @@ const assertEveryRenderSiteWired = (tag: string, prop: RegExp) => {
   for (const block of blocks) {
     assert.match(block, prop, `a <${tag} render site in App.tsx is missing ${prop.source}`);
   }
-  const propCount = [...appSource.matchAll(new RegExp(prop.source, 'g'))].length;
+  const propCount = blocks.reduce(
+    (sum, block) => sum + [...block.matchAll(new RegExp(prop.source, 'g'))].length,
+    0
+  );
   assert.equal(
     propCount,
     blocks.length,
-    `${prop.source} appears ${propCount} time(s) but App.tsx renders <${tag} ${blocks.length} time(s) — every render site must be wired`
+    `${prop.source} appears ${propCount} time(s) across the <${tag} render sites — every render site must be wired exactly once`
   );
 };
 
@@ -728,14 +734,15 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     );
   });
 
-  test('StockOperations: host api surface pinned; it reads the shared serial-register cache', () => {
+  test('StockOperations: host makes no server call; it reads the shared caches', () => {
     const source = readFeatureSource('inventory/StockOperations.tsx');
     // §G commit 2 relocated every submit handler — and with it 10 of the
-    // original 12 methods — into the owning stockops/*Panel.tsx. What stays
-    // in the host is the exchange tab's device list (the tab-bar counter needs
-    // it mounted); the BS-calendar gate's one read moved into the shared
-    // bsCalendarGate hook (DF-10, pinned by tests/bsCalendarGate.test.ts).
-    assert.deepEqual(serverCallsIn(source), ['getCustomerDevices']);
+    // original 12 methods — into the owning stockops/*Panel.tsx. The remaining
+    // reads moved into shared caches: the BS-calendar gate into bsCalendarGate
+    // (DF-10) and the exchange tab's device list into exchangeDeviceCache
+    // (DF-16), so 11 mounted hosts share one per-branch read. The host itself
+    // must not fetch.
+    assert.deepEqual(serverCallsIn(source), []);
     assertNoRawFetch(source, 'StockOperations.tsx');
     assert.match(
       source,
@@ -946,8 +953,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   handlers with it, so the api surface below is each panel's own.
     //   The one non-obvious split: the register panel's export-all button
     //   and its paged fetch share getStockOperations, and the exchange
-    //   panel re-fetches the device list after its mutation (the host
-    //   keeps its own getCustomerDevices for the tab-bar counter).
+    //   panel refreshes the shared device cache after its mutation (DF-16)
+    //   instead of reading the list itself.
     //   StockOperationsTabBar.tsx is the §G-commit-2 chrome extraction:
     //   the sub-tab strip, zero server calls of its own.
     // No getSerialLogs: the panel validates against the HOST's register cache
@@ -961,7 +968,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // lookupExchangeSerial: same stale-cache fallback as the customer modal — the
     // panel's mount-once register copy cannot name the state of a serial it has
     // not seen.
-    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'getCustomerDevices', 'lookupExchangeSerial', 'reportExchangeRefusal'],
+    'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'lookupExchangeSerial', 'reportExchangeRefusal'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
     'inventory/stockops/LogsPanel.tsx': [],
     'inventory/stockops/ProductSalePanel.tsx': [],
@@ -986,18 +993,20 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   ]);
 
   // The 13 screens that fetch their own rendered list/report data. They are
-  // still whole-list (no register wiring — see the guards below), but since
+  // still whole-list (no server paging — see the guards below), but since
   // the keep-mounted tab container they no longer remount on a tab switch;
   // instead each one opts in to refetch-on-reactivation via
   // useActivationKey('<tabKey>') as a dependency of its fetch effect. The
   // keys are pinned below so neither half can be dropped silently. The
+  // two party ledgers also take register counters (DF-14) — see
+  // MOUNT_REFETCH_WITH_REFRESH_KEY and tests/df14LedgerRefresh.test.ts. The
   // Calendar Health panel is the one non-tab entry: it is nested in
   // BsCalendarUtility and keys off the same 'bs-calendar' tab, so a seed or
   // repair applied from the year table also re-audits the findings.
   // ProductManagement is the one two-tab screen ('all-stock' and
   // 'product-master'): it keys off its own mode prop and refetches after its
   // own saves as well as on re-activation.
-  const MOUNT_REFETCH_NO_SSE_KEY = [
+  const MOUNT_REFETCH_SCREENS = [
     'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
@@ -1097,8 +1106,17 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     );
   });
 
-  test('mount-refetch screens stay whole-list, carry no register wiring, and refetch on tab re-activation', () => {
-    for (const screen of MOUNT_REFETCH_NO_SSE_KEY) {
+  // DF-14: the party ledgers are mount-refetch screens that now ALSO take the
+  // register counters (a procurement/sales/return event re-reads the open
+  // ledger in place). They are the only entries allowed to carry that wiring;
+  // the positive pins live in tests/df14LedgerRefresh.test.ts.
+  const MOUNT_REFETCH_WITH_REFRESH_KEY = new Set([
+    'finance/CustomerLedger.tsx',
+    'finance/VendorLedger.tsx',
+  ]);
+
+  test('mount-refetch screens stay whole-list and refetch on tab re-activation', () => {
+    for (const screen of MOUNT_REFETCH_SCREENS) {
       const source = readFeatureSource(screen);
       const surface = serverCallsIn(source);
       assert.ok(
@@ -1109,10 +1127,12 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
         !/pageSize:/.test(source),
         `client/src/features/${screen} started paging on the server — wire it as a register (see the paged-tripwire test) or keep it whole-list`
       );
-      assert.ok(
-        !/registerRefresh|sseRefreshKey|refreshKey=\{/.test(source),
-        `client/src/features/${screen} carries register-refresh wiring but is not an SSE-wired register — finish the full wiring decision (DOMAIN_REGISTER_KEYS + App.tsx) or drop the prop`
-      );
+      if (!MOUNT_REFETCH_WITH_REFRESH_KEY.has(screen)) {
+        assert.ok(
+          !/registerRefresh|sseRefreshKey|refreshKey=\{/.test(source),
+          `client/src/features/${screen} carries register-refresh wiring but is not an SSE-wired register — finish the full wiring decision (DOMAIN_REGISTER_KEYS + App.tsx) or drop the prop`
+        );
+      }
     }
   });
 
@@ -1142,7 +1162,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     const appSource = readAppSource();
     assert.deepEqual(
       Object.keys(MOUNT_REFETCH_ACTIVATION_TABS).sort(),
-      [...MOUNT_REFETCH_NO_SSE_KEY].sort(),
+      [...MOUNT_REFETCH_SCREENS].sort(),
       'the activation-tab table and the mount-refetch list must cover the same screens — a screen that opts in (or stops) must be pinned in both'
     );
     for (const [screen, pinned] of Object.entries(MOUNT_REFETCH_ACTIVATION_TABS)) {

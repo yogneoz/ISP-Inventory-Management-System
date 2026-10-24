@@ -3,6 +3,7 @@ import { User } from '../../types';
 import { api } from '../../services/api';
 import { getPermissionsMatrix, applyServerMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../../utils/permissions';
 import { PageHeader } from '../../components/common/PageHeader';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 import {
   ShieldCheck,
   Check,
@@ -412,6 +413,12 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
   const [savedNotification, setSavedNotification] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  // DF-17: after a rejected save the editor re-reads the server matrix. If
+  // THAT read fails, the server state is unknown — the rejected edits must not
+  // be presented as recoverable, and Save stays disabled until a read works.
+  const [matrixResyncError, setMatrixResyncError] = useState('');
+  const [isResyncing, setIsResyncing] = useState(false);
+  const saveBlocked = isSaving || isResyncing || Boolean(matrixResyncError);
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
   // Re-sync the editor when the server-side matrix arrives from the bootstrap
@@ -485,8 +492,21 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
     }));
   };
 
+  const resyncMatrixFromServer = async () => {
+    setIsResyncing(true);
+    try {
+      const serverMatrix = await api.getPermissionsMatrix();
+      setMatrixResyncError('');
+      applyServerMatrix(serverMatrix);
+    } catch (err: any) {
+      setMatrixResyncError(err?.message || 'The server permission matrix could not be read.');
+    } finally {
+      setIsResyncing(false);
+    }
+  };
+
   const handleSave = () => {
-    if (!isSuperAdmin || isSaving) return;
+    if (!isSuperAdmin || saveBlocked) return;
     const matrix: Record<string, Record<string, boolean>> = { ...getPermissionsMatrix() };
     groups.forEach((g) => {
       g.operations.forEach((op) => {
@@ -507,16 +527,16 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       .catch((err: any) => {
         setSaveError(err?.message || 'Failed to save permissions to the server.');
         // Re-sync the editor with what the server actually holds so the
-        // rejected edits can never be mistaken for saved ones.
-        api.getPermissionsMatrix()
-          .then((serverMatrix) => applyServerMatrix(serverMatrix))
-          .catch(() => undefined);
+        // rejected edits can never be mistaken for saved ones. A failed
+        // re-read is reported (DF-17) instead of leaving the rejected edits
+        // looking trustworthy.
+        void resyncMatrixFromServer();
       })
       .finally(() => setIsSaving(false));
   };
 
   const handleReset = () => {
-    if (!isSuperAdmin || isSaving) return;
+    if (!isSuperAdmin || saveBlocked) return;
     const matrix = DEFAULT_PERMISSIONS_MATRIX;
     setIsSaving(true);
     setSaveError('');
@@ -535,9 +555,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
       })
       .catch((err: any) => {
         setSaveError(err?.message || 'Failed to reset permissions on the server.');
-        api.getPermissionsMatrix()
-          .then((serverMatrix) => applyServerMatrix(serverMatrix))
-          .catch(() => undefined);
+        void resyncMatrixFromServer();
       })
       .finally(() => setIsSaving(false));
   };
@@ -572,7 +590,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           <>
             <button
               onClick={handleReset}
-              disabled={!isSuperAdmin || isSaving}
+              disabled={!isSuperAdmin || saveBlocked}
               className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed ${isSuperAdmin && !isSaving ? 'cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700' : ''}`}
             >
               <RotateCcw className="h-3.5 w-3.5" />
@@ -585,7 +603,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
             )}
             <button
               onClick={handleSave}
-              disabled={!isSuperAdmin || isSaving}
+              disabled={!isSuperAdmin || saveBlocked}
               className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
@@ -600,6 +618,17 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
           <span className="flex-shrink-0">⚠</span>
           <span>{saveError} Your local changes are shown but were not saved to the server.</span>
         </div>
+      )}
+
+      {matrixResyncError && (
+        <LoadStateNotice
+          subject="the server permission matrix"
+          loading={isResyncing}
+          error={matrixResyncError}
+          onRetry={() => void resyncMatrixFromServer()}
+          emptyNote=" Save stays disabled until the server matrix can be read."
+          cachedNote=" Save stays disabled until the server matrix can be read."
+        />
       )}
 
       {savedNotification && (

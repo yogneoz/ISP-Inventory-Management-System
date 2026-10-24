@@ -26,8 +26,9 @@ import type { NavTab } from '../layout/Sidebar';
  *  - Self-fetching screens (mount/selection-fetched lists, ledgers) keep
  *    their mount fetch for the FIRST paint and opt in to re-fetch-on-
  *    re-activation with `useActivationKey(tabKey)` — all 13 of them
- *    (MOUNT_REFETCH_NO_SSE_KEY in the test guards) are wired this way,
- *    which replaces their old "remount refetches me" behavior.
+ *    (MOUNT_REFETCH_SCREENS in the test guards) are wired this way,
+ *    which replaces their old "remount refetches me" behavior. The party
+ *    ledgers additionally take register counters (DF-14).
  *
  * A1 (2026-10-23): the tab ELEMENT is memoised per screen slot. App still
  * rebuilds every tab's element on every root render (a keystroke in the
@@ -134,7 +135,7 @@ export function useTabActive(tabKey: NavTab): boolean {
  *
  * All 13 mount-refetch screens (ledgers, BS calendars, Category/Uom/
  * Locations, doc numbering, FinancialStatements, ProductManagement — see
- * MOUNT_REFETCH_NO_SSE_KEY + MOUNT_REFETCH_ACTIVATION_TABS in the test
+ * MOUNT_REFETCH_SCREENS + MOUNT_REFETCH_ACTIVATION_TABS in the test
  * guards) pass their activation key into their fetch effect's deps.
  *
  * `tabKey` is a `NavTab`, not any string: a typo used to compare against a

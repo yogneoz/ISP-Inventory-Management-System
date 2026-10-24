@@ -51,6 +51,7 @@ import {
 } from './utils/registerRefreshDomains';
 import { invalidateSerialRegister } from './services/serialRegisterCache';
 import { invalidateBranchStock, resetBranchStock } from './services/branchStockCache';
+import { invalidateExchangeDevices, resetExchangeDevices } from './services/exchangeDeviceCache';
 import { LoginModal } from './components/common/LoginModal';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { ProductManagement } from './features/inventory/ProductManagement';
@@ -221,6 +222,7 @@ import {
   type BootstrapSliceState,
 } from './services/bootstrapSlices';
 import { BootstrapSliceNotice } from './components/common/BootstrapSliceNotice';
+import { LoadStateNotice } from './components/common/LoadStateNotice';
 import { applyServerMatrix, getPermissionsMatrix } from './utils/permissions';
 import { setExportCompanyProfile } from './utils/exportUtils';
 
@@ -485,6 +487,56 @@ export default function App() {
     if (prefs?.theme === 'dark' || prefs?.theme === 'light') applyServerTheme(prefs.theme === 'dark');
   };
 
+  /**
+   * Cached-payload settings backfill (DF-17). A payload cached before the
+   * settings slices shipped falls back to GET /api/settings; a failure used to
+   * be dropped, leaving the app on `{}` defaults (e.g. the company-wide blind
+   * count read as false) with nothing saying the configuration was unknown.
+   */
+  const loadSettingsFromServer = async () => {
+    setSettingsBackfillLoading(true);
+    try {
+      const bundle = await api.getSettings();
+      setAppSettings(bundle.appSettings || {});
+      hydrateUserPreferences(bundle.preferences);
+      setSettingsBackfillError('');
+    } catch (err: any) {
+      setSettingsBackfillError(err?.message || 'The company settings could not be read.');
+    } finally {
+      setSettingsBackfillLoading(false);
+    }
+  };
+
+  // Sellable-serial list for the Sell-to-Customer serial gate (DF-17). The
+  // rows are branch-scoped: on a branch change the old list is cleared at
+  // once, and a failure is reported (the form offers a Retry) instead of
+  // keeping the previous branch's units, which the server would refuse.
+  const sellableSerialsSeqRef = useRef(0);
+  const sellableSerialsScopeRef = useRef<string | null>(null);
+  const loadSellableSerials = async (branchId?: string) => {
+    const scope = branchId && branchId !== 'ALL' ? branchId : 'ALL';
+    const seq = ++sellableSerialsSeqRef.current;
+    if (sellableSerialsScopeRef.current !== scope) {
+      sellableSerialsScopeRef.current = scope;
+      setInventorySerials([]);
+    }
+    setSellableSerialsLoading(true);
+    setSellableSerialsError('');
+    try {
+      const sellable = await api.getSerialLogs({
+        branchId: scope === 'ALL' ? undefined : scope,
+        status: 'IN_STOCK',
+      });
+      if (seq !== sellableSerialsSeqRef.current) return;
+      setInventorySerials(Array.isArray(sellable) ? sellable : (sellable as any)?.data || []);
+    } catch (err: any) {
+      if (seq !== sellableSerialsSeqRef.current) return;
+      setSellableSerialsError(err?.message || 'The sellable serial list could not be read.');
+    } finally {
+      if (seq === sellableSerialsSeqRef.current) setSellableSerialsLoading(false);
+    }
+  };
+
   // Writes a company-wide setting to the server (app_settings table) and
   // reverts the local mirror if the server rejects it (e.g. the toggle is
   // SUPER_ADMIN-only server-side).
@@ -517,6 +569,15 @@ export default function App() {
   // so this is one narrow status-filtered fetch per refresh instead of the
   // whole register (StockOperations hosts its own mount-once copy).
   const [inventorySerials, setInventorySerials] = useState<SerialLog[]>([]);
+  // DF-17: surfaced failures for the two App-owned reads whose errors used to
+  // be console-only — the cached-payload settings backfill and the
+  // sellable-serial list. Both have a Retry; the sellable list also clears on
+  // a branch change so the Sell-to-Customer form never sees another branch's
+  // units.
+  const [sellableSerialsError, setSellableSerialsError] = useState('');
+  const [sellableSerialsLoading, setSellableSerialsLoading] = useState(false);
+  const [settingsBackfillError, setSettingsBackfillError] = useState('');
+  const [settingsBackfillLoading, setSettingsBackfillLoading] = useState(false);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
@@ -627,14 +688,11 @@ export default function App() {
     // Backfill for payloads cached before the settings slices shipped (or a
     // partially-applied cache entry): fall back to the dedicated endpoint so
     // the app still reads its configuration from the server, never storage.
+    // A failure is now reported with a Retry (DF-17), not swallowed.
     if (!data.appSettings || !data.userPreferences) {
-      void api
-        .getSettings()
-        .then((bundle) => {
-          setAppSettings(bundle.appSettings || {});
-          hydrateUserPreferences(bundle.preferences);
-        })
-        .catch(() => undefined);
+      void loadSettingsFromServer();
+    } else if (settingsBackfillError) {
+      setSettingsBackfillError('');
     }
     if (!options.fromCache) {
       const keys = Object.keys(data).filter(
@@ -784,6 +842,9 @@ export default function App() {
     // fiscal-year switch, where the bootstrap stock becomes that year's
     // opening snapshot.
     invalidateBranchStock();
+    // The exchange tab's deployed-device list is another self-fetching cache;
+    // a manual refresh must re-read it too (DF-16).
+    invalidateExchangeDevices();
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -810,17 +871,10 @@ export default function App() {
         saveRecentBootstrapCache(data, cacheScopeRef.current);
         // Sell to Customer can only post serials that exist in inventory, so
         // the form needs the sellable rows before the user starts typing.
-        // Nested so a serial-log hiccup never looks like a bootstrap failure.
-        try {
-          const sellable = await api.getSerialLogs({
-            branchId: requestBranchId && requestBranchId !== 'ALL' ? requestBranchId : undefined,
-            status: 'IN_STOCK',
-          });
-          if (requestSeq !== refreshSequenceRef.current) return;
-          setInventorySerials(Array.isArray(sellable) ? sellable : (sellable as any)?.data || []);
-        } catch (err) {
-          console.error('Error fetching sellable serials:', err);
-        }
+        // Nested so a serial-log hiccup never looks like a bootstrap failure;
+        // the list loader owns its own sequence guard, branch clearing and
+        // retryable failure state (DF-17).
+        void loadSellableSerials(requestBranchId);
       }
     } catch (err: any) {
       console.error('Error fetching data from backend:', err);
@@ -1061,6 +1115,11 @@ export default function App() {
           // all-branch stock snapshots the forms validate against are stale
           // for every branch the operator could select, not just the header's.
           if (domainsTouchSerialRegister(domains)) invalidateBranchStock();
+          // CPE flows and asset deployments/restocks create or close the rows
+          // the Device Exchange tab lists, and that list is its own cache.
+          if (domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')) {
+            invalidateExchangeDevices();
+          }
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {
@@ -1185,6 +1244,8 @@ export default function App() {
     // Branch stock rows are cached per branch, not per user: the next sign-in
     // may be allowed fewer branches, so drop them with the session.
     resetBranchStock();
+    // Same for the exchange list: it is cached per branch and shared by hosts.
+    resetExchangeDevices();
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
   };
   handleLogoutRef.current = handleLogout;
@@ -1756,6 +1817,18 @@ export default function App() {
             onRetry={retryFailedSlices}
             onDismiss={() => setSliceState((prev) => dismissSliceErrors(prev))}
           />
+
+          {/* DF-17: a cached payload that needed the settings backfill and could
+              not get it runs on defaults. Say the configuration is unknown and
+              offer the retry rather than silently presenting default values. */}
+          <LoadStateNotice
+            subject="company settings"
+            loading={settingsBackfillLoading}
+            error={settingsBackfillError}
+            onRetry={() => void loadSettingsFromServer()}
+            emptyNote=" The app is using default settings until this succeeds."
+            cachedNote=" The app is using default settings until this succeeds."
+          />
         </>
       }
     >
@@ -1997,6 +2070,9 @@ export default function App() {
                   onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
                   companyWideBlindCount={appSettings.companyWideBlindCount === 'true'}
+                  // Unknown settings must not present the toggle as a known
+                  // "off": disable it until the read above succeeds (DF-17).
+                  settingsUnknown={Boolean(settingsBackfillError) || settingsBackfillLoading}
                   onCompanyWideBlindCountChange={(next) =>
                     handleAppSettingChange('companyWideBlindCount', next ? 'true' : 'false')
                   }
@@ -2198,6 +2274,9 @@ export default function App() {
                   stock={stock}
                   customers={customers}
                   inventorySerials={inventorySerials}
+                  inventorySerialsError={sellableSerialsError}
+                  inventorySerialsLoading={sellableSerialsLoading}
+                  onRetryInventorySerials={() => void loadSellableSerials(selectedBranchId)}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   sseRefreshKey={registerRefresh.salesInvoices}
@@ -2220,6 +2299,9 @@ export default function App() {
                   stock={stock}
                   customers={customers}
                   inventorySerials={inventorySerials}
+                  inventorySerialsError={sellableSerialsError}
+                  inventorySerialsLoading={sellableSerialsLoading}
+                  onRetryInventorySerials={() => void loadSellableSerials(selectedBranchId)}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   sseRefreshKey={registerRefresh.salesInvoices}
@@ -2911,13 +2993,24 @@ export default function App() {
 
             <KeepMounted visible={visible['vendor-ledger'] === true}>
               <React.Suspense fallback={<TabLoadingFallback />}>
-                <VendorLedger suppliers={suppliers} branches={branches} dateMode={dateMode} />
+                <VendorLedger
+                  suppliers={suppliers}
+                  branches={branches}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.purchaseInvoices}
+                />
               </React.Suspense>
             </KeepMounted>
 
             <KeepMounted visible={visible['customer-ledger'] === true}>
               <React.Suspense fallback={<TabLoadingFallback />}>
-                <CustomerLedger customers={customers} branches={branches} dateMode={dateMode} />
+                <CustomerLedger
+                  customers={customers}
+                  branches={branches}
+                  dateMode={dateMode}
+                  sseRefreshKey={registerRefresh.salesInvoices}
+                  returnsRefreshKey={registerRefresh.returnsRegister}
+                />
               </React.Suspense>
             </KeepMounted>
 
