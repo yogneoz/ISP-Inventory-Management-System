@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
 import { api } from '../../services/api';
+import { useBsCalendarRefresh } from '../../utils/bsCalendarRefresh';
 import { useDialog } from '../../components/common/DialogProvider';
 import {
   getBsCalendarData,
@@ -64,6 +65,10 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUse
     type: 'success' | 'error' | null;
     message: string;
   }>({ type: null, message: '' });
+  // Set when the calendar database cannot be read; the screen then shows the
+  // bundled client defaults and must say so instead of presenting them as
+  // server data (DF-10).
+  const [calendarLoadError, setCalendarLoadError] = useState<string>('');
 
   // The next year to seed, and the Baisakh 1 the server would DERIVE for it
   // (previous seeded year's end + 1) instead of the old `year - 57` guess.
@@ -169,10 +174,13 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUse
 
   // Refetch on every tab re-activation (keep-mounted replacement for the old remount refetch).
   const activationKey = useActivationKey('bs-calendar');
+  // Re-read when App handles a BS_CALENDAR / RECALC burst too (DF-10): another
+  // user's seed must not stay invisible until this tab is re-activated.
+  const calendarVersion = useBsCalendarRefresh();
 
   useEffect(() => {
     refreshCalendarData();
-  }, [activationKey]);
+  }, [activationKey, calendarVersion]);
 
   const refreshCalendarData = async () => {
     try {
@@ -203,9 +211,11 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUse
       } else {
         setDayDatabase(generateCalendarDatabase());
       }
-    } catch (e) {
+      setCalendarLoadError('');
+    } catch (e: any) {
       setCalendarData(getBsCalendarData());
       setDayDatabase(generateCalendarDatabase());
+      setCalendarLoadError(e?.message || 'The calendar database could not be read.');
     }
   };
 
@@ -502,6 +512,30 @@ export const BsCalendarUtility: React.FC<BsCalendarUtilityProps> = ({ currentUse
           </button>
         }
       />
+
+      {/* Calendar source notice (DF-10): a failed read must not masquerade as
+          server data — the tables below are showing bundled defaults. */}
+      {calendarLoadError && (
+        <div className="rounded-2xl border p-3 flex flex-col sm:flex-row sm:items-center gap-3 bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-200">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold">
+                Could not read the calendar database — the values below are bundled defaults, not server data.
+              </p>
+              <p className="text-[11px] mt-0.5 opacity-80">{calendarLoadError}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => refreshCalendarData()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors cursor-pointer flex-shrink-0"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Database Bounds Limiter Banner */}
       <div className={`rounded-2xl border p-3 shadow-lg flex flex-col sm:flex-row sm:items-center justify-start gap-3 bg-indigo-50/70 border-indigo-200/80 dark:bg-gradient-to-r dark:from-indigo-950/80 dark:via-slate-900 dark:to-slate-900 dark:border-indigo-800/60`}>

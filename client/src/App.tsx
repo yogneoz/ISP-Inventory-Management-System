@@ -194,6 +194,7 @@ import { setDefaultTaxRate } from './utils/taxConfig';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { useDialog } from './components/common/DialogProvider';
 import { KeepMounted, KeepMountedRoot } from './components/common/KeepMounted';
+import { broadcastBsCalendarUpdated } from './utils/bsCalendarRefresh';
 import { Loader2 } from 'lucide-react';
 
 /** Suspense fallback matching the boot-loading spinner (used by all lazy tabs). */
@@ -1042,6 +1043,9 @@ export default function App() {
           // client's copy of the same authority, so it is re-read too.
           if (domains.includes('BS_CALENDAR') || domains.includes('RECALC')) {
             syncBsCalendarMirrorRef.current();
+            // Gates and BS screens re-read the calendar from this signal; without
+            // it they only refreshed on tab re-activation (DF-10).
+            broadcastBsCalendarUpdated();
           }
           // Any serial_log writer makes the shared register snapshot stale
           // for every open stock/dispatch gate, not just the paged register.

@@ -13,7 +13,8 @@ import {
   CustomerDeviceRecord,
   ApprovalRequest,
 } from '../../types';
-import { hasExactBSDayRecord, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
+import { BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
+import { useBsCalendarGate } from '../../utils/bsCalendarGate';
 import { api } from '../../services/api';
 import { useSerialRegister } from '../../services/serialRegisterCache';
 import { useDialog } from '../../components/common/DialogProvider';
@@ -186,26 +187,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
   // seeded/updated by the admin from Administration & Governance -> BS Calendar Utility.
   // ---------------------------------------------------------------------------
-  const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
-  const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
-
-  const checkBsDateAvailability = async () => {
-    const todayAD = new Date().toISOString().split('T')[0];
-    try {
-      const res = await api.getBsDayRecordByAdDate(todayAD);
-      setBsDateCheckedFor(todayAD);
-      setBsDateStatus(res?.found ? 'available' : 'missing');
-    } catch (_err) {
-      // Server unreachable -> fall back to the strict client-side calendar check
-      setBsDateCheckedFor(todayAD);
-      setBsDateStatus(hasExactBSDayRecord(todayAD) ? 'available' : 'missing');
-    }
-  };
-
-  useEffect(() => {
-    checkBsDateAvailability();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Shared gate (DF-10): checks the LOCAL date, re-runs when App signals a BS
+  // calendar change, and shows a checking state instead of a stale verdict.
+  const {
+    status: bsDateStatus,
+    checkedFor: bsDateCheckedFor,
+    recheck: checkBsDateAvailability,
+  } = useBsCalendarGate();
 
   const ensureBsDateAvailable = (): boolean => {
     if (bsDateStatus === 'missing') {
@@ -479,6 +467,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     <StockOperationsProvider value={ctx}>
     <div className="space-y-3">
       {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
+      {bsDateStatus === 'checking' && (
+        <div className="p-2.5 rounded-2xl bg-slate-500/10 border border-slate-400/30 text-slate-700 dark:text-slate-300 flex items-center gap-2 text-xs font-medium">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          Checking today's Nepali (BS) date record…
+        </div>
+      )}
       {bsDateStatus === 'missing' && (
         <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-900 dark:text-red-200 flex flex-col sm:flex-row sm:items-center justify-start gap-3">
           <div className="flex items-start gap-3">

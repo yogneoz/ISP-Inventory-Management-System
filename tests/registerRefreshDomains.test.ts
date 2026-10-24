@@ -408,6 +408,51 @@ describe('SSE burst → full-bootstrap fallback (App.tsx SSE handler path)', () 
     // refreshAllData's register bump — the six-counter effect under test.
     assert.match(appSource, /setRegisterRefresh\(bumpAllRegisterRefresh\)/);
   });
+
+  test('a BS_CALENDAR / RECALC burst broadcasts one app-wide calendar signal (DF-10)', () => {
+    const appSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'client', 'src', 'App.tsx'),
+      'utf8'
+    );
+    // App already re-read its own calendar mirror on these domains; the
+    // broadcast is what lets mounted BS screens and the stock gate re-read
+    // without a reload. Dropping it re-opens DF-10 (stale gate after seeding).
+    assert.match(
+      appSource,
+      /if \(domains\.includes\('BS_CALENDAR'\) \|\| domains\.includes\('RECALC'\)\) \{[\s\S]*?syncBsCalendarMirrorRef\.current\(\);[\s\S]*?broadcastBsCalendarUpdated\(\);[\s\S]*?\}/
+    );
+
+    for (const screen of ['finance/BsCalendarUtility.tsx', 'finance/NepaliFiscalManagement.tsx']) {
+      const source = readFeatureSource(screen);
+      assert.match(
+        source,
+        /const calendarVersion = useBsCalendarRefresh\(\)/,
+        `client/src/features/${screen} must subscribe to the app-wide calendar signal`
+      );
+      assert.match(
+        source,
+        /refreshCalendarData\(\);\s*\}, \[activationKey, calendarVersion\]\);/,
+        `client/src/features/${screen} must refetch when the calendar signal arrives`
+      );
+      // The fallback must be labelled: a failed read must never look like
+      // server data (the tables would otherwise show bundled defaults).
+      assert.match(
+        source,
+        /setCalendarLoadError\(e\?\.message \|\| 'The calendar database could not be read\.'\)/,
+        `client/src/features/${screen} must surface a failed calendar read`
+      );
+      assert.match(
+        source,
+        /calendarLoadError && \(/,
+        `client/src/features/${screen} must render the failed-read notice`
+      );
+      assert.match(
+        source,
+        /bundled defaults, not server data/,
+        `client/src/features/${screen} must say the values are bundled defaults`
+      );
+    }
+  });
 });
 
 describe('Paged-tab audit guard — no self-fetching data loads', () => {
@@ -458,18 +503,32 @@ describe('Paged-tab audit guard — no self-fetching data loads', () => {
     const source = readFeatureSource('inventory/DamagedStockTracking.tsx');
     // The rendered grid (damageRecords, stock, products,
     // branches) comes from props. The ONLY api calls
-    // allowed are the four below — none of them loads
+    // allowed are the three below — none of them loads
     // the data the component renders:
     assert.deepEqual(serverCallsIn(source), [
       'createStockOperation', // disposal write-off mutation; fallback when the parent passes no onCreateOperation
-      'getBsDayRecordByAdDate', // BS-calendar availability check on mount — UI gating, not business data
       'getStockOperations', // damage-reversal flow: resolve the originating DAMAGE op id from a reference
       'reverseStockOperation', // the reversal mutation itself (guarded endpoint; the page reloads after)
     ]);
-    // The sole useEffect is the mount-only BS-calendar
-    // check — no data-loading effect may exist here.
-    assert.equal(useEffectCount(source), 1);
-    assert.match(source, /useEffect\(\(\) => \{\s*checkBsDateAvailability\(\);/);
+    // No data-loading effect may exist here. The BS-calendar check moved into
+    // the shared gate hook (DF-10), which owns the single day-record read, the
+    // local-date fix and the re-check on activation / BS_CALENDAR signal.
+    assert.equal(useEffectCount(source), 0);
+    assert.match(
+      source,
+      /useBsCalendarGate\(damagedStockActivationKey\)/,
+      'the screen must gate through the shared BS-date hook, not its own mount-only check'
+    );
+    assert.match(
+      source,
+      /useActivationKey\('damaged-stock'\)/,
+      're-activating the tab must re-run the gate'
+    );
+    assert.doesNotMatch(
+      source,
+      /new Date\(\)\.toISOString\(\)\.split\('T'\)\[0\]/,
+      'the gate must use the local calendar day (DF-10), not the UTC slice'
+    );
   });
 
   test('contrast: the self-fetch pattern this guard rejects, correctly wired in the StockOperations register panel', () => {
@@ -673,13 +732,16 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     const source = readFeatureSource('inventory/StockOperations.tsx');
     // §G commit 2 relocated every submit handler — and with it 10 of the
     // original 12 methods — into the owning stockops/*Panel.tsx. What stays
-    // in the host are the two chrome-level reads: the BS-calendar gate and
-    // the exchange tab's device list (the tab-bar counter needs it mounted).
-    assert.deepEqual(serverCallsIn(source), [
-      'getBsDayRecordByAdDate',
-      'getCustomerDevices',
-    ]);
+    // in the host is the exchange tab's device list (the tab-bar counter needs
+    // it mounted); the BS-calendar gate's one read moved into the shared
+    // bsCalendarGate hook (DF-10, pinned by tests/bsCalendarGate.test.ts).
+    assert.deepEqual(serverCallsIn(source), ['getCustomerDevices']);
     assertNoRawFetch(source, 'StockOperations.tsx');
+    assert.match(
+      source,
+      /useBsCalendarGate\(\)/,
+      'the host must keep the BS-date gate wired through the shared hook'
+    );
 
     // The serial register itself moved to the app-wide cache (DF-03): the
     // host's stock-out gate validates serials against `serial_log`, but it no

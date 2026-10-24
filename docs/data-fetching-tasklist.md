@@ -38,7 +38,7 @@ ships a task.
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `done` | — |
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `done` | — |
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `done` | — |
-| DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `todo` | DF-06 (for live calendar events) |
+| DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `done` | DF-06 (for live calendar events) |
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `todo` | — |
 | DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `todo` | DF-03, DF-05 (soft) |
 
@@ -465,6 +465,16 @@ plus a manual delete on a >1-page register.
 ---
 
 ## DF-10 — BS calendar fallbacks and the BS-date gate (P2-7, P2-8)
+
+**Status: `done` (2026-10-24).** Both BS screens keep a `calendarLoadError` and
+render a persistent "the values below are bundled defaults, not server data"
+notice with Retry; they re-read on the app-wide calendar signal (`bsCalendarRefresh`)
+as well as on activation. The stock gate moved into `utils/bsCalendarGate.ts`
+(`useBsCalendarGate`, shared by Stock Operations and Damaged Stock Tracking): it
+checks the local day (`utils/localDate.ts`, extracted from SalesInvoices), shows
+a checking state, re-runs on activation and on the calendar event, and still
+falls back to the strict compiled calendar when the server is unreachable.
+Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-10 shipped".
 
 **Problem.** Both BS screens silently fall back to the compiled client calendar
 on any fetch failure and only refetch on tab activation. The stock-operation

@@ -40,17 +40,7 @@ import type {
   SalesInvoice, SalesInvoiceItem, Product, Branch, InventoryStock, CompanyProfile, User,
   CustomerRecord, DeviceSerialPair, SerialLog,
 } from '../../types';
-
-/**
- * Today's AD date on the user's local calendar. A sales invoice may never be
- * dated later than this — ISO strings compare lexicographically, so a plain
- * `>` is a correct date comparison.
- */
-const localTodayAD = () => {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
+import { localTodayAD } from '../../utils/localDate';
 
 interface SalesInvoicesProps {
   companyProfile?: CompanyProfile | null;

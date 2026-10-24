@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User, StockOperation, DamageRecord } from '../../types';
 import { NavTab } from '../../components/layout/Sidebar';
 import { api } from '../../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../../utils/permissions';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatNPR } from '../../utils/nprFormat';
-import { ensureBSDayForAD, hasExactBSDayRecord, getNepaliFiscalYear, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
+import { ensureBSDayForAD, getNepaliFiscalYear, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalendar';
+import { useActivationKey } from '../../components/common/KeepMounted';
+import { useBsCalendarGate } from '../../utils/bsCalendarGate';
+import { localTodayAD } from '../../utils/localDate';
 import StatCard from '../../components/common/StatCard';
 import { DateField } from '../../components/DateField';
 import {
@@ -94,26 +97,15 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   // has a seeded Nepali (BS) day record in bs_day_records. Missing months are
   // seeded/updated by the admin from Administration & Governance -> BS Calendar Utility.
   // ---------------------------------------------------------------------------
-  const [bsDateStatus, setBsDateStatus] = useState<'checking' | 'available' | 'missing'>('checking');
-  const [bsDateCheckedFor, setBsDateCheckedFor] = useState<string>(new Date().toISOString().split('T')[0]);
-
-  const checkBsDateAvailability = async () => {
-    const todayAD = new Date().toISOString().split('T')[0];
-    try {
-      const res = await api.getBsDayRecordByAdDate(todayAD);
-      setBsDateCheckedFor(todayAD);
-      setBsDateStatus(res?.found ? 'available' : 'missing');
-    } catch (_err) {
-      // Server unreachable -> fall back to the strict client-side calendar check
-      setBsDateCheckedFor(todayAD);
-      setBsDateStatus(hasExactBSDayRecord(todayAD) ? 'available' : 'missing');
-    }
-  };
-
-  useEffect(() => {
-    checkBsDateAvailability();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Shared gate (DF-10): checks the LOCAL date, re-runs when this tab is
+  // re-activated or App signals a BS calendar change, and shows a checking
+  // state instead of a stale verdict.
+  const damagedStockActivationKey = useActivationKey('damaged-stock');
+  const {
+    status: bsDateStatus,
+    checkedFor: bsDateCheckedFor,
+    recheck: checkBsDateAvailability,
+  } = useBsCalendarGate(damagedStockActivationKey);
 
   const ensureBsDateAvailable = (): boolean => {
     if (bsDateStatus === 'missing') {
@@ -410,7 +402,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
       // Date integrity: keep the AD date as the canonical value and derive the
       // BS date from the seeded calendar (never a hardcoded literal).
-      const disposalDateAD = new Date().toISOString().split('T')[0];
+      const disposalDateAD = localTodayAD();
       // BS dates are mandatory: resolve from the synced seeded calendar and
       // block the write-off when it has no exact record (never send ''/hardcode).
       const disposalDateBS = ensureBSDayForAD(disposalDateAD);
@@ -479,6 +471,12 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   return (
     <div className="space-y-3">
       {/* BS Calendar Gate Banner: blocks stock operations until today's BS date record exists */}
+      {bsDateStatus === 'checking' && (
+        <div className="p-2.5 rounded-2xl bg-slate-500/10 border border-slate-400/30 text-slate-700 dark:text-slate-300 flex items-center gap-2 text-xs font-medium">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          Checking today's Nepali (BS) date record…
+        </div>
+      )}
       {bsDateStatus === 'missing' && (
         <div className={`p-3 rounded-2xl bg-red-500/10 border border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-start gap-3 text-red-900 dark:text-red-200`}>
           <div className="flex items-start gap-3">
