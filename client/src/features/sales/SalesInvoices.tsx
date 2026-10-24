@@ -25,7 +25,7 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
-import { TablePagination } from '../../components/common/TablePagination';
+import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
@@ -609,10 +609,13 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   }, [siLoadError, siRows, invoices, branchFilter, query]);
 
   const totalItems = siLoadError ? filtered.length : siTotalItems;
+  // A delete can shrink the filtered set under the current page; snap back to
+  // the new last page instead of asking the server for one that is gone (DF-09).
+  const safePage = useServerPageClamp(siPage, siPageSize, totalItems, setSiPage);
   const pageRows = filtered;
   const pageCount = Math.max(1, Math.ceil(totalItems / siPageSize));
-  const rangeStart = totalItems === 0 ? 0 : (siPage - 1) * siPageSize + 1;
-  const rangeEnd = Math.min(totalItems, siPage * siPageSize);
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * siPageSize + 1;
+  const rangeEnd = Math.min(totalItems, safePage * siPageSize);
 
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name || id;
 
@@ -1110,7 +1113,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
             </table>
           </div>
           <TablePagination
-            page={siPage}
+            page={safePage}
             pageSize={siPageSize}
             totalItems={totalItems}
             pageCount={pageCount}

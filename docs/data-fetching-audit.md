@@ -241,6 +241,7 @@ trusting a bootstrap-only prop.
    An older response resolves after the newer one and overwrites it.
 
 6. **Registers keep a page that no longer exists.**
+   **Fixed by DF-09 (2026-10-24).**
    None of the paged registers clamps `page` when `totalItems` shrinks after a
    delete (no `setXPage(Math.min(...))` exists; `TablePagination` does not clamp
    either — [TablePagination.tsx:111-115](../client/src/components/common/TablePagination.tsx#L111-L115)).
@@ -354,14 +355,14 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Physical Stock Audit | props stock + appSettings | Fine. |
 | Reorder Stock, Stock Valuation, Warranty, Asset Deployments | props | Fine. |
 | Import / Export Stock | props | Fine. |
-| Serial Log Register | paged | Seq + error correct; page clamp missing (P2-6). Shipment-receipt refresh fixed by DF-06. |
+| Serial Log Register | paged | Seq + error correct; page clamp fixed by DF-09. Shipment-receipt refresh fixed by DF-06. |
 | Product Master Catalog | self catalog | Stale after every save (P1-1); error state dead (P2-9). |
 | Category / UoM Management | self list | Silent failure, no loading UI (P2-9). |
 | Customer Master Directory | self paged | **P0: always empty**; status filter ignored. |
 | Customer Device Serials | self devices + props customers | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). |
 | Locations | self list | Silent failure (P2-9); default branch captured before branches load. |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
-| Purchase Orders, Purchase Invoices | paged | Guards fine; silent fallback (P1-3); page clamp (P2-6). |
+| Purchase Orders, Purchase Invoices | paged | Guards fine; silent fallback (P1-3); page clamp fixed by DF-09. |
 | Purchase / Sales Returns Register | paged | Same as above. |
 | Sales Invoices | paged | Same as above. |
 | Consumables Register | paged | Same; also depends on the shared serial cache for its form host. |
@@ -416,6 +417,10 @@ green. No batch needs a dependency.
    `utils/latestOnly.ts` ticket guard, unit-tested in `tests/latestOnly.test.ts`
    and used by all four screens.
 9. **P2-6** — clamp the page when `pageCount < page` inside each register.
+   **Landed as DF-09 (2026-10-24)** as one shared `clampPage` +
+   `useServerPageClamp` in `TablePagination`, tested in
+   `tests/serverPageClamp.test.ts` and wired into all six server-paged
+   registers.
 10. **P2-7/P2-8/P2-9** — replace the silent fallbacks with a visible notice and
     a refresh action; use `localTodayAD()`; surface load errors in the setup
     lists.

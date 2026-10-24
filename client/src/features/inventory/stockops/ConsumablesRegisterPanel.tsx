@@ -4,7 +4,7 @@ import {
   ConsumableIssueItem,
   StockOperation,
 } from '../../../types';
-import { TablePagination } from '../../../components/common/TablePagination';
+import { TablePagination, useServerPageClamp } from '../../../components/common/TablePagination';
 import { DateField } from '../../../components/DateField';
 import { FilterCard } from '../../../components/common/FilterCard';
 import { RegisterLoadError } from '../../../components/common/RegisterLoadError';
@@ -160,6 +160,14 @@ export const ConsumablesRegisterPanel: React.FC = () => {
   // fetch failure so the ledger still displays.
   const consumableRegisterOps = consumableRegisterError ? consumableRegisterFallbackOps : consumableRegisterRows;
   const consumableRegisterCount = consumableRegisterError ? consumableRegisterFallbackOps.length : consumableRegisterTotal;
+  // A reversal/delete can shrink the filtered set under the current page; snap
+  // back to the new last page instead of asking for one that is gone (DF-09).
+  const consumableRegisterSafePage = useServerPageClamp(
+    consumableRegisterPage,
+    consumableRegisterPageSize,
+    consumableRegisterCount,
+    setConsumableRegisterPage
+  );
 
   return (
     <>
@@ -465,11 +473,11 @@ export const ConsumablesRegisterPanel: React.FC = () => {
           )}
 
           <TablePagination
-            page={consumableRegisterPage}
+            page={consumableRegisterSafePage}
             pageCount={Math.max(1, Math.ceil(consumableRegisterCount / consumableRegisterPageSize))}
             totalItems={consumableRegisterCount}
-            rangeStart={consumableRegisterCount === 0 ? 0 : (consumableRegisterPage - 1) * consumableRegisterPageSize + 1}
-            rangeEnd={Math.min(consumableRegisterPage * consumableRegisterPageSize, consumableRegisterCount)}
+            rangeStart={consumableRegisterCount === 0 ? 0 : (consumableRegisterSafePage - 1) * consumableRegisterPageSize + 1}
+            rangeEnd={Math.min(consumableRegisterSafePage * consumableRegisterPageSize, consumableRegisterCount)}
             pageSize={consumableRegisterPageSize}
             onPageChange={(p) => setConsumableRegisterPage(Math.max(1, p))}
             onPageSizeChange={(s) => {

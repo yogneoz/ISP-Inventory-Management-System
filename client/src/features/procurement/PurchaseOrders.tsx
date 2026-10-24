@@ -24,7 +24,7 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
-import { TablePagination } from '../../components/common/TablePagination';
+import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
 
@@ -190,13 +190,17 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       }).sort((a, b) => (b.orderDateAD || '').localeCompare(a.orderDateAD || ''))
     : poRows;
 
+  // A delete can shrink the filtered set under the current page; snap back to
+  // the new last page instead of asking the server for one that is gone (DF-09).
+  const poSafePage = useServerPageClamp(poPage, poPageSize, poTotalItems, setPoPage);
+
   const poPagination = {
-    page: poPage,
+    page: poSafePage,
     pageCount: Math.max(1, Math.ceil(poTotalItems / poPageSize)),
     pageSize: poPageSize,
     totalItems: poTotalItems,
-    rangeStart: poTotalItems === 0 ? 0 : (poPage - 1) * poPageSize + 1,
-    rangeEnd: Math.min(poPage * poPageSize, poTotalItems),
+    rangeStart: poTotalItems === 0 ? 0 : (poSafePage - 1) * poPageSize + 1,
+    rangeEnd: Math.min(poSafePage * poPageSize, poTotalItems),
     setPage: (p: number) => setPoPage(Math.max(1, p)),
     setPageSize: (s: number) => {
       setPoPageSize(s);

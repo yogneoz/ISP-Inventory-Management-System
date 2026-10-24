@@ -37,7 +37,7 @@ import {
   History,
   Loader2,
 } from 'lucide-react';
-import { TablePagination } from '../../components/common/TablePagination';
+import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -215,13 +215,17 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       }).sort((a, b) => (b.invoiceDateAD || '').localeCompare(a.invoiceDateAD || ''))
     : piRows;
 
+  // A delete can shrink the filtered set under the current page; snap back to
+  // the new last page instead of asking the server for one that is gone (DF-09).
+  const piSafePage = useServerPageClamp(piPage, piPageSize, piTotalItems, setPiPage);
+
   const invoicePagination = {
-    page: piPage,
+    page: piSafePage,
     pageCount: Math.max(1, Math.ceil(piTotalItems / piPageSize)),
     pageSize: piPageSize,
     totalItems: piTotalItems,
-    rangeStart: piTotalItems === 0 ? 0 : (piPage - 1) * piPageSize + 1,
-    rangeEnd: Math.min(piPage * piPageSize, piTotalItems),
+    rangeStart: piTotalItems === 0 ? 0 : (piSafePage - 1) * piPageSize + 1,
+    rangeEnd: Math.min(piSafePage * piPageSize, piTotalItems),
     setPage: (p: number) => setPiPage(Math.max(1, p)),
     setPageSize: (s: number) => {
       setPiPageSize(s);

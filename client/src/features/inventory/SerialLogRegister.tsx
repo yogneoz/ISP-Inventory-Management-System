@@ -24,7 +24,7 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import { TablePagination } from '../../components/common/TablePagination';
+import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
@@ -169,13 +169,17 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   const register = rows;
   const filtered = rows;
 
+  // A delete can shrink the filtered set under the current page; snap back to
+  // the new last page instead of asking the server for one that is gone (DF-09).
+  const safePage = useServerPageClamp(serverPage, serverPageSize, totalItems, setServerPage);
+
   const pagination = {
-    page: serverPage,
+    page: safePage,
     pageCount: Math.max(1, Math.ceil(totalItems / serverPageSize)),
     pageSize: serverPageSize,
     totalItems,
-    rangeStart: totalItems === 0 ? 0 : (serverPage - 1) * serverPageSize + 1,
-    rangeEnd: Math.min(serverPage * serverPageSize, totalItems),
+    rangeStart: totalItems === 0 ? 0 : (safePage - 1) * serverPageSize + 1,
+    rangeEnd: Math.min(safePage * serverPageSize, totalItems),
     pagedItems: rows,
     setPage: (p: number) => setServerPage(Math.max(1, p)),
     setPageSize: (s: number) => {

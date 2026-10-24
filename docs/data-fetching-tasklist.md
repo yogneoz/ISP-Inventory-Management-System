@@ -37,7 +37,7 @@ ships a task.
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `done` | — |
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `done` | — |
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `done` | — |
-| DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `todo` | — |
+| DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `done` | — |
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `todo` | DF-06 (for live calendar events) |
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `todo` | — |
 | DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `todo` | DF-03, DF-05 (soft) |
@@ -427,6 +427,12 @@ npm test
 ---
 
 ## DF-09 — Clamp a register page when the row set shrinks (P2-6)
+
+**Status: `done` (2026-10-24).** `TablePagination` exports `clampPage` and a
+`useServerPageClamp` hook, wired into the six server-paged registers; a
+shrinking total snaps the state to the new last page, a zero total stays on
+page 1, and page-size changes still reset to page 1. Evidence and suite numbers
+are in `SESSION_NOTES.md` under "DF-09 shipped".
 
 **Problem.** PO/PI/SI/Returns/Serial Log/Consumables keep `page` after a delete
 shrinks the total. The next fetch asks for a page that no longer exists, the

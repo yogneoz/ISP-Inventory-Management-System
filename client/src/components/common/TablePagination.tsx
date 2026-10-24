@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 /**
@@ -46,7 +46,7 @@ export function useClientPagination<T>(
 
   const totalItems = items.length;
   const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
-  const safePage = Math.min(page, pageCount);
+  const safePage = clampPage(page, pageCount);
   const startIdx = (safePage - 1) * pageSize;
   const pagedItems = items.slice(startIdx, startIdx + pageSize);
 
@@ -65,6 +65,39 @@ export function useClientPagination<T>(
       setPageState(1);
     },
   };
+}
+
+/**
+ * The page a register should request for a row set of `pageCount` pages.
+ * Never 0: an empty row set is still page 1.
+ */
+export function clampPage(page: number, pageCount: number): number {
+  return Math.min(Math.max(1, page), Math.max(1, pageCount));
+}
+
+/**
+ * Keeps a SERVER-paged register on a page that exists (DF-09). When a delete
+ * shrinks the filtered total under the current page, `page` is snapped back to
+ * the new last page, so the register never requests a page the server no longer
+ * has. The returned page is already clamped, so the footer stays coherent while
+ * the clamped page is being fetched.
+ *
+ * The state clamp runs in an effect rather than during render: the fetch for
+ * the still-rendered page has already been committed, and the `page !==
+ * safePage` guard makes the snap a one-shot (no clamp loop).
+ */
+export function useServerPageClamp(
+  page: number,
+  pageSize: number,
+  totalItems: number,
+  setPage: (page: number) => void
+): number {
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = clampPage(page, pageCount);
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage, setPage]);
+  return safePage;
 }
 
 function pageWindow(page: number, pageCount: number): (number | 'gap-l' | 'gap-r')[] {
