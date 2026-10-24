@@ -360,7 +360,7 @@ bootstrap; **paged** = path 4; **self** = path 5; **form** = no read of its own.
 | Category / UoM Management | self list | Silent failure, no loading UI (P2-9). |
 | Customer Master Directory | self paged | **P0: always empty**; status filter ignored. |
 | Customer Device Serials | self devices + props customers | No paging defect (endpoint is unpaged) but dead page/error state (P3-5). |
-| Locations | self list | Silent failure (P2-9); default branch captured before branches load. |
+| Locations | self list | Load failure surfaced by DF-11; a new location's branch now follows the signed-in user once the branch list loads (close-out fix). |
 | Device Exchange | StockOperations host | Mount-once serial snapshot (P1-2); full page reload (P2-10). |
 | Purchase Orders, Purchase Invoices | paged | Guards fine; fetch failures render the retryable notice and exports refuse a partial file (DF-04); page clamp fixed by DF-09. |
 | Purchase / Sales Returns Register | paged | Same as above. |

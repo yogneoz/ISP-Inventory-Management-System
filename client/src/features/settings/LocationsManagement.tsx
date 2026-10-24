@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useActivationKey } from '../../components/common/KeepMounted';
-import { Branch, LocationRecord } from '../../types';
+import { Branch, LocationRecord, User } from '../../types';
 import { MapPin, Plus, Building2, Server, Globe, ExternalLink, Check, Copy, Navigation } from 'lucide-react';
 import { api } from '../../services/api';
 import StatCard from '../../components/common/StatCard';
@@ -10,10 +10,29 @@ import { LoadStateNotice } from '../../components/common/LoadStateNotice';
 
 interface LocationsManagementProps {
   branches: Branch[];
+  currentUser?: User | null;
+}
+
+/**
+ * The branch a NEW location defaults to.
+ *
+ * It used to be `branches[0]`, captured when the component mounted. On a slow
+ * bootstrap that list was still empty, so every location started as the
+ * hard-coded 'WH001' — and even a loaded list put the operator on whichever
+ * branch happened to sort first. Prefer the user's own branch, then the first
+ * branch in the master list, then the legacy default.
+ */
+export function defaultLocationBranchId(
+  branches: Branch[],
+  userBranchId?: string | null
+): string {
+  if (userBranchId && branches.some((b) => b.id === userBranchId)) return userBranchId;
+  return branches[0]?.id || 'WH001';
 }
 
 export const LocationsManagement: React.FC<LocationsManagementProps> = ({
   branches,
+  currentUser,
 }) => {
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,10 +45,14 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // The branch the operator picked in this form. Until they pick one, the form
+  // follows the user's branch as the bootstrap arrives.
+  const [branchPicked, setBranchPicked] = useState(false);
+  const defaultBranchId = defaultLocationBranchId(branches, currentUser?.branchId);
   const [formData, setFormData] = useState<Omit<LocationRecord, 'id'>>({
     name: '',
     type: 'POP_SERVER_ROOM',
-    branchId: branches[0]?.id || 'WH001',
+    branchId: defaultBranchId,
     address: '',
     coordinates: { latitude: 0, longitude: 0 },
     contactPerson: '',
@@ -37,6 +60,16 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     notes: '',
     activeAssetsCount: 0,
   });
+
+  // The branch master list can land AFTER this tab's first render (slow
+  // bootstrap) and a profile switch changes which branch is "ours". Keep an
+  // untouched form on the right default; never overwrite an explicit pick.
+  useEffect(() => {
+    if (branchPicked) return;
+    setFormData((prev) =>
+      prev.branchId === defaultBranchId ? prev : { ...prev, branchId: defaultBranchId }
+    );
+  }, [defaultBranchId, branchPicked]);
 
   const loadLocations = async () => {
     try {
@@ -84,10 +117,11 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
     try {
       await api.createLocation(formData);
       setIsModalOpen(false);
+      setBranchPicked(false);
       setFormData({
         name: '',
         type: 'POP_SERVER_ROOM',
-        branchId: branches[0]?.id || 'WH001',
+        branchId: defaultBranchId,
         address: '',
         coordinates: { latitude: 0, longitude: 0 },
         contactPerson: '',
@@ -366,7 +400,10 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
                   <label className="block font-bold mb-1">Branch *</label>
                   <select
                     value={formData.branchId}
-                    onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                    onChange={(e) => {
+                      setBranchPicked(true);
+                      setFormData({ ...formData, branchId: e.target.value });
+                    }}
                     className={`w-full rounded-xl border p-2.5 bg-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-white`}
                   >
                     {branches.map((b) => (

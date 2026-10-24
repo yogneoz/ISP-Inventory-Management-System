@@ -2064,6 +2064,7 @@ export default function App() {
               <React.Suspense fallback={<TabLoadingFallback />}>
                 <LocationsManagement
                   branches={branches}
+                  currentUser={currentUser}
                 />
               </React.Suspense>
             </KeepMounted>
