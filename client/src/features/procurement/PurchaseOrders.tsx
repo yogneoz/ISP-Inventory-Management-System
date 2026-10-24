@@ -25,6 +25,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { FilterCard } from '../../components/common/FilterCard';
 import { api } from '../../services/api';
 import { TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { PurchaseOrderForm, type OrderFormLine } from './PurchaseOrderForm';
 
 // Re-exported for App.tsx, which seeds the dashboard's low-stock reorder flow.
@@ -105,7 +106,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [poReceivedValue, setPoReceivedValue] = useState(0);
   const [poPage, setPoPage] = useState(1);
   const [poPageSize, setPoPageSize] = useState(15);
-  const [, setPoLoading] = useState(true);
+  const [poLoading, setPoLoading] = useState(true);
   const [poLoadError, setPoLoadError] = useState('');
   const [poRefreshKey, setPoRefreshKey] = useState(0);
 
@@ -210,21 +211,26 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         ? 'All Branches (Consolidated)'
         : branches.find((b) => b.id === selectedBranchId)?.name || selectedBranchId;
 
-    let exportRows = filteredPOs;
-    if (!poLoadError) {
-      try {
-        const envelope = await api.getPurchaseOrders({
-          branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
-          supplier: supplierFilterName,
-          query: searchQuery.trim() || undefined,
-          dateFromAD: orderDateFromAD || undefined,
-          dateToAD: orderDateToAD || undefined,
-          all: true,
-        }) as { data: PurchaseOrder[] };
-        exportRows = envelope.data || [];
-      } catch {
-        // Fall back to the rows already on screen.
-      }
+    if (poLoadError) {
+      alertDialog('Cannot export while the register is in an error state. Retry the page load first.');
+      return;
+    }
+    let exportRows: PurchaseOrder[];
+    try {
+      const envelope = await api.getPurchaseOrders({
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+        supplier: supplierFilterName,
+        query: searchQuery.trim() || undefined,
+        dateFromAD: orderDateFromAD || undefined,
+        dateToAD: orderDateToAD || undefined,
+        all: true,
+      }) as { data: PurchaseOrder[] };
+      exportRows = envelope.data || [];
+    } catch (err: any) {
+      // Abort instead of silently exporting the visible page as if it were
+      // the whole filtered set.
+      alertDialog(`Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`);
+      return;
     }
 
     exportToCSV({
@@ -307,8 +313,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <button
                 type="button"
                 onClick={handleExportPOCSV}
-                title="Export the visible register rows to CSV"
-                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+                disabled={Boolean(poLoadError)}
+                title={
+                  poLoadError
+                    ? 'Export is disabled until the register loads — a partial file would misstate the filtered set'
+                    : 'Export every filtered register row to CSV'
+                }
+                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 ${poLoadError ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
               >
                 <Download className="h-4 w-4 text-slate-500" />
                 <span>Export CSV</span>
@@ -512,6 +523,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               </span>
             }
           />
+
+          {poLoadError && (
+            <RegisterLoadError
+              subject="this page of purchase orders"
+              message={poLoadError}
+              hasCachedRows={filteredPOs.length > 0}
+              loading={poLoading}
+              onRetry={() => { void loadPoPage(); }}
+            />
+          )}
 
           {/* Purchase Orders Table */}
           <div

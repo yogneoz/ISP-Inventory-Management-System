@@ -32,7 +32,7 @@ ships a task.
 | DF-01 | Restore the Customer Master Directory (server-side paging) | P0-1 | P0 | `done` | — |
 | DF-02 | Refresh the product catalog after save/re-activation | P1-1 | P1 | `done` | — |
 | DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `done` | — |
-| DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `todo` | — |
+| DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `done` | — |
 | DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `todo` | — |
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `todo` | — |
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `todo` | — |
@@ -206,6 +206,13 @@ this only removes client-side false refusals/acceptances.
 ---
 
 ## DF-04 — Surface paged-register fetch failures (P1-3)
+
+**Status: `done` (2026-10-24).** PO, PI, SI, Returns and Consumables render one
+shared `RegisterLoadError` notice above their tables with the real error and a
+Retry that re-runs that register's own page fetch. The fallback stays but is
+labelled as cached, and the three export paths abort (disabled button +
+visible message) instead of silently writing the visible page. Live evidence
+is in `SESSION_NOTES.md` under "DF-04 shipped".
 
 **Problem.** PO, PI, SI, Returns and Consumables catch a failed page fetch and
 render a client-filtered fallback with no notice. The error states exist but are

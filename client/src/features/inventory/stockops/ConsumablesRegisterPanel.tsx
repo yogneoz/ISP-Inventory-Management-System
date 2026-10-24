@@ -7,6 +7,7 @@ import {
 import { TablePagination } from '../../../components/common/TablePagination';
 import { DateField } from '../../../components/DateField';
 import { FilterCard } from '../../../components/common/FilterCard';
+import { RegisterLoadError } from '../../../components/common/RegisterLoadError';
 import { formatNPR } from '../../../utils/nprFormat';
 import { exportToCSV } from '../../../utils/exportUtils';
 import { isOperationAllowed } from '../../../utils/permissions';
@@ -247,24 +248,35 @@ export const ConsumablesRegisterPanel: React.FC = () => {
               rightChildren={
                 <button
                   type="button"
+                  disabled={Boolean(consumableRegisterError)}
+                  title={
+                    consumableRegisterError
+                      ? 'Export is disabled until the register loads — a partial file would misstate the filtered set'
+                      : 'Export every filtered register row to CSV'
+                  }
                   onClick={async () => {
                     // Export every filtered row, not just the current page.
-                    let exportOps = consumableRegisterOps;
-                    if (!consumableRegisterError) {
-                      try {
-                        const envelope = await api.getStockOperations({
-                          type: 'CONSUMABLE_ISSUE',
-                          branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
-                          status: consumableRegisterStatus,
-                          query: consumableRegisterQuery.trim() || undefined,
-                          dateFromAD: consumableRegisterDateFrom || undefined,
-                          dateToAD: consumableRegisterDateTo || undefined,
-                          all: true,
-                        }) as { data: StockOperation[] };
-                        exportOps = envelope.data || [];
-                      } catch {
-                        // Fall back to the rows already on screen.
-                      }
+                    if (consumableRegisterError) {
+                      showToast('Cannot export while the register is in an error state. Retry the page load first.');
+                      return;
+                    }
+                    let exportOps: StockOperation[];
+                    try {
+                      const envelope = await api.getStockOperations({
+                        type: 'CONSUMABLE_ISSUE',
+                        branchId: consumableRegisterBranch !== 'ALL' ? consumableRegisterBranch : undefined,
+                        status: consumableRegisterStatus,
+                        query: consumableRegisterQuery.trim() || undefined,
+                        dateFromAD: consumableRegisterDateFrom || undefined,
+                        dateToAD: consumableRegisterDateTo || undefined,
+                        all: true,
+                      }) as { data: StockOperation[] };
+                      exportOps = envelope.data || [];
+                    } catch (err: any) {
+                      // Abort instead of silently exporting the visible page
+                      // as if it were the whole filtered set.
+                      showToast(`Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`);
+                      return;
                     }
                     exportToCSV(
                   'Consumables_Issue_Register',
@@ -294,7 +306,7 @@ export const ConsumablesRegisterPanel: React.FC = () => {
                   ]
                   );
                   }}
-                className="px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
+                className={`px-3 py-2 rounded-xl border text-xs font-bold bg-white border-slate-300 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 flex items-center gap-1.5 ${consumableRegisterError ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
               >
                 <Download className="h-4 w-4" />
                 <span>Export CSV</span>
@@ -303,10 +315,26 @@ export const ConsumablesRegisterPanel: React.FC = () => {
             />
           </div>
 
+          {consumableRegisterError && (
+            <div className="mb-3">
+              <RegisterLoadError
+                subject="this page of consumable issues"
+                message={consumableRegisterError}
+                hasCachedRows={consumableRegisterOps.length > 0}
+                loading={consumableRegisterLoading}
+                onRetry={() => { void loadConsumableRegisterPage(); }}
+              />
+            </div>
+          )}
+
           {consumableRegisterOps.length === 0 ? (
             <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
               <ClipboardList className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
-              <p>No consumable issue records match the current filters.</p>
+              <p>
+                {consumableRegisterError
+                  ? 'Consumable issue records could not be loaded. Use Retry above.'
+                  : 'No consumable issue records match the current filters.'}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">

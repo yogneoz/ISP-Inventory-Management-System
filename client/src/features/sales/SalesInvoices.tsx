@@ -26,6 +26,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
@@ -164,7 +165,7 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [siTotalItems, setSiTotalItems] = useState(0);
   const [siPage, setSiPage] = useState(1);
   const [siPageSize, setSiPageSize] = useState(25);
-  const [, setSiLoading] = useState(true);
+  const [siLoading, setSiLoading] = useState(true);
   const [siLoadError, setSiLoadError] = useState('');
   const [siRefreshKey, setSiRefreshKey] = useState(0);
 
@@ -1041,6 +1042,16 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
               </div>
             }
           />
+
+          {siLoadError && (
+            <RegisterLoadError
+              subject="this page of sales invoices"
+              message={siLoadError}
+              hasCachedRows={filtered.length > 0}
+              loading={siLoading}
+              onRetry={() => { void loadSiPage(); }}
+            />
+          )}
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-[#0f1218]">
             <table className="w-full text-sm">

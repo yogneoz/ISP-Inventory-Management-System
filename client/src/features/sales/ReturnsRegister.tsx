@@ -23,6 +23,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { useDialog } from '../../components/common/DialogProvider';
 import { useDarkMode } from '../../contexts/DarkModeContext';
 import { formatMoney } from '../../utils/nprFormat';
@@ -120,7 +121,7 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
   const [retTotalItems, setRetTotalItems] = useState(0);
   const [retPage, setRetPage] = useState(1);
   const [retPageSize] = useState(25);
-  const [, setRetLoading] = useState(true);
+  const [retLoading, setRetLoading] = useState(true);
   const [retLoadError, setRetLoadError] = useState('');
   const [retRefreshKey, setRetRefreshKey] = useState(0);
 
@@ -575,6 +576,16 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
               </div>
             }
           />
+
+          {retLoadError && (
+            <RegisterLoadError
+              subject="this page of returns"
+              message={retLoadError}
+              hasCachedRows={filtered.length > 0}
+              loading={retLoading}
+              onRetry={() => { void loadRetPage(); }}
+            />
+          )}
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-[#0f1218]">
             <table className="w-full text-sm">

@@ -38,6 +38,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { TablePagination } from '../../components/common/TablePagination';
+import { RegisterLoadError } from '../../components/common/RegisterLoadError';
 import { FilterCard } from '../../components/common/FilterCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { api } from '../../services/api';
@@ -144,7 +145,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [piSums, setPiSums] = useState({ taxable: 0, vat: 0, grand: 0, unpaid: 0 });
   const [piPage, setPiPage] = useState(1);
   const [piPageSize, setPiPageSize] = useState(15);
-  const [, setPiLoading] = useState(true);
+  const [piLoading, setPiLoading] = useState(true);
   const [piLoadError, setPiLoadError] = useState('');
   const [piRefreshKey, setPiRefreshKey] = useState(0);
 
@@ -407,21 +408,26 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   // Quick "Mark as Fully Paid" action for unpaid invoices
   const handleExportCSV = async () => {
     // Export every filtered invoice, not just the current page.
-    let exportRows = filteredInvoices;
-    if (!piLoadError) {
-      try {
-        const envelope = await api.getPurchaseInvoices({
-          branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
-          supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
-          query: searchQuery.trim() || undefined,
-          dateFromAD: billDateFromAD || undefined,
-          dateToAD: billDateToAD || undefined,
-          all: true,
-        }) as { data: PurchaseInvoice[] };
-        exportRows = envelope.data || [];
-      } catch {
-        // Fall back to the rows already on screen.
-      }
+    if (piLoadError) {
+      alertDialog('Cannot export while the register is in an error state. Retry the page load first.');
+      return;
+    }
+    let exportRows: PurchaseInvoice[];
+    try {
+      const envelope = await api.getPurchaseInvoices({
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : undefined,
+        supplier: vendorFilter !== 'ALL' ? vendorFilter : undefined,
+        query: searchQuery.trim() || undefined,
+        dateFromAD: billDateFromAD || undefined,
+        dateToAD: billDateToAD || undefined,
+        all: true,
+      }) as { data: PurchaseInvoice[] };
+      exportRows = envelope.data || [];
+    } catch (err: any) {
+      // Abort instead of silently exporting the visible page as if it were
+      // the whole filtered set.
+      alertDialog(`Export failed: ${err?.message || 'the full register could not be loaded'}. No file was written.`);
+      return;
     }
     exportToCSV('Inventory_Purchase_Invoices', exportRows, [
       { label: 'System Invoice #', key: 'invoiceNumber' },
@@ -483,7 +489,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <button
                   type="button"
                   onClick={handleExportCSV}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all cursor-pointer bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800`}
+                  disabled={Boolean(piLoadError)}
+                  title={
+                    piLoadError
+                      ? 'Export is disabled until the register loads — a partial file would misstate the filtered set'
+                      : 'Export every filtered register row to CSV'
+                  }
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-xs transition-all bg-white border-slate-300 text-slate-700 hover:bg-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 ${piLoadError ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
                 >
                   <Download className="h-4 w-4 text-slate-500" />
                   <span>Export CSV</span>
@@ -690,6 +702,17 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             }
           />
 
+          {piLoadError && (
+            <RegisterLoadError
+              subject="this page of purchase bills"
+              message={piLoadError}
+              hasCachedRows={filteredInvoices.length > 0}
+              loading={piLoading}
+              onRetry={() => { void loadPiPage(); }}
+              cachedNote=" Showing cached rows instead of this page — they may be out of date or filtered differently, and the totals above are recomputed from them."
+            />
+          )}
+
           {/* Invoices Table */}
           <div
             className={`rounded-2xl border shadow-md overflow-hidden bg-white border-slate-200 dark:bg-[#0f1218] dark:border-slate-800`}
@@ -722,7 +745,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    piRows.map((inv) => {
+                    filteredInvoices.map((inv) => {
                       const branch = branches.find((b) => b.id === inv.branchId);
                       const linkedPO = purchaseOrders.find((po) => po.id === inv.poReferenceId || po.poNumber === inv.poReferenceId);
                       return (
