@@ -784,7 +784,10 @@ its error, and the Sell-to-Customer form renders a retryable notice and refuses
 to pin a serial to “not in inventory” when the list is unread; the permission
 desync failure is recorded, its notice offers Retry, and Save/Reset stay
 disabled until a successful re-read. Pinned by
-`tests/df17SilentReads.test.ts` (6 tests).
+`tests/df17SilentReads.test.ts` (6 tests). The close-out review below closed
+one residual in the same task: a bootstrap that fails after a branch switch
+skipped the loader entirely, so the old branch's rows survived; the failure
+path now re-reads the new scope through the same clearing loader.
 
 **Problem.** Three failures are still indistinguishable from valid empty data:
 
@@ -872,6 +875,50 @@ reason. All pinned in `tests/closeoutResiduals.test.ts`.
 
 A single read without `fiscalYearId` still resolves the current FY — matching
 both the bootstrap slice and the client, which always sends one.
+
+---
+
+## Follow-up close-out review — DF-13…DF-17 (2026-10-24)
+
+All five follow-ups are `done` and on `main` (`7b842ab` DF-13, `d14544d`
+DF-14…DF-17) with green `typecheck-and-test` runs. This review re-read every
+acceptance bullet against the shipped code, re-ran `npx tsc --noEmit`, the five
+task test files and the full suite, and checked the docs and guards for claims
+that no longer describe the code.
+
+Cross-checks that held:
+
+- Statements: `financialSummary` is a dependency of the batch effect **and**
+  both rendered-table memos; a hidden tab issues no batch; a failed batch keeps
+  the last map with its error and Retry.
+- Ledgers: App passes the purchase-invoice counter to the vendor ledger and the
+  sales + returns counters to the customer ledger; both skip empty pickers and
+  hidden tabs and keep the DF-08 latest-only guard.
+- Serial lookup: only a 404 sets `not-found`; `lookup-failed` owns the Retry;
+  both exchange dialogs stop on a non-404 without writing an audit refusal.
+- Exchange devices: one store instance, one read per branch scope across the 11
+  `StockOperations` hosts; a failed scope is empty with a notice and Retry; App
+  invalidates on `CUSTOMER_DEVICES`/`ASSETS` and resets on sign-out.
+- Silent reads: the settings notice and `UNKNOWN` toggle, the sellable-list
+  notice and gate, and the permission resync/Save-disabled path all render the
+  states their tasks describe; the resync matrix propagates through the
+  existing permissions event.
+- Guards/docs: the register guard's header now says 66 screens / 13
+  mount-refetch entries (it still said 65 / 12 and the pre-DF-14 constant name),
+  the screen-count claims in `handoff.md` (66 total, 55 table, 11 elsewhere)
+  still match, and the audit's “found sound” section no longer implies the
+  ledgers lack refresh triggers.
+
+Residual closed in this review:
+
+1. **Sellable serials on a failed bootstrap.** The successful bootstrap path
+   called `loadSellableSerials`, which is what clears the previous branch's
+   rows; a failed bootstrap skipped it, so the original DF-17 symptom survived
+   in that path. `refreshAllData`'s non-401 catch now calls the same loader when
+   the branch scope differs, which clears first and then either repopulates or
+   shows its own retryable error. Pinned by two added assertions in
+   `tests/df17SilentReads.test.ts` (not a new test, so the suite stays at
+   **1147 tests**).
 
 ## Suggested sequence
 

@@ -823,7 +823,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
 });
 
 describe('Feature-screen coverage — every screen\'s server-call surface is pinned', () => {
-  // Audit (2026-10-03) of all 50 screens under client/src/features — now 65
+  // Audit (2026-10-03) of all 50 screens under client/src/features — now 66
   // after the §G StockOperations decomposition added 12 tab panels (and
   // commit 2 the extracted tab-bar chrome) under inventory/stockops, plus
   // the BS-calendar integrity work's Calendar Health panel — each
@@ -832,13 +832,19 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   //  · 11 are pinned by the guard tests above (the three prop-rendered
   //    inventory tabs, the two create forms, the six SSE-wired paged
   //    registers) — see PINNED_ELSEWHERE.
-  //  · 12 GET their own whole-list data on mount / selection change and are
-  //    deliberately NOT sse-wired: they re-fetch on tab re-activation and
-  //    none pages on the server — see MOUNT_REFETCH_NO_SSE_KEY (11 top-level
-  //    tabs plus the nested Calendar Health panel under the bs-calendar tab).
-  //  · 7 are write-only screens (mutations + validation reads); the grids
-  //    they render come from bootstrap-slice props.
-  //  · 36 render props/callbacks only — zero server calls of their own.
+  //  · 13 GET their own whole-list data on mount / selection change and are
+  //    deliberately NOT paged: they re-fetch on tab re-activation and none
+  //    pages on the server — see MOUNT_REFETCH_SCREENS (12 top-level tabs
+  //    plus the nested Calendar Health panel under the bs-calendar tab).
+  //    The two party ledgers are the only entries that also take live register
+  //    counters (DF-14) — they re-read the selected party in place on a
+  //    procurement/sales/return event; every other entry refreshes on
+  //    re-activation (and its own Retry) only.
+  //  · 6 are write-only / auxiliary-read screens (mutations + validation
+  //    reads); the grids they render come from bootstrap-slice props.
+  //  · the remaining 36 pins are the prop-rendered screens and the
+  //    StockOperations panels, each listed with its exact calls; 30 of the 55
+  //    table entries make no server call of their own.
   //
   // SCREEN_SURFACE_PINS pins every one of those screens to the EXACT server
   // calls it makes today — api.* methods AND named services/api imports,
@@ -1188,7 +1194,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
 
   test('docs screen-count claims match reality — total, table and pinned-elsewhere', () => {
     // The three docs quote these tallies (README, handoff, SESSION_NOTES:
-    // "all 50 screens", "the 41 screens not covered", "the other 9").
+    // "all 66 screens", "the 55 screens not covered", "the other 11").
     // Real values come from THIS code — the features walk and the two
     // tables above — so a screen added or reclassified without updating
     // the docs fails here: the screen-count twin of the docs-count gate

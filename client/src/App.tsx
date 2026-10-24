@@ -900,6 +900,23 @@ export default function App() {
         if (status === 400 || status === 409) {
           setPostgresStatus((prev) => (prev.isConnected ? prev : { ...prev, isConnected: true }));
         }
+        // DF-17 residual (close-out review): the successful path loads the
+        // sellable serials after the payload applies, so a FAILED bootstrap on
+        // a branch switch would skip that call and leave the previous branch's
+        // units in the Sell-to-Customer form. Re-read the new scope here: the
+        // loader clears the old rows first, then either fills them from the
+        // server or reports its own retryable failure.
+        const sellableScope =
+          requestBranchId && requestBranchId !== 'ALL' ? requestBranchId : 'ALL';
+        // Only when a previous scope's rows could still be on screen: a failed
+        // first load has nothing to clear and must not add a second notice.
+        if (
+          status !== 401 &&
+          sellableSerialsScopeRef.current !== null &&
+          sellableSerialsScopeRef.current !== sellableScope
+        ) {
+          void loadSellableSerials(requestBranchId);
+        }
       }
     } finally {
       if (requestSeq === refreshSequenceRef.current) setLoading(false);

@@ -569,8 +569,10 @@ request per branch. DF-16.
 renders a retryable notice: the settings backfill (with the blind-audit toggle
 disabled and `UNKNOWN`), the sellable-serial list (cleared on a branch change,
 with the serial gate refusing to guess), and the permission-save resync (Save
-and Reset disabled until the server matrix is read). The findings below are the
-pre-fix evidence.
+and Reset disabled until the server matrix is read). The close-out review
+closed one path the first cut missed: when the *bootstrap* fails after a branch
+switch, the loader was never reached, so the re-read now runs from the failure
+path too. The findings below are the pre-fix evidence.
 
 1. **Cached-bootstrap settings backfill.** When a cached payload predates the
    settings slices, App fetches `/api/settings` and discards any failure
@@ -600,14 +602,15 @@ write buttons disabled. DF-17.
 - Deferred-slice gate: per-slice status, stale-scope discard and version
   monotonicity still hold.
 - `financialSummary` slice and its owning domains (DF-05) are live; the
-  statements screen's own map above now follows that prop (DF-13), so the
-  remaining follow-ups do not touch the summary producer.
+  statements screen's own map above now follows that prop (DF-13), and the
+  later follow-ups (DF-14…DF-17) leave the summary producer untouched.
 - Paged registers still render `RegisterLoadError`, abort partial exports, clamp
   pages and sequence-guard their responses (DF-04/09).
 - Setup lists, customer-device screens, BS calendar screens, branch stock cache
   and the BS-date gate keep their DF-10/11 and close-out notices.
-- The party ledgers and opening registers keep their latest-only guards; the
-  missing piece is refresh triggers, not response ordering.
+- The party ledgers keep their latest-only guards and now follow their
+  register counters (DF-14); the opening registers keep the same guards, with
+  activation/Retry as their refresh triggers.
 - Bootstrap trim step 5 removed the last server mirror reads; this pass found
   no client consumer that now silently receives a missing slice.
 

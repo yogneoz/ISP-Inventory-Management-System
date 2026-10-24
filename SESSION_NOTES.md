@@ -2,6 +2,37 @@
 
 _Date: 2026-10-24 · Branch: main · Tests: 1147/1147 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
+## ✅ DF-13…DF-17 close-out review (2026-10-24)
+
+Re-read every acceptance bullet against the shipped code and checked the docs
+and guards for claims that no longer describe it. Stale statements in the docs
+and guards were corrected, and one residual was closed:
+
+- **Failed-bootstrap serial list (DF-17 residual).** The successful bootstrap
+  path is what called `loadSellableSerials`; when the bootstrap itself failed
+  after a branch switch, the loader never ran and the previous branch's units
+  stayed in the Sell-to-Customer form. `refreshAllData`'s non-401 catch now
+  calls the same loading path when the branch scope differs, so the old rows
+  are cleared and the new branch is either read or reported with a Retry.
+  Pinned by two added assertions in `tests/df17SilentReads.test.ts` (count
+  unchanged at 6 tests).
+- **Register-guard header.** `tests/registerRefreshDomains.test.ts` still said
+  “50 → 65 screens”, “12 GET … (11 top-level + nested)” and “7 write-only /
+  36 zero-call”; it also used the pre-DF-14 constant name. It now matches the
+  table: **66** screens (**55** pinned in the table + **11** elsewhere), **13**
+  mount-refetch entries (12 top-level + Calendar Health), **6** write-only
+  pins, and **30** table entries that make no server call of their own.
+- **Audit “found sound” block** no longer reads as if the party ledgers lack
+  refresh triggers, and it distinguishes the ledgers' live counters from the
+  opening registers' activation/Retry refresh.
+- **Task list** now records the close-out cross-checks and the residual under
+  DF-17; the audit's F-5 fix summary names the failed-bootstrap path.
+
+`npx tsc --noEmit` clean; the `df13`, `df14`, `df15`, `df17`,
+`exchangeDevices` and `registerRefreshDomains` tests pass; full suite
+**1147 tests, 1145 pass, 2
+Windows-only skips, 0 fail** (docs-count gate included).
+
 ## ✅ DF-17 shipped — the last three silent reads are visible and retryable (2026-10-24)
 
 **Problem.** Three failures were still indistinguishable from valid data: the
@@ -139,7 +170,7 @@ and the Retry dep pin in `tests/closeoutResiduals.test.ts` was updated. Full sui
 clean. No manual browser pass was run for this task; the screen's fetch is an
 ESM API import with no behavioural harness (A6), hence the source pin.
 
-## 📋 Fresh data-fetching pass — five follow-ups queued (2026-10-24)
+## ✅ Fresh data-fetching pass — all five follow-ups shipped (2026-10-24)
 
 A second read-only pass over the self-fetching screens, the cached-bootstrap
 path and every client failure branch found five gaps not covered by DF-01…DF-12
@@ -147,21 +178,27 @@ or bootstrap trim step 5. Evidence and line references are in
 [data-fetching-audit.md §9](docs/data-fetching-audit.md#9-follow-up-pass--2026-10-24-after-df-12-and-bootstrap-trim-step-5);
 the work items are DF-13…DF-17 in
 [data-fetching-tasklist.md](docs/data-fetching-tasklist.md). The pass itself
-changed no code; its first item has since shipped as DF-13 (above).
+changed no code; all five have since shipped as DF-13…DF-17 (above).
 
 1. **P1 — Financial Statements shadows the live summary.** ✅ **Fixed by
    DF-13.** The branch matrix was fetched on activation only and preferred over
    the freshly refreshed `financialSummary` prop, hiding DF-05's live value
    behind older per-branch numbers.
-2. **P2 — Party ledgers do not refresh while visible.** No SSE/local refresh
-   key reaches them; a payment or return recorded elsewhere leaves the closing
-   balance stale until the tab is re-entered.
-3. **P2 — Serial lookup failures read as "not in register".** A 500/503 in the
-   exchange flow is rendered as a definitive missing unit, with no Retry.
+2. **P2 — Party ledgers do not refresh while visible.** ✅ **Fixed by DF-14.**
+   Both ledgers take the existing register counters and re-read the selected
+   party while the tab is visible; a hidden tab skips the read.
+3. **P2 — Serial lookup failures read as "not in register".** ✅ **Fixed by
+   DF-15.** Only a 404 sets `not-found`; other rejections show a retryable
+   "could not check the register" state, and the dialogs stop swallowing them.
 4. **P2 — Exchange device list is stale across failed branch switches** and is
-   fetched once per mounted stock host.
+   fetched once per mounted stock host. ✅ **Fixed by DF-16.** One shared,
+   per-branch cache; a failed or unloaded branch is empty (never the previous
+   branch's units) with a retryable notice, and 11 hosts share one request.
 5. **P3 — Three silent reads:** cached-payload settings backfill, the sellable
-   serial list after a branch switch, and the permission-save resync.
+   serial list after a branch switch, and the permission-save resync. ✅
+   **Fixed by DF-17.** Each records a retryable failure, the blind-audit toggle
+   reads UNKNOWN while settings are unknown, the sellable list clears on a
+   branch change, and Save stays disabled until the permission matrix is read.
 
 ## ✅ Bootstrap trim step 5 — PO/PI/shipment/vendor-payment mirrors are demo-only (2026-10-24)
 

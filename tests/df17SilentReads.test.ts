@@ -95,6 +95,16 @@ describe('DF-17 — sellable serials are branch-clean and retryable', () => {
       2,
       'both SalesInvoices render sites (create-sale and sales-list) must receive the state'
     );
+    // Close-out residual: the successful bootstrap path is not the only one
+    // that must drop the old branch's rows. If the bootstrap itself fails after
+    // a branch switch, the loader was never called and the previous branch's
+    // units stayed in the form; the catch now re-reads the new scope through
+    // the same clearing loader (never on a 401).
+    assert.match(
+      app,
+      /const sellableScope =[\s\S]*?if \([\s\S]*?status !== 401 &&[\s\S]*?sellableSerialsScopeRef\.current !== null &&[\s\S]*?sellableSerialsScopeRef\.current !== sellableScope[\s\S]*?void loadSellableSerials\(requestBranchId\);/,
+      'a failed bootstrap after a branch switch must still clear and re-read the sellable list'
+    );
   });
 
   test('the sell-to-customer form shows the retryable notice and refuses to guess', () => {
