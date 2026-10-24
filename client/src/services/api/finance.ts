@@ -217,3 +217,23 @@ export async function getFinancialSummary(branchId?: string, fiscalYearId?: stri
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson(`/api/reports/financial-summary${query}`);
 }
+
+/**
+ * Batch form of `getFinancialSummary` (DF-12): one request for every
+ * branch × fiscal-year pair, keyed `${branchId}|${fiscalYearId}` exactly as
+ * asked. The statements screen needed `branches × 2` requests per activation
+ * before this.
+ */
+export async function getFinancialSummaries(
+  pairs: { branchId: string; fiscalYearId?: string }[]
+): Promise<Record<string, import('../../types').FinancialSummary>> {
+  if (!pairs.length) return {};
+  const params = new URLSearchParams();
+  params.set('branchIds', Array.from(new Set(pairs.map((p) => p.branchId))).join(','));
+  const fyIds = Array.from(new Set(pairs.map((p) => p.fiscalYearId || '').filter(Boolean)));
+  if (fyIds.length) params.set('fiscalYearIds', fyIds.join(','));
+  const body = await fetchJson<{ summaries?: Record<string, import('../../types').FinancialSummary> }>(
+    `/api/reports/financial-summaries?${params.toString()}`
+  );
+  return body?.summaries || {};
+}

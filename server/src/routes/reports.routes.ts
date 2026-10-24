@@ -5,7 +5,7 @@
  * position of this domain's first route.
  */
 import type { Express } from 'express';
-import { get_financialSummary } from '../controllers/reports.controller';
+import { get_financialSummary, get_financialSummaries } from '../controllers/reports.controller';
 import {
   assetRegister,
   computeTradingFromOps,
@@ -21,5 +21,8 @@ import {
 
 export function registerReportsRoutes(app: Express) {
 app.get('/api/reports/financial-summary', async (req, res, next) => { get_financialSummary(req as any, res as any).catch(next); });
+// Batch form (DF-12): every branch × fiscal-year pair the statements screen
+// needs, in one request.
+app.get('/api/reports/financial-summaries', async (req, res, next) => { get_financialSummaries(req as any, res as any).catch(next); });
 
 }

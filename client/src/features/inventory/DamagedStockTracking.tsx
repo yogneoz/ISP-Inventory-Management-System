@@ -51,6 +51,8 @@ interface DamagedStockTrackingProps {
   dateMode?: 'BS' | 'AD';
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string, damagedQty?: number, changeType?: string) => Promise<void>;
   onCreateOperation?: (op: Partial<StockOperation>) => Promise<void>;
+  /** App's reverse handler — refreshes bootstrap and slices in place (DF-12). */
+  onReverseStockOperation?: (id: string, reason?: string) => Promise<void>;
   onNavigateTab?: (tab: NavTab) => void;
 }
 
@@ -64,6 +66,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   dateMode = 'BS',
   onUpdateStockLevel,
   onCreateOperation,
+  onReverseStockOperation,
   onNavigateTab,
 }) => {
   const { isDarkMode } = useDarkMode();
@@ -182,10 +185,14 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         alertDialog(`No matching DAMAGE operation found for ${damageReference}.`);
         return;
       }
-      await api.reverseStockOperation(op.id, reason.trim(), currentUser);
+      // App's handler does the reversal AND the refresh, so no full reload.
+      if (onReverseStockOperation) {
+        await onReverseStockOperation(op.id, reason.trim());
+      } else {
+        await api.reverseStockOperation(op.id, reason.trim(), currentUser);
+      }
       alertDialog(`✓ Damage record ${damageReference} reversed. Units and serials restored to available stock.`);
       setReversalCell(null);
-      window.location.reload();
     } catch (err: any) {
       alertDialog(`Reversal failed: ${err?.message || 'Unknown error'}`);
     } finally {

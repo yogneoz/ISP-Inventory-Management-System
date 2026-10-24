@@ -84,6 +84,8 @@ interface StockOperationsProps {
   onReverseOperation?: (id: string, reason?: string) => Promise<void>;
   onReverseConsumableIssue?: (id: string, reason?: string) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
+  /** App's full refresh, called after a panel mutates outside App's handlers (DF-12). */
+  onRefreshData?: () => Promise<void> | void;
   /** Bumped by App's SSE handler when stock-operation events arrive — re-runs the consumable register's paged fetch. */
   sseRefreshKey?: number;
 }
@@ -135,6 +137,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onReverseOperation,
   onReverseConsumableIssue,
   onUpdateAssetStatus,
+  onRefreshData,
   sseRefreshKey,
 }) => {
   const { confirm: confirmDialog, prompt: promptDialog, alert: alertDialog } = useDialog();
@@ -443,10 +446,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     onReceiveOperation: initialType === 'PULLOUT_REPORT' ? undefined : onReceiveOperation,
     onReceiveShipment,
     onRequestApproval,
-    onReverseConsumableIssue,
-    onReverseOperation,
-    onUpdateAssetStatus,
-    operations,
+  onReverseConsumableIssue,
+  onReverseOperation,
+  onUpdateAssetStatus,
+  onRefreshData,
+  operations,
     products,
     promptDialog,
     pulloutOperations,

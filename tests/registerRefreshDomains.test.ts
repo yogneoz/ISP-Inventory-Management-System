@@ -703,7 +703,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     // The device fetch effect re-runs when the counter bumps.
     assert.match(
       register,
-      /\}, \[selectedBranchId, searchQuery, devicesPage, devicesPageSize, sseRefreshKey\]\);/,
+      /\}, \[selectedBranchId, searchQuery, sseRefreshKey\]\);/,
       'the customer-device fetch effect must depend on sseRefreshKey'
     );
     assertNoRawFetch(register, 'CustomersManagement.tsx');
@@ -719,7 +719,7 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.match(directory, /sseRefreshKey\?: number;/);
     assert.match(
       directory,
-      /\}, \[selectedBranchFilter, searchQuery, devicesPage, devicesPageSize, sseRefreshKey\]\);/,
+      /\}, \[selectedBranchFilter, searchQuery, sseRefreshKey\]\);/,
       'the directory device fetch effect must depend on its refresh key'
     );
     assertEveryRenderSiteWired(
@@ -835,7 +835,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
   //
   // SCREEN_SURFACE_PINS pins every one of those screens to the EXACT server
   // calls it makes today — api.* methods AND named services/api imports,
-  // because FinancialStatements.tsx imports getFinancialSummary instead of
+  // because FinancialStatements.tsx imports getFinancialSummaries instead of
   // calling api.* — so ANY new fetch (paged or not, wired or not) fails
   // until it is pinned here with an explicit wiring decision. A new
   // SERVER-PAGED fetch additionally trips the paged-tripwire test below,
@@ -852,7 +852,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     ],
     'finance/CustomerLedger.tsx': ['getCustomerLedger'],
     'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
-    'finance/FinancialStatements.tsx': ['getFinancialSummary'],
+    'finance/FinancialStatements.tsx': ['getFinancialSummaries'],
     'finance/NepaliFiscalManagement.tsx': [
       'getBsCalendarYears',
       'getBsDayRecords',

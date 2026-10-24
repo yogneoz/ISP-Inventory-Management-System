@@ -105,19 +105,13 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     record: CustomerDeviceRecord;
   } | null>(null);
 
-  // Server-side device reads. The endpoint is paged and applies branch + text
-  // filter in PostgreSQL; user-facing page state is the current slice.
-  const [devicesPage] = useState(1);
-  const [devicesPageSize] = useState(15);
+  // Device reads. GET /api/customer-devices is unpaged (bare array) and does
+  // its own branch + text filtering, so the register pages on the client. The
+  // old constant page state was never set by anything and only kept the fetch
+  // effect's dep list noisy (DF-12).
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  const [, setCustomerDevicesTotalItems] = useState(0);
-  const [, setDevicesLoadError] = useState(false);
 
-  const customerDevicesPagination = useClientPagination(
-    customerDevicesRows,
-    devicesPageSize,
-    [devicesPage, devicesPageSize]
-  );
+  const customerDevicesPagination = useClientPagination(customerDevicesRows, 15);
 
   // Server-side read (branch + search forwarded to GET /api/customer-devices),
   // so the register never renders a bootstrap slice.
@@ -137,11 +131,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           // [] and emptied the register while the stat cards — reading the
           // App-level customerDevices prop — kept showing the real count.
           setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
-          setCustomerDevicesTotalItems(Array.isArray(rows) ? rows.length : 0);
-          setDevicesLoadError(false);
         }
       } catch {
-        if (!cancelled) setDevicesLoadError(true);
+        // Keep the last successful rows on screen rather than blanking the
+        // register; there is no error surface for this column today.
       }
     };
 
@@ -149,7 +142,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchId, searchQuery, devicesPage, devicesPageSize, sseRefreshKey]);
+  }, [selectedBranchId, searchQuery, sseRefreshKey]);
 
   // Device Exchange Modal State
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);

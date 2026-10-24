@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFilterPageReset } from '../../../utils/useFilterPageReset';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   ConsumableIssueItem,
@@ -151,10 +152,19 @@ export const ConsumablesRegisterPanel: React.FC = () => {
     loadConsumableRegisterPage();
   }, [loadConsumableRegisterPage, sseRefreshKey]);
 
-  // Filter changes snap the server page back to 1.
-  useEffect(() => {
-    setConsumableRegisterPage(1);
-  }, [consumableRegisterBranch, consumableRegisterStatus, consumableRegisterQuery, consumableRegisterDateFrom, consumableRegisterDateTo]);
+  // A filter change snaps the page back to 1 in the same render, so one
+  // change costs one request for page 1 instead of two (DF-12).
+  useFilterPageReset(
+    [
+      consumableRegisterBranch,
+      consumableRegisterStatus,
+      consumableRegisterQuery,
+      consumableRegisterDateFrom,
+      consumableRegisterDateTo,
+    ].join('\u0000'),
+    consumableRegisterPage,
+    setConsumableRegisterPage
+  );
 
   // Rows to render: the server page, or the client-side fallback after a
   // fetch failure so the ledger still displays.

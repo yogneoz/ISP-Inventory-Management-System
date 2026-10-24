@@ -8,6 +8,7 @@
  * the server: stock moves + ledger rows + the return document commit together.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import {
   PlusCircle,
   Undo2,
@@ -157,10 +158,13 @@ export const ReturnsRegister: React.FC<ReturnsRegisterProps> = ({
     loadRetPage();
   }, [loadRetPage, retRefreshKey, sseRefreshKey]);
 
-  // Filter changes snap the server page back to 1.
-  useEffect(() => {
-    setRetPage(1);
-  }, [branchFilter, statusFilter, query]);
+  // A filter change snaps the page back to 1 in the same render, so one
+  // change costs one request for page 1 instead of two (DF-12).
+  useFilterPageReset(
+    [branchFilter, statusFilter, query, isPurchase].join('\u0000'),
+    retPage,
+    setRetPage
+  );
 
   const selectedInvoice = useMemo(() => {
     if (!invoiceRef) return null;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import { PurchaseOrder, PurchaseInvoice, Product, Branch, InventoryStock, Supplier, User, CompanyProfile } from '../../types';
 import { formatDualDate, formatBSDate } from '../../utils/nepaliCalendar';
 import { DateField } from '../../components/DateField';
@@ -170,10 +171,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     loadPoPage();
   }, [loadPoPage, poRefreshKey, sseRefreshKey]);
 
-  // Filter changes snap the server page back to 1.
-  useEffect(() => {
-    setPoPage(1);
-  }, [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD]);
+  // A filter change snaps the page back to 1 in the same render, so one
+  // change costs one request for page 1 instead of two (DF-12).
+  useFilterPageReset(
+    [selectedBranchId, supplierFilterName, searchQuery, orderDateFromAD, orderDateToAD].join('\u0000'),
+    poPage,
+    setPoPage
+  );
 
   // Rows on screen: the server page, or (on fetch failure) the client-side
   // filtered prop array so the register degrades instead of breaking.

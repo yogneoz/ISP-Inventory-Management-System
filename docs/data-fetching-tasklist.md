@@ -40,7 +40,7 @@ ships a task.
 | DF-09 | Clamp a register page when the row set shrinks | P2-6 | P2 | `done` | — |
 | DF-10 | BS calendar fallbacks and the BS-date gate | P2-7, P2-8 | P2 | `done` | DF-06 (for live calendar events) |
 | DF-11 | Distinguish "failed to load" from "empty" on setup lists | P2-9 | P2 | `done` | — |
-| DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `todo` | DF-03, DF-05 (soft) |
+| DF-12 | Cleanup: full reload, N+1 fetches, dead state, dedup of serial fetch | P2-10, P3-1…P3-5 | P2/P3 | `done` | DF-03, DF-05 (soft) |
 
 Legend: `todo` · `wip` · `blocked` · `done`.
 
@@ -564,6 +564,18 @@ plus a manual server-stop pass.
 ---
 
 ## DF-12 — Cleanup (P2-10, P3-1…P3-5)
+
+**Status: `done` (2026-10-24).** No `window.location.reload()` left in the
+client: device exchange and asset deployment refresh through App's
+`refreshAllData` (new `onRefreshData` on the stock-operations context), damage
+reversal through App's refreshing reverse handler. Financial Statements makes
+one batch request (`GET /api/reports/financial-summaries`) instead of
+`branches × 2`, and the report path now shares
+`fetchFinancialSummaryFromDb` — which also fixed its missing purchase-return
+term. New `utils/useFilterPageReset.ts` snaps a paged register during render,
+so a filter change costs one request. `useActivationKey` is typed as `NavTab`.
+Dead `devicesPage`/`devicesPageSize` and write-only device state removed.
+Evidence and suite numbers are in `SESSION_NOTES.md` under "DF-12 shipped".
 
 Independent small items; split into `a/b` if any grows.
 

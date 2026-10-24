@@ -24,7 +24,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const DeviceExchangePanel: React.FC = () => {
-  const { activeTab, alertDialog, branches, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
+  const { activeTab, alertDialog, branches, customerDevices, ensureBsDateAvailable, exchangeCustomerDevices, isLoadingExchangeDevices, onRefreshData, products, serialRegister, selectedBranchId, setExchangeCustomerDevices } = useStockOperationsCtx();
 
   const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
   const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
@@ -129,12 +129,11 @@ export const DeviceExchangePanel: React.FC = () => {
       setExchangeNewMac('');
       setExchangeNotes('');
 
-      // Refresh list
+      // Refresh the device list in place, then App's normal refresh so stock,
+      // operations and other tabs see the swap without a full page reload.
       const updatedDevs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
       setExchangeCustomerDevices(updatedDevs);
-      if (typeof window !== 'undefined') {
-        window.location.reload();
-      }
+      await onRefreshData?.();
     } catch (err: any) {
       alertDialog(err?.message || 'Failed to exchange device.');
     } finally {

@@ -6,6 +6,7 @@
  * validate against the sold quantities recorded here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import {
   PlusCircle,
   Receipt,
@@ -192,10 +193,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
     loadSiPage();
   }, [loadSiPage, siRefreshKey, sseRefreshKey]);
 
-  // Filter changes snap the server page back to 1.
-  useEffect(() => {
-    setSiPage(1);
-  }, [branchFilter, query]);
+  // A filter change snaps the page back to 1 in the same render, so one
+  // change costs one request for page 1 instead of two (DF-12).
+  useFilterPageReset([branchFilter, query].join('\u0000'), siPage, setSiPage);
 
   // Record-payment state (customer_payments sub-ledger)
   const [payInvoice, setPayInvoice] = useState<SalesInvoice | null>(null);

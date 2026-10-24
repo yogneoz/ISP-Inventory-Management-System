@@ -389,4 +389,59 @@ describe('financialSummary — live slice against real PostgreSQL', () => {
       'the summary must be branch-scoped, not the consolidated total'
     );
   });
+
+  test('batch read: one request for every pair, each equal to its single read', { skip: skipNoDb }, async () => {
+    const batch = await get(
+      `/api/reports/financial-summaries?branchIds=${BRANCH},${EMPTY_BRANCH}&fiscalYearIds=${fiscalYear.id}`
+    );
+    assert.equal(batch.status, 200, JSON.stringify(batch.json));
+    const summaries = batch.json?.summaries || {};
+    assert.deepEqual(Object.keys(summaries).sort(), [
+      `${BRANCH}|${fiscalYear.id}`,
+      `${EMPTY_BRANCH}|${fiscalYear.id}`,
+    ], 'the response must be keyed exactly as the caller asked');
+
+    const single = await get(
+      `/api/reports/financial-summary?branchId=${BRANCH}&fiscalYearId=${fiscalYear.id}`
+    );
+    assert.equal(single.status, 200, JSON.stringify(single.json));
+    assert.deepEqual(
+      summaries[`${BRANCH}|${fiscalYear.id}`],
+      single.json,
+      'the batch entry must be the same read as the single endpoint, not a second formula'
+    );
+    assert.deepEqual(
+      {
+        inventory: summaries[`${EMPTY_BRANCH}|${fiscalYear.id}`].totalInventoryAssetValue,
+        assets: summaries[`${EMPTY_BRANCH}|${fiscalYear.id}`].totalFixedAssetValue,
+        ap: summaries[`${EMPTY_BRANCH}|${fiscalYear.id}`].totalAccountsPayable,
+        revenue: summaries[`${EMPTY_BRANCH}|${fiscalYear.id}`].totalSalesRevenue,
+      },
+      { inventory: 0, assets: 0, ap: 0, revenue: 0 },
+      'a branch with no rows must still get its own zeroed entry'
+    );
+  });
+
+  test('batch read: a posted purchase return lowers AP on the report path too', { skip: skipNoDb }, async () => {
+    const batch = await get(
+      `/api/reports/financial-summaries?branchIds=${BRANCH}&fiscalYearIds=${fiscalYear.id}`
+    );
+    const summary = batch.json.summaries[`${BRANCH}|${fiscalYear.id}`];
+    // Fixture: opening 200 + invoices (1130 + the 500 inserted by the
+    // write-freshness test) − posted payment 100 − posted return 300 = 1430.
+    // The old inline SQL here omitted the return term and reported 1730.
+    assert.equal(
+      summary.totalAccountsPayable,
+      1430,
+      'the report path must subtract posted returns, exactly like the bootstrap slice'
+    );
+  });
+
+  test('batch guard: no bearer token -> 401', { skip: skipNoDb }, async () => {
+    const { status } = await get(
+      `/api/reports/financial-summaries?branchIds=${BRANCH}&fiscalYearIds=${fiscalYear.id}`,
+      false
+    );
+    assert.equal(status, 401);
+  });
 });

@@ -1928,6 +1928,7 @@ export default function App() {
                   dateMode={dateMode}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateOperation={handleCreateOperation}
+                  onReverseStockOperation={handleReverseStockOperation}
                   onNavigateTab={setActiveTab}
                 />
               </React.Suspense>
@@ -2328,6 +2329,7 @@ export default function App() {
 
             <KeepMounted visible={visible['create-transfer'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2377,6 +2379,7 @@ export default function App() {
 
             <KeepMounted visible={visible['receive-branch-transfer'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2435,6 +2438,7 @@ export default function App() {
 
             <KeepMounted visible={visible['pullout'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2468,6 +2472,7 @@ export default function App() {
 
             <KeepMounted visible={visible['damage'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2501,6 +2506,7 @@ export default function App() {
 
             <KeepMounted visible={visible['pullout-report'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2525,6 +2531,7 @@ export default function App() {
 
             <KeepMounted visible={visible['damage-report'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2548,6 +2555,7 @@ export default function App() {
 
             <KeepMounted visible={visible['stock-out'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2581,6 +2589,7 @@ export default function App() {
 
             <KeepMounted visible={visible['assign-asset'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2628,6 +2637,7 @@ export default function App() {
 
             <KeepMounted visible={visible['consumable-issue'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2661,6 +2671,7 @@ export default function App() {
 
             <KeepMounted visible={visible['consumables-register'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}
@@ -2701,6 +2712,7 @@ export default function App() {
                 CustomersManagement — both submit api.exchangeCustomerDevice. */}
             <KeepMounted visible={visible['device-exchange'] === true}>
               <StockOperations
+                onRefreshData={refreshAllData}
                 operations={stockOperations}
                 products={products}
                 branches={branches}

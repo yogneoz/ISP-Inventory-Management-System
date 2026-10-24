@@ -105,6 +105,13 @@ export interface StockOperationsCtx {
   onReverseConsumableIssue: any;
   onReverseOperation: any;
   onUpdateAssetStatus: any;
+  /**
+   * App's full refresh (bootstrap + bootstrap slices) after a mutation a
+   * panel issues directly, outside App's own api handlers. Panels used to
+   * reload the whole page from here, which also threw away every other tab's
+   * unsaved state (DF-12).
+   */
+  onRefreshData?: () => Promise<void> | void;
   operations: StockOperation[];
   products: Product[];
   promptDialog: any;

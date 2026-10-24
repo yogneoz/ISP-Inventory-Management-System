@@ -28,7 +28,7 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const AssignAssetPanel: React.FC = () => {
-  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
+  const { activeTab, allowedBranches, alertDialog, assets, availableStockAssets, customerDevices, customers, ensureBsDateAvailable, locations, onRefreshData, onUpdateAssetStatus, products, serialRegister, stock, userBranchId } = useStockOperationsCtx();
 
   const [, setIsBarcodeScannerOpen] = useState(false);
 
@@ -333,7 +333,8 @@ export const AssignAssetPanel: React.FC = () => {
 
     alertDialog(`Deployment complete — ${assignItems.length} bin line(s) processed. Tags: ${createdTags.join(', ')}`);
     handleResetAssignForm();
-    if (typeof window !== 'undefined') window.location.reload();
+    // Refresh every tab in place instead of reloading the whole page.
+    await onRefreshData?.();
   };
 
   return (

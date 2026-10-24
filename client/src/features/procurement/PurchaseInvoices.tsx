@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useFilterPageReset } from '../../utils/useFilterPageReset';
 import {
   PurchaseInvoice,
   PurchaseOrder,
@@ -190,10 +191,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     loadPiPage();
   }, [loadPiPage, piRefreshKey, sseRefreshKey]);
 
-  // Filter changes snap the server page back to 1.
-  useEffect(() => {
-    setPiPage(1);
-  }, [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD]);
+  // A filter change snaps the page back to 1 in the same render, so one
+  // change costs one request for page 1 instead of two (DF-12).
+  useFilterPageReset(
+    [selectedBranchId, vendorFilter, searchQuery, billDateFromAD, billDateToAD].join('\u0000'),
+    piPage,
+    setPiPage
+  );
 
   // Rows on screen: the server page, or (on fetch failure) the client-side
   // filtered prop array so the register degrades instead of breaking.

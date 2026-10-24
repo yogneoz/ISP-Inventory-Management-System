@@ -6,7 +6,7 @@ import { exportToCSV } from '../../utils/exportUtils';
 import { calculateFixedAssetValues } from '../../utils/depreciation';
 import { formatNPR } from '../../utils/nprFormat';
 import { PageHeader } from '../../components/common/PageHeader';
-import { getFinancialSummary } from '../../services/api/finance';
+import { getFinancialSummaries } from '../../services/api/finance';
 import {
   Scale,
   TrendingUp,
@@ -192,8 +192,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
     return null;
   }, [currentFy, fiscalYears]);
 
-  // Fetch a financial summary per branch × needed fiscal year.
-  // Refetch on every tab re-activation (keep-mounted: no remount refetch anymore).
+  // Fetch every branch × needed fiscal year as ONE batch read (DF-12); the
+  // branches × 2 fan-out this replaced issued a request per pair on each
+  // activation. Refetch on every tab re-activation (keep-mounted: no remount
+  // refetch anymore).
   const activationKey = useActivationKey('financial-statements');
   useEffect(() => {
     let cancelled = false;
@@ -203,22 +205,13 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
       setSummariesError(null);
       try {
         const fyIds = [currentFy?.id, priorFy?.id].filter((x): x is string => Boolean(x));
-        const pairs: { branchId: string; fyId?: string }[] = [];
-        for (const b of activeBranches) {
-          for (const fyId of fyIds.length ? fyIds : [undefined]) {
-            pairs.push({ branchId: b.id, fyId });
-          }
-        }
-        const results = await Promise.all(
-          pairs.map(async ({ branchId, fyId }) => {
-            const s = await getFinancialSummary(branchId, fyId);
-            return [`${branchId}|${fyId || ''}`, s] as const;
-          })
+        const years: (string | undefined)[] = fyIds.length ? fyIds : [undefined];
+        const pairs = activeBranches.flatMap((b) =>
+          years.map((fiscalYearId) => ({ branchId: b.id, fiscalYearId }))
         );
+        const summaries = await getFinancialSummaries(pairs);
         if (cancelled) return;
-        const map: Record<string, FinancialSummary> = {};
-        for (const [k, s] of results) map[k] = s;
-        setSummaryMap(map);
+        setSummaryMap(summaries as Record<string, FinancialSummary>);
       } catch {
         if (!cancelled) setSummariesError('Failed to load per-branch financials — figures may show zeros for payables/sales.');
       } finally {

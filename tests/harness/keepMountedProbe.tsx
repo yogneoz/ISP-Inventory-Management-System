@@ -18,6 +18,7 @@ import {
   KeepMountedRoot,
   useActivationKey,
 } from '../../client/src/components/common/KeepMounted';
+import type { NavTab } from '../../client/src/components/layout/Sidebar';
 
 export interface ProbeHandles {
   /** Set on every render, so the test can drive state updates inside act(). */
@@ -106,7 +107,9 @@ function Screen({
   onSave: () => void;
   handles: ProbeHandles;
 }) {
-  const activation = useActivationKey(name);
+  // Synthetic screen names here (the probe is not the real tab list); real
+  // call sites take a NavTab, which is the whole point of the DF-12 typing.
+  const activation = useActivationKey(name as NavTab);
   handles.renders[name] = (handles.renders[name] ?? 0) + 1;
   handles.activations[name] = activation;
   handles.rowLengths[name] = rows.length;

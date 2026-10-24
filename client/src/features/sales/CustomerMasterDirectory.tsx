@@ -296,14 +296,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const customersRangeStart = customersTotalItems === 0 ? 0 : (customersSafePage - 1) * customersPageSize + 1;
   const customersRangeEnd = Math.min(customersSafePage * customersPageSize, customersTotalItems);
 
-  // Server-side device reads for the Assigned Hardware column. The endpoint is
-  // paged and applies branch + text filter in PostgreSQL; user-facing page
-  // state is the current slice.
-  const [devicesPage] = useState(1);
-  const [devicesPageSize] = useState(20);
+  // Device reads for the Assigned Hardware column. GET /api/customer-devices
+  // returns an unpaged array, so the old constant page state was never written
+  // and only kept this effect's dep list noisy (DF-12).
   const [customerDevicesRows, setCustomerDevicesRows] = useState<CustomerDeviceRecord[]>([]);
-  const [, setCustomerDevicesTotalItems] = useState(0);
-  const [, setDevicesLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -319,11 +315,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           // Bare array response (see CustomersManagement): the old envelope
           // cast silently rendered [] here too.
           setCustomerDevicesRows(Array.isArray(rows) ? rows : []);
-          setCustomerDevicesTotalItems(Array.isArray(rows) ? rows.length : 0);
-          setDevicesLoadError(false);
         }
       } catch {
-        if (!cancelled) setDevicesLoadError(true);
+        // Keep the last successful rows rather than blanking the assigned-
+        // hardware counts; there is no error surface for this column today.
       }
     };
 
@@ -331,7 +326,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     return () => {
       cancelled = true;
     };
-  }, [selectedBranchFilter, searchQuery, devicesPage, devicesPageSize, sseRefreshKey]);
+  }, [selectedBranchFilter, searchQuery, sseRefreshKey]);
 
   const getAssignedDeviceCount = (customer: CustomerRecord): number => {
     return customerDevicesRows.filter(

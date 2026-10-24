@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo, useRef } from 'react';
 import { createScreenSlotCache, memoizeTabElement } from '../../utils/screenElementMemo';
 import type { ScreenSlotCache } from '../../utils/screenElementMemo';
+import type { NavTab } from '../layout/Sidebar';
 
 /**
  * Keep-mounted tab container (tab-switch churn refactor, 2026-10-05).
@@ -126,8 +127,14 @@ export function KeepMounted({
  * Locations, doc numbering, FinancialStatements, ProductManagement — see
  * MOUNT_REFETCH_NO_SSE_KEY + MOUNT_REFETCH_ACTIVATION_TABS in the test
  * guards) pass their activation key into their fetch effect's deps.
+ *
+ * `tabKey` is a `NavTab`, not any string: a typo used to compare against a
+ * tab that never becomes active, so the refetch silently never ran. The
+ * refs above are written during render on purpose (the counter is derived
+ * from the tab transition, not from a post-commit side effect); they are
+ * idempotent for a given render, so a discarded render cannot double-count.
  */
-export function useActivationKey(tabKey: string): number {
+export function useActivationKey(tabKey: NavTab): number {
   const activeTab = useContext(ActiveTabContext);
   const wasEverVisible = useRef(false);
   const activation = useRef(0);
