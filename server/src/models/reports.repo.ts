@@ -120,11 +120,24 @@ export function buildFixedAssetValueQuery(
 // Accounts payable components
 // ---------------------------------------------------------------------------
 
-/** Current-period invoiced totals + VAT input tax, FY/branch scoped. */
-export function buildPurchaseInvoiceTotalsQuery(opts: FiscalBranchScope): { sql: string; params: unknown[] } {
+/**
+ * Current-period invoiced totals + VAT input tax.
+ *
+ * Scoped by fiscal_year_id by default (the reports endpoint's long-standing
+ * scope). Passing an explicit AD range scopes by invoice_date_ad instead —
+ * that is the bootstrap's scope, so a summary slice can match the bootstrap's
+ * own total row-for-row rather than relying on every row carrying the id.
+ */
+export function buildPurchaseInvoiceTotalsQuery(
+  opts: FiscalBranchScope & { startDateAD?: string; endDateAD?: string }
+): { sql: string; params: unknown[] } {
   const conds: string[] = [];
   const params: unknown[] = [];
-  appendFiscalYearScope(conds, params, opts.fiscalYearId);
+  if (opts.startDateAD && opts.endDateAD) {
+    appendAdDateRangeScope(conds, params, 'invoice_date_ad', opts.startDateAD, opts.endDateAD);
+  } else {
+    appendFiscalYearScope(conds, params, opts.fiscalYearId);
+  }
   appendBranchScope(conds, params, opts.branchId);
   return {
     sql:
@@ -170,11 +183,44 @@ export function buildVendorPaymentsQuery(opts: AdDateRangeScope): { sql: string;
 // Damage loss + sales-derived revenue/COGS
 // ---------------------------------------------------------------------------
 
-/** Damage Loss Value, FY/branch scoped. */
-export function buildDamageLossQuery(opts: FiscalBranchScope): { sql: string; params: unknown[] } {
+/**
+ * Posted purchase returns (debit notes) in scope. A returned purchase reduces
+ * accounts payable exactly like a payment, so the bootstrap summary subtracts
+ * it; the summary service needs the same term from SQL.
+ */
+export function buildPurchaseReturnsTotalQuery(
+  opts: FiscalBranchScope & { startDateAD?: string; endDateAD?: string }
+): { sql: string; params: unknown[] } {
+  const conds: string[] = ["status = 'POSTED'"];
+  const params: unknown[] = [];
+  if (opts.startDateAD && opts.endDateAD) {
+    appendAdDateRangeScope(conds, params, 'return_date_ad', opts.startDateAD, opts.endDateAD);
+  } else {
+    appendFiscalYearScope(conds, params, opts.fiscalYearId);
+  }
+  appendBranchScope(conds, params, opts.branchId);
+  return {
+    sql:
+      `SELECT COALESCE(SUM(grand_total), 0)::float AS total_returns FROM purchase_returns` +
+      whereClause(conds),
+    params,
+  };
+}
+
+/**
+ * Damage Loss Value, FY/branch scoped. An explicit AD range (the bootstrap's
+ * scope) wins over fiscal_year_id for the same reason as invoice totals.
+ */
+export function buildDamageLossQuery(
+  opts: FiscalBranchScope & { startDateAD?: string; endDateAD?: string }
+): { sql: string; params: unknown[] } {
   const conds: string[] = [];
   const params: unknown[] = [];
-  appendFiscalYearScope(conds, params, opts.fiscalYearId);
+  if (opts.startDateAD && opts.endDateAD) {
+    appendAdDateRangeScope(conds, params, 'date_ad', opts.startDateAD, opts.endDateAD);
+  } else {
+    appendFiscalYearScope(conds, params, opts.fiscalYearId);
+  }
   appendBranchScope(conds, params, opts.branchId);
   return {
     sql: `SELECT SUM(total_value) AS total FROM stock_operations` + whereClause(conds),

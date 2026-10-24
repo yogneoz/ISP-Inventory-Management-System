@@ -15,7 +15,11 @@ import {
 } from '../models/settings.repo';
 import { PERMISSION_MATRIX_SELECT_SQL, rowsToPermissionMatrix } from '../models/permissions.repo';
 import { fetchBootstrapSlice } from '../models/bootstrap.repo';
-import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, computeTradingFromOps, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
+import {
+  computeFinancialSummary,
+  fetchFinancialSummaryFromDb,
+} from '../services/financialSummary.service';
+import { getPgConnected, fetchFiscalYears, pgPool, pickCurrentFiscalYear, selectBootstrapFiscalYear, toCalendarDate, fetchOperationalData, fetchOpeningStock, products, approvalRequests, branches, fiscalYears, suppliers, users, categories, companyProfile, getDataVersion, setPgConnected, setIsPgConnected, assetRegister, auditTrail, locationRecords, getUserFromReq } from '../app';
 /** Forwarded from bootstrap.routes.ts (get_bootstrap). */
 export async function get_bootstrap(req: any, res: Response): Promise<any> {
 const { branchId, fiscalYearId } = req.query;
@@ -93,54 +97,23 @@ const { branchId, fiscalYearId } = req.query;
       const pgTransactionLogs = data.transactionLogs;
       const pgApprovalRequests = data.approvalRequests;
 
-      const totalInventoryAssetValue = pgStock.reduce((sum: number, item: any) => {
-        const prod = pgProducts.find((p: any) => p.id === item.productId);
-        return sum + (prod ? Number(prod.costPrice) * Number(item.quantityOnHand) : 0);
-      }, 0);
-
-      const totalFixedAssetValue = pgAssets.reduce((sum: number, a: any) => sum + Number(a.netBookValue || 0), 0);
-      // Accounts Payable: opening balance (carry-forward from Vendor Opening Balances)
-      // + current-period unpaid invoices − posted vendor payments.  This matches
-      // the Vendor Ledger closing-balance formula so all three modules reconcile.
-      const vendorOpeningBalTotal = data.vendorOpeningBalanceTotal;
-      // Sum full invoice grand totals, NOT (grandTotal − amountPaid): payments
-      // are already subtracted once below via the posted vendor payments, so
-      // subtracting amount_paid here too would double-count them.
-      const currentPeriodInvoiceTotal = pgInvoices.reduce(
-        (sum: number, inv: any) => sum + Number(inv.grandTotal || 0),
-        0
-      );
-      const postedPayments = data.vendorPayments
-        .filter((p: any) => p.status === 'POSTED')
-        .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-      // Posted purchase returns (debit notes) reduce the payable exactly like
-      // payments, so the dashboard AP reconciles with the Vendor Ledger's
-      // opening + invoices − payments − returns formula.
-      const postedPurchaseReturns = (data.purchaseReturns || [])
-        .filter((r: any) => r.status === 'POSTED')
-        .reduce((sum: number, r: any) => sum + Number(r.grandTotal || 0), 0);
-      const totalAccountsPayable = vendorOpeningBalTotal + currentPeriodInvoiceTotal - postedPayments - postedPurchaseReturns;
-      const totalDamageLossValue = pgOps.reduce((sum: number, op: any) => sum + Number(op.totalValue || 0), 0);
-      const totalVatInputTax = pgInvoices.reduce((sum: number, inv: any) => sum + Number(inv.vatAmount || 0), 0);
-      // The current year's CODE is reported separately from the view scope: an
-      // explicit past-year request still reports which year is current, and ''
-      // when none is flagged (never a stale hard-coded default).
-      const currentFy = pickCurrentFiscalYear(pgFiscalYears)?.code || '';
-
-      // Trading summary — sales revenue + COGS derived from the same priced
-      // STOCK_OUT sale lines so Revenue − COGS = Gross Surplus reconciles to
-      // the inventory-at-cost balance sheet.
-      const tradingSummary = computeTradingFromOps(pgOps, pgProducts);
-      const financialSummary = {
-        totalInventoryAssetValue,
-        totalFixedAssetValue,
-        totalAccountsPayable,
-        totalSalesRevenue: tradingSummary.totalSalesRevenue,
-        totalCostOfGoodsSold: tradingSummary.totalCostOfGoodsSold,
-        totalDamageLossValue,
-        totalVatInputTax,
-        currentFiscalYear: currentFy,
-      };
+      // One summary rule for both the full bootstrap and the targeted slice
+      // (services/financialSummary.service.ts) — this path already holds the
+      // rows, so it feeds them straight to the pure computation.
+      const financialSummary = computeFinancialSummary({
+        stock: pgStock,
+        products: pgProducts,
+        assets: pgAssets,
+        purchaseInvoices: pgInvoices,
+        vendorPayments: data.vendorPayments,
+        purchaseReturns: data.purchaseReturns || [],
+        stockOperations: pgOps,
+        vendorOpeningBalanceTotal: data.vendorOpeningBalanceTotal,
+        // The current year's CODE is reported separately from the view scope:
+        // an explicit past-year request still reports which year is current,
+        // and '' when none is flagged (never a stale hard-coded default).
+        currentFiscalYear: pickCurrentFiscalYear(pgFiscalYears)?.code || '',
+      });
 
       // Server-side settings + the calling user's preferences. These replace
       // the browser-localStorage copies (company-wide blind stock-audit toggle,
@@ -273,6 +246,41 @@ export async function get_bootstrapLocal(req: any, res: Response): Promise<any> 
       fiscalYearStartAD: scope.fiscalYearStartAD as string | undefined,
       fiscalYearEndAD: scope.fiscalYearEndAD as string | undefined,
     };
+
+    // financialSummary is COMPUTED, not a table: it is derived from stock,
+    // assets, invoices, payments, returns and sale lines. Serving it through
+    // the operational-data fallback below would re-read every ledger for one
+    // small object, so it has a dedicated aggregate path with the same
+    // branch/FY scope and the same rules as the full bootstrap (DF-05).
+    if (key === 'financialSummary') {
+      const pgFiscalYears = await fetchFiscalYears(pgPool);
+      const fiscalYearScope = selectBootstrapFiscalYear(pgFiscalYears, fId);
+      if (!fiscalYearScope.ok) {
+        if (fiscalYearScope.reason === 'not-found') {
+          return res.status(400).json({
+            message: `Fiscal year '${fiscalYearScope.requestedId}' does not exist.`,
+            fiscalYearNotFound: true,
+          });
+        }
+        return res.status(409).json({
+          message:
+            'No fiscal year is flagged as current, so the financial summary cannot be scoped. ' +
+            'Open Fiscal Year Closing Wizard and set a year active, then retry.',
+          noCurrentFiscalYear: true,
+        });
+      }
+      const selectedFiscalYear = fiscalYearScope.fiscalYear;
+      const currentFy = pickCurrentFiscalYear(pgFiscalYears);
+      const summary = await fetchFinancialSummaryFromDb(pgPool, {
+        branchId: bId,
+        fiscalYearId: selectedFiscalYear.id,
+        fiscalYearStartAD: toCalendarDate(selectedFiscalYear.startDateAD),
+        fiscalYearEndAD: toCalendarDate(selectedFiscalYear.endDateAD),
+        currentFiscalYear: currentFy?.code || '',
+        useOpeningStock: !selectedFiscalYear.isCurrent,
+      });
+      return res.json({ dataVersion: getDataVersion(), financialSummary: summary });
+    }
 
     // The permission matrix is not a bootstrap table — it folds from its
     // own (operation_id, role, allowed) rows.

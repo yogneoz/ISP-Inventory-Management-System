@@ -33,7 +33,7 @@ ships a task.
 | DF-02 | Refresh the product catalog after save/re-activation | P1-1 | P1 | `done` | — |
 | DF-03 | One shared serial-register cache, invalidated by events | P1-2 | P1 | `done` | — |
 | DF-04 | Surface paged-register fetch failures | P1-3 | P1 | `done` | — |
-| DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `todo` | — |
+| DF-05 | Give `financialSummary` a refresh path | P1-4 | P1 | `done` | — |
 | DF-06 | Complete the SSE domain coverage (shipments, recalculation) | P2-1, P2-2 | P2 | `todo` | — |
 | DF-07 | Include the fiscal year in the GET dedup key | P2-3 | P2 | `todo` | — |
 | DF-08 | Sequence guards for ledgers and opening registers | P2-4, P2-5 | P2 | `todo` | — |
@@ -256,6 +256,15 @@ plus a manual 500 / server-stop pass per register.
 ---
 
 ## DF-05 — Give `financialSummary` a refresh path (P1-4)
+
+**Status: `done` (2026-10-24).** One pure rule in
+`services/financialSummary.service.ts` feeds both the full bootstrap and a new
+aggregate producer behind `GET /api/bootstrap/local?key=financialSummary`;
+the slice applies the same branch/FY scope (date-range rows, FY opening
+balances, opening stock for past years) without re-running the 24-query
+operational fan-out. App re-fetches it for `SALES`, `PROCUREMENT`, `STOCK`,
+`STOCK_OPERATIONS`, `SHIPMENTS`, `FISCAL` and `RECALC`. Live evidence and the
+cost measurement are in `SESSION_NOTES.md` under "DF-05 shipped".
 
 **Problem.** `financialSummary` is computed only in the full bootstrap and has
 no `/api/bootstrap/local` key and no domain entry. Another user's sale/payment/

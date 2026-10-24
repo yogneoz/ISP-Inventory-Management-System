@@ -57,6 +57,7 @@ const SLICE_LABELS: Record<string, string> = {
   salesReturns: 'sales returns',
   shipments: 'shipments',
   transactionLogs: 'transaction log',
+  financialSummary: 'financial summary',
   damageRecords: 'damaged stock',
   auditLogs: 'audit trail',
   customerDevices: 'customer devices',

@@ -59,13 +59,21 @@ describe('bootstrap trim: three ledgers out of the payload, deferred slices keep
       path.join(ROOT, 'server/src/controllers/bootstrap.controller.ts'),
       'utf8'
     );
+    // Scope the check to the response payload. The same rows are still the
+    // INPUT to computeFinancialSummary(...) (the summary has no table), and a
+    // whole-file regex would confuse those named arguments with a serialized
+    // ledger key.
+    const payload = controller.slice(
+      controller.lastIndexOf('return res.json({'),
+      controller.lastIndexOf('} catch')
+    );
     for (const pattern of [
       /purchaseOrders:\s*pgPurchaseOrders/,
       /purchaseInvoices:\s*pgInvoices/,
       /stockOperations:\s*pgOps/,
     ]) {
       assert.ok(
-        !pattern.test(controller),
+        !pattern.test(payload),
         `bootstrap response serializes a trimmed ledger again (${pattern}) — remove it from the payload and keep consumers on deferred slices`
       );
     }

@@ -926,26 +926,30 @@ export default function App() {
   // unknown server events can never leave the UI stale.
   // ---------------------------------------------------------------------------
   const DOMAIN_STATE_KEYS: Record<string, string[]> = {
-    STOCK: ['stock', 'damageRecords', 'transactionLogs'],
-    STOCK_OPERATIONS: ['stockOperations', 'stock', 'transactionLogs', 'damageRecords'],
+    // financialSummary is computed server-side from every domain below, so
+    // each mutation that moves inventory value, AP, VAT, damage or trading
+    // totals re-fetches the one aggregate slice (DF-05) instead of waiting
+    // for the next full bootstrap.
+    STOCK: ['stock', 'damageRecords', 'transactionLogs', 'financialSummary'],
+    STOCK_OPERATIONS: ['stockOperations', 'stock', 'transactionLogs', 'damageRecords', 'financialSummary'],
     SERIALS: ['customerDevices'],
     // PROCUREMENT also covers purchase returns: posting one deducts
     // stock, writes transaction-log rows and flips serial_log rows.
-    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'transactionLogs'],
+    PROCUREMENT: ['purchaseOrders', 'purchaseInvoices', 'vendorPayments', 'suppliers', 'purchaseReturns', 'stock', 'transactionLogs', 'financialSummary'],
     // Sales mutations deduct/restock stock, write transaction-log rows,
     // route non-restockable returns into the damage register and flip
     // serial_log rows (paged — covered by the register mapping below).
-    SALES: ['salesInvoices', 'salesReturns', 'stock', 'transactionLogs', 'damageRecords'],
-    SHIPMENTS: ['shipments', 'stock'],
+    SALES: ['salesInvoices', 'salesReturns', 'stock', 'transactionLogs', 'damageRecords', 'financialSummary'],
+    SHIPMENTS: ['shipments', 'stock', 'financialSummary'],
     MASTER_DATA: ['customers', 'customerDevices', 'branches', 'suppliers', 'locations', 'companyProfile'],
     CATEGORIES: ['categories'],
     PRODUCTS: ['products', 'stock'],
-    FISCAL: ['fiscalYears'],
+    FISCAL: ['fiscalYears', 'financialSummary'],
     USERS: ['users'],
     CUSTOMER_DEVICES: ['customerDevices', 'stock'],
     ASSETS: ['assets'],
     APPROVALS: ['approvalRequests'],
-    RECALC: ['stock', 'assets'],
+    RECALC: ['stock', 'assets', 'financialSummary'],
     COMPANY_PROFILE: ['companyProfile'],
     AUDIT: ['auditLogs'],
     // Sync-audit improvements #2/#3: first-class slice domains so the
