@@ -5,7 +5,7 @@ _Date: 2026-10-25 · Branch: main · Tests: 1236/1236 green with a DB (all run i
 > **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2/TRIM-1).** All DF-01…DF-17
 > work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
 > SER-1, SER-2 and TRIM-1 are done. C4 is explicitly parked (one
-> `bootstrap/local` call site already; see worklist §C4). B2 shipped the combined trigram search projection, so all eight
+> `bootstrap/local` call site already; see the architecture backlog §C4). B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
 > stock move together. SER-1 resolved D2: pullout/consumable/sale now issue their
@@ -13,10 +13,40 @@ _Date: 2026-10-25 · Branch: main · Tests: 1236/1236 green with a DB (all run i
 > D3: boot no longer backfills the serial register; the pass is an explicit
 > SUPER_ADMIN maintenance action. **D4 (2026-10-25) defers A5**: measurements do
 > not show user-visible root cost, so A5 is not started and A4b stays blocked
-> behind it. The temporary `worklist.md` therefore has no open performance task;
-> reopen A5 only on the recorded trigger (see D4 below).
+> behind it. There is no open performance task; reopen A5 only on the recorded
+> trigger (see D4 below).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
-> backlog; where they conflict with this note, the code and the worklist win.
+> backlog; where they conflict with this note, the code wins.
+
+## ✅ CLOSE — every worklist acceptance re-checked, tracker removed (2026-10-25)
+
+**Checked against the code, not the notes.** CPE-1: the status PATCH carries the
+shared `CPE_STATUS_ROLES` audience and the handler's object-level branch check
+(`tests/cpeStatusAuthz.test.ts`). CPE-2: create/exchange probe the normalized
+MAC before any write and return the readable 409, while the legacy
+`DISCONNECTED`/`RETURNED` values remain read-only in the type/read path
+(`tests/cpeMacConflict.test.ts`, `tests/cdrDuplicates.test.ts`). CPE-3: one
+lifecycle service owns the asset/CPE/stock move (`tests/cpeAssetLifecycle.test.ts`).
+SER-1/SER-2: the issue transitions and reversals are where the audit says, boot
+no longer calls the backfill, and the maintenance route is SUPER_ADMIN-only
+(`tests/serialGateHttp.test.ts`, `tests/serialOperationLifecycle.test.ts`,
+`tests/serialRegisterBackfill.test.ts`). B2: eight scans bind `search_text` (the
+six repo builders plus the serial pre-select). A3/A4a/A6: the providers wrap the
+real tree, the route registry is the only KeepMounted wiring, and the real-App
+route test is green. Bootstrap trim: the KPI surfaces, PO picker and FY wizard
+read scoped pages through the pending-procurement store. TRIM-1: the endpoint
+caps and scopes as documented and the modal holds no whole slices; C4 is parked
+with its evidence in the architecture backlog.
+
+**Docs reconciled.** Removed the stale `worklist.md` pointers, the “Slice 5
+remains open” superseded note (all five slices are delivered), and the C4/A5
+status lines; every permanent doc now has one status per item. No production
+code changed in this pass.
+
+**Gates.** `npx tsc --noEmit` clean; `npm test` **1236 tests, 1234 pass, 0 fail,
+2 Windows-only skips**, docs-count gate green; `npm run build` clean;
+`check:bundle-budget` **312.8 kB** startup / 15.7 kB entry (320 / 16);
+`check:no-inline-sql` and `check:no-raw-dialogs` green. `worklist.md` deleted.
 
 ## ✅ TRIM-1 shipped — quick search is one bounded, scoped server read (2026-10-25)
 
@@ -97,8 +127,8 @@ contract) is maintainability, not measured jank, and A5 is a week of high-risk
 churn. A4b stays blocked, as the backlog already requires. Reopen A5 only if a
 real-browser profile shows root commits above the 16 ms frame budget, or if
 A4b's typed deps contract becomes the priority. Recorded in
-[worklist.md](worklist.md) (D4 row) and
-[docs/architecture-backlog.md](docs/architecture-backlog.md#a5--data-store-for-operational-arrays-last).
+[docs/architecture-backlog.md](docs/architecture-backlog.md#a5--data-store-for-operational-arrays-last)
+(the temporary worklist that tracked it has been deleted now the pass is closed).
 **Confirmed in a real browser (same day).** The production build (`node dist/server.cjs`, port 3123, logged in as the demo SUPER_ADMIN) mounted six tabs, then a reorder-level PATCH on a real stock row drove exactly the four targeted STOCK slice fetches — `stock`, `damageRecords`, `transactionLogs`, `financialSummary` — with no full `/api/bootstrap` call. `PerformanceObserver('longtask')` recorded **zero** long tasks during both the idle baseline and the update window, and the rAF cadence did not change (median 31.2 ms, max 31.6 ms vs a 31.7 ms baseline at the headless 30 Hz cadence). The mutated reorder level was restored to 40; the temporary server and log were removed. The deferral therefore stands on production-build evidence, not only jsdom.
 
 No production code changed for this assessment.
@@ -299,8 +329,8 @@ eight scans at it (see the B2 entry above). Threshold recorded: p95 > 150 ms at
 modelled 1× volume, or a >50k-row sequential scan at 10×.
 
 **Where.** Full dataset, 1×/10× tables, plan shapes, reproducible SQL and
-variance are in `docs/architecture-backlog.md` §B1; the worklist then pointed at
-B2, which is now delivered. This B1 slice itself made no schema or application
+variance are in `docs/architecture-backlog.md` §B1; the follow-up plan then pointed
+at B2, which is now delivered. This B1 slice itself made no schema or application
 change. Targeted docs-count guard green (8/8); a docs-only slice does not need
 the full suite.
 
@@ -2104,15 +2134,16 @@ the wrong order (wipe before the schema ALTERs).
 Slices 2–5 (one server-enforced branch/status gate, transfer integrity, the shared pick-only serial
 input, backfill demoted to a maintenance action) are still open — see
 [docs/serial-register-audit.md](docs/serial-register-audit.md#6a-slice-1--delivered-2026-10-13).
-_(Superseded 2026-10-25: Slices 2, 3 and 4 are delivered. **Only Slice 5**, the
-boot-backfill demotion, remains open; see the temporary `worklist.md`.)_
+_(Superseded 2026-10-25: **all five slices are delivered** — Slices 2–4 in the
+audit thread and Slice 5 by SER-2, which retired the boot backfill in favour of
+the SUPER_ADMIN reconcile action.)_
 
 ## ⭐ Serial register: audit + agreed 5-slice plan (2026-10-13, read-only)
 
-> **Superseded 2026-10-25 (DOC-1).** This section is the audit as written on
-> 2026-10-13. Its findings were fixed by Slices 1–4 (2026-10-13 … 2026-10-20);
-> only Slice 5's boot-backfill demotion remains open. Retained for history — do
-> not re-implement the fixes.
+> **Superseded 2026-10-25.** This section is the audit as written on 2026-10-13.
+> Its findings were fixed by Slices 1–4 (2026-10-13 … 2026-10-20) and Slice 5's
+> boot-backfill demotion by SER-2 (2026-10-25). Retained for history — do not
+> re-implement the fixes.
 
 A read-only audit of where device serials are really created —
 [docs/serial-register-audit.md](docs/serial-register-audit.md). Headline findings, all
