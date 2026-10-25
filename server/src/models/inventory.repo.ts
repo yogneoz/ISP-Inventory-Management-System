@@ -560,7 +560,10 @@ export function buildStockOperationWhere(opts: StockOperationQueryOptions): { wh
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     const like = `%${opts.query.trim().toLowerCase()}%`;
     params.push(like);
-    whereSql += ` AND (LOWER(reference_number) LIKE $${params.length} OR LOWER(COALESCE(technician_name, '')) LIKE $${params.length} OR LOWER(COALESCE(work_order_ref, '')) LIKE $${params.length} OR LOWER(reason) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+    // Generated search projection + trigram GIN (schema.sql §B2). The old
+    // column-by-column OR could not use an items-only index because the
+    // unindexed header branches forced a sequential scan.
+    whereSql += ` AND search_text LIKE $${params.length}`;
   }
   if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
     params.push(opts.dateFromAD);

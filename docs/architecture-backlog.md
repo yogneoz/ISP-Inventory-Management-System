@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3 and A4a are implemented (2026-10-22 … 2026-10-25)**; C4, A4b (the route element factory), A5 and B are not started. A5 is the last slice._
+_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3, A4a, B1 and B2 are implemented (2026-10-22 … 2026-10-25)**; C4, A4b (the route element factory) and A5 are not started. B1 measured the item-search cost; B2 shipped the combined trigram projection, and B3/B4 stay parked. A5 is the last slice._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -27,7 +27,7 @@ data-model bet that should be measured before it is made.
 | **D** | Defect + deployment constraint | Silent session invalidation on every restart; a second process could never verify tokens | **Now** |
 | **C** | Accrued debt, half-fixed already | Slice failures are swallowed and slices are not scope-guarded | After D |
 | **A** | Structural refactor | Root is 3,044 lines / 39 `useState` (was 3,194 / 49); every visited tab re-rendered on any root state change (closed by A1); A6 renders the real route tree, A3 moved session/scope state into contexts and A4a turned the tab tree into one typed table | Incremental, A4b after A5 |
-| **B** | Data-model change | Seven `items JSONB` columns; today only two queries reach inside, but eight `items::text LIKE` scans will degrade linearly | Measure first; normalize only on demand |
+| **B** | Data-model change | Seven `items JSONB` columns; B1 measured eight `items::text LIKE` scans at 4k–120k rows. They grew with row count, four exceeded 1 s at 10×, and an item-only trigram index could not serve the ORed header predicates. B2 replaced all eight with one generated `search_text` projection per searched table plus a trigram GIN | B2 shipped; B3/B4 parked |
 
 ## Status
 
@@ -45,9 +45,9 @@ data-model bet that should be measured before it is made.
 [x] A3  session + scope contexts                     (2026-10-25)
 [~] A4  AppRoutes + route registry   (A4a landed 2026-10-25; A4b element factory not started, waits for A5)
 [ ] A5  data store for operational arrays            (not started; last)
-[ ] B1  measure item-search cost
-[ ] B2  index strategy for item search
-[ ] B3  read-only item projection tables
+[x] B1  measure item-search cost                            (2026-10-25)
+[x] B2  combined trigram search projection                  (2026-10-25)
+[ ] B3  read-only item projection tables             (parked — see B1)
 [ ] B4  full JSONB normalization                     (product decision)
 ```
 
@@ -232,12 +232,14 @@ Seven tables carry `items JSONB` in [schema.sql](../scripts/schema.sql): purchas
 invoices, shipments, stock operations, sales invoices, purchase returns, sales returns. Documents are
 read whole, and only two queries reach inside items
 ([procurement.repo.ts:713](../server/src/models/procurement.repo.ts#L713),
-[sales.repo.ts:422](../server/src/models/sales.repo.ts#L422)) for returns reconciliation. The real cost
-today is search: eight `LOWER(items::text) LIKE` scans across
+[sales.repo.ts:422](../server/src/models/sales.repo.ts#L422)) for returns reconciliation. B1 measured
+the cost as search: eight `items::text` substring scans (five register `LOWER…LIKE` predicates and
+three serial-rename `ILIKE` pre-selects) across
 [procurement.repo.ts](../server/src/models/procurement.repo.ts) (3),
 [serials.service.ts](../server/src/services/serials.service.ts) (3),
 [inventory.repo.ts](../server/src/models/inventory.repo.ts) (1) and
-[sales.repo.ts](../server/src/models/sales.repo.ts) (1).
+[sales.repo.ts](../server/src/models/sales.repo.ts) (1). B2 replaced all eight with one generated
+`search_text` projection per searched table (§B2); no query scans `items::text` any more.
 
 ### B1 — Measure before changing anything
 
@@ -246,16 +248,173 @@ today is search: eight `LOWER(items::text) LIKE` scans across
 | **Why** | No baseline exists, so "JSONB is slow" is currently an opinion. |
 | **Change** | `EXPLAIN (ANALYZE, BUFFERS)` each of the eight scans on a scratch database at 1× and ~10× current row counts; record p50/p95 and plan shape here. |
 | **Done when** | Numbers and query plans are recorded in this file, and B2/B3/B4 have a stated threshold that would trigger them. |
+| **Done 2026-10-25** | Measured on a scratch database: four scans exceed **1 s** at 10×, the 1× stock-operation search already takes **~0.30 s**, and all eight scale with row count. **B2 was a GO** on a combined trigram expression (not `items::text` alone) and shipped later the same day; **B3/B4 are parked**. Details below. |
 | **Rough effort / risk** | Half a day · none |
+
+#### Dataset and method (2026-10-25)
+
+The live development database is too small to time: 1 purchase order, 3 purchase invoices,
+0 shipments, 8 stock operations, 2 sales invoices and 1 row in each return register. The
+baseline below is therefore a **modelled first operating year** for the intended 12k-customer
+ISP, not production data. It was seeded into scratch database `inventory_bench_b1` after
+applying [scripts/schema.sql](../scripts/schema.sql) unchanged as the application role on
+**PostgreSQL 18.6 (Windows)**; each row carries a realistic four-object `items` array with
+product id/name/SKU, quantity, unit cost, device serial, PON and MAC.
+
+| Table | 1× rows | 10× rows |
+|---|---:|---:|
+| `purchase_orders` | 4,000 | 40,000 |
+| `purchase_invoices` | 4,000 | 40,000 |
+| `shipments` | 6,000 | 60,000 |
+| `stock_operations` | 12,000 | 120,000 |
+| `sales_invoices` | 12,000 | 120,000 |
+| `purchase_returns` | 600 | 6,000 |
+| `sales_returns` | 900 | 9,000 |
+
+The 10× state is nine `INSERT … SELECT` copies per table with fresh ids/document numbers and
+rewritten serial/PON/MAC prefixes, followed by `ANALYZE`. The measured statements were produced
+by the real builders (`buildPurchaseOrderAggregateQuery`, `buildPurchaseInvoiceAggregateQuery`,
+`buildPurchaseReturnCountQuery`, `buildStockOperationCountQuery`, `buildSalesReturnCountQuery`)
+plus the verbatim three-identifier serial-cascade `SELECT` from
+[serials.service.ts:321](../server/src/services/serials.service.ts#L321). Search term:
+`SN-B1-000042` (one matching row; the serial statement also searches the matching PON and MAC).
+Each statement ran once to warm the cache, then **7 recorded runs** with
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`; p50/p95 are the plan's `Execution Time`, not
+Node/client wall time.
+
+#### Scan results (filtered count / pre-select)
+
+| Scan | Table | 1× p50 / p95 (ms) | 10× p50 / p95 (ms) | Plan shape at 1× → 10× |
+|---|---|---:|---:|---|
+| PO register | `purchase_orders` | 49.4 / 55.6 | 521.0 / 576.2 | Aggregate → Bitmap Heap Scan (branch index) → **Seq Scan** |
+| PI register | `purchase_invoices` | 54.9 / 55.2 | 489.0 / 720.1 | Aggregate → Bitmap Heap Scan (branch index) → same |
+| Purchase-return register | `purchase_returns` | 8.3 / 8.5 | 70.0 / 80.8 | Aggregate → Bitmap Heap Scan (branch index) → same |
+| Stock-operation register | `stock_operations` | 302.5 / 472.1 | 1,249.3 / 1,366.0 | Aggregate → **Seq Scan** → Gather → Parallel Seq Scan |
+| Sales-return register | `sales_returns` | 12.3 / 12.5 | 110.3 / 131.1 | Aggregate → Bitmap Heap Scan (branch index) → same |
+| Serial rename: PI | `purchase_invoices` | 249.8 / 291.1 | 2,510.2 / 2,698.4 | **Seq Scan** → same |
+| Serial rename: shipments | `shipments` | 387.5 / 412.9 | 4,093.2 / 4,109.4 | **Seq Scan** → same |
+| Serial rename: stock operations | `stock_operations` | 759.1 / 821.5 | 2,879.4 / 3,207.5 | **Seq Scan** → Gather → Parallel Seq Scan |
+
+The five register scans also run a 25-row page query with the same `WHERE` plus
+`ORDER BY created_at DESC LIMIT 25`. Its p50 tracked the scan (PO 44.7 → 516.3 ms,
+PI 48.3 → 457.5 ms, PR 6.6 → 74.2 ms, SO 293.2 → 1,218.1 ms, SR 9.5 → 125.4 ms). A register
+request executes that `WHERE` roughly three times (aggregate KPI, status counts, page), so the
+**10× stock-operation screen is ~3.7 s of database scan before rendering**; the 1× version is
+still ~0.9 s.
+
+Representative 10× plans (run 2):
+
+```
+Aggregate > Gather > Partial Aggregate > Parallel Seq Scan on stock_operations
+  Filter: ((branch_id = 'BR01' OR destination_warehouse_id = 'BR01') AND (… lower(items::text) LIKE …))
+  Rows Removed by Filter: 40000
+  Execution Time: 1501.116 ms
+
+Seq Scan on shipments
+  Filter: ((items::text ILIKE '%SN-B1-000042%') OR (items::text ILIKE '%PON-B1-000042%') OR (items::text ILIKE '%AA:BB:CC:00:00:2A%'))
+  Rows Removed by Filter: 59999
+  Execution Time: 3934.077 ms
+```
+
+**Variance.** A second full run on the same data moved most p50s by −39% to +18% (the 1×
+stock-operation and serial-PI scans were the largest downward moves) and by up to 2.8× on the
+60k-row shipments scan, where the plan changed from a parallel to a serial sequential scan; the
+ranking and every result above 1 s stayed the same. Treat the absolute numbers as shape and order of magnitude, not SLAs: this was
+a local Windows CPU, not the deployment host, and `shared_buffers` held the whole 1× data set.
+
+#### Reproducible SQL
+
+```sql
+-- Five register scans: the shared WHERE is COUNTed here; the page query adds
+-- SELECT <columns> FROM <table> … ORDER BY created_at DESC LIMIT 25.
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT COUNT(*)::int FROM purchase_orders
+WHERE 1=1 AND branch_id = 'BR01'
+  AND (LOWER(po_number) LIKE '%sn-b1-000042%'
+    OR LOWER(supplier_name) LIKE '%sn-b1-000042%'
+    OR LOWER(items::text) LIKE '%sn-b1-000042%');
+
+-- Same shape, table-specific header columns:
+--   purchase_invoices: invoice_number, COALESCE(vendor_bill_number,''), supplier_name, items
+--   purchase_returns:  return_number, original_invoice_number, supplier_name, items
+--   sales_returns:     return_number, original_invoice_number, customer_name, items
+--   stock_operations:  reference_number, COALESCE(technician_name,''),
+--                      COALESCE(work_order_ref,''), reason, items
+--                      (plus branch_id = $1 OR destination_warehouse_id = $1)
+
+-- Three serial-rename pre-selects, one per table (purchase_invoices, shipments, stock_operations):
+SELECT id, items FROM stock_operations
+WHERE items::text ILIKE '%SN-B1-000042%'
+   OR items::text ILIKE '%PON-B1-000042%'
+   OR items::text ILIKE '%AA:BB:CC:00:00:2A%';
+```
+
+#### Decision
+
+**Trigger threshold.** Any user-visible search whose p95 scan exceeds **150 ms at modelled 1×
+volume**, or whose 10× plan is a sequential scan over **more than 50k rows**, starts B2. B1 is
+over that line today: the 1× stock-operation scan is 302 ms and the three serial scans are
+250–759 ms; at 10× four scans exceed 1 s.
+
+- **B2 — GO, shipped 2026-10-25.** `pg_trgm` 1.6 is available and the application role can create
+  it. The index must cover the **whole searched expression**, not only `items::text`: the five
+  register predicates are `header OR header OR items`, so an unindexed header branch forces a seq
+  scan. A scratch spot-check on `stock_operations` at 1× (12k rows) left the 284.6 ms seq scan
+  unchanged with a bare `LOWER(items::text)` GIN, then a GIN on
+  `lower(coalesce(reference_number,'') || ' ' || … || items::text)` used a Bitmap Index Scan and
+  ran the same scan in **5.5 ms**. B2 shipped exactly that combined expression as a generated
+  stored column and pointed all eight scans at it; see §B2 for the delivered shape and the
+  120k-row measurement.
+- **B3 — PARK.** No report or join currently needs item rows; the measured pain is search, and
+  B2 addresses it without a second write path. Revisit only when a report needs item-level
+  filters/joins.
+- **B4 — PARK.** Unchanged: full normalization needs a product decision and B1 does not demand it.
 
 ### B2 — Index strategy for item search
 
 | | |
 |---|---|
 | **Why** | These are substring searches over serialised JSON; the right index depends on B1. |
-| **Options** | (a) `pg_trgm` GIN on `items::text` — closest drop-in for the current `LIKE '%q%'`; needs the extension. (b) Generated `tsvector` + GIN — no extension, but token semantics change (won't match arbitrary serial fragments). (c) Narrow the search to documented fields (SKU, product name, serial) via a projection. |
-| **Done when** | One option is chosen with the B1 numbers behind it, the index ships in `schema.sql` (single DDL source), the parity test passes, and the eight scans use the chosen path. |
+| **Options** | (a) `pg_trgm` GIN on `items::text` — closest drop-in for the current `LIKE '%q%'`; needs the extension, but B1 proved an items-only index is not used while the same OR contains unindexed header columns. (b) Generated `tsvector` + GIN — no extension, but token semantics change (won't match arbitrary serial fragments). (c) Narrow the search to documented fields (SKU, product name, serial) via a projection. (d) **Chosen by B1:** one `pg_trgm` GIN on the combined search expression (all header columns + `items::text`) per table. |
+| **Done when** | The combined-expression index ships in `schema.sql` (single DDL source), the parity test passes, and all eight scans use that exact expression; the 10× stock-operation scan drops from ~1.25 s to a small double-digit millisecond index path (the 1× spot check was 5.5 ms). |
+| **B1 decision 2026-10-25** | **GO.** Bare `items::text` is insufficient; use the combined expression. See B1 for numbers and the spot check. |
+| **Done 2026-10-25** | `pg_trgm` plus six generated `search_text` columns and six GIN indexes ship in `schema.sql`; existing databases get the columns through `ALTER TABLE … ADD COLUMN IF NOT EXISTS` before the indexes. All eight scans now bind one lower-cased `search_text LIKE $n`; no server query mentions `items::text`. Fresh 12k/120k-row check: at 120k the stock-op count went from **265.2 ms (Seq Scan)** to **15.4 ms (Bitmap Heap Scan)** with the same single result; at 12k both used a Seq Scan (54.7 → 17.9 ms), so the planner switches to the index exactly where B1 measured the pain. |
 | **Rough effort / risk** | 1 day · low |
+
+#### Delivered shape (2026-10-25)
+
+The extension is created once at the top of `schema.sql` (`CREATE EXTENSION IF NOT EXISTS pg_trgm`).
+Each searched table declares a stored generated column:
+
+```sql
+search_text TEXT GENERATED ALWAYS AS (
+  lower(COALESCE(header_a, '') || ' ' || COALESCE(header_b, '') || ' ' || COALESCE(items::text, ''))
+) STORED
+```
+
+| Table | Header columns folded into `search_text` |
+|---|---|
+| `purchase_orders` | `po_number`, `supplier_name`, `items` |
+| `purchase_invoices` | `invoice_number`, `vendor_bill_number`, `supplier_name`, `items` |
+| `shipments` | `items` (the serial cascade is its only search) |
+| `stock_operations` | `reference_number`, `technician_name`, `work_order_ref`, `reason`, `items` |
+| `purchase_returns` | `return_number`, `original_invoice_number`, `supplier_name`, `items` |
+| `sales_returns` | `return_number`, `original_invoice_number`, `customer_name`, `items` |
+
+Each table gets `CREATE INDEX … USING gin (search_text gin_trgm_ops)`. `sales_invoices` carries
+`items` but has no item-search query, so it is deliberately not included. The runtime parity
+section repeats every generated column as `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (a no-op on a
+fresh install, required for an existing database) before the `IF NOT EXISTS` indexes run. The eight
+call sites are `buildPurchaseOrderWhere`, `buildPurchaseInvoiceWhere`, `buildPurchaseReturnWhere`,
+`buildStockOperationWhere`, `buildSalesReturnWhere` and the three-table serial pre-select in
+`cascadeRenameJsonbTables`; all of them use the column, and the serial parameters are lower-cased
+to match it.
+
+The upgrade path was exercised on a database built from the pre-B2 `HEAD` schema and seeded with
+12k stock operations: applying the new schema created all six columns/indexes, preserved the same
+single search result, re-applied as a clean no-op, and the count used a Bitmap Heap Scan (9.5 ms).
+That first apply took **~4.7 s** at 12k rows; adding a stored generated column rewrites each table
+once, so the first boot after this upgrade is a one-time maintenance cost that grows with volume.
 
 ### B3 — Read-only item projection tables
 
@@ -263,6 +422,7 @@ today is search: eight `LOWER(items::text) LIKE` scans across
 |---|---|
 | **Why** | Item-level reporting and auditing without rewriting the document model. |
 | **Change** | Add e.g. `purchase_invoice_items` / `sales_invoice_items`, populated in the same transaction as the document write, backfilled by a script; JSONB stays the document of record and export format. |
+| **B1 decision 2026-10-25** | **PARK.** No current report or join needs item rows; search is the measured cost and B2 covers it. Revisit when an item-level report is actually required. |
 | **Done when** | Reconciliation (counts and sums per document) proves projection == JSONB for every row; at least one report reads the projection; backfill is idempotent. |
 | **Rough effort / risk** | 1 week · medium |
 
@@ -287,8 +447,8 @@ D1 → D2 → D3            stop: notes + this checklist
 C1 → C2 → C3            stop: notes + this checklist
 A1 (done) → A2 (done) → A6 (done)   stop: notes + this checklist
 A3 (done) → A4a (done)              stop: notes + this checklist
-B1 → B2                             stop: notes + this checklist
-B3 (only if B1 says so)             stop: notes + this checklist
+B1 (done) → B2 (done)               stop: notes + this checklist
+B3 (parked by B1)                   do not start without an item-level report
 A5 → A4b, then B4                   only on a deliberate, recorded decision
 ```
 
@@ -302,12 +462,12 @@ write the next slice ID into `SESSION_NOTES.md` so the next session does not hav
 | 1 | D: fail-fast only, or also support a generated-and-persisted secret file? (recommendation: fail-fast; a file is a second place to lose) | D1 |
 | 2 | C: should a failed slice be operator-visible, or only logged? (recommendation: one dismissible notice, never a toast per slice) | C1 |
 | 3 | A: is root re-render cost user-visible yet? If not, A1/A2 are enough for now | A3 |
-| 4 | B: does any report need item-level joins, or only search? (search → B2; joins → B3) | B3/B4 |
+| 4 | B: does any report need item-level joins, or only search? **Resolved by B1 (2026-10-25): search only → B2 shipped; B3 parked.** | B3/B4 |
 
 ## Explicitly not doing
 
 - **No big-bang App.tsx extraction.** Screens come out one at a time, behind A6.
-- **No wholesale JSONB normalization.** JSONB stays the document of record until B1/B3 justify more.
+- **No wholesale JSONB normalization.** B2 now indexes search; JSONB stays the document of record until B3/B4 justify more.
 - **No PM2 cluster mode** until sessions, caches and SSE are shared (see D3).
 - **No global state library** before A6; motion is not a reason to add one.
 - **No dropping `items` or `history_json`** even after B4; they remain the export/audit format.

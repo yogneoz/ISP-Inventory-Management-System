@@ -261,7 +261,8 @@ describe('stock operations', () => {
       dateToAD: '2026-09-30',
     }, { page: 2, pageSize: 25 });
     assert.match(sql, /WHERE 1=1 AND \(branch_id = \$1 OR destination_warehouse_id = \$1\) AND type = \$2 AND COALESCE\(status, 'LOGGED'\) = \$3/);
-    assert.match(sql, /AND \(LOWER\(reference_number\) LIKE \$4 OR LOWER\(COALESCE\(technician_name, ''\)\) LIKE \$4 OR LOWER\(COALESCE\(work_order_ref, ''\)\) LIKE \$4 OR LOWER\(reason\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND search_text LIKE \$4/);
+    assert.ok(!sql.includes('items::text'), 'the search must use the generated projection, not a per-column OR');
     assert.match(sql, /AND date_ad >= \$5::date AND date_ad <= \$6::date/);
     assert.match(sql, / ORDER BY created_at DESC LIMIT 25 OFFSET 25$/);
     assert.deepEqual(params, ['WH001', 'CONSUMABLE_ISSUE', 'LOGGED', '%splitter%', '2026-09-01', '2026-09-30']);

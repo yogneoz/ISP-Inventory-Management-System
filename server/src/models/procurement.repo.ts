@@ -75,7 +75,11 @@ export function buildPurchaseOrderWhere(opts: PurchaseOrderQueryOptions): { wher
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     const like = `%${opts.query.trim().toLowerCase()}%`;
     params.push(like);
-    whereSql += ` AND (LOWER(po_number) LIKE $${params.length} OR LOWER(supplier_name) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+    // One generated, lower-cased projection per table; the trigram GIN in
+    // schema.sql is built on this exact expression. Searching the columns
+    // individually here would force a seq scan because the OR mixes indexed
+    // and unindexed branches (docs/architecture-backlog.md §B2).
+    whereSql += ` AND search_text LIKE $${params.length}`;
   }
   if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
     params.push(opts.dateFromAD);
@@ -244,7 +248,7 @@ export function buildPurchaseInvoiceWhere(opts: PurchaseInvoiceQueryOptions): { 
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     const like = `%${opts.query.trim().toLowerCase()}%`;
     params.push(like);
-    whereSql += ` AND (LOWER(invoice_number) LIKE $${params.length} OR LOWER(COALESCE(vendor_bill_number, '')) LIKE $${params.length} OR LOWER(supplier_name) LIKE $${params.length} OR LOWER(items::text) LIKE $${params.length})`;
+    whereSql += ` AND search_text LIKE $${params.length}`;
   }
   if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
     params.push(opts.dateFromAD);
@@ -678,10 +682,7 @@ export function buildPurchaseReturnWhere(opts: PurchaseReturnQueryOptions): { wh
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     const like = `%${opts.query.trim().toLowerCase()}%`;
     params.push(like);
-    whereSql += ` AND (LOWER(return_number) LIKE $${params.length}` +
-      ` OR LOWER(original_invoice_number) LIKE $${params.length}` +
-      ` OR LOWER(supplier_name) LIKE $${params.length}` +
-      ` OR LOWER(items::text) LIKE $${params.length})`;
+    whereSql += ` AND search_text LIKE $${params.length}`;
   }
   if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
     params.push(opts.dateFromAD);

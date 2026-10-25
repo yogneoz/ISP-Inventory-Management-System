@@ -50,13 +50,12 @@ describe('returns/invoices paged WHERE builders — parameter binding', () => {
     }
   });
 
-  test('the query filter binds one LIKE param reused across every searched column', () => {
+  test('the query filter binds one LIKE param against the generated search projection', () => {
     const { whereSql, params } = buildSalesReturnWhere({ query: 'CN-WH' });
     assert.deepEqual(params, ['%cn-wh%']);
-    assert.deepEqual(binds(whereSql), [1], 'one bind serves every OR branch');
-    assert.ok(whereSql.includes('LOWER(return_number) LIKE $1'));
-    assert.ok(whereSql.includes('LOWER(original_invoice_number) LIKE $1'));
-    assert.ok(whereSql.includes('LOWER(customer_name) LIKE $1'));
+    assert.deepEqual(binds(whereSql), [1], 'one bind serves the whole search expression');
+    assert.ok(whereSql.includes('search_text LIKE $1'));
+    assert.ok(!whereSql.includes('items::text'), 'the builder must not OR per-column predicates');
   });
 
   test('status maps to payment_status on sales invoices and to status on returns', () => {

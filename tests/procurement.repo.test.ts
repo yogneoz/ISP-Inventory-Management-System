@@ -228,7 +228,8 @@ describe('paged purchase-order queries', () => {
       dateToAD: '2026-09-30',
     }, { page: 2, pageSize: 20 });
     assert.match(sql, /WHERE 1=1 AND branch_id = \$1 AND status = \$2 AND LOWER\(supplier_name\) = \$3/);
-    assert.match(sql, /AND \(LOWER\(po_number\) LIKE \$4 OR LOWER\(supplier_name\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND search_text LIKE \$4/);
+    assert.ok(!sql.includes('items::text'), 'the search must use the generated projection, not a per-column OR');
     assert.match(sql, /AND order_date_ad >= \$5::date AND order_date_ad <= \$6::date/);
     assert.match(sql, / ORDER BY created_at DESC LIMIT 20 OFFSET 20$/);
     assert.deepEqual(params, ['WH001', 'SENT', 'acme pvt', '%onu%', '2026-09-01', '2026-09-30']);
@@ -270,7 +271,8 @@ describe('paged purchase-invoice queries', () => {
       dateFromAD: '2026-09-01',
     }, { page: 3, pageSize: 10 });
     assert.match(sql, /WHERE 1=1 AND branch_id = \$1 AND payment_status = \$2 AND LOWER\(supplier_name\) = \$3/);
-    assert.match(sql, /AND \(LOWER\(invoice_number\) LIKE \$4 OR LOWER\(COALESCE\(vendor_bill_number, ''\)\) LIKE \$4 OR LOWER\(supplier_name\) LIKE \$4 OR LOWER\(items::text\) LIKE \$4\)/);
+    assert.match(sql, /AND search_text LIKE \$4/);
+    assert.ok(!sql.includes('items::text'), 'the search must use the generated projection, not a per-column OR');
     assert.match(sql, /AND invoice_date_ad >= \$5::date/);
     assert.match(sql, / ORDER BY created_at DESC LIMIT 10 OFFSET 20$/);
     assert.deepEqual(params, ['BRH01', 'PARTIAL', 'acme pvt', '%bill 42%', '2026-09-01']);

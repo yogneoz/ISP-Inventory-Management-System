@@ -478,6 +478,8 @@ These tables store line items as JSONB arrays rather than normalized child table
 | `stock_operations` | `items` | Mixed: PulloutItem[] or ConsumableIssueItem[] or SaleItem[] |
 | `serial_log` | `history_json` | `[{status, sourceType, sourceId?, dateAD, ...}]` — append-only lifecycle events |
 
+The six searched document tables also carry a stored generated `search_text` column (the lower-cased header fields plus `items::text`, backed by a `pg_trgm` GIN). It is a search projection, not a document column: writes never supply it, and it is safe to rebuild. `sales_invoices` has no item-search query, so it has no projection. Details and the measured plans are in [architecture-backlog.md §B2](docs/architecture-backlog.md#b2--index-strategy-for-item-search).
+
 ---
 
 ## 6. API Endpoints Reference
@@ -865,7 +867,7 @@ rows that exist and never create one (section 11.2).
 ### 11.2 Server-Side Guarantees (`handleUpdateSerials` + dual endpoint)
 
 1. **Pre-transaction duplicate check** — every new value is compared case-insensitively against `serial_log` (all three columns), `customer_device_records` (all three columns) and `fixed_assets.tag_number`; rows belonging to the device being edited (matched by any of its old identifiers) are excluded. Conflicts return **409** naming the field, value and conflicting device.
-2. **Cascade rename in one transaction** — the correction propagates to `customer_device_records` (matched by id or any old identifier) and to the JSONB `items` of `purchase_invoices`, `shipments` and `stock_operations` (pre-selected with `ILIKE` across all three old values). All matchers are case-insensitive.
+2. **Cascade rename in one transaction** — the correction propagates to `customer_device_records` (matched by id or any old identifier) and to the JSONB `items` of `purchase_invoices`, `shipments` and `stock_operations`. The three tables are pre-selected through their generated, lower-cased `search_text` projection (trigram-indexed), with the old values lower-cased to match; all matchers are case-insensitive. See `docs/architecture-backlog.md` §B2.
 3. **Dual save (swap-safe)** — `POST /api/inventory/serials/dual` validates the combined final state (no value shared between the two devices; full swaps pass), then **parks both devices on temporary unique serials before applying final values**, so no unique index can collide mid-sequence regardless of collision shape.
 4. **In-transaction race protection** — the `serial_log` sync re-checks all three fields inside the transaction and rejects with the field name if a concurrent write introduced a clash.
 

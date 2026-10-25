@@ -2,13 +2,103 @@
 
 _Date: 2026-10-25 · Branch: main · Tests: 1203/1203 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2).** All DF-01…DF-17 work, the
-> bootstrap trim follow-up, A3, A4a, CPE-1 and CPE-2 are done. **A5 is not
-> started** and is deliberately last; A4b waits for it. The next scheduled work
-> is in the temporary `worklist.md` at the repo root (not part of the committed
-> docs).
+> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2).** All DF-01…DF-17 work, the
+> bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1 and B2 are done. B2
+> shipped the combined trigram search projection, so all eight item searches
+> share one indexed `search_text` column per table; B3/B4 stay parked. **A5 is
+> not started** and is deliberately last; A4b waits for it. The next scheduled
+> work is in the temporary `worklist.md` at the repo root (not part of the
+> committed docs).
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ B2 shipped — one trigram projection serves all eight item searches (2026-10-25)
+
+**Problem.** B1 measured eight `items::text` substring scans (five register
+predicates plus three serial-rename pre-selects). At 120k rows four took more
+than a second (1.25–4.09 s), and the register predicates ORed header columns
+with the JSONB blob, so an items-only index could not be used: an unindexed
+header branch forced a sequential scan.
+
+**Fix.** `scripts/schema.sql` now creates `pg_trgm` and gives each searched
+table one stored generated projection, `search_text`, holding the lower-cased
+concatenation of exactly the columns its old predicate searched:
+
+| Table | Folded into `search_text` |
+|---|---|
+| `purchase_orders` | `po_number`, `supplier_name`, `items` |
+| `purchase_invoices` | `invoice_number`, `vendor_bill_number`, `supplier_name`, `items` |
+| `shipments` | `items` |
+| `stock_operations` | `reference_number`, `technician_name`, `work_order_ref`, `reason`, `items` |
+| `purchase_returns` | `return_number`, `original_invoice_number`, `supplier_name`, `items` |
+| `sales_returns` | `return_number`, `original_invoice_number`, `customer_name`, `items` |
+
+Each table gets a `gin (search_text gin_trgm_ops)` index. `sales_invoices`
+carries `items` but has no item-search query, so it is deliberately excluded.
+The runtime parity block adds every column with
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS … GENERATED … STORED` before the
+`IF NOT EXISTS` indexes, so an existing database upgrades on its next boot and
+a fresh install declares the columns in `CREATE TABLE` directly.
+
+All eight call sites now emit one lower-cased `search_text LIKE $n` instead of
+the column-by-column OR: `buildPurchaseOrderWhere`,
+`buildPurchaseInvoiceWhere`, `buildPurchaseReturnWhere`,
+`buildStockOperationWhere`, `buildSalesReturnWhere`, and the three-table serial
+pre-select in `cascadeRenameJsonbTables` (its parameters are lower-cased to
+match the generated column). `grep -rn 'items::text' server/src` is now empty.
+
+**Verification.** Targeted repo/serial/schema tests are green, followed by the
+full suite: **1203 tests, 1201 pass, 2 skipped, 0 fail**, docs-count gate green
+at 1203. A fresh scratch database (`inventory_bench_b2`, schema-only, then
+12k seeded stock operations) measured the real stock-operation count: at 12k
+rows the old predicate and the projection both used a Seq Scan (54.7 ms →
+17.9 ms); after growing to 120k rows the old predicate stayed on a Seq Scan at
+**265.2 ms**, while `search_text LIKE` switched to a **Bitmap Heap Scan at
+15.4 ms** and returned the same single row. That is the B1 shape reproduced
+against the shipped schema, not a replay of B1's richer four-object dataset.
+The upgrade path was exercised separately: a database built from the pre-B2
+`HEAD` schema was seeded with 12k stock operations, then the new schema was
+applied. All six columns and six indexes appeared, the same serial search
+still matched exactly one row, a second apply was a clean no-op, and the count
+used a Bitmap Heap Scan at 9.5 ms; the full first apply took ~4.7 s at 12k
+rows, so treat the generated-column rewrite as a one-time maintenance cost that
+grows with table size.
+
+**Where.** `scripts/schema.sql` (extension, six columns, six indexes, runtime
+ALTERs), `server/src/models/{procurement,inventory,sales}.repo.ts`,
+`server/src/services/serials.service.ts`, and the repo/serial/schema tests.
+Backlog §B2 now records the delivered shape and numbers.
+
+## ✅ B1 measured — item search degrades with rows; B2 is a GO on the combined expression (2026-10-25)
+
+**Result.** Eight `items::text` scans were measured with
+`EXPLAIN (ANALYZE, BUFFERS)` on scratch database `inventory_bench_b1`
+(PostgreSQL 18.6, `scripts/schema.sql` unchanged) at a modelled 1× year and
+10×: 4k/40k purchase orders, 4k/40k purchase invoices, 6k/60k shipments,
+12k/120k stock operations, 12k/120k sales invoices, 600/6k purchase returns,
+900/9k sales returns. At 10× four scans exceeded one second: stock operations
+1.25 s, serial rename PI 2.51 s, shipments 4.09 s and stock operations 2.88 s.
+The 1× stock-operation scan already took 302 ms and the three serial scans
+250–759 ms. Register page queries tracked the scan (SO 293 ms at 1×, 1.22 s at
+10×), and a register request runs the same `WHERE` about three times, so the
+10× stock-operation screen pays ~3.7 s of scans before rendering. A second full
+run varied individual p50s but kept the ranking and every >1 s result.
+
+**Decision.** **B2 GO; B3/B4 parked.** A bare `items::text` trigram GIN is not
+enough: the five register predicates OR the items field with unindexed header
+columns, and a scratch spot check confirmed the planner kept a 284.6 ms seq
+scan. A GIN on the combined
+`lower(coalesce(header…,'') || ' ' || … || items::text)` expression used a
+Bitmap Index Scan and ran the same 12k-row scan in 5.5 ms. B2 shipped that
+expression as a generated stored column in `schema.sql` and now points all
+eight scans at it (see the B2 entry above). Threshold recorded: p95 > 150 ms at
+modelled 1× volume, or a >50k-row sequential scan at 10×.
+
+**Where.** Full dataset, 1×/10× tables, plan shapes, reproducible SQL and
+variance are in `docs/architecture-backlog.md` §B1; the worklist then pointed at
+B2, which is now delivered. This B1 slice itself made no schema or application
+change. Targeted docs-count guard green (8/8); a docs-only slice does not need
+the full suite.
 
 ## ✅ CPE-2 shipped — MAC conflicts are a readable 409 and the dead status vocabulary is gone (2026-10-25)
 

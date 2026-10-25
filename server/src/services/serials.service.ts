@@ -318,17 +318,20 @@ export async function cascadeRenameJsonbTables(
   oldV: Pick<SerialRenameInput, 'oldDeviceSerial' | 'oldPonSerial' | 'oldMacAddress'>,
   newV: Pick<SerialRenameInput, 'newDeviceSerial' | 'newPonSerial' | 'newMacAddress'>
 ): Promise<void> {
-  const ilikeFragments = [
-    'items::text ILIKE $1',
-    oldV.oldPonSerial ? 'items::text ILIKE $2' : '',
-    oldV.oldMacAddress ? 'items::text ILIKE $3' : '',
+  // `search_text` is the generated lower-cased projection indexed with
+  // pg_trgm (schema.sql §B2). The old items-only ILIKE could not use a
+  // trigram index reliably; patterns are lower-cased to match the column.
+  const likeFragments = [
+    'search_text LIKE $1',
+    oldV.oldPonSerial ? 'search_text LIKE $2' : '',
+    oldV.oldMacAddress ? 'search_text LIKE $3' : '',
   ].filter(Boolean);
   const params = [
-    `%${oldV.oldDeviceSerial}%`,
-    ...(oldV.oldPonSerial ? [`%${oldV.oldPonSerial}%`] : []),
-    ...(oldV.oldMacAddress ? [`%${oldV.oldMacAddress}%`] : []),
+    `%${oldV.oldDeviceSerial.toLowerCase()}%`,
+    ...(oldV.oldPonSerial ? [`%${oldV.oldPonSerial.toLowerCase()}%`] : []),
+    ...(oldV.oldMacAddress ? [`%${oldV.oldMacAddress.toLowerCase()}%`] : []),
   ];
-  const where = ilikeFragments.join(' OR ');
+  const where = likeFragments.join(' OR ');
 
   // purchase_invoices (deviceSerials only)
   const piResult = await client.query(

@@ -296,15 +296,16 @@ describe('cascadeRenameJsonbTables', () => {
     return { client, executed };
   }
 
-  it('pre-selects all three JSONB tables with ORed ILIKE clauses for three old identifiers', async () => {
+  it('pre-selects all three JSONB tables through the generated trigram projection', async () => {
     const { client, executed } = mockClient({});
     await cascadeRenameJsonbTables(client, oldV, newV);
     const selects = executed.filter((e) => e.sql.startsWith('SELECT id, items'));
     assert.equal(selects.length, 3);
     for (const s of selects) {
       assert.match(s.sql, /purchase_invoices|shipments|stock_operations/);
-      assert.match(s.sql, /items::text ILIKE \$1 OR items::text ILIKE \$2 OR items::text ILIKE \$3/);
-      assert.deepEqual(s.params, ['%SN-OLD%', '%PON-OLD%', '%AA:BB%']);
+      assert.match(s.sql, /search_text LIKE \$1 OR search_text LIKE \$2 OR search_text LIKE \$3/);
+      assert.ok(!s.sql.includes('items::text'), 'the cascade must use the indexed search_text column');
+      assert.deepEqual(s.params, ['%sn-old%', '%pon-old%', '%aa:bb%']);
     }
   });
 
@@ -333,7 +334,7 @@ describe('cascadeRenameJsonbTables', () => {
     assert.equal(executed.filter((e) => e.sql.startsWith('UPDATE shipments')).length, 0);
   });
 
-  it('omits the MAC ILIKE clause (and its param) when no old MAC is supplied', async () => {
+  it('omits the MAC LIKE clause (and its param) when no old MAC is supplied', async () => {
     const { client, executed } = mockClient({});
     await cascadeRenameJsonbTables(
       client,
@@ -341,8 +342,8 @@ describe('cascadeRenameJsonbTables', () => {
       newV
     );
     const select = executed.find((e) => e.sql.startsWith('SELECT id, items'))!;
-    assert.equal(select.sql.includes('ILIKE $3'), false);
-    assert.deepEqual(select.params, ['%SN-OLD%']);
+    assert.equal(select.sql.includes('LIKE $3'), false);
+    assert.deepEqual(select.params, ['%sn-old%']);
   });
 });
 

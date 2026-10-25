@@ -347,10 +347,8 @@ export function buildSalesReturnWhere(opts: SalesReturnQueryOptions): { whereSql
   if (opts.query && typeof opts.query === 'string' && opts.query.trim()) {
     const like = `%${opts.query.trim().toLowerCase()}%`;
     params.push(like);
-    whereSql += ` AND (LOWER(return_number) LIKE $${params.length}` +
-      ` OR LOWER(original_invoice_number) LIKE $${params.length}` +
-      ` OR LOWER(customer_name) LIKE $${params.length}` +
-      ` OR LOWER(items::text) LIKE $${params.length})`;
+    // Generated search projection + trigram GIN (schema.sql §B2).
+    whereSql += ` AND search_text LIKE $${params.length}`;
   }
   if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
     params.push(opts.dateFromAD);

@@ -22,6 +22,11 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- B2: trigram indexes back the item/header free-text search. pg_trgm is a
+-- trusted extension, so the application's database role can install it
+-- without superuser rights. See docs/architecture-backlog.md §B2.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- ==========================================
 -- 1. Branches Table
 -- ==========================================
@@ -272,6 +277,15 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     total_amount NUMERIC(14, 2) DEFAULT 0.00,
     notes TEXT,
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: one lower-cased search projection so a single trigram index serves
+    -- the whole `header OR items` predicate (docs/architecture-backlog.md §B2).
+    search_text TEXT GENERATED ALWAYS AS (
+        lower(
+            COALESCE(po_number, '') || ' ' ||
+            COALESCE(supplier_name, '') || ' ' ||
+            COALESCE(items::text, '')
+        )
+    ) STORED,
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -304,6 +318,16 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
     amount_paid NUMERIC(14, 2) DEFAULT 0.00,
     notes TEXT,
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: invoice #, vendor bill #, supplier and line items in one trigram-
+    -- indexed expression (docs/architecture-backlog.md §B2).
+    search_text TEXT GENERATED ALWAYS AS (
+        lower(
+            COALESCE(invoice_number, '') || ' ' ||
+            COALESCE(vendor_bill_number, '') || ' ' ||
+            COALESCE(supplier_name, '') || ' ' ||
+            COALESCE(items::text, '')
+        )
+    ) STORED,
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -372,6 +396,9 @@ CREATE TABLE IF NOT EXISTS shipments (
     status VARCHAR(30) DEFAULT 'IN_TRANSIT' CHECK (status IN ('DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RECEIVED', 'DISCREPANCY', 'CANCELLED')),
     notes TEXT,
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: the serial-rename pre-select searches this projection. Shipments
+    -- have no header search today, so only the line items contribute.
+    search_text TEXT GENERATED ALWAYS AS (lower(COALESCE(items::text, ''))) STORED,
     received_by_notes TEXT,
     received_date_ad DATE,
     received_date_bs VARCHAR(20),
@@ -408,6 +435,17 @@ CREATE TABLE IF NOT EXISTS stock_operations (
     fiscal_year VARCHAR(20),
     status VARCHAR(30) DEFAULT 'LOGGED' CHECK (status IN ('LOGGED', 'DISPATCHED', 'RECEIVED', 'CANCELLED')),
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: reference, technician, work order, reason and line items in one
+    -- trigram-indexed expression (docs/architecture-backlog.md §B2).
+    search_text TEXT GENERATED ALWAYS AS (
+        lower(
+            COALESCE(reference_number, '') || ' ' ||
+            COALESCE(technician_name, '') || ' ' ||
+            COALESCE(work_order_ref, '') || ' ' ||
+            COALESCE(reason, '') || ' ' ||
+            COALESCE(items::text, '')
+        )
+    ) STORED,
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -591,6 +629,16 @@ CREATE TABLE IF NOT EXISTS purchase_returns (
     grand_total NUMERIC(14, 2) DEFAULT 0.00,
     status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: return #, original invoice, supplier and line items in one trigram-
+    -- indexed expression (docs/architecture-backlog.md §B2).
+    search_text TEXT GENERATED ALWAYS AS (
+        lower(
+            COALESCE(return_number, '') || ' ' ||
+            COALESCE(original_invoice_number, '') || ' ' ||
+            COALESCE(supplier_name, '') || ' ' ||
+            COALESCE(items::text, '')
+        )
+    ) STORED,
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -629,6 +677,16 @@ CREATE TABLE IF NOT EXISTS sales_returns (
     grand_total NUMERIC(14, 2) DEFAULT 0.00,
     status VARCHAR(30) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED')),
     items JSONB DEFAULT '[]'::jsonb,
+    -- B2: return #, original invoice, customer and line items in one trigram-
+    -- indexed expression (docs/architecture-backlog.md §B2).
+    search_text TEXT GENERATED ALWAYS AS (
+        lower(
+            COALESCE(return_number, '') || ' ' ||
+            COALESCE(original_invoice_number, '') || ' ' ||
+            COALESCE(customer_name, '') || ' ' ||
+            COALESCE(items::text, '')
+        )
+    ) STORED,
     fiscal_year_id VARCHAR(50) REFERENCES fiscal_years(id) ON DELETE SET NULL,
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     created_by VARCHAR(150),
@@ -1022,6 +1080,55 @@ ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS fiscal_year_id VARCHAR(50
 ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) DEFAULT 'CREDIT';
 ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS status_override VARCHAR(30);
+
+-- B2: generated search projections for databases created before the trigram
+-- search shipped. Fresh installs already declare these columns above, so
+-- every statement here is a no-op there. The expression must stay identical
+-- to the CREATE TABLE declaration and to the query builders; the trigram
+-- indexes below are built on this exact column.
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(
+        COALESCE(po_number, '') || ' ' ||
+        COALESCE(supplier_name, '') || ' ' ||
+        COALESCE(items::text, '')
+    )
+) STORED;
+ALTER TABLE purchase_invoices ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(
+        COALESCE(invoice_number, '') || ' ' ||
+        COALESCE(vendor_bill_number, '') || ' ' ||
+        COALESCE(supplier_name, '') || ' ' ||
+        COALESCE(items::text, '')
+    )
+) STORED;
+ALTER TABLE shipments ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(COALESCE(items::text, ''))
+) STORED;
+ALTER TABLE stock_operations ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(
+        COALESCE(reference_number, '') || ' ' ||
+        COALESCE(technician_name, '') || ' ' ||
+        COALESCE(work_order_ref, '') || ' ' ||
+        COALESCE(reason, '') || ' ' ||
+        COALESCE(items::text, '')
+    )
+) STORED;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(
+        COALESCE(return_number, '') || ' ' ||
+        COALESCE(original_invoice_number, '') || ' ' ||
+        COALESCE(supplier_name, '') || ' ' ||
+        COALESCE(items::text, '')
+    )
+) STORED;
+ALTER TABLE sales_returns ADD COLUMN IF NOT EXISTS search_text TEXT GENERATED ALWAYS AS (
+    lower(
+        COALESCE(return_number, '') || ' ' ||
+        COALESCE(original_invoice_number, '') || ' ' ||
+        COALESCE(customer_name, '') || ' ' ||
+        COALESCE(items::text, '')
+    )
+) STORED;
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_by VARCHAR(150);
@@ -1364,6 +1471,16 @@ CREATE INDEX IF NOT EXISTS idx_invoices_num ON purchase_invoices(invoice_number)
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON purchase_invoices(payment_status);
 CREATE INDEX IF NOT EXISTS idx_shipments_track ON shipments(tracking_code);
 CREATE INDEX IF NOT EXISTS idx_shipments_src_dst ON shipments(source_branch_id, destination_branch_id);
+
+-- B2: one trigram GIN per searched table. The query builders must use
+-- `search_text LIKE $n` (lower-cased patterns); an items-only index is not
+-- enough because the register predicates also search header columns.
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_search_trgm ON purchase_orders USING gin (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_purchase_invoices_search_trgm ON purchase_invoices USING gin (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_shipments_search_trgm ON shipments USING gin (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_stock_operations_search_trgm ON stock_operations USING gin (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_search_trgm ON purchase_returns USING gin (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_search_trgm ON sales_returns USING gin (search_text gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_customers_id ON customer_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customers_branch ON customer_records(branch_id);
 CREATE INDEX IF NOT EXISTS idx_device_serials ON customer_device_records(device_serial, pon_serial, mac_address);
