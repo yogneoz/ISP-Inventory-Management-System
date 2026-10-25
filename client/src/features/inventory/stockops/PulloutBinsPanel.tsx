@@ -2,6 +2,7 @@ import React from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { formatNPR } from '../../../utils/nprFormat';
 import { isOperationAllowed } from '../../../utils/permissions';
+import { api } from '../../../services/api';
 import {
   Truck,
 } from 'lucide-react';
@@ -14,7 +15,39 @@ import {
  * everything it does not own comes from the StockOperations context.
  */
 export const PulloutBinsPanel: React.FC = () => {
-  const { activeTab, confirmDialog, currentUser, filteredOperations, onReceiveOperation } = useStockOperationsCtx();
+  const { activeTab, confirmDialog, currentUser, filteredOperations, onReceiveOperation, onRefreshData, promptDialog, showToast } =
+    useStockOperationsCtx();
+
+  // SER-1/D2: reverse a dispatch before it is received. The server returns the
+  // operation's IN_TRANSIT units to IN_STOCK at the source branch.
+  const handleReversePullout = async (op: any) => {
+    const reason = await promptDialog(
+      `You are about to reverse pullout dispatch ${op.referenceNumber}.\n\n` +
+        `● Source: ${op.branchName || op.branchId}\n` +
+        `● Destination: ${op.destinationWarehouseName || 'Central Hub'}\n` +
+        `● Lines: ${(op.items || []).length}\n\n` +
+        `Reversing returns this dispatch's units (and their serials) to the source branch and marks the record CANCELLED.`,
+      {
+        title: 'Reverse Pullout Dispatch — Safeguard',
+        confirmLabel: 'Reverse & Return Stock',
+        cancelLabel: 'Keep Dispatch',
+        placeholder: 'Required: reason for reversal (audit trail)',
+      }
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      showToast('Reversal aborted — a reason is required as a safeguard.');
+      return;
+    }
+    try {
+      await api.reversePulloutOperation(op.id, reason.trim(), currentUser);
+      showToast(`Pullout ${op.referenceNumber} reversed. Units returned to ${op.branchName || op.branchId}.`);
+      await onRefreshData?.();
+    } catch (err: any) {
+      showToast(`Reversal failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   return (
     <>
       {activeTab === 'PULLOUT_BINS' && (
@@ -66,6 +99,15 @@ export const PulloutBinsPanel: React.FC = () => {
                       <span className={`font-bold font-mono text-indigo-600 dark:text-indigo-400`}>
                         {formatNPR(op.totalValue)}
                       </span>
+                      {op.status !== 'RECEIVED' && op.status !== 'CANCELLED' && isOperationAllowed('branch-pullout-dispatch', currentUser?.role) && (
+                        <button
+                          onClick={() => handleReversePullout(op)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[10px] hover:bg-rose-500 shadow-xs cursor-pointer"
+                          title="Reverse the dispatch and return its units and serials to the source branch"
+                        >
+                          Reverse
+                        </button>
+                      )}
                       {op.status !== 'RECEIVED' && isOperationAllowed('wh-receive-pullouts', currentUser?.role) && onReceiveOperation && (
                         <button
                           onClick={async () => {

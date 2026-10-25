@@ -1011,9 +1011,13 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // not seen.
     'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'lookupExchangeSerial', 'reportExchangeRefusal'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
-    'inventory/stockops/LogsPanel.tsx': [],
+    // SER-1/D2: a product-sale stock-out can be reversed from the log; the
+    // panel calls onRefreshData after the terminal reversal response.
+    'inventory/stockops/LogsPanel.tsx': ['reverseStockOutOperation'],
     'inventory/stockops/ProductSalePanel.tsx': ['searchCustomers'],
-    'inventory/stockops/PulloutBinsPanel.tsx': [],
+    // SER-1/D2: reverse an unreceived dispatch; onRefreshData re-reads stock,
+    // the register and the operation list after the response.
+    'inventory/stockops/PulloutBinsPanel.tsx': ['reversePulloutOperation'],
     'inventory/stockops/ReceiveTransferPanel.tsx': ['cancelApprovalRequest', 'cancelShipment', 'createApprovalRequest'],
     'inventory/stockops/StockOperationsTabBar.tsx': [],
   };

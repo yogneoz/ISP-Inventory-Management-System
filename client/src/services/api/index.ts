@@ -131,6 +131,8 @@ export const api = {
   receiveStockOperation: inventory.receiveStockOperation,
   reverseStockOperation: inventory.reverseStockOperation,
   reverseConsumableIssue: inventory.reverseConsumableIssue,
+  reversePulloutOperation: inventory.reversePulloutOperation,
+  reverseStockOutOperation: inventory.reverseStockOutOperation,
 
   // Fiscal Years & finance
   setCurrentFiscalYear: finance.setCurrentFiscalYear,

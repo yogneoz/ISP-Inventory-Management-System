@@ -174,6 +174,30 @@ export async function reverseConsumableIssue(
   });
 }
 
+/** SER-1/D2: reverse a pullout dispatch (units return from IN_TRANSIT). */
+export async function reversePulloutOperation(
+  id: string,
+  reason?: string,
+  user?: User | null
+): Promise<{ message: string; operation: StockOperation }> {
+  return fetchJson(`/api/stock-operations/${id}/reverse-pullout`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, user }),
+  });
+}
+
+/** SER-1/D2: reverse a product-sale stock-out (units return from SOLD). */
+export async function reverseStockOutOperation(
+  id: string,
+  reason?: string,
+  user?: User | null
+): Promise<{ message: string; operation: StockOperation }> {
+  return fetchJson(`/api/stock-operations/${id}/reverse-stock-out`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, user }),
+  });
+}
+
 // Document Numbering Configurations
 export async function getDocumentNumberConfigs(): Promise<DocumentNumberConfig[]> {
   return fetchJson('/api/document-number-configs');

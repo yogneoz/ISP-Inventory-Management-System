@@ -14,6 +14,14 @@ import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySeria
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
 import { buildAssetCollectionNotes, collectCpeFixedAsset, exchangeCpeFixedAsset, exchangeOutLedgerId } from '../services/cpeAssetLifecycle.service';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
+import {
+  issueOperationSerialsInDb,
+  issueOperationSerialsInMemory,
+  receivePulloutSerialsInDb,
+  receivePulloutSerialsInMemory,
+  restoreOperationSerialsInDb,
+  restoreOperationSerialsInMemory,
+} from '../services/serialOperationLifecycle.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
 import { isActiveCdrStatus, isLegacyCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
@@ -66,6 +74,7 @@ import {
   stockOperationInsertParams,
   STOCK_DAMAGE_APPLY_SQL,
   STOCK_RELEASE_DAMAGED_SQL,
+  STOCK_RESTORE_DAMAGED_SQL,
   STOCK_CONSUME_QOH_SQL,
   STOCK_OPERATION_CANCEL_SQL,
   STOCK_OPERATION_FIND_BY_ID_SQL,
@@ -1489,6 +1498,12 @@ try {
           }
         }
 
+        // SER-1/D2: issue every unit this operation draws. The shared gate
+        // locked the rows above, so this flip is race-safe and makes the unit
+        // unsellable/undeployable (PULLOUT → IN_TRANSIT, CONSUMABLE_ISSUE →
+        // CONSUMED, STOCK_OUT → SOLD). DAMAGE has its own quarantine.
+        await issueOperationSerialsInDb(client, serialGatePlan.entries, newOp as any, newOp.dateAD);
+
         for (const txn of operationTransactions) {
           await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(txn));
         }
@@ -1583,6 +1598,13 @@ try {
           stockRecord.lastUpdated = new Date().toISOString();
         }
       }
+    }
+    // Demo-mode twin of the issue transition (PG-connected responses re-derive
+    // the mirror from PG in cacheRefreshHook).
+    if (!getPgConnected() && serialGatePlan.entries.length > 0) {
+      setSerialLogs(
+        issueOperationSerialsInMemory(serialLogs as any, serialGatePlan.entries, newOp as any, newOp.dateAD) as any
+      );
     }
     setTransactionLogs([
       ...operationTransactions.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
@@ -1906,6 +1928,9 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
           );
         }
         await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
+        // SER-1/D2: units this issue marked CONSUMED return to the branch's
+        // IN_STOCK register. Only rows still attributed to this operation move.
+        await restoreOperationSerialsInDb(client, op as any, reason, reversedBy, reversalDateAD);
         // Batched ledger insert: one multi-row statement instead of one per
         // reversal entry.
         if (reversalLedger.length > 0) {
@@ -1915,6 +1940,13 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
           );
         }
       });
+    }
+
+    // SER-1 demo-mode twin of the register restore.
+    if (!getPgConnected() && operationItems.some((item: any) => (item.deviceSerials || []).length > 0)) {
+      setSerialLogs(
+        restoreOperationSerialsInMemory(serialLogs as any, op as any, reason, reversedBy, reversalDateAD) as any
+      );
     }
 
     // In-memory mirrors so the UI reflects the reversal immediately.
@@ -1945,6 +1977,218 @@ export async function post_reverseConsumable(req: any, res: Response): Promise<a
     res.status(500).json({ message: `Database error: ${err.message}` });
   }
 
+}
+
+/**
+ * Reverse a PULLOUT or STOCK_OUT operation (SER-1 / D2).
+ *
+ * The symmetric half of the issue transition: this operation's units return to
+ * `IN_STOCK` at the issuing branch (a damaged-stock pullout returns to the
+ * damaged pool instead), stock is credited back, a compensating ledger row is
+ * written and the operation becomes CANCELLED. The serializer key is the
+ * operation id, so only units this operation issued can be restored.
+ */
+async function reverseIssuedOperation(
+  req: any,
+  res: Response,
+  expectedType: 'PULLOUT' | 'STOCK_OUT'
+): Promise<any> {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body.reason || '').trim();
+    const reversedBy =
+      (req.body.user && (req.body.user.name || req.body.user.email)) ||
+      req.body.reversedBy ||
+      'Super Admin';
+    if (!reason) {
+      res.status(400).json({ message: `A reversal reason is required as a safeguard before undoing a ${expectedType === 'PULLOUT' ? 'pullout' : 'product sale'}.` });
+      return;
+    }
+
+    const opIndex = stockOperations.findIndex((o) => o.id === id);
+    let op: any = opIndex >= 0 ? stockOperations[opIndex] : undefined;
+    if (getPgConnected()) {
+      const r = await pgPool.query(STOCK_OPERATION_FIND_BY_ID_SQL, [id]);
+      if (r.rows.length > 0) op = r.rows[0];
+    }
+    if (!op) {
+      res.status(404).json({ message: 'Stock operation not found.' });
+      return;
+    }
+    if (String(op.type || '').toUpperCase() !== expectedType) {
+      res.status(400).json({ message: `Only ${expectedType} stock operations can be reversed here.` });
+      return;
+    }
+    if (op.status === 'CANCELLED') {
+      res.status(400).json({ message: 'This stock operation has already been reversed.' });
+      return;
+    }
+    // Once a pullout is received, its stock and serials already belong to the
+    // destination; reversing the dispatch at the source would duplicate them.
+    if (expectedType === 'PULLOUT' && op.status === 'RECEIVED') {
+      res.status(400).json({ message: 'This pullout has already been received at its destination and can no longer be reversed.' });
+      return;
+    }
+
+    const operationItems: any[] = Array.isArray(op.items) && op.items.length > 0
+      ? op.items
+      : op.productId
+        ? [{ productId: op.productId, productName: op.productName || '', quantity: Math.abs(Number(op.quantityChanged) || 0), unitCost: op.costPerUnit }]
+        : [];
+    if (operationItems.length === 0) {
+      res.status(400).json({ message: 'No items were found on this operation to reverse.' });
+      return;
+    }
+
+    // PULLOUT may have moved damaged-pool units. Those never left through the
+    // usable quantity, so their half of the reversal credits damaged_qty.
+    const usableItems = expectedType === 'PULLOUT'
+      ? operationItems.filter((item: any) => String(item.condition || '').toUpperCase() !== 'DAMAGED_STOCK')
+      : operationItems;
+    const damagedItems = expectedType === 'PULLOUT'
+      ? operationItems.filter((item: any) => String(item.condition || '').toUpperCase() === 'DAMAGED_STOCK')
+      : [];
+
+    const reversalDateAD = new Date().toISOString().split('T')[0];
+    const bsDayForRev = await findBsDayRecordForAdDate(reversalDateAD);
+    const reversalDateBS = bsDayForRev.found ? `${bsDayForRev.record.bsDate} BS` : op.dateBS;
+
+    const buildLedger = (beforeByProduct?: Map<string, number>): TransactionLog[] =>
+      usableItems.map((item: any) => {
+        const qty = Number(item.quantity) || 0;
+        const product = products.find((p) => p.id === item.productId);
+        const mirrorRow = inventoryStock.find((s) => s.productId === item.productId && s.branchId === op.branchId);
+        const quantityBefore = beforeByProduct?.get(String(item.productId)) ?? (Number(mirrorRow?.quantityOnHand) || 0);
+        return {
+          id: `txn-${op.id}-irev-${item.productId}`,
+          transactionNumber: `${op.referenceNumber}-IREV`,
+          productId: item.productId,
+          productSku: item.sku || product?.sku || '',
+          productName: product?.name || item.productName || 'Product',
+          branchId: op.branchId,
+          changeType: expectedType,
+          quantityBefore,
+          quantityChanged: qty,
+          quantityAfter: quantityBefore + qty,
+          unitCost: Number(item.unitCost ?? item.costPerUnit ?? op.costPerUnit) || product?.costPrice || 0,
+          referenceDocId: op.referenceNumber,
+          timestampAD: new Date(`${reversalDateAD}T00:00:00.000Z`).toISOString(),
+          timestampBS: reversalDateBS,
+        } as TransactionLog;
+      });
+
+    let reversalLedger: TransactionLog[] = [];
+
+    if (getPgConnected()) {
+      await withTransaction(async (client) => {
+        const beforeByProduct = new Map<string, number>();
+        if (usableItems.length > 0) {
+          const locked = await client.query(
+            STOCK_LOCK_FOR_UPDATE_SQL,
+            stockLockForUpdateParams(usableItems.map((item: any) => ({ productId: item.productId })), op.branchId)
+          );
+          for (const row of (locked.rows || []) as LockedStockRow[]) {
+            beforeByProduct.set(String(row.product_id), Number(row.quantity_on_hand) || 0);
+          }
+          const stockDeltas = usableItems
+            .map((item: any) => ({ productId: item.productId, quantity: Number(item.quantity) || 0 }))
+            .filter((d: { productId: any; quantity: number }) => d.productId && d.quantity > 0);
+          if (stockDeltas.length > 0) {
+            await client.query(
+              STOCK_RETURN_QOH_BATCH_SQL,
+              stockReturnQohBatchParams(stockDeltas, op.branchId)
+            );
+          }
+        }
+        for (const item of damagedItems) {
+          const qty = Number(item.quantity) || 0;
+          if (qty > 0) {
+            await client.query(STOCK_RESTORE_DAMAGED_SQL, [qty, item.productId, op.branchId]);
+          }
+        }
+        reversalLedger = buildLedger(beforeByProduct);
+        await restoreOperationSerialsInDb(client, op as any, reason, reversedBy, reversalDateAD);
+        await client.query(STOCK_OPERATION_CANCEL_SQL, [reversedBy, op.id]);
+        if (reversalLedger.length > 0) {
+          await client.query(
+            buildTxnMultiRowInsertSql(reversalLedger.length),
+            flattenTxnParams(reversalLedger.map((txn) => txnInsertOnConflictParams(txn)))
+          );
+        }
+      });
+    } else {
+      reversalLedger = buildLedger();
+    }
+
+    // Mirror updates so the UI reflects the reversal immediately; the PG
+    // response is re-derived by cacheRefreshHook when connected.
+    const stockRows = [...inventoryStock];
+    for (const item of usableItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const idx = stockRows.findIndex((s) => s.productId === item.productId && s.branchId === op.branchId);
+      if (idx >= 0) {
+        stockRows[idx] = { ...stockRows[idx], quantityOnHand: (stockRows[idx].quantityOnHand || 0) + qty, lastUpdated: new Date().toISOString() };
+      }
+    }
+    for (const item of damagedItems) {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) continue;
+      const idx = stockRows.findIndex((s) => s.productId === item.productId && s.branchId === op.branchId);
+      if (idx >= 0) {
+        stockRows[idx] = { ...stockRows[idx], damagedQty: (stockRows[idx].damagedQty || 0) + qty, lastUpdated: new Date().toISOString() };
+      }
+    }
+    setInventoryStock(stockRows);
+
+    const updatedOp: any = {
+      ...op,
+      status: 'CANCELLED',
+      reversalReason: reason,
+      reversedBy,
+      reversedAtAD: reversalDateAD,
+      reversedAtBS: reversalDateBS,
+    };
+    setStockOperations(withReplaced(stockOperations, opIndex, updatedOp));
+    if (!getPgConnected()) {
+      setSerialLogs(
+        restoreOperationSerialsInMemory(serialLogs as any, op as any, reason, reversedBy, reversalDateAD) as any
+      );
+    }
+    setTransactionLogs([
+      ...reversalLedger.filter((txn) => !transactionLogs.some((entry) => entry.id === txn.id)),
+      ...transactionLogs,
+    ]);
+
+    logAuditEvent(
+      req,
+      expectedType === 'PULLOUT' ? 'REVERSE_PULLOUT' : 'REVERSE_STOCK_OUT',
+      'STOCK_OPERATIONS',
+      `Reversed ${expectedType} ${op.referenceNumber} — ${reason}`
+    );
+    res.json({
+      message: `${expectedType === 'PULLOUT' ? 'Pullout' : 'Product sale'} reversed successfully. Units returned to available stock.`,
+      operation: updatedOp,
+    });
+  } catch (err: any) {
+    if (err instanceof SerialGateError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
+    const { status, message } = errorResponse(err);
+    if (status >= 500) console.error('Error reversing issued stock operation:', err);
+    res.status(status).json({ message });
+  }
+}
+
+/** Forwarded from inventory.routes.ts (post_reversePullout). */
+export async function post_reversePullout(req: any, res: Response): Promise<any> {
+  return reverseIssuedOperation(req, res, 'PULLOUT');
+}
+
+/** Forwarded from inventory.routes.ts (post_reverseStockOut). */
+export async function post_reverseStockOut(req: any, res: Response): Promise<any> {
+  return reverseIssuedOperation(req, res, 'STOCK_OUT');
 }
 
 /** Forwarded from inventory.routes.ts (post_receive). */
@@ -2026,6 +2270,12 @@ try {
             flattenTxnParams(receiveTxns.map((txn) => txnInsertOnConflictParams(txn)))
           );
         }
+        // SER-1/D2: a received pullout lands its in-transit units IN_STOCK at
+        // the destination warehouse; until now the register kept them at the
+        // source branch. Reversal and issue attribution stay on the operation.
+        if (op) {
+          await receivePulloutSerialsInDb(client, op as any, whId, op.dateAD || new Date().toISOString().split('T')[0]);
+        }
       });
     } else {
       // Demo mode: the destination warehouse credit previously never happened
@@ -2060,6 +2310,12 @@ try {
         creditedStk.lastUpdated = new Date().toISOString();
         if (op) receiveTxns.push(buildReceiveTxn(op, item, idx, whId, qty, before));
       });
+      // Demo-mode twin of the PG receive transition.
+      if (op) {
+        setSerialLogs(
+          receivePulloutSerialsInMemory(serialLogs as any, op as any, whId, op.dateAD || new Date().toISOString().split('T')[0]) as any
+        );
+      }
     }
     if (op) op.status = 'RECEIVED';
     // Dual-write: when the read came from PG the mirror copy still needs its

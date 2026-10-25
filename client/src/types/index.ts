@@ -250,7 +250,7 @@ export interface SerialLog {
   branchName?: string;
   customerId?: string;
   customerName?: string;
-  status: 'IN_STOCK' | 'IN_TRANSIT' | 'CUSTOMER_ASSIGNED' | 'POP_LOCATION_ASSIGNED' | 'DAMAGED' | 'RETURNED';
+  status: 'IN_STOCK' | 'IN_TRANSIT' | 'CUSTOMER_ASSIGNED' | 'POP_LOCATION_ASSIGNED' | 'DAMAGED' | 'RETURNED' | 'SOLD' | 'RETURNED_TO_VENDOR' | 'CONSUMED';
   sourceType: 'PURCHASE' | 'CUSTOMER_ASSIGN' | 'RETURN' | 'DAMAGE' | 'SHIPMENT' | 'STOCK_OP' | 'FIXED_ASSET' | 'SERIAL_CORRECTION' | 'STATUS_CHANGE';
   sourceId?: string;
   history: SerialLogEntry[];

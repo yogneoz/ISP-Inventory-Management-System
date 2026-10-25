@@ -712,6 +712,9 @@ export const STOCK_DAMAGE_APPLY_SQL = `UPDATE inventory_stock SET quantity_on_ha
 /** PULLOUT of damaged stock: releases damaged units only. */
 export const STOCK_RELEASE_DAMAGED_SQL = `UPDATE inventory_stock SET damaged_qty = damaged_qty - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND damaged_qty >= $1;`;
 
+/** Restores a damaged-stock pullout back into the branch's damaged pool. */
+export const STOCK_RESTORE_DAMAGED_SQL = `UPDATE inventory_stock SET damaged_qty = damaged_qty + $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3;`;
+
 /** Consumes usable stock (pull-out, stock-out, consumable issue). */
 export const STOCK_CONSUME_QOH_SQL = `UPDATE inventory_stock SET quantity_on_hand = quantity_on_hand - $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND branch_id = $3 AND quantity_on_hand >= $1;`;
 
@@ -1141,6 +1144,54 @@ export function serialLogCdrSyncParams(opts: {
     opts.deviceSerial,
   ];
 }
+
+// ---------------------------------------------------------------------------
+// SER-1: stock-operation serial lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Issues a unit from a stock operation: only a row still IN_STOCK at the
+ * operation's branch is flipped, and source_type/source_id point back at the
+ * operation so its reversal can restore exactly the units it issued. The gate
+ * already locked the row in this transaction, so a zero row means the register
+ * changed underneath the operation; the caller rolls back.
+ */
+export const SERIAL_LOG_ISSUE_ON_OPERATION_SQL = `UPDATE serial_log SET
+  status = $1::varchar,
+  source_type = 'STOCK_OP',
+  source_id = $2,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text,
+  updated_at = $4
+ WHERE lower(trim(device_serial)) = lower(trim($5::text))
+   AND branch_id = $6
+   AND status = 'IN_STOCK'
+ RETURNING id`;
+
+/** Restores every unit this operation still holds in `fromStatus` to stock. */
+export const SERIAL_LOG_RESTORE_ON_OPERATION_REVERSAL_SQL = `UPDATE serial_log SET
+  status = 'IN_STOCK',
+  customer_id = NULL,
+  customer_name = NULL,
+  source_type = 'STOCK_OP',
+  source_id = $1,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $2::jsonb)::text,
+  updated_at = $3
+ WHERE source_id = $1
+   AND status = $4
+   AND branch_id = $5
+ RETURNING device_serial AS "deviceSerial"`;
+
+/** Lands a received pullout's in-transit units at the destination branch. */
+export const SERIAL_LOG_RECEIVE_PULLOUT_SQL = `UPDATE serial_log SET
+  status = 'IN_STOCK',
+  branch_id = $1,
+  source_type = 'STOCK_OP',
+  source_id = $2,
+  history_json = (COALESCE(NULLIF(history_json, ''), '[]')::jsonb || $3::jsonb)::text,
+  updated_at = $4
+ WHERE source_id = $2
+   AND status = 'IN_TRANSIT'
+ RETURNING device_serial AS "deviceSerial"`;
 
 /** Per-status counts with the same filter fragment (register KPI cards). */
 export const SERIAL_LOG_STATUS_COUNT_SQL = 'SELECT status, COUNT(*)::int AS count FROM serial_log';

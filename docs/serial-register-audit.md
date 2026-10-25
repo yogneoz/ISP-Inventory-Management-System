@@ -293,24 +293,61 @@ What changed per endpoint:
 **What the gate deliberately does *not* do.** It owns resolution and refusal; the lifecycle
 transition stays with the module that already owns it (the sales claim, the deploy flip
 `SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL`, the damage quarantine) so each keeps a symmetric reversal. The three
-paths that move units between pools without any status of their own — pullout, consumable issue,
-product stock-out — resolve and validate but do not flip a status: the register vocabulary has no
-"pulled out" state, and neither `post_reverse` (DAMAGE only) nor `post_reverseConsumable` restores a
-serial, so flipping them today would strand a unit as permanently unsellable with no way back. That
-transition, plus its reversal, is the next step.
+paths that move units between pools — pullout, consumable issue, product stock-out — were left
+unresolved by Slice 2; SER-1 (§6d) now flips their units and adds the matching reversals.
 
 **Also fixed on the way:** the deploy path wrote the asset into the in-memory register *before* its
 transaction, so a now-refused deploy would have left a phantom asset behind. The mirror write moved
 after the commit.
 
 Acceptance, run through the real HTTP API against PostgreSQL 16
-([tests/serialGateHttp.test.ts](../tests/serialGateHttp.test.ts), 5 checks): an unknown serial is
+([tests/serialGateHttp.test.ts](../tests/serialGateHttp.test.ts), 9 checks): an unknown serial is
 refused with the register's own reason and moves **no** stock and records **no** operation; a
 `CUSTOMER_ASSIGNED` unit is refused by state; a unit held at another branch is refused by branch; a
 valid `IN_STOCK` unit at the acting branch posts and the stock drops; and a deploy-from-stock with an
 unknown serial is refused instead of silently deploying. The rules themselves are pinned by 16
 unit tests ([tests/serialGate.service.test.ts](../tests/serialGate.service.test.ts)) that need no
 database, covering the ordering of the checks and the exact refusal wording.
+
+## 6d. SER-1 — operation serial lifecycle (delivered 2026-10-25)
+
+Slice 2 left pullout, consumable issue and product sale validating a serial and
+then leaving it `IN_STOCK`, so a unit could be physically gone and still sold or
+deployed. Decision D2 maps each operation to a register state with a symmetric
+reversal:
+
+| Operation | Issue transition | Reversal |
+|---|---|---|
+| `PULLOUT` (dispatch) | `IN_STOCK → IN_TRANSIT` at the source | `POST /api/stock-operations/:id/reverse-pullout` → `IN_STOCK` at the source |
+| ↳ pullout received | `IN_TRANSIT → IN_STOCK` at the destination warehouse | n/a (the dispatch can no longer be reversed) |
+| `CONSUMABLE_ISSUE` | `IN_STOCK → CONSUMED` (new state) | `POST /api/stock-operations/:id/reverse-consumable` → `IN_STOCK` |
+| `STOCK_OUT` (product sale) | `IN_STOCK → SOLD` | `POST /api/stock-operations/:id/reverse-stock-out` → `IN_STOCK` |
+
+Every write sets `source_type='STOCK_OP'` and `source_id=<operation id>` and
+appends a history entry. A reversal only restores rows still in the issue status
+and still attributed to that operation, so a unit that has since been sold,
+deployed or transferred is never dragged back into stock. A damaged-stock
+pullout line returns to the damaged pool, not to usable stock. The two new
+reversal routes use the same permission as the operation they undo
+(`branch-pullout-dispatch`, `stock-out`); the consumable reversal keeps
+`consumable-issue-reverse`.
+
+**No historical backfill.** An old operation cannot prove whether a unit was
+later returned outside the operation, so the migration deliberately leaves
+historical rows untouched. Only operations posted after this change carry the
+lifecycle; a manual reconcile can be considered later if the data demands it.
+
+A received pullout is final: once the dispatch lands at its destination the
+reversal is refused (`400`, "already been received"), because the stock and the
+unit already belong to the destination branch and crediting the source again
+would duplicate them. The UI offers no reversal for a received dispatch; this
+check makes the API agree.
+
+Tests: [tests/serialOperationLifecycle.test.ts](../tests/serialOperationLifecycle.test.ts)
+(6 pure cases) and the lifecycle HTTP cases in
+[tests/serialGateHttp.test.ts](../tests/serialGateHttp.test.ts) — issue, refused
+re-issue, both reversals, the wrong reversal endpoint, receive-to-destination,
+and a refused reversal after receipt.
 
 ## 7. Migration and reconciliation
 

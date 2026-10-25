@@ -13,7 +13,10 @@
  *  3. a unit held at another branch is refused by branch;
  *  4. a valid IN_STOCK unit at the acting branch posts, and the stock moves;
  *  5. a refused operation moves NOTHING — no stock_operations row, no
- *     fixed_assets row, stock untouched.
+ *     fixed_assets row, stock untouched;
+ *  6. SER-1/D2 — pullout/consumable/sale issue their units to IN_TRANSIT /
+ *     CONSUMED / SOLD so a second issue is refused, and each reversal returns
+ *     them to IN_STOCK; a received pullout lands at its destination branch.
  *
  * Fixtures use an "sg-" id prefix / "SG" serials, seeded in BOTH the database and
  * the in-memory mirrors and removed in after(). The operation's BS day row is
@@ -66,6 +69,10 @@ const PRODUCT = 'sg-prod';
 const IN_STOCK = 'SG-IN-STOCK';
 const ASSIGNED = 'SG-ASSIGNED';
 const OTHER_BRANCH_SERIAL = 'SG-OTHER-BRANCH';
+const PULL_SERIAL = 'SG-PULL';
+const CONSUME_SERIAL = 'SG-CONS';
+const SALE_SERIAL = 'SG-SALE';
+const RECEIVE_SERIAL = 'SG-RECV';
 const PON = 'SG-PON';
 
 describe('shared serial gate (HTTP layer)', () => {
@@ -103,7 +110,7 @@ describe('shared serial gate (HTTP layer)', () => {
     );
     await pool!.query(
       `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand, damaged_qty, reserved_qty, incoming_qty, min_reorder_level)
-       VALUES ('sg-stock', '${PRODUCT}', '${BRANCH}', 5, 0, 0, 0, 1),
+       VALUES       ('sg-stock', '${PRODUCT}', '${BRANCH}', 10, 0, 0, 0, 1),
               ('sg-stock-2', '${PRODUCT}', '${OTHER_BRANCH}', 5, 0, 0, 0, 1)`
     );
     await pool!.query(
@@ -111,7 +118,11 @@ describe('shared serial gate (HTTP layer)', () => {
        VALUES
        ('sg-sl-in',      '${IN_STOCK}',           '${PON}', 'SG:MAC:1', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'IN_STOCK',          'PURCHASE', '[]'),
        ('sg-sl-assigned','${ASSIGNED}',           '${PON}-A', 'SG:MAC:2', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'CUSTOMER_ASSIGNED', 'SALES_INVOICE', '[]'),
-       ('sg-sl-other',   '${OTHER_BRANCH_SERIAL}', '${PON}-B', 'SG:MAC:3', '${PRODUCT}', 'SG ONU', '${OTHER_BRANCH}', 'IN_STOCK',          'PURCHASE', '[]')`
+       ('sg-sl-other',   '${OTHER_BRANCH_SERIAL}', '${PON}-B', 'SG:MAC:3', '${PRODUCT}', 'SG ONU', '${OTHER_BRANCH}', 'IN_STOCK',          'PURCHASE', '[]'),
+       ('sg-sl-pull',    '${PULL_SERIAL}',         '${PON}-P', 'SG:MAC:4', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'IN_STOCK',          'PURCHASE', '[]'),
+       ('sg-sl-cons',    '${CONSUME_SERIAL}',      '${PON}-C', 'SG:MAC:5', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'IN_STOCK',          'PURCHASE', '[]'),
+       ('sg-sl-sale',    '${SALE_SERIAL}',         '${PON}-S', 'SG:MAC:6', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'IN_STOCK',          'PURCHASE', '[]'),
+       ('sg-sl-recv',    '${RECEIVE_SERIAL}',      '${PON}-R', 'SG:MAC:7', '${PRODUCT}', 'SG ONU', '${BRANCH}',       'IN_STOCK',          'PURCHASE', '[]')`
     );
 
     // The controller's pre-flight reads the mirrors, so the fixtures must exist
@@ -188,9 +199,17 @@ describe('shared serial gate (HTTP layer)', () => {
       productId: PRODUCT,
       productName: 'SG ONU',
       quantity: 1,
-      deviceSerials: [{ deviceSerial, ponSerial: PON }],
+      deviceSerials: [{ deviceSerial }],
     }],
   });
+
+  const serialRow = async (deviceSerial: string) => {
+    const r = await pool!.query(
+      'SELECT status, branch_id AS "branchId", source_id AS "sourceId" FROM serial_log WHERE device_serial = $1',
+      [deviceSerial]
+    );
+    return r.rows[0];
+  };
 
   const stockOnHand = async (branchId = BRANCH) => {
     const r = await pool!.query(
@@ -233,6 +252,94 @@ describe('shared serial gate (HTTP layer)', () => {
     assert.equal(status, 201);
     assert.ok(json?.referenceNumber, 'the operation must be numbered');
     assert.equal(await stockOnHand(), before - 1, 'the unit must leave branch stock');
+  });
+
+  test('a pullout issues IN_TRANSIT, refuses a re-issue, and reverses to IN_STOCK', { skip: skipNoDb }, async () => {
+    const before = await stockOnHand();
+    const created = await call('POST', '/api/stock-operations', pullout(PULL_SERIAL));
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal(await stockOnHand(), before - 1);
+
+    const issued = await serialRow(PULL_SERIAL);
+    assert.equal(issued?.status, 'IN_TRANSIT', 'a dispatched pullout must leave IN_STOCK');
+    assert.equal(issued?.branchId, BRANCH, 'the unit stays attributed to the source until received');
+    assert.equal(issued?.sourceId, created.json.id, 'the issue is attributed to this operation');
+
+    const again = await call('POST', '/api/stock-operations', pullout(PULL_SERIAL));
+    assert.equal(again.status, 400, 'an already issued unit must not be issued twice');
+    assert.match(String(again.json?.message), /IN_TRANSIT \(not IN_STOCK\)/);
+    assert.equal(await stockOnHand(), before - 1, 'the refused re-issue moves nothing');
+
+    const reversed = await call('POST', `/api/stock-operations/${created.json.id}/reverse-pullout`, {
+      reason: 'wrong dispatch',
+    });
+    assert.equal(reversed.status, 200, JSON.stringify(reversed.json));
+    const restored = await serialRow(PULL_SERIAL);
+    assert.equal(restored?.status, 'IN_STOCK', 'reversal returns the dispatch unit');
+    assert.equal(restored?.branchId, BRANCH);
+    assert.equal(await stockOnHand(), before, 'reversal restores the consumed stock');
+  });
+
+  test('a consumable issue marks CONSUMED and its reversal restores stock', { skip: skipNoDb }, async () => {
+    const before = await stockOnHand();
+    const body = { ...pullout(CONSUME_SERIAL), type: 'CONSUMABLE_ISSUE' };
+    const created = await call('POST', '/api/stock-operations', body);
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal((await serialRow(CONSUME_SERIAL))?.status, 'CONSUMED');
+
+    const reversed = await call('POST', `/api/stock-operations/${created.json.id}/reverse-consumable`, {
+      reason: 'issued in error',
+    });
+    assert.equal(reversed.status, 200, JSON.stringify(reversed.json));
+    assert.equal((await serialRow(CONSUME_SERIAL))?.status, 'IN_STOCK');
+    assert.equal(await stockOnHand(), before);
+  });
+
+  test('a product sale marks SOLD, rejects the wrong reversal, and reverses cleanly', { skip: skipNoDb }, async () => {
+    const before = await stockOnHand();
+    const body = { ...pullout(SALE_SERIAL), type: 'STOCK_OUT' };
+    const created = await call('POST', '/api/stock-operations', body);
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal((await serialRow(SALE_SERIAL))?.status, 'SOLD');
+
+    const wrong = await call('POST', `/api/stock-operations/${created.json.id}/reverse-pullout`, {
+      reason: 'wrong endpoint',
+    });
+    assert.equal(wrong.status, 400);
+    assert.match(String(wrong.json?.message), /Only PULLOUT/);
+    assert.equal((await serialRow(SALE_SERIAL))?.status, 'SOLD', 'a refused reversal changes nothing');
+
+    const reversed = await call('POST', `/api/stock-operations/${created.json.id}/reverse-stock-out`, {
+      reason: 'sale cancelled',
+    });
+    assert.equal(reversed.status, 200, JSON.stringify(reversed.json));
+    assert.equal((await serialRow(SALE_SERIAL))?.status, 'IN_STOCK');
+    assert.equal(await stockOnHand(), before);
+  });
+
+  test('receiving a pullout lands its serial at the destination branch', { skip: skipNoDb }, async () => {
+    const otherBefore = await stockOnHand(OTHER_BRANCH);
+    const body = { ...pullout(RECEIVE_SERIAL), destinationWarehouseId: OTHER_BRANCH };
+    const created = await call('POST', '/api/stock-operations', body);
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal((await serialRow(RECEIVE_SERIAL))?.status, 'IN_TRANSIT');
+
+    const received = await call('POST', `/api/stock-operations/${created.json.id}/receive`, {});
+    assert.equal(received.status, 200, JSON.stringify(received.json));
+    const moved = await serialRow(RECEIVE_SERIAL);
+    assert.equal(moved?.status, 'IN_STOCK', 'a received pullout is sellable at the destination');
+    assert.equal(moved?.branchId, OTHER_BRANCH, 'the unit moves with the stock');
+    assert.equal(await stockOnHand(OTHER_BRANCH), otherBefore + 1);
+
+    // Reversing the dispatch now would credit the source again while the unit
+    // already sits at the destination — a duplicate. The receive is final.
+    const lateReverse = await call('POST', `/api/stock-operations/${created.json.id}/reverse-pullout`, {
+      reason: 'too late',
+    });
+    assert.equal(lateReverse.status, 400);
+    assert.match(String(lateReverse.json?.message), /already been received/);
+    assert.equal((await serialRow(RECEIVE_SERIAL))?.branchId, OTHER_BRANCH);
+    assert.equal(await stockOnHand(OTHER_BRANCH), otherBefore + 1, 'a refused late reversal moves nothing');
   });
 
   test('deploy-from-stock refuses an unknown serial instead of silently skipping', { skip: skipNoDb }, async () => {

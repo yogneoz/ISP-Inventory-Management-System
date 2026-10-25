@@ -789,7 +789,7 @@ CREATE TABLE IF NOT EXISTS serial_log (
     branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
     customer_id VARCHAR(50),
     customer_name VARCHAR(200),
-    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR')),
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED')),
     source_type VARCHAR(30) NOT NULL DEFAULT 'PURCHASE',
     source_id VARCHAR(50),
     history_json TEXT DEFAULT '[]',
@@ -1568,21 +1568,13 @@ END $$;
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
-  -- Fresh installs already carry the inline column CHECK from the CREATE
-  -- TABLE above (auto-named serial_log_status_check); only legacy tables
-  -- need the conditional ADD, and only when every row is already clean.
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'serial_log_status_check'
-      AND conrelid = 'serial_log'::regclass
-  ) AND NOT EXISTS (
-    SELECT 1 FROM serial_log
-    WHERE status NOT IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR')
-  ) THEN
-    ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_known;
-    ALTER TABLE serial_log ADD CONSTRAINT serial_log_status_known
-      CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR'));
-  END IF;
+  -- SER-1: CONSUMED joins the vocabulary for an issued consumable. Re-create
+  -- both historical constraint names so a fresh and an upgraded database
+  -- accept every state the lifecycle writes.
+  ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_known;
+  ALTER TABLE serial_log DROP CONSTRAINT IF EXISTS serial_log_status_check;
+  ALTER TABLE serial_log ADD CONSTRAINT serial_log_status_check
+    CHECK (status IN ('IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'));
 END $$;
 
 -- Legacy shipment/stock-ops date indexes (dbBoot-only before consolidation).

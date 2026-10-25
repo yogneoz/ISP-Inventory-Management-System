@@ -19,6 +19,7 @@ import {
   History,
   BadgeDollarSign,
   Undo2,
+  PackageX,
   Edit2,
   Save,
   X,
@@ -77,6 +78,12 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
     badge: 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800',
     icon: <Undo2 className="h-4 w-4" />,
   },
+  // Written by a CONSUMABLE_ISSUE stock operation (SER-1). A reversal returns
+  // the unit to IN_STOCK at the issuing branch.
+  CONSUMED: {
+    badge: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+    icon: <PackageX className="h-4 w-4" />,
+  },
 };
 
 // Mirrors every status the server writes to serial_log — IN_STOCK/
@@ -85,7 +92,7 @@ const STATUS_META: Record<string, { badge: string; icon: React.ReactNode }> = {
 // SOLD and RETURNED_TO_VENDOR (the two the sales/purchase-return flips
 // write but this filter historically omitted, hiding those units from
 // every status view except ALL).
-const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR'];
+const ALL_STATUSES = ['IN_STOCK', 'IN_TRANSIT', 'CUSTOMER_ASSIGNED', 'POP_LOCATION_ASSIGNED', 'DAMAGED', 'RETURNED', 'SOLD', 'RETURNED_TO_VENDOR', 'CONSUMED'];
 
 export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
   branches = [],
@@ -510,7 +517,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
       {/* Status count cards — shared compact StatCard component. Also fixes
           the previous dynamic text-${color} classes, which Tailwind could
           never compile. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2">
         {([
           { key: 'IN_STOCK', label: 'In Stock', tone: 'emerald' },
           { key: 'IN_TRANSIT', label: 'In Transit', tone: 'sky' },
@@ -520,6 +527,7 @@ export const SerialLogRegister: React.FC<SerialLogRegisterProps> = ({
           { key: 'RETURNED', label: 'Returned', tone: 'amber' },
           { key: 'SOLD', label: 'Sold', tone: 'slate' },
           { key: 'RETURNED_TO_VENDOR', label: 'To Vendor', tone: 'slate' },
+          { key: 'CONSUMED', label: 'Consumed', tone: 'amber' },
         ] as const).map((stat) => (
           <StatCard
             key={stat.key}

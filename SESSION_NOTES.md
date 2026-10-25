@@ -1,17 +1,57 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1210/1210 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-25 · Branch: main · Tests: 1220/1220 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3).** All DF-01…DF-17 work,
-> the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2 and CPE-3 are done.
-> B2 shipped the combined trigram search projection, so all eight item searches
-> share one indexed `search_text` column per table; B3/B4 stay parked. CPE-3
-> resolved decision D1 and made the fixed asset, CPE row, serial register and
-> stock move together, with the collection credit keyed on the asset id. **A5 is
-> not started** and is deliberately last; A4b waits for it. SER-1 is next in the
-> temporary `worklist.md` but needs decisions D2/D3 first.
+> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1).** All DF-01…DF-17
+> work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3 and
+> SER-1 are done. B2 shipped the combined trigram search projection, so all eight
+> item searches share one indexed `search_text` column per table; B3/B4 stay
+> parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
+> stock move together. SER-1 resolved D2: pullout/consumable/sale now issue their
+> units to `IN_TRANSIT`/`CONSUMED`/`SOLD`, each with a reversal. **A5 is not
+> started** and is deliberately last; A4b waits for it. SER-2 is next in the
+> temporary `worklist.md`; its D3 decision is recorded.
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ SER-1 shipped — pulled-out, issued and sold units leave the register (2026-10-25)
+
+**Decisions D2/D3 (recorded first).** `PULLOUT` moves a unit `IN_STOCK →
+IN_TRANSIT` at the source; receiving the dispatch lands it `IN_STOCK` at the
+destination. `CONSUMABLE_ISSUE` moves `IN_STOCK → CONSUMED` (new state) and
+`STOCK_OUT` (product sale) moves `IN_STOCK → SOLD`. Every transition records the
+operation as `source_type='STOCK_OP'` / `source_id` plus a history entry, and
+every transition has a symmetric reversal back to `IN_STOCK`. Historical rows are
+deliberately **not** auto-mapped: an old operation cannot distinguish a unit
+returned outside the operation, so only new transitions are tracked. D3 retires
+the boot backfill only in SER-2 (explicit SUPER_ADMIN maintenance action; no
+silent convergence), so `dbBoot` is unchanged here.
+
+**Fix.** [serialOperationLifecycle.service.ts](server/src/services/serialOperationLifecycle.service.ts)
+owns the mapping, DB transitions and in-memory twins. `post_stockOperations`
+issues the gate-resolved units inside its transaction; `post_receive` lands a
+received pullout at the destination; `post_reverseConsumable` restores `CONSUMED`
+units. New `POST /api/stock-operations/:id/reverse-pullout` and
+`/reverse-stock-out` reverse their own operation (damaged-stock pullout lines
+return to the damaged pool), using the same permission as the operation they
+undo. The logs panel exposes the sale reversal and the pullout panel exposes the
+dispatch reversal. `serial_log` gains `CONSUMED` (fresh check + boot migration);
+the register vocabulary, status cards and filter carry it.
+
+**Tests.** `tests/serialOperationLifecycle.test.ts` pins the mapping, the
+damaged-line exclusion, branch/status scoping, reverse-only-own-units and the
+receive move. `tests/serialGateHttp.test.ts` adds real-HTTP cases: a pullout
+becomes `IN_TRANSIT`, a re-issue is refused, reversal restores both serial and
+stock; consumable `CONSUMED` and sale `SOLD` reverse correctly; the wrong
+reversal endpoint is refused; a received pullout moves to the destination, and
+reversing the dispatch after that receipt is refused (`400`) with both branches'
+stock and the unit's branch unchanged — otherwise the source would be credited
+again while the unit sits at the destination.
+
+**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1220 tests
+against a real PostgreSQL 16 service container, 1218 pass, 2 Windows-only skips,
+0 fail. Suite now 1220 tests; docs counts green. (The header's `Tests: 1220/1220`
+is the same run.)
 
 ## ✅ CPE-3 shipped — the fixed asset follows the CPE lifecycle, once per asset (2026-10-25)
 
@@ -52,9 +92,10 @@ suite now seeds a linked asset and asserts the patch returns it to `ACTIVE`
 with one asset-keyed credit; the exchange concurrency suite and the MAC-conflict
 HTTP suite were updated to expect the replacement's stock-out.
 
-**Verification.** `npx tsc --noEmit` clean and the affected suites green. The full run: `npm test` — 1210 tests against a real PostgreSQL 16
-service container, 1208 pass, 2 Windows-only skips, 0 fail. Suite now 1210 tests;
-docs counts green. (The header's `Tests: 1210/1210` is the same run.)
+**Verification.** `npx tsc --noEmit` clean and the affected suites green. The
+`npm test` run at that head executed 1210 tests against a real PostgreSQL 16
+service container, 1208 pass, 2 Windows-only skips, 0 fail (the then-current
+header carried the same count).
 
 ## ✅ B2 shipped — one trigram projection serves all eight item searches (2026-10-25)
 
