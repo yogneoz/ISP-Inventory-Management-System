@@ -228,12 +228,16 @@ describe('assignment vs exchange on one serial: exactly one may claim it', () =>
     const register = await pool.query('SELECT status FROM serial_log WHERE device_serial = $1', [SERIAL]);
     assert.equal(register.rows[0]?.status, 'CUSTOMER_ASSIGNED');
 
-    // Stock moves once for an assignment and not at all for an exchange.
+    // Stock moves once either way: an assignment consumes the unit, and an
+    // exchange consumes the replacement (CPE-3). The old "exchange moves no
+    // stock" expectation was the gap this task closes.
     const stock = await pool.query("SELECT quantity_on_hand FROM inventory_stock WHERE id = 'asx-stock'");
     assert.equal(
       Number(stock.rows[0]?.quantity_on_hand),
-      assignmentWon ? INITIAL_STOCK - 1 : INITIAL_STOCK,
-      assignmentWon ? 'a won assignment must consume exactly one unit' : 'a won exchange must not consume branch stock'
+      INITIAL_STOCK - 1,
+      assignmentWon
+        ? 'a won assignment must consume exactly one unit'
+        : 'a won exchange must consume the replacement unit'
     );
 
     // The loser leaves no trace on its own record.

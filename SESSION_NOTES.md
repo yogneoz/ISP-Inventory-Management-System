@@ -1,16 +1,55 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1203/1203 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-25 · Branch: main · Tests: 1210/1210 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2).** All DF-01…DF-17 work, the
-> bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1 and B2 are done. B2
-> shipped the combined trigram search projection, so all eight item searches
-> share one indexed `search_text` column per table; B3/B4 stay parked. **A5 is
-> not started** and is deliberately last; A4b waits for it. The next scheduled
-> work is in the temporary `worklist.md` at the repo root (not part of the
-> committed docs).
+> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3).** All DF-01…DF-17 work,
+> the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2 and CPE-3 are done.
+> B2 shipped the combined trigram search projection, so all eight item searches
+> share one indexed `search_text` column per table; B3/B4 stay parked. CPE-3
+> resolved decision D1 and made the fixed asset, CPE row, serial register and
+> stock move together, with the collection credit keyed on the asset id. **A5 is
+> not started** and is deliberately last; A4b waits for it. SER-1 is next in the
+> temporary `worklist.md` but needs decisions D2/D3 first.
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ CPE-3 shipped — the fixed asset follows the CPE lifecycle, once per asset (2026-10-25)
+
+**Decision D1 (recorded first).** A CPE collection returns the linked fixed
+asset to `ACTIVE` with every assignment field and `device_serial` cleared, keeps
+the prior assignment in `assignment_notes`, and credits one unit of branch stock
+only when the deployment proved a `STOCK_OUT` for that product/tag. The credit
+is keyed on the fixed-asset id, so the approval path, the direct status PATCH
+and the asset-unassign screen cannot each add a unit. An exchange keeps the tag
+and customer, moves `device_serial` to the replacement, records the old → new
+serial, and posts the replacement's `STOCK_OUT` in the same transaction as the
+old unit's disposition (RESTOCK / DAMAGE / DISPOSED).
+
+**Fix.** [cpeAssetLifecycle.service.ts](server/src/services/cpeAssetLifecycle.service.ts)
+is the single owner of that rule. `misc.controller` (approval execution),
+`inventory.controller` `patch_status` (asset unassign) and `patch_status2`
+(collection statuses), and `post_exchange` all call it inside their existing
+transactions. New repo SQL locks the asset by id or by serial/tag, applies the
+collect/move, proves the deployment, and resolves the replacement's product;
+`STOCK_RETURN_FROM_ASSET_SQL` now returns the new quantity so the ledger's
+before/after are the committed truth. Legacy CPE rows with no linked asset are
+keyed by the CPE row id (request number as fallback), so approval execution and
+a direct status PATCH also agree. Failure paths now restore the in-memory row and map
+`OperationError` (for example the empty-replacement-stock `409`) instead of
+answering a generic 500.
+
+**Tests.** `tests/cpeAssetLifecycle.test.ts` on real PostgreSQL: collect once,
+collect twice (no second credit), unlinked collection keyed by its CPE row, exchange
+moves serial and deducts the replacement, empty replacement stock refuses and
+rolls back, a forced failure rolls back asset + stock + ledger, and
+exchange→collect ends `ACTIVE` with stock balanced. The CPE status-PATCH HTTP
+suite now seeds a linked asset and asserts the patch returns it to `ACTIVE`
+with one asset-keyed credit; the exchange concurrency suite and the MAC-conflict
+HTTP suite were updated to expect the replacement's stock-out.
+
+**Verification.** `npx tsc --noEmit` clean and the affected suites green. The full run: `npm test` — 1210 tests against a real PostgreSQL 16
+service container, 1208 pass, 2 Windows-only skips, 0 fail. Suite now 1210 tests;
+docs counts green. (The header's `Tests: 1210/1210` is the same run.)
 
 ## ✅ B2 shipped — one trigram projection serves all eight item searches (2026-10-25)
 
@@ -164,10 +203,9 @@ against another branch's record → 403 with both rows unchanged; and
 with the customer attribution cleared on `serial_log`. The exchange audience pin
 now asserts the shared constant keeps `FIELD_TECHNICIAN`.
 
-**Verification.** The full 1203-test suite is green on the current head:
-`npm test` — 1203 tests against a real PostgreSQL 16 service container,
-1201 pass, 2 Windows-only skips, 0 fail. Suite now 1203 tests; `npx tsc
---noEmit` clean. (The header's `Tests: 1203/1203` is the same run.)
+**Verification.** The suite was green on that head: the `npm test` run against a
+real PostgreSQL 16 service container executed 1203 tests, 1201 pass, 2
+Windows-only skips, 0 fail; `npx tsc --noEmit` clean.
 
 ## ✅ Bootstrap trim follow-up — KPI counts, open-PO picker and FY wizard read scoped rows (2026-10-25)
 

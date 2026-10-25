@@ -7,7 +7,7 @@
  */
 import type { Request, Response } from 'express';
 import { ensurePostgresConnection, setPgConnected, setIsPgConnected, getPgConnected, pgPool, transactionLogs, approvalRequests, setApprovalRequests, withPrepended, logAuditEvent, getUserFromReq, withTransaction, withConnection, products, inventoryStock, setInventoryStock, withAppended, setTransactionLogs, shipments, branches, customerDeviceRecords, serialLogs, setSerialLogs, auditTrail } from '../app';
-import { ApprovalRequest, AuditLog, TransactionLog, CustomerDeviceRecord } from '../../../client/src/types';
+import { ApprovalRequest, AuditLog, CustomerDeviceRecord } from '../../../client/src/types';
 import { todayBs } from '../utils/bsDate';
 import {
   DB_STATUS_PROBE_SQL,
@@ -27,16 +27,13 @@ import {
   AR_SHIPMENT_RESTORE_SOURCE_SQL,
   AR_SHIPMENT_RELEASE_DEST_SQL,
   CDR_SET_STATUS_SQL,
-  MISC_PULLOUT_STOCK_UPSERT_SQL,
-  miscPulloutStockParams,
-  MISC_PULLOUT_TXN_SQL,
-  miscPulloutTxnParams,
   AUDIT_RECONCILE_STOCK_SQL,
   auditReconcileStockParams,
 } from '../models/misc.repo';
 import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_FIND_CANDIDATES_SQL } from '../models/shipments.repo';
 import { SERIAL_LOG_SYNC_ON_CDR_SQL, serialLogCdrSyncParams } from '../models/inventory.repo';
 import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror, isLegacyCdrStatus } from '../services/cdrSerialSync';
+import { collectCpeFixedAsset } from '../services/cpeAssetLifecycle.service';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -302,49 +299,50 @@ try {
             );
           }
 
+          // CPE-3/D1: the fixed asset is the dedupe key, so an approval
+          // collection and the asset-unassign screen cannot credit the same
+          // return twice. One service owns the asset rule; legacy CPE rows
+          // without a linked asset keep the request-keyed credit.
           if (request.restockQtyOnApproval || isCollection) {
-            const prod = products.find((p) => p.name.toLowerCase() === request.productName?.toLowerCase()) || products[0];
-            let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === request.branchId);
-
-            if (!stk) {
-              stk = {
-                id: `stk-${request.branchId.toLowerCase()}-${prod.id}`,
-                productId: prod.id,
-                branchId: request.branchId,
-                quantityOnHand: 0,
-                damagedQty: 0,
-                reservedQty: 0,
-                incomingQty: 0,
-                lastUpdated: new Date().toISOString(),
-              };
-              setInventoryStock(withAppended(inventoryStock, stk));
-            }
-
-            const qtyBefore = stk.quantityOnHand;
-            stk.quantityOnHand += 1;
-            stk.lastUpdated = new Date().toISOString();
-
-            await client.query(MISC_PULLOUT_STOCK_UPSERT_SQL, miscPulloutStockParams(stk));
-
-            const newTxn: TransactionLog = {
-              id: `txn-${Date.now()}`,
-              transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-              productId: prod.id,
-              productSku: prod.sku,
-              productName: prod.name,
+            const fallbackProduct = products.find(
+              (p) => p.name.toLowerCase() === request.productName?.toLowerCase()
+            );
+            const collected = await collectCpeFixedAsset({
+              client,
+              cpeId: request.targetId,
+              deviceSerial: request.deviceSerial,
+              requestNumber: request.requestNumber,
+              todayAD: new Date().toISOString().split('T')[0],
+              todayBS: todayBs(),
               branchId: request.branchId,
-              changeType: 'PULLOUT' as const,
-              quantityBefore: qtyBefore,
-              quantityChanged: 1,
-              quantityAfter: stk.quantityOnHand,
-              unitCost: prod.costPrice,
-              referenceDocId: request.requestNumber,
-              timestampAD: new Date().toISOString(),
-              timestampBS: todayBs(), // C4: from bs_day_records cache
-            };
-            setTransactionLogs(withPrepended(transactionLogs, newTxn));
-
-            await client.query(MISC_PULLOUT_TXN_SQL, miscPulloutTxnParams(newTxn));
+              products,
+              fallbackProduct,
+              allowUnlinkedRestock: true,
+              changeType: 'PULLOUT',
+            });
+            if (collected.ledger) {
+              const stockRow = inventoryStock.find(
+                (s) => s.productId === collected.ledger!.productId && s.branchId === collected.ledger!.branchId
+              );
+              if (stockRow) {
+                stockRow.quantityOnHand = collected.ledger.quantityAfter;
+                stockRow.lastUpdated = new Date().toISOString();
+              } else {
+                setInventoryStock(
+                  withAppended(inventoryStock, {
+                    id: `stk-${collected.ledger.branchId.toLowerCase()}-${collected.ledger.productId}`,
+                    productId: collected.ledger.productId,
+                    branchId: collected.ledger.branchId,
+                    quantityOnHand: collected.ledger.quantityAfter,
+                    damagedQty: 0,
+                    reservedQty: 0,
+                    incomingQty: 0,
+                    lastUpdated: new Date().toISOString(),
+                  })
+                );
+              }
+              setTransactionLogs(withPrepended(transactionLogs, collected.ledger));
+            }
           }
         }
 

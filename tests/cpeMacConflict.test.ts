@@ -293,6 +293,7 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
   });
 
   test('exchange with a genuinely new MAC still succeeds', { skip: skipNoDb }, async () => {
+    const stockBeforeExchange = await stockQoh();
     const res = await call('POST', '/api/customer-devices/exchange', exchangeBody());
     assert.equal(res.status, 201, JSON.stringify(res.json));
     const oldRow = await pool.query('SELECT status FROM customer_device_records WHERE id = $1', [OLD_CDR]);
@@ -303,6 +304,10 @@ describe('CPE MAC conflicts and legacy status vocabulary', () => {
     );
     assert.equal(replacement.rows[0]?.status, 'RENTAL');
     assert.equal(replacement.rows[0]?.mac_address, '00:11:22:33:44:55');
-    assert.equal(await stockQoh(), INITIAL_STOCK - 1, 'KEEP disposition adds no stock');
+    assert.equal(
+      await stockQoh(),
+      stockBeforeExchange - 1,
+      'KEEP adds no disposition credit, but the replacement still leaves branch stock (CPE-3)'
+    );
   });
 });

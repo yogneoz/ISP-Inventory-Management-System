@@ -479,7 +479,8 @@ export const STOCK_RETURN_FROM_ASSET_SQL = `INSERT INTO inventory_stock (id, pro
  VALUES ($4, $1, $2, $3, 0, 0, 0, 0, NOW())
  ON CONFLICT (product_id, branch_id) DO UPDATE SET
    quantity_on_hand = inventory_stock.quantity_on_hand + $3,
-   last_updated = NOW();`;
+   last_updated = NOW()
+ RETURNING quantity_on_hand;`;
 
 /**
  * Persists an asset assignment (or clears it on unassign): status plus the full
@@ -497,6 +498,69 @@ export const ASSET_SET_ASSIGNMENT_SQL = `UPDATE fixed_assets SET
   assignment_date_bs = $8,
   assignment_notes = $9
  WHERE id = $10`;
+
+// ---------------------------------------------------------------------------
+// Fixed-asset ↔ CPE lifecycle (CPE-3)
+// ---------------------------------------------------------------------------
+
+export const CPE_ASSET_SELECT_COLUMNS =
+  'id, tag_number AS "tagNumber", product_id AS "productId", branch_id AS "branchId", status, device_serial AS "deviceSerial", assigned_customer_id AS "assignedCustomerId", assigned_customer_name AS "assignedCustomerName", assigned_location_id AS "assignedLocationId", assigned_location_name AS "assignedLocationName", assignment_notes AS "assignmentNotes"';
+
+/** Locks the asset a collection or exchange is about to move. */
+export const FIXED_ASSET_LOCK_BY_ID_SQL =
+  `SELECT ${CPE_ASSET_SELECT_COLUMNS} FROM fixed_assets WHERE id = $1 FOR UPDATE`;
+
+/**
+ * Resolves the asset behind a CPE row. The deployment stamps the asset tag in
+ * the CPE notes and stores the deployed serial on the asset, so either key can
+ * identify it; the serial match wins when both exist. Empty parameters never
+ * match, so a caller without a tag is safe.
+ */
+export const FIXED_ASSET_LOCK_BY_SERIAL_OR_TAG_SQL = `SELECT ${CPE_ASSET_SELECT_COLUMNS}
+ FROM fixed_assets
+ WHERE ($1 <> '' AND lower(trim(device_serial)) = lower(trim($1)))
+    OR ($2 <> '' AND lower(trim(tag_number)) = lower(trim($2)))
+ ORDER BY CASE WHEN lower(trim(device_serial)) = lower(trim($1)) THEN 0 ELSE 1 END
+ LIMIT 1 FOR UPDATE`;
+
+/** Collection: the asset returns to ACTIVE with no assignment, keeping notes. */
+export const FIXED_ASSET_COLLECT_SQL = `UPDATE fixed_assets SET
+  status = 'ACTIVE',
+  assigned_type = NULL,
+  assigned_customer_id = NULL,
+  assigned_customer_name = NULL,
+  assigned_location_id = NULL,
+  assigned_location_name = NULL,
+  assignment_date_ad = NULL,
+  assignment_date_bs = NULL,
+  assignment_notes = $2,
+  device_serial = NULL,
+  updated_at = NOW()
+ WHERE id = $1`;
+
+/** Exchange: same tag and assignment, identity moved to the replacement. */
+export const FIXED_ASSET_MOVE_SERIAL_SQL = `UPDATE fixed_assets SET
+  device_serial = $2,
+  assignment_notes = $3,
+  updated_at = NOW()
+ WHERE id = $1`;
+
+/** Proves the deployment consumed one unit of branch stock for this asset. */
+export const FIXED_ASSET_DEPLOY_PROOF_SQL = `SELECT 1 FROM transaction_logs
+ WHERE change_type = 'STOCK_OUT' AND product_id = $1
+   AND (reference_doc_id = $2 OR reference_doc_id = $3)
+ LIMIT 1`;
+
+/** Idempotency probe for a lifecycle ledger row (same id = same event). */
+export const TXN_FIND_BY_ID_SQL = 'SELECT id FROM transaction_logs WHERE id = $1';
+
+/** Row lock used before a collection credit or an exchange deduction. */
+export const STOCK_LOCK_ONE_SQL =
+  'SELECT quantity_on_hand FROM inventory_stock WHERE product_id = $1 AND branch_id = $2 FOR UPDATE';
+
+/** The replacement unit's catalogue identity, from the register itself. */
+export const CPE_REPLACEMENT_UNIT_SQL = `SELECT product_id AS "productId", product_name AS "productName"
+ FROM serial_log WHERE lower(trim(device_serial)) = lower(trim($1)) LIMIT 1`;
 
 // ---------------------------------------------------------------------------
 // Stock operations

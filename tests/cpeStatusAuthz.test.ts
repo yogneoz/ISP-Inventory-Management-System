@@ -19,7 +19,8 @@
  *      -> 403 with neither row changed;
  *   3. allowed BRANCH_MANAGER + another branch's record -> 403, unchanged;
  *   4. allowed INVENTORY_MANAGER -> 200, customer-device and serial_log rows
- *      both move (REFUND/IN_STOCK, customer attribution cleared).
+ *      both move (REFUND/IN_STOCK, customer attribution cleared), and CPE-3's
+ *      linked fixed asset returns to ACTIVE with exactly one stock credit.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +32,8 @@ import {
   registerAllRoutes,
   customerDeviceRecords,
   setCustomerDeviceRecords,
+  products,
+  setProducts,
 } from '../server/src/app';
 import { issueAuthToken } from '../server/src/middleware/auth';
 
@@ -56,6 +59,9 @@ const CDR_A = 'csa-cdr-a';
 const CDR_B = 'csa-cdr-b';
 const SERIAL_A = 'CSA-SN-A';
 const SERIAL_B = 'CSA-SN-B';
+const PRODUCT_A = 'csa-prod';
+const ASSET_A = 'csa-asset-a';
+const TAG_A = 'CSA-TAG-A';
 
 const user = (id: string, role: string, branchId: string) => ({
   id,
@@ -75,14 +81,20 @@ describe('CPE status PATCH authorization', () => {
   let port = 0;
   let close: (() => Promise<void>) | null = null;
   let origCdr: any[] = [];
+  let origProducts: any[] = [];
   const invToken = issueAuthToken(INV_USER);
   const bmToken = issueAuthToken(BM_USER);
   const fdToken = issueAuthToken(FD_USER);
 
   before(async () => {
     origCdr = [...customerDeviceRecords];
+    origProducts = [...products];
     if (!dbReachable) return;
 
+    await pool!.query("DELETE FROM transaction_logs WHERE id LIKE 'csa-%' OR reference_doc_id LIKE 'CSA-%'");
+    await pool!.query("DELETE FROM fixed_assets WHERE id LIKE 'csa-%' OR tag_number LIKE 'CSA-%'");
+    await pool!.query("DELETE FROM inventory_stock WHERE id LIKE 'csa-%'");
+    await pool!.query("DELETE FROM products WHERE id LIKE 'csa-%'");
     await pool!.query("DELETE FROM serial_log WHERE device_serial LIKE 'CSA-%'");
     await pool!.query("DELETE FROM customer_device_records WHERE id LIKE 'csa-%' OR device_serial LIKE 'CSA-%'");
     await pool!.query("DELETE FROM branches WHERE id IN ('csa-a', 'csa-b')");
@@ -107,6 +119,49 @@ describe('CPE status PATCH authorization', () => {
          ('csa-sl-b', '${SERIAL_B}', 'CSA-PON-B', 'CPE Router', '${BRANCH_B}', '${CDR_B}', 'CPE Customer B', 'CUSTOMER_ASSIGNED', 'CUSTOMER_DEVICE')`
     );
 
+    // CPE-3: the linked asset and the deployment's stock-out proof. The
+    // product is pushed into the live catalogue so the controller resolves it
+    // exactly as it would for a real product; the credit is keyed on the asset.
+    await pool!.query(
+      `INSERT INTO products (id, sku, name, category, product_group, unit, cost_price, selling_price)
+       VALUES ('${PRODUCT_A}', 'CSA-SKU-A', 'CPE Router', 'CPE', 'Fixed Asset', 'Pcs', 100, 150)`
+    );
+    setProducts([
+      ...products,
+      {
+        id: PRODUCT_A,
+        sku: 'CSA-SKU-A',
+        name: 'CPE Router',
+        category: 'CPE',
+        productGroup: 'Fixed Asset',
+        unit: 'Pcs',
+        costPrice: 100,
+        sellingPrice: 150,
+      } as any,
+    ]);
+    await pool!.query(
+      `INSERT INTO inventory_stock (id, product_id, branch_id, quantity_on_hand)
+       VALUES ('csa-stk-a', '${PRODUCT_A}', '${BRANCH_A}', 0)`
+    );
+    await pool!.query(
+      `INSERT INTO transaction_logs
+         (id, transaction_number, product_id, product_name, branch_id, change_type,
+          quantity_before, quantity_changed, quantity_after, reference_doc_id, timestamp_bs)
+       VALUES ('csa-deploy-a', 'CSA-DEPLOY-A', '${PRODUCT_A}', 'CPE Router', '${BRANCH_A}',
+               'STOCK_OUT', 1, -1, 0, '${TAG_A}', '2082-07-09 BS')`
+    );
+    await pool!.query(
+      `INSERT INTO fixed_assets
+         (id, tag_number, name, category, branch_id, acquisition_date_ad, acquisition_date_bs,
+          acquisition_cost, net_book_value, status, product_id, assigned_type,
+          assigned_customer_id, assigned_customer_name, assignment_date_ad, assignment_date_bs,
+          assignment_notes, device_serial)
+       VALUES ('${ASSET_A}', '${TAG_A}', 'CPE Router', 'IT Equipment', '${BRANCH_A}',
+               '2026-01-01', '2082-09-17', 100, 100, 'ASSIGNED_TO_CUSTOMER', '${PRODUCT_A}',
+               'CUSTOMER', '${CDR_A}', 'CPE Customer A', '2026-01-01', '2082-09-17',
+               'cpe auth fixture', '${SERIAL_A}')`
+    );
+
     const app = createApp();
     registerAllRoutes(app);
     const server = http.createServer(app);
@@ -121,7 +176,12 @@ describe('CPE status PATCH authorization', () => {
   after(async () => {
     if (close) await close();
     setCustomerDeviceRecords(origCdr as any);
+    setProducts(origProducts as any);
     if (pool && dbReachable) {
+      await pool.query("DELETE FROM transaction_logs WHERE id LIKE 'csa-%' OR reference_doc_id LIKE 'CSA-%'");
+      await pool.query("DELETE FROM fixed_assets WHERE id LIKE 'csa-%' OR tag_number LIKE 'CSA-%'");
+      await pool.query("DELETE FROM inventory_stock WHERE id LIKE 'csa-%'");
+      await pool.query("DELETE FROM products WHERE id LIKE 'csa-%'");
       await pool.query("DELETE FROM serial_log WHERE device_serial LIKE 'CSA-%'");
       await pool.query("DELETE FROM customer_device_records WHERE id LIKE 'csa-%' OR device_serial LIKE 'CSA-%'");
       await pool.query("DELETE FROM audit_logs WHERE user_email LIKE 'csa-%'");
@@ -180,7 +240,7 @@ describe('CPE status PATCH authorization', () => {
     assert.equal((await serialState(SERIAL_B))?.status, 'CUSTOMER_ASSIGNED', 'the foreign-branch serial must not move');
   });
 
-  test('INVENTORY_MANAGER may execute the status change and both rows move', { skip: skipNoDb }, async () => {
+  test('INVENTORY_MANAGER may execute the status change and every surface moves', { skip: skipNoDb }, async () => {
     const res = await call(`/api/customer-devices/${CDR_A}/status`, invToken, { status: 'REFUND' });
     assert.equal(res.status, 200, res.json?.message || 'allowed status patch must succeed');
     assert.equal(res.json?.status, 'REFUND');
@@ -188,5 +248,26 @@ describe('CPE status PATCH authorization', () => {
     const serial = await serialState(SERIAL_A);
     assert.equal(serial?.status, 'IN_STOCK', 'a refund must free the unit in serial_log');
     assert.equal(serial?.customerId, null, 'IN_STOCK clears the customer attribution');
+
+    // CPE-3/D1: the linked fixed asset and branch stock move in the same
+    // transaction, and the credit is keyed on the asset id.
+    const asset = await pool!.query(
+      'SELECT status, device_serial, assigned_customer_id, assignment_notes FROM fixed_assets WHERE id = $1',
+      [ASSET_A]
+    );
+    assert.equal(asset.rows[0]?.status, 'ACTIVE', 'a collection returns the asset to ACTIVE');
+    assert.equal(asset.rows[0]?.device_serial, null, 'the collected serial must leave the asset');
+    assert.equal(asset.rows[0]?.assigned_customer_id, null, 'the assignment is cleared');
+    assert.match(String(asset.rows[0]?.assignment_notes), /COLLECTED 2026-/);
+
+    const stock = await pool!.query(
+      'SELECT quantity_on_hand FROM inventory_stock WHERE id = $1',
+      ['csa-stk-a']
+    );
+    assert.equal(Number(stock.rows[0]?.quantity_on_hand), 1, 'exactly one unit is credited');
+    const ledger = await pool!.query(
+      "SELECT id FROM transaction_logs WHERE id = 'txn-cpe-collect-csa-asset-a'"
+    );
+    assert.equal(ledger.rowCount, 1, 'the collection ledger is keyed on the fixed asset id');
   });
 });

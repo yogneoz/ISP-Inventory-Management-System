@@ -12,6 +12,7 @@ import { DamageRecord, TransactionLog, CustomerDeviceRecord } from '../../../cli
 import { calculateFixedAssetValues } from '../../../client/src/utils/depreciation';
 import { buildDamageRecordInsert, quarantineSerialsInDb, quarantineInMemorySerials, deriveDamageItems, validateReversalAvailability, buildReversalLedgerWithStock, buildReversalLedgerFromRestoredRows, restoreSerialsInDb, mirrorReversal, restoreInMemorySerials, buildDamagePoolLedgerChange } from '../services/damage.service';
 import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial, cpeFindPatterns, buildCpeReversalClose } from '../services/unassignRestock.service';
+import { buildAssetCollectionNotes, collectCpeFixedAsset, exchangeCpeFixedAsset, exchangeOutLedgerId } from '../services/cpeAssetLifecycle.service';
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
@@ -978,9 +979,12 @@ try {
 
 /** Forwarded from inventory.routes.ts (patch_status). */
 export async function patch_status(req: any, res: Response): Promise<any> {
+  let asset: any = null;
+  let assetBefore: any = null;
 try {
     const { id } = req.params;
-    const asset = assetRegister.find((a) => a.id === id);
+    asset = assetRegister.find((a) => a.id === id);
+    assetBefore = asset ? { ...asset } : null;
     const prevStatus = asset ? String(asset.status || '') : '';
     if (asset) Object.assign(asset, req.body);
 
@@ -991,65 +995,109 @@ try {
     // and duplicate unassign calls never double-restore.
     const isUnassign = String(req.body?.status || '') === 'ACTIVE' &&
       ['ASSIGNED_TO_LOCATION', 'ASSIGNED_TO_CUSTOMER'].includes(prevStatus);
-    if (isUnassign && asset?.productId) {
-      const branchId = String(asset.branchId);
-      if (shouldRestockOnUnassign({ newStatus: req.body?.status, prevStatus, asset, transactionLogs })) {
+    const todayAD = new Date().toISOString().split('T')[0];
+    let restockTxn: TransactionLog | null = null;
+
+    if (isUnassign && asset) {
+      const branchId = String(asset.branchId || '');
+      if (getPgConnected()) {
+        // CPE-3/D1: one transaction owns the asset unassign, the stock credit
+        // and the linked CPE close. The service keys the ledger on the asset
+        // id, so a collection already executed through the approval/status
+        // path is a no-op here instead of a second credit.
+        let closedCpeId: string | undefined;
+        await withTransaction(async (client) => {
+          const collected = await collectCpeFixedAsset({
+            client,
+            assetId: asset.id,
+            deviceSerial: asset.deviceSerial,
+            requestNumber: `ASSET-UNASSIGN-${asset.id}`,
+            todayAD,
+            todayBS: todayBs(),
+            branchId,
+            products,
+            changeType: 'MANUAL_ADJUSTMENT',
+          });
+          restockTxn = collected.ledger;
+
+          // The linked CPE row is closed regardless of whether stock was
+          // credited (a registered asset that never drew branch stock still
+          // must not stay an active rental for the customer).
+          for (const pattern of cpeFindPatterns(asset.tagNumber)) {
+            const cpeRes = await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [pattern]);
+            const row = (cpeRes.rows || [])[0];
+            if (row?.id) { closedCpeId = row.id; break; }
+          }
+          if (closedCpeId) {
+            const cpeNotesRes = await client.query(CDR_NOTES_BY_ID_SQL, [closedCpeId]);
+            const close = buildCpeReversalClose({
+              prevNotes: String(cpeNotesRes.rows?.[0]?.notes || ''),
+              tag: asset.tagNumber,
+              todayAD,
+            });
+            await client.query(CDR_CLOSE_ON_ASSET_REVERSAL_SQL, [close.status, close.notes, closedCpeId]);
+          }
+
+          // Flip the unit's serial back to IN_STOCK at the branch.
+          if (asset.deviceSerial) {
+            await client.query(SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL, [
+              asset.id,
+              new Date().toISOString(),
+              String(asset.deviceSerial),
+            ]);
+          }
+        });
+
+        if (restockTxn) {
+          const ledger = restockTxn as TransactionLog;
+          const stockRecord = inventoryStock.find(
+            (entry) => entry.productId === ledger.productId && entry.branchId === ledger.branchId
+          );
+          if (stockRecord) {
+            stockRecord.quantityOnHand = ledger.quantityAfter;
+            stockRecord.lastUpdated = new Date().toISOString();
+          }
+          setTransactionLogs(withPrepended(transactionLogs, ledger));
+        }
+      } else if (asset.productId && shouldRestockOnUnassign({ newStatus: req.body?.status, prevStatus, asset, transactionLogs })) {
         const stockRecord = inventoryStock.find((entry) => entry.productId === asset.productId && entry.branchId === branchId);
         const quantityBefore = Number(stockRecord?.quantityOnHand) || 0;
-        const restockTxn = buildRestockTransaction({ asset, branchId, quantityBefore, todayAD: new Date().toISOString().split('T')[0], products });
-
-        if (getPgConnected()) {
-          await withTransaction(async (client) => {
-            await client.query(STOCK_RETURN_FROM_ASSET_SQL, [asset.productId, branchId, 1, `stk-${asset.productId}-${branchId}`]);
-            await client.query(TXN_INSERT_ON_CONFLICT_SQL, txnInsertOnConflictParams(restockTxn));
-            // Flip the unit's serial back to IN_STOCK at the branch.
-            if (asset.deviceSerial) {
-              await client.query(
-                SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL,
-                [asset.id, new Date().toISOString(), String(asset.deviceSerial)]
-              );
-            }
-
-            // Close the rental-CPE customer_device_records row the deployment
-            // created (joined via the asset tag stamped in its notes) so the
-            // customer device register never shows an active rental for a
-            // reversed deployment. Atomic with the stock restore.
-            let cpeId: string | undefined;
-            for (const pattern of cpeFindPatterns(asset.tagNumber)) {
-              const cpeRes = await client.query(CDR_FIND_ACTIVE_BY_ASSET_TAG_SQL, [pattern]);
-              const row = (cpeRes.rows || [])[0];
-              if (row?.id) { cpeId = row.id; break; }
-            }
-            if (cpeId) {
-              const cpeNotesRes = await client.query(CDR_NOTES_BY_ID_SQL, [cpeId]);
-              const close = buildCpeReversalClose({
-                prevNotes: String(cpeNotesRes.rows?.[0]?.notes || ''),
-                tag: asset.tagNumber,
-                todayAD: new Date().toISOString().split('T')[0],
-              });
-              await client.query(CDR_CLOSE_ON_ASSET_REVERSAL_SQL, [close.status, close.notes, cpeId]);
-            }
-          });
-        }
-
-        // In-memory mirrors so the UI reflects the restoration immediately.
+        restockTxn = buildRestockTransaction({ asset, branchId, quantityBefore, todayAD, products });
         if (stockRecord) {
           stockRecord.quantityOnHand += 1;
           stockRecord.lastUpdated = new Date().toISOString();
         }
         setTransactionLogs([restockTxn as any, ...transactionLogs]);
-        // PG-down demo mode only: with PG connected,
-        // SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL above already restored the serial
-        // in the transaction and cacheRefreshHook re-derives the mirror.
         if (!getPgConnected()) restoreInMemorySerial(serialLogs, asset);
+      }
+
+      // Mirror the service's asset rule so the response body and the register
+      // show the unassigned row immediately; cache refresh re-derives it from
+      // PostgreSQL right after.
+      asset.status = 'ACTIVE' as any;
+      asset.assignedType = undefined;
+      asset.assignedCustomerId = undefined;
+      asset.assignedCustomerName = undefined;
+      asset.assignedLocationId = undefined;
+      asset.assignedLocationName = undefined;
+      asset.assignmentDateAD = undefined;
+      asset.assignmentDateBS = undefined;
+      asset.assignmentNotes = buildAssetCollectionNotes(asset.assignmentNotes, {
+        todayAD,
+        requestNumber: `ASSET-UNASSIGN-${asset.id}`,
+        serial: asset.deviceSerial,
+      });
+      asset.deviceSerial = undefined;
+      if (restockTxn && asset.productId) {
         logAuditEvent(req, 'UNASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Unassigned Fixed Asset Tag #${asset.tagNumber} — restored 1 unit of ${asset.productId} to branch ${branchId} stock`);
       }
     }
 
-    if (getPgConnected()) {
+    if (getPgConnected() && !(isUnassign && asset)) {
       // Persist the full assignment payload, not just status: the Assign
       // Fixed Asset flow sends assignedType/customer/location and dates, and
-      // clearing any of them (unassign) must also reach the database.
+      // clearing any of them (unassign) must also reach the database. An
+      // asset unassign is already fully written by the lifecycle service.
       const b = req.body || {};
       await pgPool.query(ASSET_SET_ASSIGNMENT_SQL, [
         b.status || 'ACTIVE',
@@ -1067,8 +1115,12 @@ try {
     logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset status to ${req.body.status || 'UPDATED'}`);
     res.json(asset || req.body);
   } catch (err: any) {
-    console.error('Error updating asset status:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    // A failed transaction leaves the database untouched; put the in-memory
+    // row back too so the screen does not show an unassign the DB refused.
+    if (asset && assetBefore) Object.assign(asset, assetBefore);
+    const { status: errStatus, message } = errorResponse(err);
+    if (errStatus >= 500) console.error('Error updating asset status:', err);
+    res.status(errStatus).json({ message });
   }
 
 }
@@ -2325,10 +2377,12 @@ try {
 
 /** Forwarded from inventory.routes.ts (patch_status2). */
 export async function patch_status2(req: any, res: Response): Promise<any> {
+  let record: any = null;
+  let statusBefore: any = null;
 try {
     const { id } = req.params;
     const { status } = req.body;
-    let record = customerDeviceRecords.find((c) => c.id === id);
+    record = customerDeviceRecords.find((c) => c.id === id);
 
     if (getPgConnected() && !record) {
       const r = await pgPool.query(CDR_FIND_NARROW_SQL, [id]);
@@ -2351,6 +2405,7 @@ try {
     }
 
     const oldStatus = record.status;
+    statusBefore = record.status;
     const newStatusStr = String(status || '').trim().toUpperCase() as CustomerDeviceRecord['status'];
     if (!newStatusStr) {
       return res.status(400).json({ message: 'A device status is required.' });
@@ -2363,11 +2418,16 @@ try {
 
     record.status = newStatusStr;
 
+    // CPE-3/D1: a collection status moves the linked fixed asset too. The
+    // same service the approval path uses keys the stock credit on the asset
+    // id, so a status PATCH after an approved collection cannot credit twice.
+    const collectionStatus = serialStatusForCdrStatus(newStatusStr) === 'IN_STOCK';
+    const todayAD = new Date().toISOString().split('T')[0];
+    let collectionLedger: TransactionLog | null = null;
+
     if (getPgConnected()) {
-      // One transaction: the CDR status flip and the Serial Log Register
-      // flip commit together or not at all (previously the register was
-      // never told, so collected/refunded units stayed CUSTOMER_ASSIGNED
-      // there forever — CDR↔serial_log audit finding).
+      // One transaction: the CDR status flip, the Serial Log Register flip
+      // and the fixed-asset lifecycle commit together or not at all.
       await withTransaction(async (client) => {
         await client.query(CDR_UPDATE_STATUS_SQL, [newStatusStr, id]);
         const serialStatus = serialStatusForCdrStatus(newStatusStr);
@@ -2382,14 +2442,33 @@ try {
               historyEntry: cdrHistoryEntry(
                 serialStatus,
                 id,
-                new Date().toISOString().split('T')[0],
+                todayAD,
                 `CPE status change: ${oldStatus} → ${newStatusStr}`
               ),
               deviceSerial: record!.deviceSerial,
             })
           );
         }
+        if (collectionStatus) {
+          const collected = await collectCpeFixedAsset({
+            client,
+            cpeId: id,
+            deviceSerial: record.deviceSerial,
+            requestNumber: `CPE-STATUS-${id}`,
+            todayAD,
+            todayBS: todayBs(),
+            branchId: record.branchId,
+            products,
+            fallbackProduct: products.find(
+              (p) => p.name.trim().toLowerCase() === String(record!.productName || '').trim().toLowerCase()
+            ),
+            allowUnlinkedRestock: true,
+            changeType: 'PULLOUT',
+          });
+          collectionLedger = collected.ledger;
+        }
       });
+      if (collectionLedger) setTransactionLogs(withPrepended(transactionLogs, collectionLedger));
     }
     // Demo mode: mirror the register flip so both surfaces stay in step.
     if (!getPgConnected()) {
@@ -2413,8 +2492,12 @@ try {
     logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${newStatusStr}`, record.branchId);
     res.json(record);
   } catch (err: any) {
-    console.error('Error updating CPE device status:', err);
-    res.status(500).json({ message: `Database error: ${err.message}` });
+    // The status flip is written to the mirror before the transaction; undo it
+    // when the transaction (including the asset lifecycle) refuses.
+    if (record && statusBefore) record.status = statusBefore;
+    const { status: errStatus, message } = errorResponse(err);
+    if (errStatus >= 500) console.error('Error updating CPE device status:', err);
+    res.status(errStatus).json({ message });
   }
 
 }
@@ -2895,6 +2978,24 @@ try {
             deviceSerial: newRecord.deviceSerial,
           })
         );
+
+        // CPE-3/D1: move the fixed asset's serial identity to the replacement
+        // and post the replacement's STOCK_OUT here, so the branch stops
+        // counting a unit the customer now holds in the same transaction that
+        // credits the old unit's disposition. A registered asset can never
+        // name the serial that just left.
+        await exchangeCpeFixedAsset({
+          client,
+          cpeId: oldDeviceId,
+          oldSerial: oldRecord.deviceSerial,
+          newSerial: newRecord.deviceSerial,
+          newCdrId: newRecord.id,
+          todayAD: exchangeDateAD,
+          todayBS: newRecord.issuedDateBS,
+          branchId: exchBranchId,
+          newProductName: newRecord.productName,
+          products,
+        });
       });
     } else {
       // Demo mode: mirror both register flips.
@@ -2955,6 +3056,39 @@ try {
             exchAction === 'RESTOCK' ? exchQohBefore + exchQty : exchDamagedBefore + exchQty
           )
         ));
+      }
+
+      // Demo-mode twin of CPE-3's replacement stock-out. Only moves when the
+      // branch actually carries the replacement product, matching the PG path.
+      const replProd =
+        products.find(
+          (p) => p.name.trim().toLowerCase() === String(newRecord.productName || '').trim().toLowerCase()
+        ) || exchProd;
+      const replStock = replProd
+        ? inventoryStock.find((s) => s.productId === replProd.id && s.branchId === exchBranchId)
+        : undefined;
+      if (replProd && replStock && Number(replStock.quantityOnHand) >= 1) {
+        const before = Number(replStock.quantityOnHand) || 0;
+        replStock.quantityOnHand = before - 1;
+        replStock.lastUpdated = new Date().toISOString();
+        setTransactionLogs(
+          withPrepended(transactionLogs, {
+            id: exchangeOutLedgerId(newRecord.id),
+            transactionNumber: `CPE-EXCHANGE-OUT-${newRecord.id}`,
+            productId: replProd.id,
+            productSku: replProd.sku || '',
+            productName: replProd.name,
+            branchId: exchBranchId,
+            changeType: 'STOCK_OUT' as const,
+            quantityBefore: before,
+            quantityChanged: -1,
+            quantityAfter: before - 1,
+            unitCost: Number(replProd.costPrice) || 0,
+            referenceDocId: newRecord.id,
+            timestampAD: dateStrAD,
+            timestampBS: newRecord.issuedDateBS,
+          } as TransactionLog)
+        );
       }
     }
     logAuditEvent(req, 'DEVICE_EXCHANGE', 'CPE_MANAGEMENT', `Exchanged CPE Device for ${oldRecord.customerName}. Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}${exchProd && (exchAction === 'RESTOCK' || exchAction === 'DAMAGE') ? ` — old unit ${exchAction === 'RESTOCK' ? 'restocked to branch inventory' : 'quarantined as damaged stock'}` : ''}`, oldRecord.branchId);

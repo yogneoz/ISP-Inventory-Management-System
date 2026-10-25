@@ -2,8 +2,9 @@
 
 _2026-10-13 · verified live on the running app (`localhost:3000`, PostgreSQL 16) plus the
 code paths and their pinned tests. Re-checked against the code on 2026-10-25 (DOC-1);
-the replacement-validation, status-route authorization, MAC-conflict and dead-vocabulary
-defects are now closed, see [Closed since this audit](#closed-since-this-audit)._
+the replacement-validation, status-route authorization, MAC-conflict, dead-vocabulary and
+asset-lifecycle defects are now closed, see
+[Closed since this audit](#closed-since-this-audit)._
 
 
 Scope: every action the Customer Device Serials register
@@ -33,9 +34,9 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
 | **Disconnect Request** | creates an approval request; the row is marked *Disconnect Pending* until an approver acts | none at request time | ✅ works |
 | ↳ approval executed | row → `ROUTER_COLLECTED`, `serial_log` → `IN_STOCK` with the customer attribution cleared | **+1 `quantity_on_hand`** at the related branch, with a ledger row | ✅ works |
 | ↳ **Cancel Request** | withdraws a pending request; the device stays `RENTAL` and the field is unchanged | none | ✅ works |
-| **Exchange** (old unit *RESTOCK*) | old row → `EXCHANGED`, replacement row → `RENTAL` under the same customer | **+1 `quantity_on_hand`** at the fulfilling branch; the old serial flips back to `IN_STOCK` | ✅ works |
-| **Exchange** (old unit *DAMAGE*) | old row → `EXCHANGED`, replacement row → `RENTAL` | **+1 `damaged_qty`** (RMA bucket); `quantity_on_hand` untouched; old serial flips to `DAMAGED` | ✅ works |
-| **Exchange** (old unit *DISPOSED*) | as above | none — correct: scrapped units are not stock | ✅ works |
+| **Exchange** (old unit *RESTOCK*) | old row → `EXCHANGED`, replacement row → `RENTAL` under the same customer | **+1 `quantity_on_hand`** for the returned unit and **−1** for the replacement that leaves the branch (net 0); the old serial flips back to `IN_STOCK` | ✅ works |
+| **Exchange** (old unit *DAMAGE*) | old row → `EXCHANGED`, replacement row → `RENTAL` | **+1 `damaged_qty`** (RMA bucket) and **−1 `quantity_on_hand`** for the replacement; `quantity_on_hand` therefore drops by one usable unit; old serial flips to `DAMAGED` | ✅ works |
+| **Exchange** (old unit *DISPOSED*) | as above | **−1 `quantity_on_hand`** for the replacement; nothing is added for the scrapped unit | ✅ works |
 | **Assign Customer Device** (register header) | inserts/updates the row, flips the serial to `CUSTOMER_ASSIGNED`, and consumes a unit | −1 `quantity_on_hand` (idempotent against an already-consumed deployment) | ✅ works |
 | **Assign Fixed Asset → "Record Asset Deployment & Register Asset(s)"** | creates the rental-CPE row **in the same transaction** as the asset, and flips the serial | −1 `quantity_on_hand` | ✅ works (fixed this session) |
 
@@ -126,6 +127,23 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
   `tests/cpeMacConflict.test.ts` (duplicate create, new create, duplicate
   exchange, hydrated duplicate exchange, successful exchange) and in unit tests
   by `tests/cdrDuplicates.test.ts` and `tests/inventory.repo.test.ts`.
+- **Fixed asset follows the CPE lifecycle (fixed 2026-10-25, CPE-3).** One service
+  ([cpeAssetLifecycle.service.ts](../server/src/services/cpeAssetLifecycle.service.ts))
+  now owns the asset rule used by the approval path, the direct status PATCH,
+  the asset-unassign screen and the exchange. Collection returns the asset to
+  `ACTIVE`, clears every assignment field and `device_serial`, and appends a
+  dated collection note; exchange keeps the tag and customer, moves
+  `device_serial` to the replacement and records `old → new`. Stock is credited
+  once per fixed-asset id (`txn-cpe-collect-<assetId>`), so replaying a
+  collection through a second route is a no-op; an unlinked legacy CPE row is
+  keyed by its CPE row id (request number as fallback), so the approval path and
+  a direct status PATCH agree too. The exchange posts the replacement's
+  `STOCK_OUT` (`txn-cpe-exchange-out-<newCdrId>`) in the same transaction as the
+  old unit's disposition, and refuses (`409`) when branch stock is empty.
+  Pinned on real PostgreSQL by `tests/cpeAssetLifecycle.test.ts` (collect once,
+  collect twice, unlinked replay, exchange, empty-stock rollback, forced-failure
+  rollback, exchange-then-collect); the exchange concurrency and MAC suites now
+  assert the replacement consumption.
 - **Dead status vocabulary (fixed 2026-10-25, CPE-2).** A live count found zero
   `customer_device_records` rows in `DISCONNECTED` or `RETURNED`, so both
   values were removed from the write paths: create and status PATCH refuse them
@@ -138,25 +156,10 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
 
 ## Residual gaps (found, not fixed)
 
-- **The replacement unit's stock is validated but not deducted.** The gate above proves the
-  replacement is `IN_STOCK` at the fulfilling branch, but the exchange still only credits the old
-  unit's disposition (+1 usable for `RESTOCK`, or +1 `damaged_qty` for `DAMAGE`); it never decrements
-  `quantity_on_hand` for the replacement that leaves the branch. The ledger therefore ends one unit
-  high when the old unit is restocked, and one unit high in usable stock when it is damaged or
-  disposed. The old 1-for-1 assumption only held if both halves were posted; only one is. This is
-  part of CPE-3's "CPE row, `serial_log`, fixed asset and stock agree" transaction, not a second
-  gate.
-- **CPE-side lifecycle actions do not move the fixed-asset ledger.** After the disconnect round trip
-  the fixed asset that deployed the unit (`FA-ONU002-4011`) is still `ASSIGNED_TO_CUSTOMER` naming
-  the collected serial, and after an exchange the asset still names the unit that left
-  (`FA-ONU002-1397` → `SN-ONU002-0004` while the customer now holds `SN-ONU002-0010`). The
-  asset-side unassign path closes the CPE row and restocks (see
-  [unassignRestock.service.ts](../server/src/services/unassignRestock.service.ts)), so the two
-  reversal routes overlap without covering each other.
-- **Two routes can credit the same return twice.** The approval restock writes a `PULLOUT` row keyed
-  on the request number, while the asset-unassign guard looks for a restock row keyed on the asset
-  tag — so reversing the same collection through *both* screens would add stock twice. Not reachable
-  in a single flow, but nothing deduplicates the pair.
+None from this audit as of 2026-10-25. The three gaps listed here previously —
+the missing replacement-stock decrement, the fixed asset left naming the
+collected unit, and the two collection routes that could each credit stock —
+are closed by CPE-3 (see above).
 
 ## Where the fixes live
 
@@ -167,6 +170,10 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
   `CDR_SERIAL_ROW_SQL`, `CDR_REDEPLOY_BY_SERIAL_SQL`, `cdrRedeployParams`,
   `CDR_ASSIGNMENT_DAMAGED_RETURN_SQL`, `SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL` (customer attribution),
   `SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL` (clears it).
+- [server/src/services/cpeAssetLifecycle.service.ts](../server/src/services/cpeAssetLifecycle.service.ts)
+  — `collectCpeFixedAsset` (asset → `ACTIVE`, one asset-keyed credit, unlinked
+  request fallback), `exchangeCpeFixedAsset` (serial move + replacement
+  `STOCK_OUT`), `extractCpeAssetTag`, `isDeployedAsset`.
 - [server/src/services/cdrSerialSync.ts](../server/src/services/cdrSerialSync.ts) — `upsertCdrMirror`,
   `isActiveCdrStatus`, `isLegacyCdrStatus`.
 - [server/src/services/cdrDuplicates.ts](../server/src/services/cdrDuplicates.ts) — `findCdrDuplicate`
@@ -175,5 +182,6 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
 - [client/src/utils/registerRefreshDomains.ts](../client/src/utils/registerRefreshDomains.ts) and
   [client/src/App.tsx](../client/src/App.tsx) — the register refresh wiring.
 - Tests: `tests/cdrSerialSync.test.ts`, `tests/cdrDuplicates.test.ts`,
-  `tests/cpeMacConflict.test.ts`, `tests/inventory.repo.test.ts`,
+  `tests/cpeMacConflict.test.ts`, `tests/cpeStatusAuthz.test.ts`,
+  `tests/cpeAssetLifecycle.test.ts`, `tests/inventory.repo.test.ts`,
   `tests/registerRefreshDomains.test.ts`, `tests/unassignRestock.service.test.ts`.
