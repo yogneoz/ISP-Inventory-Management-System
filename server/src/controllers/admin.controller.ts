@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { pgPool, hydrateOperationalData, setDataVersion, getDataVersion, sseClients, users, getPgConnected, setCompanyProfile, companyProfile, logAuditEvent, branches, setBranches, withReplaced, withAppended, validateRole, hashPassword, setUsers, assetRegister, transactionLogs, inventoryStock, inMemoryBsCalendarYears, withTransaction, withConnection, buildBsDayRecordsForYear, setInMemoryBsCalendarYears, generateInMemoryBsDayRecords, inMemoryBsDayRecords, setDocNumberConfigs, docNumberConfigs, fiscalYears, setFiscalYears, withSorted, verifySuperAdminCredentials, getUserFromReq, findBsDayRecordForAdDate, NEPALI_MONTHS_EN_SERVER, NEPALI_MONTHS_NP_SERVER, DAYS_OF_WEEK_EN_SERVER, DAYS_OF_WEEK_NP_SERVER, DEFAULT_BS_YEARS_SERVER, hydrateBsCalendarFromDb, setInMemoryBsDayRecords, broadcastChange } from '../app';
 import { auditBsCalendar, applyBsCalendarFixes } from '../services/bsCalendarIntegrity.service';
+import { backfillSerialLog } from '../services/serialBackfill.service';
 import {
   parseBsLabel,
   isStandardNepaliFiscalPeriod,
@@ -504,6 +505,43 @@ export async function post_ledgerBalances(req: any, res: Response): Promise<any>
   } catch (error: any) {
     console.error('Error backfilling ledger balances:', error);
     res.status(500).json({ message: `Unable to backfill ledger balances: ${error.message}` });
+  }
+}
+
+/**
+ * Forwarded from admin.routes.ts (post_serialRegisterBackfill).
+ *
+ * SER-2 / D3: the serial register used to converge on every boot. That hid
+ * unregistered legacy units (a restart silently created their rows) and let a
+ * boot-time pass rewrite statuses nobody asked it to touch. The pass is now
+ * this explicit SUPER_ADMIN action, idempotent and reporting what it changed;
+ * boot only logs a pointer here. PostgreSQL is required because the legacy
+ * sources are documents, not the in-memory mirror.
+ */
+export async function post_serialRegisterBackfill(req: any, res: Response): Promise<any> {
+  if (!getPgConnected()) {
+    return res.status(503).json({
+      message: 'PostgreSQL is unavailable — the serial register can only be reconciled from the stored documents while the database is connected.',
+    });
+  }
+  try {
+    const result = await backfillSerialLog(pgPool);
+    logAuditEvent(
+      req,
+      'BACKFILL_SERIAL_REGISTER',
+      'INVENTORY_AUDIT',
+      `Serial register reconcile: ${result.converged} unique serial(s) resolved, ${result.inserted} inserted, ${result.upgraded} upgraded.`
+    );
+    res.json({
+      ...result,
+      message:
+        result.converged === 0
+          ? 'No legacy serial sources were found; the register is unchanged.'
+          : `Reconciled ${result.converged} unique serial(s): ${result.inserted} inserted, ${result.upgraded} upgraded. Idempotent — safe to re-run.`,
+    });
+  } catch (error: any) {
+    console.error('Error reconciling the serial register:', error);
+    res.status(500).json({ message: `Unable to reconcile the serial register: ${error.message}` });
   }
 }
 

@@ -272,8 +272,9 @@ Super Admins can run separate, audited maintenance operations (**Settings → Da
 
 1. **Recalculate Fixed Assets** — persists accumulated depreciation and NBV from asset dates, cost, rate, and method.
 2. **Recalculate Live Stock** — restores live quantities from the latest reliable stock transaction without rewriting transaction history.
-3. **Recalculate BS Day Records** — rebuilds the day-by-day BS calendar mapping.
-4. **Repair Fiscal-Year Links** — re-links transactional rows whose `fiscal_year_id` is missing.
+3. **Reconcile Serial Register** — converges `serial_log` from purchase invoices, shipments, stock operations, fixed assets and customer devices (one row per serial). Boot no longer runs this; it is idempotent and never downgrades terminal statuses, so a legacy database runs it once after upgrading.
+4. **Recalculate BS Day Records** — rebuilds the day-by-day BS calendar mapping.
+5. **Repair Fiscal-Year Links** — re-links transactional rows whose `fiscal_year_id` is missing.
 
 Run these after an import correction or database migration, preferably during a controlled maintenance window.
 
@@ -704,7 +705,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1220-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1226-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

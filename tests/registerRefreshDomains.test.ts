@@ -952,6 +952,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       'recalculateFixedAssets',
       'recalculateLedgerBalances',
       'recalculateLiveStock',
+      // SER-2: boot no longer converges the register; the operator runs it here.
+      'reconcileSerialRegister',
       'repairFiscalYearLinks',
       'rollForwardVendorOpenings',
     ],

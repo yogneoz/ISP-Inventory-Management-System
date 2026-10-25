@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, Calculator, CalendarDays, CheckCircle2, Database, History, Link2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Calculator, CalendarDays, CheckCircle2, Database, History, Link2, RefreshCw, ScanLine, ShieldCheck } from 'lucide-react';
 import { api } from '../../services/api';
 import { FiscalYear, User } from '../../types';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
@@ -11,7 +11,7 @@ interface DataRecalculationMaintenanceProps {
   onRefreshData?: () => Promise<void>;
 }
 
-type Operation = 'assets' | 'opening-stock' | 'stock' | 'ledger-balances' | 'bs-calendar' | 'fy-links' | 'vendor-openings';
+type Operation = 'assets' | 'opening-stock' | 'stock' | 'ledger-balances' | 'serial-register' | 'bs-calendar' | 'fy-links' | 'vendor-openings';
 
 const operations: Array<{
   id: Operation;
@@ -50,6 +50,13 @@ const operations: Array<{
     description: 'Reconstruct the true Qty Before / Qty After on every stock-movement row by replaying its recorded quantity delta.',
     warning: 'Idempotent and safe to re-run. Only the balance columns of movement-ledger rows are rewritten; quantities, documents, and stock levels are never touched.',
     icon: History,
+  },
+  {
+    id: 'serial-register',
+    title: 'Reconcile Serial Register',
+    description: 'Converge the register from purchase invoices, shipments, stock operations, fixed assets and customer devices — one row per unique serial.',
+    warning: 'Boot no longer runs this. Idempotent and safe to re-run: it only inserts missing serials and upgrades transient states; damaged, assigned and returned units are never downgraded.',
+    icon: ScanLine,
   },
   {
     id: 'vendor-openings',
@@ -116,6 +123,9 @@ export const DataRecalculationMaintenance: React.FC<DataRecalculationMaintenance
         resultMessage = result.skipped > 0
           ? `${result.message} ${result.skipped} row(s) had no product/branch and were left untouched.`
           : result.message;
+      } else if (operation === 'serial-register') {
+        const result = await api.reconcileSerialRegister();
+        resultMessage = result.message;
       } else if (operation === 'bs-calendar') {
         const result = await api.rebuildBsDayRecords();
         resultMessage = result.message;

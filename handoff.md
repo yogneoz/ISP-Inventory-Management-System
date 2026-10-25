@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1220 tests; CI runs
+                                        #   drift/concurrency guards — 1226 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -1231,7 +1231,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1220 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1226 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM
@@ -1632,3 +1632,18 @@ fix` cleared them within the existing ranges (`body-parser` 2.4.0, express's nes
 ---
 
 *End of Handoff Document*
+
+**Follow-up (2026-10-25): the serial register reconciles on demand, not on boot (SER-2).**
+`dbBoot` called `backfillSerialLog()` on every start, so a restart silently created missing
+register rows and rewrote transient statuses — unregistered legacy units stayed invisible until
+someone happened to restart. The pass now lives in
+`server/src/services/serialBackfill.service.ts` and runs only from
+`POST /api/admin/recalculate/serial-register` (SUPER_ADMIN-only, next to the other
+recalculation actions in Settings → Data Recalculation & Maintenance). It returns
+`{ converged, inserted, upgraded }`, writes a `BACKFILL_SERIAL_REGISTER` audit event, and is
+idempotent: a converged register reports 0 inserted and never downgrades `DAMAGED`,
+`CUSTOMER_ASSIGNED` or `RETURNED`. Boot logs only a pointer to the action. A legacy database
+needs one run after upgrading.
+Verification: `npx tsc --noEmit` clean; `tests/serialRegisterBackfill.test.ts` pins the boot
+retirement (source guard), convergence over real PostgreSQL, idempotency, terminal preservation,
+and 401/403/200 gating; full suite green in CI.

@@ -19,6 +19,14 @@ export async function recalculateLedgerBalances(): Promise<{ message: string; up
   return fetchJson('/api/admin/recalculate/ledger-balances', { method: 'POST' });
 }
 
+/**
+ * SER-2: the serial register converges only on demand now (boot no longer
+ * inserts rows). Idempotent — a converged register answers 0 / 0.
+ */
+export async function reconcileSerialRegister(): Promise<{ converged: number; inserted: number; upgraded: number; message: string }> {
+  return fetchJson('/api/admin/recalculate/serial-register', { method: 'POST' });
+}
+
 export async function rebuildBsDayRecords(): Promise<{ success: boolean; pgSynced: boolean; years: number; regeneratedRecords: number; message: string }> {
   return fetchJson('/api/admin/recalculate/bs-day-records', { method: 'POST' });
 }

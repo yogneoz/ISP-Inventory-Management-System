@@ -229,9 +229,10 @@ same number) but worth fixing by carrying `unitCost` into the shipment line.
 
 > **Status 2026-10-25:** all four findings below were fixed by slices E and F
 > (2026-10-20). The paragraphs remain as the audit record; do not re-implement
-> them. **Slice 5 is still open** — the boot serial backfill has not been demoted
-> to an explicit maintenance action (see
-> [serial-register-audit.md](serial-register-audit.md#6-five-slice-plan)).
+> them. **Slice 5 is delivered (2026-10-25)** — the serial backfill is now an
+> explicit SUPER_ADMIN maintenance action and boot no longer converges the
+> register (see
+> [serial-register-audit.md](serial-register-audit.md#6e-ser-2--on-demand-reconcile-boot-retired-delivered-2026-10-25)).
 
 **G1 — Transfers never move the serial register (FIXED by Slice E, 2026-10-20).**
 The original finding was that [shipments.controller.ts](../server/src/controllers/shipments.controller.ts)
@@ -336,9 +337,9 @@ Each slice is independently shippable and verifiable.
 ### Slice G — Docs & reconciliation
 - Update `serial-register-audit.md` (Slices 3–4 delivered), `handoff.md`,
   test-count docs.
-- **Not delivered:** exposing the legacy serial backfill as a maintenance action.
-  That is Slice 5 in [serial-register-audit.md](serial-register-audit.md#6-five-slice-plan)
-  and remains open; boot still calls `backfillSerialLog()`.
+- **Delivered 2026-10-25:** the legacy serial backfill as a maintenance action.
+  That is Slice 5 in [serial-register-audit.md](serial-register-audit.md#6e-ser-2--on-demand-reconcile-boot-retired-delivered-2026-10-25);
+  boot no longer calls `backfillSerialLog()`.
 
 ---
 

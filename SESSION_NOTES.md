@@ -1,18 +1,49 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1220/1220 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-25 · Branch: main · Tests: 1226/1226 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
 
-> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1).** All DF-01…DF-17
-> work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3 and
-> SER-1 are done. B2 shipped the combined trigram search projection, so all eight
+> **Current state (2026-10-25, DOC-1/CPE-2/B1/B2/CPE-3/SER-1/SER-2).** All DF-01…DF-17
+> work, the bootstrap trim follow-up, A3, A4a, CPE-1, CPE-2, B1, B2, CPE-3,
+> SER-1 and SER-2 are done. B2 shipped the combined trigram search projection, so all eight
 > item searches share one indexed `search_text` column per table; B3/B4 stay
 > parked. CPE-3 resolved D1 and made the fixed asset, CPE row, serial register and
 > stock move together. SER-1 resolved D2: pullout/consumable/sale now issue their
-> units to `IN_TRANSIT`/`CONSUMED`/`SOLD`, each with a reversal. **A5 is not
-> started** and is deliberately last; A4b waits for it. SER-2 is next in the
-> temporary `worklist.md`; its D3 decision is recorded.
+> units to `IN_TRANSIT`/`CONSUMED`/`SOLD`, each with a reversal. SER-2 resolved
+> D3: boot no longer backfills the serial register; the pass is an explicit
+> SUPER_ADMIN maintenance action. **A5 is not started** and is deliberately last;
+> A4b waits for it, so A5 is the next item in the temporary `worklist.md`.
 > Older “Remaining …” paragraphs below are chronological notes, not a live
 > backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ SER-2 shipped — the serial register reconciles on demand, boot only points at it (2026-10-25)
+
+**Decision D3 (recorded first).** Keep the converge pass, remove the boot call. A
+boot-time pass made the register converge silently: a restart created rows for
+units nobody had registered and upgraded transient states without an operator
+asking. The pass is now an explicit SUPER_ADMIN action, idempotent, reporting
+inserted/upgraded counts. Historical rows are untouched by the move; a legacy
+database runs the action once.
+
+**Fix.** [serialBackfill.service.ts](server/src/services/serialBackfill.service.ts)
+owns the merge (five legacy sources → one row per serial, terminal states never
+downgraded) and returns `{ converged, inserted, upgraded }` instead of logging.
+`POST /api/admin/recalculate/serial-register` is SUPER_ADMIN-only (the route sits
+under the global `/admin/` role rule as well), writes a `BACKFILL_SERIAL_REGISTER`
+audit event, and answers `503` when PostgreSQL is down rather than pretending to
+have converged. Settings → Data Recalculation & Maintenance gains the
+**Reconcile Serial Register** card. [dbBoot.ts](server/src/boot/dbBoot.ts) no
+longer imports or calls the pass; it logs where the action lives.
+
+**Tests (6 new; suite 1226).** [tests/serialRegisterBackfill.test.ts](tests/serialRegisterBackfill.test.ts):
+source guard (boot never calls/imports the pass and keeps the pointer log; the
+route carries `requireRole('SUPER_ADMIN')`), real-PostgreSQL convergence (invoice
+→ `IN_STOCK`/`PURCHASE`, damage op → `DAMAGED`, customer device →
+`CUSTOMER_ASSIGNED`), idempotency (no duplicates, stable rows on re-run), terminal
+preservation (`RETURNED` survives a pass), and HTTP gating (401 anonymous, 403
+ACCOUNTANT, 200 SUPER_ADMIN).
+
+**Verification.** `npx tsc --noEmit` clean; the six new cases pass against
+PostgreSQL 16; the full suite and the docs-count gate are green.
 
 ## ✅ SER-1 shipped — pulled-out, issued and sold units leave the register (2026-10-25)
 
@@ -48,9 +79,9 @@ reversing the dispatch after that receipt is refused (`400`) with both branches'
 stock and the unit's branch unchanged — otherwise the source would be credited
 again while the unit sits at the destination.
 
-**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1220 tests
-against a real PostgreSQL 16 service container, 1218 pass, 2 Windows-only skips,
-0 fail. Suite now 1220 tests; docs counts green. (The header's `Tests: 1220/1220`
+**Verification.** `npx tsc --noEmit` clean. The full run: `npm test` — 1226 tests
+against a real PostgreSQL 16 service container, 1224 pass, 2 Windows-only skips,
+0 fail. Suite now 1226 tests; docs counts green. (The header's `Tests: 1226/1226`
 is the same run.)
 
 ## ✅ CPE-3 shipped — the fixed asset follows the CPE lifecycle, once per asset (2026-10-25)

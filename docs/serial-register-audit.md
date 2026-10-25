@@ -13,7 +13,7 @@ consumer read it the same way?**
 
 | Question | Answer | Evidence |
 |---|---|---|
-| Does the app have a serial database? | **Yes, but it is derived, not written.** `serial_log` is the register (one row per serial), yet the only writers are a **boot-time backfill** and a handful of lifecycle flips. Nothing registers a serial when it is received. | [schema.sql:713](../scripts/schema.sql#L713), [dbBoot.ts:249](../server/src/boot/dbBoot.ts#L249) |
+| Does the app have a serial database? | **Yes — derived from documents, now written on purpose.** `serial_log` is the register (one row per serial). Its writers are purchase receipts (Slice 1), the lifecycle flips (§6d) and an **on-demand reconcile** (§6e); boot no longer backfills anything. Nothing registers a serial when it is received, so a unit's row is created by its purchase, not by the receipt. | [schema.sql:713](../scripts/schema.sql#L713), [serialBackfill.service.ts](../server/src/services/serialBackfill.service.ts) |
 | Does Assign Fixed Asset validate the serial? | **Client-side only, and incompletely.** The panel validates a (device, PON) pair against its own copy of the register; the server silently skips an unknown serial and proceeds. The panel also pre-fills a random serial, a random PON and a **constant MAC**. | [AssignAssetPanel.tsx:197](../client/src/features/inventory/stockops/AssignAssetPanel.tsx#L197), [inventory.controller.ts:799](../server/src/controllers/inventory.controller.ts#L799) |
 | Do transfers move register rows? | **Yes — fixed in Slice 3 (2026-10-19):** dispatch/receive/cancel/undo-receipt flip `IN_STOCK → IN_TRANSIT → IN_STOCK` inside their own transactions. | [serial-input-improvements-plan.md §8E](serial-input-improvements-plan.md) |
 | Does purchasing a serial-tracked product log into the register? | **Yes — fixed in Slice 1 (2026-10-13).** `POST /api/purchase-invoices` now writes one `serial_log` row per received unit inside its own transaction, so the unit is sellable immediately. (Before Slice 1 the serials lived only in the invoice's `items` JSONB and rows appeared at the next restart.) | [procurement.controller.ts:324](../server/src/controllers/procurement.controller.ts#L324), [serialRegister.service.ts](../server/src/services/serialRegister.service.ts) |
@@ -21,16 +21,20 @@ consumer read it the same way?**
 
 ## 1. The register is a projection, not a ledger
 
+> **Status 2026-10-25.** The gaps recorded in this section were closed by
+> Slices 1–4, SER-1 (§6d) and SER-2 (§6e). The inventory below is the original
+> audit, annotated where a path later moved; the delivered behaviour is in §6a–§6e.
+
 `serial_log` looks like a write-through register: one row per serial, unique by
 `lower(trim(device_serial))` ([schema.sql:1245](../scripts/schema.sql#L1245)), with a `status` CHECK
 covering `IN_STOCK` / `IN_TRANSIT` / `CUSTOMER_ASSIGNED` / `POP_LOCATION_ASSIGNED` / `DAMAGED` /
-`RETURNED` / `SOLD` / `RETURNED_TO_VENDOR`.
+`RETURNED` / `SOLD` / `RETURNED_TO_VENDOR` / `CONSUMED`.
 
 Every row-creating path in the repository:
 
 | Path | What it does | Live? |
 |---|---|---|
-| `backfillSerialLog()` — [dbBoot.ts:249](../server/src/boot/dbBoot.ts#L249), called once at boot ([#L100](../server/src/boot/dbBoot.ts#L100)) | Derives rows from PI `items.deviceSerials`, shipment `deviceSerials` / `receivedSerials`, stock-op serials, serial-tracked `fixed_assets`, and CDR rows; merges to one row per serial | **Boot only** |
+| `backfillSerialLog()` — [serialBackfill.service.ts](../server/src/services/serialBackfill.service.ts), reached only by `POST /api/admin/recalculate/serial-register` | Derives rows from PI `items.deviceSerials`, shipment `deviceSerials` / `receivedSerials`, stock-op serials, serial-tracked `fixed_assets`, and CDR rows; merges to one row per serial | **On demand, SUPER_ADMIN** (was boot-only; SER-2, §6e) |
 | Serial rename — [serials.service.ts:288](../server/src/services/serials.service.ts#L288) | Inserts a row when a corrected serial has none | Edit screen only |
 | Demo seed — [setup_db.js:655](../scripts/setup_db.js#L655) | Seed data | Setup only |
 | `SERIAL_LOG_INSERT_SQL` / `SERIAL_LOG_UPDATE_SQL` | No caller (before Slice 1) | **Live** — called by `registerPurchaseSerials` on the PI transaction ([procurement.controller.ts:324](../server/src/controllers/procurement.controller.ts#L324)) |
@@ -44,9 +48,11 @@ Every *other* register write is a **flip of a row it assumes already exists**:
 - CDR sync ([inventory.repo.ts:1036](../server/src/models/inventory.repo.ts#L1036)),
 - purchase returns ([procurement.repo.ts:819](../server/src/models/procurement.repo.ts#L819)).
 
-**Consequence.** On a running server the register is stale by construction: a unit purchased this
-session has no row until the process restarts. That is not a cosmetic lag — the sales gate and the
-deploy validation both read the register, so they reject the unit that was just bought.
+**Consequence (as of the original audit).** The register was stale by construction: a unit
+purchased in a session had no row until the process restarted, so the sales gate and the deploy
+validation rejected a unit that had just been bought. Slice 1 closed this for purchase receipts
+(§6a): the invoice transaction writes the row immediately. The reconcile pass (§6e) is now only a
+legacy/repair path and no longer a startup side effect.
 
 ## 2. Assign Fixed Asset — what is actually enforced
 
@@ -105,7 +111,8 @@ What that breaks in practice:
   shared gate resolves each serial against `serial_log` under the operation's own lock.
 - **Transfers are register-blind.** [shipments.controller.ts](../server/src/controllers/shipments.controller.ts)
   contains no serial handling at all: `IN_TRANSIT` and received serial states exist only because the
-  boot backfill derives them from shipment rows. Dispatch and receive move no register row.
+  reconcile pass derives them from shipment rows (Slice 3, 2026-10-19, later added the transfer
+  flips — see §6c). At the time of this finding, dispatch and receive moved no register row.
 - **The purchase form is the least validated serial surface in the app.** It auto-generates
   `SN-<SKU>-<random>` and a random PON whenever quantity changes
   ([PurchaseInvoiceForm.tsx:309](../client/src/features/procurement/PurchaseInvoiceForm.tsx#L309)) and
@@ -153,8 +160,8 @@ Confirmed decisions:
 
 1. **One writer.** `POST /api/purchase-invoices` upserts exactly one `serial_log` row per received
    unit, inside the same transaction as the stock receive. Blank or duplicate device serials on a
-   serial-tracked line return `400` and nothing posts. The boot backfill is demoted to a legacy
-   import / repair action, never the live path.
+   serial-tracked line return `400` and nothing posts. The backfill is a legacy import / repair
+   action only, never the live path — boot no longer calls it (§6e, delivered 2026-10-25).
 2. **Pick-only everywhere else.** No other endpoint may create a register row. An unknown serial is
    refused server-side, not merely flagged in the UI.
 3. **One branch + status gate.** A serial must resolve to a register row that is `IN_STOCK` at the
@@ -206,7 +213,7 @@ which already supports `branchId` / `status` / `query` via
 [buildSerialLogQuery](../server/src/models/inventory.repo.ts#L1129)) so branch roles can use it.
 _Acceptance:_ no screen except the purchase form can submit a serial the register has never seen.
 
-**Slice 5 — reconciliation and docs.**
+**Slice 5 — reconciliation and docs. Delivered 2026-10-25 (§6e).**
 Expose the backfill as an explicit maintenance action (the recalculation surface in
 [admin.controller.ts](../server/src/controllers/admin.controller.ts) is the natural host), correct the
 false "purchase receipts write it" comments, and update the affected docs.
@@ -268,7 +275,8 @@ See [serial-input-improvements-plan.md](serial-input-improvements-plan.md) §8 f
   against the register (IN_STOCK at the fulfilling branch, locked re-check inside
   the transaction) and hydrates a blank PON/MAC from the row; a refused exchange
   writes no customer-device row.
-- **Still open:** Slice 5 (demote the boot backfill to an explicit maintenance action).
+- **Delivered 2026-10-25 (§6e):** Slice 5 — the boot backfill is now an explicit SUPER_ADMIN
+  maintenance action and boot only logs a pointer.
 
 ## 6b. Slice 2 — delivered (2026-10-13)
 
@@ -335,7 +343,8 @@ reversal routes use the same permission as the operation they undo
 **No historical backfill.** An old operation cannot prove whether a unit was
 later returned outside the operation, so the migration deliberately leaves
 historical rows untouched. Only operations posted after this change carry the
-lifecycle; a manual reconcile can be considered later if the data demands it.
+lifecycle; the on-demand reconcile (§6e) converges missing rows but leaves an
+operation's own issue status alone.
 
 A received pullout is final: once the dispatch lands at its destination the
 reversal is refused (`400`, "already been received"), because the stock and the
@@ -349,11 +358,37 @@ Tests: [tests/serialOperationLifecycle.test.ts](../tests/serialOperationLifecycl
 re-issue, both reversals, the wrong reversal endpoint, receive-to-destination,
 and a refused reversal after receipt.
 
+## 6e. SER-2 — on-demand reconcile, boot retired (delivered 2026-10-25)
+
+Decision D3 keeps the converge pass but removes the boot call. It used to run on
+every start, which hid unregistered legacy units (a restart silently created
+their rows) and rewrote transient states nobody asked it to touch.
+
+- **Where it lives now.** [serialBackfill.service.ts](../server/src/services/serialBackfill.service.ts)
+exports `backfillSerialLog(db)`, unchanged in rule: merge all five legacy sources,
+never downgrade a terminal state, refresh the in-memory register. It returns
+`{ converged, inserted, upgraded }` instead of logging.
+- **How it runs.** `POST /api/admin/recalculate/serial-register`, SUPER_ADMIN-only
+(the route also sits under the global `/admin/` role rule), on the existing
+Settings → Data Recalculation & Maintenance surface. The response carries the
+counts and an audit event (`BACKFILL_SERIAL_REGISTER`) is written. It answers
+`503` when PostgreSQL is unreachable, because the legacy sources are stored
+documents — not the in-memory mirror.
+- **Boot.** [dbBoot.ts](../server/src/boot/dbBoot.ts) no longer calls or imports it;
+it logs where the action lives. Nothing in the boot path inserts register rows.
+
+Tests: [tests/serialRegisterBackfill.test.ts](../tests/serialRegisterBackfill.test.ts)
+— source guard for the boot retirement and the SUPER_ADMIN route, plus real-DB
+cases for convergence (invoice → `IN_STOCK`/`PURCHASE`, damage op → `DAMAGED`,
+customer device → `CUSTOMER_ASSIGNED`), idempotency (no duplicate rows), terminal
+preservation (`RETURNED` survives), and HTTP gating (401 / 403 / 200).
+
 ## 7. Migration and reconciliation
 
-- **Existing data.** Rows bought before this change have no register entry until the boot backfill
-  runs, so the rollout needs one reconcile pass (restart today; the Slice 5 action afterwards). This
-  is deliberate and cheap because the backfill is idempotent and never downgrades terminal states.
+- **Existing data.** Rows bought before Slice 1 have no register entry until the reconcile pass
+  runs. Restarts no longer do it (§6e): a legacy database needs **one** run of
+  Settings → Data Recalculation & Maintenance → **Reconcile Serial Register** after upgrading. This
+  is deliberate and cheap because the pass is idempotent and never downgrades terminal states.
 - **Two tables, one direction.** `serial_log` owns a unit's existence, status and branch; CDR owns
   customer assignment and stays strictly downstream (it is what the flips in §1 target). No CDR row
   may create a register row — today's UPDATE-if-exists semantics
@@ -386,8 +421,9 @@ and a refused reversal after receipt.
   (`GET /api/serial-log`: 15 rows served) and the dev database's purchase invoices were compared
   against it (3 demo invoices, all quantity-tracked, none carrying device serials).
 - Because no serial-tracked purchase exists in the dev database, the "purchasing does not register"
-  finding is proven by exhaustive code search (no `INSERT INTO serial_log` outside the boot backfill,
-  the rename path and the demo seed, plus the two dead exported helpers), **not** by reproducing the
+  finding is proven by exhaustive code search (no `INSERT INTO serial_log` outside the then-boot
+  backfill — since moved to the maintenance service — the rename path and the demo seed, plus the
+  two dead exported helpers), **not** by reproducing the
   failure end to end. Reproducing it live is the first acceptance test of Slice 1.
 - The earlier CPE/device-actions work remains as recorded in
   [cpe-actions-audit.md](cpe-actions-audit.md) and
