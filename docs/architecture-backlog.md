@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3 and A4a are implemented (2026-10-22 … 2026-10-25)**; C4, the rest of A4, A5 and B are not started._
+_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3 and A4a are implemented (2026-10-22 … 2026-10-25)**; C4, A4b (the route element factory), A5 and B are not started. A5 is the last slice._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -18,7 +18,7 @@ data-model bet that should be measured before it is made.
 3. Stop at every [stop point](#execution-order-and-stop-points) and update `SESSION_NOTES.md` +
    `handoff.md`; leave the next slice's ID written down there.
 4. If a slice turns out bigger than its "Done when", split it into `X1a`, `X1b` — do not silently widen it.
-5. Do not start a slice whose gate is unticked (`A3/A4` after `A6`, `B4` after `B1`+`B3`).
+5. Do not start a slice whose gate is unticked (`A4b` after `A5`, `B4` after `B1`+`B3`).
 
 ## Verdict
 
@@ -43,10 +43,8 @@ data-model bet that should be measured before it is made.
 [x] A2  move shell-only UI state out of the data tree    (2026-10-23)
 [x] A6  client test harness                          (2026-10-25)
 [x] A3  session + scope contexts                     (2026-10-25)
-[~] A4  AppRoutes + route registry   (A4a landed 2026-10-25; element factory still in App)
-[ ] A3  session + scope contexts
-[ ] A4  AppRoutes + route registry
-[ ] A5  data store for operational arrays            (last)
+[~] A4  AppRoutes + route registry   (A4a landed 2026-10-25; A4b element factory not started, waits for A5)
+[ ] A5  data store for operational arrays            (not started; last)
 [ ] B1  measure item-search cost
 [ ] B2  index strategy for item search
 [ ] B3  read-only item projection tables
@@ -215,7 +213,7 @@ fetch paths, multi-screen wiring) is still pinned at source where a pure functio
 | **Change** | A typed registry (`key`, lazy element, permission) rendered by `AppRoutes` inside `KeepMountedRoot`; the root stops containing the tab markup. |
 | **Done when** | Permission-gated tabs, `visible` flags, lazy loading and keep-mounted semantics are identical; the route table is the only place a tab is declared. |
 | **Rough effort / risk** | 3 days · medium |
-| **A4a 2026-10-25** | [appRoutes.tsx](../client/src/routes/appRoutes.tsx) defines `AppRoute`, `screenRoute` and the `AppRoutes` renderer; [tabPermissions.ts](../client/src/routes/tabPermissions.ts) is now the one RBAC/admin table and `isTabAccessible`. App declares a 67-entry `screenRoutes` table and renders `<AppRoutes>`; its inline `KeepMounted` blocks and local permission tables are gone. Pinned by [appRouteRegistry.test.ts](../tests/appRouteRegistry.test.ts) (5 tests) and still covered by the A6 route-tree test. **Remaining for A4:** the element construction is still in App (a table entry needs its props/handlers), because a typed deps contract for ~100 values is A5's store work; extract it when that contract exists, then tick this slice. |
+| **A4a 2026-10-25** | [appRoutes.tsx](../client/src/routes/appRoutes.tsx) defines `AppRoute`, `screenRoute` and the `AppRoutes` renderer; [tabPermissions.ts](../client/src/routes/tabPermissions.ts) is now the one RBAC/admin table and `isTabAccessible`. App declares a 67-entry `screenRoutes` table and renders `<AppRoutes>`; its inline `KeepMounted` blocks and local permission tables are gone. Pinned by [appRouteRegistry.test.ts](../tests/appRouteRegistry.test.ts) (5 tests) and still covered by the A6 route-tree test. **A4b (not started) — remaining for A4:** the element construction is still in App (a table entry needs its props/handlers), because a typed deps contract for ~100 values is A5's store work. A4b waits for A5; do not start it before A5 exists. A5 itself has not started. |
 
 ### A5 — Data store for operational arrays (last)
 
@@ -287,11 +285,11 @@ for.
 ```
 D1 → D2 → D3            stop: notes + this checklist
 C1 → C2 → C3            stop: notes + this checklist
-A1 (done) → A2 (done) → A6 stop: notes + this checklist
-A3 → A4                 stop: notes + this checklist
-B1 → B2                 stop: notes + this checklist
-B3 (only if B1 says so) stop: notes + this checklist
-A5 / B4                 only on a deliberate, recorded decision
+A1 (done) → A2 (done) → A6 (done)   stop: notes + this checklist
+A3 (done) → A4a (done)              stop: notes + this checklist
+B1 → B2                             stop: notes + this checklist
+B3 (only if B1 says so)             stop: notes + this checklist
+A5 → A4b, then B4                   only on a deliberate, recorded decision
 ```
 
 At each stop point: `npx tsc --noEmit`, `npm test`, docs-count gate green, tick the boxes here, and

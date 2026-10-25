@@ -227,23 +227,20 @@ same number) but worth fixing by carrying `unitCost` into the shipment line.
 
 ### 4.2 Gaps found
 
-**G1 — Transfers never move the serial register (Slice 3, still open).**
-[shipments.controller.ts](../server/src/controllers/shipments.controller.ts) has **no**
-`serial_log` handling at all. After a dispatch:
+> **Status 2026-10-25:** all four findings below were fixed by slices E and F
+> (2026-10-20). The paragraphs remain as the audit record; do not re-implement
+> them. **Slice 5 is still open** — the boot serial backfill has not been demoted
+> to an explicit maintenance action (see
+> [serial-register-audit.md](serial-register-audit.md#6-five-slice-plan)).
 
-- `inventory_stock` at the source drops;
-- `serial_log` still says the unit is `IN_STOCK` **at the source branch**;
-- at the destination the unit is invisible to the serial register, so it cannot
-  be sold/deployed there (register says another branch) even though stock shows
-  it on hand.
+**G1 — Transfers never move the serial register (FIXED by Slice E, 2026-10-20).**
+The original finding was that [shipments.controller.ts](../server/src/controllers/shipments.controller.ts)
+had no `serial_log` handling at all, so after a dispatch the source stock dropped
+while the register still said `IN_STOCK` at the source and the destination could
+not sell or deploy the unit. The delivered transitions, inside the existing
+transactions and mirrored in demo mode, are:
 
-Consequences: serial search/history is wrong, the destination cannot fulfil a
-serial sale, and the lifecycle has no `IN_TRANSIT` record for a real transfer.
-
-Proposed transitions, inside the existing transactions (same shape as sales'
-claim and its symmetric reversal):
-
-| Leg | Register transition |
+| Leg | Register transition (delivered) |
 |---|---|
 | Dispatch | source row `IN_STOCK → IN_TRANSIT`, branch stays source |
 | Receive (full) | `IN_TRANSIT → IN_STOCK`, branch = destination, history entry |
@@ -251,9 +248,11 @@ claim and its symmetric reversal):
 | Cancel dispatch | `IN_TRANSIT → IN_STOCK`, branch source |
 | Undo receipt | destination `IN_STOCK → IN_TRANSIT`, branch source |
 
-Dispatch must also refuse a serial-tracked line whose device-serial count does
-not equal `quantitySent`, and resolve each unit through the shared gate at the
-source branch — today the **server accepts any items payload**.
+Dispatch also refuses a serial-tracked line whose device-serial count does not
+equal `quantitySent`, resolving each unit through the shared gate at the source
+branch; the server no longer accepts an arbitrary serial items payload. See
+§8 **E — Transfer register integrity** for the implementation and
+`tests/shipments.repo.test.ts` for the pinned legs.
 
 **G2 — Serialized bin lines can consume N units with one identity.**
 [AssignAssetPanel.tsx:232](../client/src/features/inventory/stockops/AssignAssetPanel.tsx#L232)
@@ -336,7 +335,10 @@ Each slice is independently shippable and verifiable.
 
 ### Slice G — Docs & reconciliation
 - Update `serial-register-audit.md` (Slices 3–4 delivered), `handoff.md`,
-  test-count docs; expose the legacy serial backfill as a maintenance action.
+  test-count docs.
+- **Not delivered:** exposing the legacy serial backfill as a maintenance action.
+  That is Slice 5 in [serial-register-audit.md](serial-register-audit.md#6-five-slice-plan)
+  and remains open; boot still calls `backfillSerialLog()`.
 
 ---
 
