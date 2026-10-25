@@ -17,6 +17,7 @@ import {
   parseHistoryJson,
   flipSerialMirror,
   isActiveCdrStatus,
+  isLegacyCdrStatus,
   upsertCdrMirror,
 } from '../server/src/services/cdrSerialSync';
 import {
@@ -88,9 +89,18 @@ describe('serialStatusForCdrStatus', () => {
     }
   });
 
-  test('returned/collected statuses map to IN_STOCK', () => {
-    for (const status of ['ROUTER_COLLECTED', 'DISCONNECTED', 'RETURNED', 'REFUND', 'IN_STOCK']) {
+  test('collected/returned statuses map to IN_STOCK', () => {
+    for (const status of ['ROUTER_COLLECTED', 'REFUND', 'IN_STOCK']) {
       assert.equal(serialStatusForCdrStatus(status), 'IN_STOCK', status);
+    }
+  });
+
+  test('legacy read-only statuses no longer enter the register mapping', () => {
+    // CPE-2 counted zero live rows in DISCONNECTED/RETURNED and pruned the
+    // vocabulary from every write path, so no new state can need this mapping.
+    for (const status of ['DISCONNECTED', 'RETURNED', ' disconnected ']) {
+      assert.equal(serialStatusForCdrStatus(status), null, status);
+      assert.equal(isLegacyCdrStatus(status), true, status);
     }
   });
 
@@ -98,6 +108,8 @@ describe('serialStatusForCdrStatus', () => {
     assert.equal(serialStatusForCdrStatus('EXCHANGED'), null);
     assert.equal(serialStatusForCdrStatus(''), null);
     assert.equal(serialStatusForCdrStatus('GARBAGE'), null);
+    assert.equal(isLegacyCdrStatus('ACTIVE'), false);
+    assert.equal(isLegacyCdrStatus(''), false);
   });
 });
 

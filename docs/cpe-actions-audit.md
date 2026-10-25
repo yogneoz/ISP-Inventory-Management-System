@@ -1,7 +1,10 @@
 # Customer Device Serials — "Actions" button audit
 
 _2026-10-13 · verified live on the running app (`localhost:3000`, PostgreSQL 16) plus the
-code paths and their pinned tests._
+code paths and their pinned tests. Re-checked against the code on 2026-10-25 (DOC-1);
+the replacement-validation, status-route authorization, MAC-conflict and dead-vocabulary
+defects are now closed, see [Closed since this audit](#closed-since-this-audit)._
+
 
 Scope: every action the Customer Device Serials register
 ([CustomersManagement.tsx](../client/src/features/sales/CustomersManagement.tsx)) offers, and the
@@ -92,27 +95,57 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
    the panel sent the same device serial for every unit and generated fabricated serials for the
    extra CDR rows. Only the first unit of a line now carries the device identity.
 
+## Closed since this audit
+
+- **Replacement validation (fixed 2026-10-20, commit `4595a52`).** `post_exchange` no longer
+  trusts the typed replacement serial. It resolves the unit through the shared serial gate at the
+  fulfilling branch (`IN_STOCK`, `matchMac: true`, product intentionally not matched so a different
+  model can replace one), then repeats the same rule with `FOR UPDATE` inside the transaction. An
+  unknown serial, a serial at another branch or a non-`IN_STOCK` serial is refused `400` before any
+  customer-device row, stock movement or serial flip is written. A blank PON/MAC is hydrated from
+  the register row. Pinned by `tests/mirrorStep3.test.ts` and
+  `tests/exchange.concurrency.test.ts`. Do not re-implement this gate in CPE-2/CPE-3.
+- **Status PATCH authorization (fixed 2026-10-25, CPE-1).**
+  `PATCH /api/customer-devices/:id/status` now carries the shared CPE manager
+  audience (`SUPER_ADMIN`, `HEAD_OFFICE_ADMIN`, `BRANCH_MANAGER`,
+  `INVENTORY_MANAGER`); `FRONT_DESK` and other authenticated roles get `403`
+  before any write. The exchange routes use the same manager base plus
+  `FIELD_TECHNICIAN`, so the two audiences cannot drift. The handler also
+  re-checks the record's branch because the app-level branch middleware cannot
+  see `req.params.id` before routing. Pinned over HTTP by
+  `tests/cpeStatusAuthz.test.ts`: 401, 403 (role), 403 (foreign branch), and a
+  200 that moves both `customer_device_records` and `serial_log`.
+- **MAC conflicts (fixed 2026-10-25, CPE-2).** `CDR_DUPLICATE_CHECK_SQL` now
+  covers a non-empty `mac_address` compared by the same 12-hex key as the unique
+  index (`A4:C3:F0:B1:D2:E3` and `a4c3f0b1d2e3` collide), and names the matched
+  field in the response. Create and exchange both probe before any write and
+  return `409` with a readable message instead of reaching
+  `uq_customer_device_mac_address` as a 500. The exchange hydrates a blank
+  PON/MAC from the register **before** that probe, so a serial-only payload
+  cannot bypass the check. Pinned over HTTP against real PostgreSQL by
+  `tests/cpeMacConflict.test.ts` (duplicate create, new create, duplicate
+  exchange, hydrated duplicate exchange, successful exchange) and in unit tests
+  by `tests/cdrDuplicates.test.ts` and `tests/inventory.repo.test.ts`.
+- **Dead status vocabulary (fixed 2026-10-25, CPE-2).** A live count found zero
+  `customer_device_records` rows in `DISCONNECTED` or `RETURNED`, so both
+  values were removed from the write paths: create and status PATCH refuse them
+  with a readable `400` (no more `DISCONNECTED` → `ROUTER_COLLECTED`
+  normalisation), approval submission/execution refuses a legacy requested
+  status before writing, and the UI no longer offers or special-cases them.
+  The type union and read path keep the values so any pre-cleanup row remains
+  readable; `ROUTER_COLLECTED` is the collected state and `REFUND`/`IN_STOCK`
+  the return states.
+
 ## Residual gaps (found, not fixed)
 
-- **The replacement unit's stock is not validated or deducted.** An exchange is booked as a 1-for-1
-  swap at the fulfilling branch (old unit back, new unit out), so `quantity_on_hand` is unchanged —
-  correct when the replacement comes from that same branch's pool, wrong when the replacement
-  serial was `IN_STOCK` at *another* branch (that branch keeps counting a unit it no longer holds,
-  and no transfer is posted). Nothing requires the replacement serial to exist in `serial_log` at
-  all; an unknown serial gets a customer row but **no register row** (observed with SN-ONU002-0009
-  and SN-ONU002-0010), because the serial flip is deliberately UPDATE-if-exists.
-- **MAC collisions still surface as a raw 500.** The serial and PON probes return a friendly 409;
-  the MAC index is only enforced by the database (`CDR_DUPLICATE_CHECK_SQL` does not cover MAC).
-  Reachable only by genuinely entering a MAC another row already owns.
-- **`PATCH /api/customer-devices/:id/status` has no role guard.** It can restock a unit and flip a
-  serial, while the sibling `POST /api/customer-devices/exchange` carries
-  `requireRole(SUPER_ADMIN, HEAD_OFFICE_ADMIN, FIELD_TECHNICIAN, BRANCH_MANAGER)` and the create
-  route carries `requirePermission('customers-manage')`
-  ([inventory.routes.ts](../server/src/routes/inventory.routes.ts)). Any authenticated user can
-  drive a collect/refund restock through the status patch.
-- **`DISCONNECTED` / `RETURNED` are unreachable states** on the register: the disconnect workflow
-  writes `ROUTER_COLLECTED` (the only collected status the live CHECK constraint allows), so those
-  two whitelist entries are dead vocabulary that the UI still offers as filters.
+- **The replacement unit's stock is validated but not deducted.** The gate above proves the
+  replacement is `IN_STOCK` at the fulfilling branch, but the exchange still only credits the old
+  unit's disposition (+1 usable for `RESTOCK`, or +1 `damaged_qty` for `DAMAGE`); it never decrements
+  `quantity_on_hand` for the replacement that leaves the branch. The ledger therefore ends one unit
+  high when the old unit is restocked, and one unit high in usable stock when it is damaged or
+  disposed. The old 1-for-1 assumption only held if both halves were posted; only one is. This is
+  part of CPE-3's "CPE row, `serial_log`, fixed asset and stock agree" transaction, not a second
+  gate.
 - **CPE-side lifecycle actions do not move the fixed-asset ledger.** After the disconnect round trip
   the fixed asset that deployed the unit (`FA-ONU002-4011`) is still `ASSIGNED_TO_CUSTOMER` naming
   the collected serial, and after an exchange the asset still names the unit that left
@@ -135,8 +168,12 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
   `CDR_ASSIGNMENT_DAMAGED_RETURN_SQL`, `SERIAL_LOG_ASSIGN_ON_DEPLOY_SQL` (customer attribution),
   `SERIAL_LOG_RESTORE_ON_UNASSIGN_SQL` (clears it).
 - [server/src/services/cdrSerialSync.ts](../server/src/services/cdrSerialSync.ts) — `upsertCdrMirror`,
-  `isActiveCdrStatus`.
+  `isActiveCdrStatus`, `isLegacyCdrStatus`.
+- [server/src/services/cdrDuplicates.ts](../server/src/services/cdrDuplicates.ts) — `findCdrDuplicate`
+  (case/trim-insensitive serial/PON, canonical 12-hex MAC), `cdrDuplicateMessage`,
+  `cdrDuplicateFromRow`.
 - [client/src/utils/registerRefreshDomains.ts](../client/src/utils/registerRefreshDomains.ts) and
   [client/src/App.tsx](../client/src/App.tsx) — the register refresh wiring.
-- Tests: `tests/cdrSerialSync.test.ts`, `tests/inventory.repo.test.ts`,
+- Tests: `tests/cdrSerialSync.test.ts`, `tests/cdrDuplicates.test.ts`,
+  `tests/cpeMacConflict.test.ts`, `tests/inventory.repo.test.ts`,
   `tests/registerRefreshDomains.test.ts`, `tests/unassignRestock.service.test.ts`.

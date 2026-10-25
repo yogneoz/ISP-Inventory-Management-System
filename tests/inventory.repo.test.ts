@@ -330,8 +330,16 @@ describe('customer devices (CPE)', () => {
     assert.ok(!buildCustomerDeviceListQuery().sql.includes(' WHERE '));
   });
 
-  test('duplicate probe is case/trim-insensitive and excludes the record itself', () => {
-    assert.match(CDR_DUPLICATE_CHECK_SQL, /WHERE id <> \$1 AND \(UPPER\(TRIM\(device_serial\)\) = \$2 OR UPPER\(TRIM\(pon_serial\)\) = \$3\) LIMIT 1/);
+  test('duplicate probe is case/trim-insensitive, covers normalized MAC, and excludes the record itself', () => {
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /WHERE id <> \$1 AND \(/);
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /UPPER\(TRIM\(device_serial\)\) = \$2/);
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /UPPER\(TRIM\(pon_serial\)\) = \$3/);
+    // MAC conflict must be detected by the SAME canonical key as the unique
+    // index's comparison (hex only), and an empty MAC must never match.
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /\$4 <> '' AND \(/);
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /UPPER\(TRIM\(COALESCE\(mac_address, ''\)\)\) = UPPER\(TRIM\(\$4\)\)/);
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /\$4 ~ '\^\[0-9A-F\]\{12\}\$' AND\s+regexp_replace\(UPPER\(COALESCE\(mac_address, ''\)\), '\[\^0-9A-F\]', '', 'g'\) = \$4/);
+    assert.match(CDR_DUPLICATE_CHECK_SQL, /LIMIT 1$/);
   });
 
   test('narrow lookup omits contact/address columns; status update is narrow', () => {

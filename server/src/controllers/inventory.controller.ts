@@ -15,7 +15,9 @@ import { shouldRestockOnUnassign, buildRestockTransaction, restoreInMemorySerial
 import { SerialGateError, planSerialGateEntries, resolveSerialGateInDb, resolveSerialGateInMemory, serialGateKey } from '../services/serialGate.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import { validateDualEditPayload, applyDualEdit, generateParkTag } from '../services/serialEditCapture.service';
-import { isActiveCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
+import { isActiveCdrStatus, isLegacyCdrStatus, upsertCdrMirror } from '../services/cdrSerialSync';
+import { cdrDuplicateFromRow, cdrDuplicateMessage, findCdrDuplicate } from '../services/cdrDuplicates';
+import { macKey } from '../../../shared/macAddress';
 import { computeOperationTotalValue, computeLegacyOperationTotalValue } from '../utils/money';
 import { PI_FIND_BY_ID_SQL } from '../models/procurement.repo';
 import { resolveBsDateForLedger, todayBs } from '../utils/bsDate';
@@ -2077,22 +2079,27 @@ try {
       res.status(400).json({ message: 'Device serial and PON serial are required.' });
       return;
     }
-    const duplicateLocal = customerDeviceRecords.find((record) =>
-      record.id !== newRecord.id &&
-      (String(record.deviceSerial || '').trim().toUpperCase() === normalizedDeviceSerial ||
-        String(record.ponSerial || '').trim().toUpperCase() === normalizedPonSerial)
-    );
-    if (duplicateLocal) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
+    const duplicateLocal = findCdrDuplicate(customerDeviceRecords, newRecord);
+    if (duplicateLocal) {
+      return res.status(409).json({ message: cdrDuplicateMessage(duplicateLocal.field) });
+    }
     if (getPgConnected()) {
       const duplicateDb = await pgPool.query(
         CDR_DUPLICATE_CHECK_SQL,
-        [newRecord.id, normalizedDeviceSerial, normalizedPonSerial]
+        [newRecord.id, normalizedDeviceSerial, normalizedPonSerial, macKey(newRecord.macAddress)]
       );
-      if (duplicateDb.rowCount) return res.status(409).json({ message: 'Device serial or PON serial is already registered.' });
+      if (duplicateDb.rowCount) {
+        return res.status(409).json({ message: cdrDuplicateMessage(cdrDuplicateFromRow(duplicateDb.rows[0]).field) });
+      }
     }
     const custCode = newRecord.customerCode || newRecord.customerId;
     const branchId = newRecord.branchId || 'WH001';
-    const nextStatus = newRecord.status || 'ACTIVE';
+    const nextStatus = String(newRecord.status || 'ACTIVE').trim().toUpperCase() as CustomerDeviceRecord['status'];
+    if (isLegacyCdrStatus(nextStatus)) {
+      return res.status(400).json({
+        message: `${nextStatus} is a legacy read-only status. Use ROUTER_COLLECTED for a collection or REFUND/IN_STOCK for a return.`,
+      });
+    }
     const previousRecord = customerDeviceRecords.find((c) => c.id === newRecord.id);
     let previousStatus = previousRecord?.status;
     if (getPgConnected() && !previousStatus) {
@@ -2344,8 +2351,15 @@ try {
     }
 
     const oldStatus = record.status;
-    const isDisconn = status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED';
-    const newStatusStr = isDisconn ? 'ROUTER_COLLECTED' : status;
+    const newStatusStr = String(status || '').trim().toUpperCase() as CustomerDeviceRecord['status'];
+    if (!newStatusStr) {
+      return res.status(400).json({ message: 'A device status is required.' });
+    }
+    if (isLegacyCdrStatus(newStatusStr)) {
+      return res.status(400).json({
+        message: `${newStatusStr} is a legacy read-only status. Use ROUTER_COLLECTED for a collection or REFUND/IN_STOCK for a return.`,
+      });
+    }
 
     record.status = newStatusStr;
 
@@ -2654,19 +2668,57 @@ try {
 
     if (!oldRecord) return res.status(404).json({ message: 'Old customer device record not found' });
 
+    // Fill blank PON/MAC from the register row BEFORE the duplicate probe
+    // (one-field UX). Otherwise a caller who sends only the replacement serial
+    // would skip the MAC/PON half of the conflict check and reach the unique
+    // index with the identity the register supplies.
+    const replacementSerialForIdentity = String(newDeviceSerial || '').trim();
+    if (replacementSerialForIdentity) {
+      if (getPgConnected()) {
+        const identity = await pgPool.query(SERIAL_LOG_IDENTITY_BY_SERIAL_SQL, [replacementSerialForIdentity]);
+        const row = identity.rows[0];
+        if (row) {
+          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
+          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
+        }
+      } else {
+        const row: any = serialLogs.find((r) => serialGateKey(r.deviceSerial) === serialGateKey(replacementSerialForIdentity));
+        if (row) {
+          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
+          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
+        }
+      }
+    }
+
     // The register holds one row per serial (and per PON serial), so a
     // replacement identity that another device already owns can never be
     // written. Checked BEFORE any state is touched (mirror row included) so a
     // conflict is a clean 409 rather than a half-applied exchange that ends in
     // a unique-index 500 and a rolled-back stock movement.
+    // The replacement must not reuse another row's serial, PON or MAC. The
+    // local mirror is checked too, so the demo path gives the same 409 instead
+    // of reaching the unique index.
+    const exchangeDuplicate = findCdrDuplicate(customerDeviceRecords, {
+      id: '',
+      deviceSerial: newDeviceSerial,
+      ponSerial: newPonSerial,
+      macAddress: newMacAddress,
+    });
+    if (exchangeDuplicate) {
+      const duplicateMessage = cdrDuplicateMessage(exchangeDuplicate.field);
+      await logExchangeRefusal(req, String(newDeviceSerial), duplicateMessage, String(branchId || oldRecord.branchId || ''));
+      res.status(409).json({ message: duplicateMessage });
+      return;
+    }
     if (getPgConnected() && newDeviceSerial) {
       const dupDevice = await pgPool.query(CDR_DUPLICATE_CHECK_SQL, [
-        String(newDeviceSerial),
+        '',
         String(newDeviceSerial).trim().toUpperCase(),
         String(newPonSerial || '').trim().toUpperCase(),
+        macKey(newMacAddress),
       ]);
       if (dupDevice.rowCount) {
-        const duplicateMessage = 'That device serial or PON serial is already registered to another device. Enter the replacement unit\'s own serial.';
+        const duplicateMessage = cdrDuplicateMessage(cdrDuplicateFromRow(dupDevice.rows[0]).field);
         await logExchangeRefusal(req, String(newDeviceSerial), duplicateMessage, String(branchId || oldRecord.branchId || ''));
         res.status(409).json({ message: duplicateMessage });
         return;
@@ -2709,22 +2761,6 @@ try {
         await resolveSerialGateInDb(pgPool as any, [replacementGateEntry], replacementGateRules, replacementGateCtx);
       } else {
         resolveSerialGateInMemory(serialLogs as any, [replacementGateEntry], replacementGateRules, replacementGateCtx);
-      }
-
-      // Fill blank PON/MAC from the register row (one-field UX).
-      if (getPgConnected()) {
-        const identity = await pgPool.query(SERIAL_LOG_IDENTITY_BY_SERIAL_SQL, [replacementSerial]);
-        const row = identity.rows[0];
-        if (row) {
-          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
-          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
-        }
-      } else {
-        const row: any = serialLogs.find((r) => serialGateKey(r.deviceSerial) === serialGateKey(replacementSerial));
-        if (row) {
-          if (!String(newPonSerial || '').trim()) newPonSerial = row.ponSerial || undefined;
-          if (!String(newMacAddress || '').trim()) newMacAddress = row.macAddress || undefined;
-        }
       }
     }
 

@@ -226,7 +226,7 @@ ISP-Inventory-Management-System/
 │                                      #   (legacy entry compatibility)
 └── tests/                             # Unit + integration tests (node:test) for services,
                                         #   repo query builders, HTTP middleware and the
-                                        #   drift/concurrency guards — 1184 tests; CI runs
+                                        #   drift/concurrency guards — 1203 tests; CI runs
                                         #   tsc + npm test + the no-inline-SQL guard + the
                                         #   production build + npm audit on every push/PR
                                         #   (.github/workflows/ci.yml). The PostgreSQL 16
@@ -792,9 +792,12 @@ Step 5: IRD Audit Certificate download
 Purchase Invoice with deviceSerials → creates IN_STOCK serial_log records
     ↓ Assign device to customer → CUSTOMER_ASSIGNED (customer_device_records row created)
     ↓ Customer disconnects / returns
-Device status: DISCONNECTED / RETURNED / REFUND
+Device status: ROUTER_COLLECTED / REFUND / IN_STOCK
     ↓ Approval workflow for status changes
 Approved → stock re-stocked if restock_qty_on_approval
+
+(`DISCONNECTED` / `RETURNED` are legacy read-only values: pre-cleanup rows
+remain readable, but no new transition or approval may write them.)
 ```
 
 ---
@@ -1226,7 +1229,7 @@ fiscal-year states over real HTTP against a throwaway database built from `schem
 fails with the old 503 body on the pre-fix code.
 
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1184 tests against a real PostgreSQL 16 service container
+2. `npm test` — 1203 tests against a real PostgreSQL 16 service container
    (schema.sql is applied first: it doubles as the fresh-install proof and the
    drift-guard baseline). Zero DB skips — no-DB skips are history. The two
    unconditional skips are Windows-only real-signal checks (a real OS SIGTERM

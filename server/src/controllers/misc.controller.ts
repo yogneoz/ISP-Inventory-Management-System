@@ -36,7 +36,7 @@ import {
 } from '../models/misc.repo';
 import { shipmentReceivedQty, SHIPMENT_UNDO_RECEIVE_STOCK_SQL, SHIPMENT_UNDO_RECEIVE_UPDATE_SQL, SHIPMENT_FIND_CANDIDATES_SQL } from '../models/shipments.repo';
 import { SERIAL_LOG_SYNC_ON_CDR_SQL, serialLogCdrSyncParams } from '../models/inventory.repo';
-import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror } from '../services/cdrSerialSync';
+import { serialStatusForCdrStatus, cdrHistoryEntry, flipSerialMirror, isLegacyCdrStatus } from '../services/cdrSerialSync';
 /** Forwarded from misc.routes.ts (get_status). */
 export async function get_status(req: any, res: Response): Promise<any> {
 let isConnected = await ensurePostgresConnection();
@@ -179,6 +179,15 @@ try {
       requestedAtBS: todayBs(), // C4: from bs_day_records cache
     };
 
+    // The dead CPE vocabulary must not enter the approval queue either: an
+    // approver would otherwise execute a DISCONNECTED/RETURNED transition the
+    // direct route now refuses. Refuse it at submission, before any row exists.
+    if (newRequest.type === 'CUSTOMER_DEVICE_STATUS' && isLegacyCdrStatus(newRequest.requestedStatus)) {
+      return res.status(400).json({
+        message: `${String(newRequest.requestedStatus).toUpperCase()} is a legacy read-only status. Use ROUTER_COLLECTED for a collection or REFUND/IN_STOCK for a return.`,
+      });
+    }
+
     setApprovalRequests(withPrepended(approvalRequests, newRequest));
 
     if (getPgConnected()) {
@@ -222,6 +231,21 @@ try {
     if (!request) return res.status(404).json({ message: 'Approval request not found' });
 
     const currentU = getUserFromReq(req);
+
+    // Legacy requests could predate the vocabulary cleanup (or be replayed
+    // after it). An APPROVED legacy transition is refused before either the
+    // request object, the queue row or the device moves; rejecting such a
+    // request stays possible so the queue can always be cleared.
+    if (
+      status !== 'REJECTED' &&
+      request.type === 'CUSTOMER_DEVICE_STATUS' &&
+      isLegacyCdrStatus(request.requestedStatus)
+    ) {
+      return res.status(400).json({
+        message: `${String(request.requestedStatus).toUpperCase()} is a legacy read-only status. Use ROUTER_COLLECTED for a collection or REFUND/IN_STOCK for a return.`,
+      });
+    }
+
     request.status = status;
     request.processedByEmail = approverUser?.email || currentU.email;
     request.processedByName = approverUser?.name || currentU.name;
@@ -249,8 +273,8 @@ try {
 
         // IF APPROVED: execute the requested status change on customer device record
         if (request.type === 'CUSTOMER_DEVICE_STATUS') {
-          const isDisconnectReq = request.requestedStatus === 'DISCONNECTED' || request.requestedStatus === 'ROUTER_COLLECTED';
-          const targetStatus = isDisconnectReq ? 'ROUTER_COLLECTED' : request.requestedStatus;
+          const targetStatus = String(request.requestedStatus || '').trim().toUpperCase();
+          const isCollection = targetStatus === 'ROUTER_COLLECTED';
 
           await client.query(CDR_SET_STATUS_SQL, [targetStatus, request.targetId || '', request.deviceSerial || '']);
 
@@ -278,7 +302,7 @@ try {
             );
           }
 
-          if (request.restockQtyOnApproval || isDisconnectReq) {
+          if (request.restockQtyOnApproval || isCollection) {
             const prod = products.find((p) => p.name.toLowerCase() === request.productName?.toLowerCase()) || products[0];
             let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === request.branchId);
 
@@ -425,8 +449,7 @@ try {
       // In-memory updates if PostgreSQL not connected
       if (request.type === 'CUSTOMER_DEVICE_STATUS') {
         const devRecord = customerDeviceRecords.find((c) => c.id === request.targetId || c.deviceSerial === request.deviceSerial);
-        const isDisconnectReq = request.requestedStatus === 'DISCONNECTED' || request.requestedStatus === 'ROUTER_COLLECTED';
-        const targetStatus = isDisconnectReq ? 'ROUTER_COLLECTED' : request.requestedStatus;
+        const targetStatus = String(request.requestedStatus || '').trim().toUpperCase();
         if (devRecord) {
           devRecord.status = targetStatus as CustomerDeviceRecord['status'];
         }

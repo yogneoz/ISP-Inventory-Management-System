@@ -544,7 +544,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
     {
       question: 'How are device serial numbers (ONU / Router) tracked for ISPs?',
       answer:
-        'In Customer Device Serials, every hardware unit is tracked by its unique Device Serial, PON Serial, and MAC address. Status transitions from IN_STOCK to ACTIVE, RENTAL, or DISCONNECTED. Defective returns require manager authorization before restock.',
+        'In Customer Device Serials, every hardware unit is tracked by its unique Device Serial, PON Serial, and MAC address. Status transitions from IN_STOCK to ACTIVE or RENTAL; a collection moves the unit to ROUTER_COLLECTED. Defective returns require manager authorization before restock.',
       category: 'ISP Hardware',
     },
     {

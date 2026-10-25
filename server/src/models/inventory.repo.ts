@@ -708,8 +708,23 @@ export function buildCustomerDeviceListQuery(branchId?: unknown, query?: unknown
   return { sql, params };
 }
 
-export const CDR_DUPLICATE_CHECK_SQL = `SELECT 1 FROM customer_device_records
-         WHERE id <> $1 AND (UPPER(TRIM(device_serial)) = $2 OR UPPER(TRIM(pon_serial)) = $3) LIMIT 1`;
+export const CDR_DUPLICATE_CHECK_SQL = `SELECT
+           CASE
+             WHEN UPPER(TRIM(device_serial)) = $2 THEN 'device_serial'
+             WHEN UPPER(TRIM(pon_serial)) = $3 THEN 'pon_serial'
+             ELSE 'mac_address'
+           END AS field,
+           device_serial AS "deviceSerial"
+         FROM customer_device_records
+         WHERE id <> $1 AND (
+           UPPER(TRIM(device_serial)) = $2
+           OR UPPER(TRIM(pon_serial)) = $3
+           OR ($4 <> '' AND (
+             UPPER(TRIM(COALESCE(mac_address, ''))) = UPPER(TRIM($4))
+             OR ($4 ~ '^[0-9A-F]{12}$' AND
+               regexp_replace(UPPER(COALESCE(mac_address, '')), '[^0-9A-F]', '', 'g') = $4)
+           ))
+         ) LIMIT 1`;
 
 /**
  * CDR_SERIAL_ROW_SQL — the register row (if any) already tracking a serial,

@@ -831,7 +831,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                               ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
                                               : dev.status === 'SOLD'
                                                 ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
-                                                : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
+                                                : dev.status === 'ROUTER_COLLECTED'
                                                   ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                                                   : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                                               }`}>
@@ -839,7 +839,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                                 ? 'RENTAL (CPE ASSET)'
                                                 : dev.status === 'SOLD'
                                                   ? 'SOLD (CUSTOMER OWNED)'
-                                                  : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
+                                                  : dev.status === 'ROUTER_COLLECTED'
                                                     ? `ROUTER COLLECTED${dev.disconnectedDateAD ? ` (${dev.disconnectedDateAD})` : ''}`
                                                     : dev.status}
                                             </span>

@@ -1,6 +1,83 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-25 · Branch: main · Tests: 1184/1184 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-25 · Branch: main · Tests: 1203/1203 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+> **Current state (2026-10-25, DOC-1/CPE-2).** All DF-01…DF-17 work, the
+> bootstrap trim follow-up, A3, A4a, CPE-1 and CPE-2 are done. **A5 is not
+> started** and is deliberately last; A4b waits for it. The next scheduled work
+> is in the temporary `worklist.md` at the repo root (not part of the committed
+> docs).
+> Older “Remaining …” paragraphs below are chronological notes, not a live
+> backlog; where they conflict with this note, the code and the worklist win.
+
+## ✅ CPE-2 shipped — MAC conflicts are a readable 409 and the dead status vocabulary is gone (2026-10-25)
+
+**Problem.** `CDR_DUPLICATE_CHECK_SQL` checked `device_serial` and
+`pon_serial` only. A MAC owned by another row reached
+`uq_customer_device_mac_address` and surfaced as a raw `500` from create or
+exchange. Separately, `DISCONNECTED` and `RETURNED` were still accepted as new
+values even though the live flow writes `ROUTER_COLLECTED` for a collection and
+`REFUND`/`IN_STOCK` for a return.
+
+**Fix.** The duplicate probe now covers a non-empty `mac_address` by its
+canonical 12-hex key (so `a4c3f0b1d2e3` collides with
+`A4:C3:F0:B1:D2:E3`, while non-MAC text is compared literally) and returns the
+matched field. Create and exchange probe before any write and return `409`
+with a message naming the field; `findCdrDuplicate` is the single rule shared by
+the PG probe, the demo mirror and the exchange pre-flight. The exchange now
+hydrates a blank PON/MAC from the register **before** the probe — previously a
+serial-only payload skipped the MAC half and could still reach the unique
+index.
+
+**Vocabulary count.** A live query found **zero** rows in `DISCONNECTED` or
+`RETURNED` (and no approval rows requesting either), so both values were pruned
+from every write path: create and status PATCH refuse them with a readable
+`400`, approval submission and execution refuse a legacy requested status
+before mutating anything, and the UI no longer offers or special-cases them.
+The type union and read path keep the values so a pre-cleanup row, if one is
+ever imported, remains readable; the live vocabulary is `ROUTER_COLLECTED`,
+`REFUND` and `IN_STOCK`.
+
+**Tests.** `tests/cdrDuplicates.test.ts` (7 unit tests: canonical MAC, serial/PON
+case and trim, empties, self-exclusion, 409 copy, PG-row mapping) and
+`tests/cpeMacConflict.test.ts` (7 HTTP cases against real PostgreSQL:
+duplicate create, new create, legacy PATCH, legacy approval submission,
+duplicate exchange, register-hydrated duplicate exchange, successful exchange).
+`tests/inventory.repo.test.ts` pins the probe SQL, and
+`tests/cdrSerialSync.test.ts` pins that legacy statuses no longer map into
+`serial_log`. Full suite green; `npx tsc --noEmit` clean.
+
+## ✅ CPE-1 shipped — the CPE status PATCH has a manager audience (2026-10-25)
+
+**Problem.** `PATCH /api/customer-devices/:id/status` had no role gate. The
+global operational-permission middleware has no `customer-devices` rule, so any
+authenticated role that could reach the branch could flip a rental to
+`REFUND`/`IN_STOCK` and rewrite its `serial_log` status without the approval
+workflow. The app-level branch middleware also cannot resolve `req.params.id`
+before Express routes the request, so it did not protect this id-only path.
+
+**Fix.** The route now uses `requireRole(...CPE_STATUS_ROLES)`: the shared CPE
+manager base (`SUPER_ADMIN`, `HEAD_OFFICE_ADMIN`, `BRANCH_MANAGER`) plus
+`INVENTORY_MANAGER`. The exchange lookup/exchange/refusal routes use the same
+base plus `FIELD_TECHNICIAN`, so the two audiences cannot drift. The status
+handler re-checks the record's branch before touching either the mirror or
+PostgreSQL and returns `403` for a branch-bound actor outside that branch.
+CPE-1 deliberately left status normalization (`DISCONNECTED` →
+`ROUTER_COLLECTED`) and the audit event unchanged; CPE-2 later removed that dead
+alias from the write path.
+
+**Tests.** `tests/cpeStatusAuthz.test.ts` (4 HTTP cases against real
+PostgreSQL): no token → 401; `FRONT_DESK` (which holds `customers-manage` but
+must use approval) → 403 with both rows unchanged; an allowed `BRANCH_MANAGER`
+against another branch's record → 403 with both rows unchanged; and
+`INVENTORY_MANAGER` → 200, `REFUND` on the customer-device row and `IN_STOCK`
+with the customer attribution cleared on `serial_log`. The exchange audience pin
+now asserts the shared constant keeps `FIELD_TECHNICIAN`.
+
+**Verification.** The full 1203-test suite is green on the current head:
+`npm test` — 1203 tests against a real PostgreSQL 16 service container,
+1201 pass, 2 Windows-only skips, 0 fail. Suite now 1203 tests; `npx tsc
+--noEmit` clean. (The header's `Tests: 1203/1203` is the same run.)
 
 ## ✅ Bootstrap trim follow-up — KPI counts, open-PO picker and FY wizard read scoped rows (2026-10-25)
 

@@ -110,9 +110,9 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       // Status filter
       if (filterDeviceStatus !== 'ALL') {
         if (filterDeviceStatus === 'IN_STOCK' && dev.status !== 'IN_STOCK') return false;
-        if (filterDeviceStatus === 'ASSIGNED' && (dev.status === 'IN_STOCK' || dev.status === 'RETURNED' || dev.status === 'DISCONNECTED')) return false;
+        if (filterDeviceStatus === 'ASSIGNED' && (dev.status === 'IN_STOCK' || dev.status === 'ROUTER_COLLECTED')) return false;
         if (filterDeviceStatus === 'RENTAL' && dev.status !== 'RENTAL') return false;
-        if (filterDeviceStatus === 'COLLECTED' && dev.status !== 'ROUTER_COLLECTED' && dev.status !== 'RETURNED') return false;
+        if (filterDeviceStatus === 'COLLECTED' && dev.status !== 'ROUTER_COLLECTED') return false;
       }
 
       // Product / Model filter
@@ -663,7 +663,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                 <option value="IN_STOCK">Status: Available In-Store Only</option>
                 <option value="ASSIGNED">Status: Assigned / Active Customer CPE</option>
                 <option value="RENTAL">Status: Rental CPE Only</option>
-                <option value="COLLECTED">Status: Collected / Returned</option>
+                <option value="COLLECTED">Status: Router Collected</option>
                 <option value="ALL">Status: All (In-Stock & Assigned)</option>
               </select>
 

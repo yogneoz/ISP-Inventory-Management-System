@@ -599,7 +599,7 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
                               className={`px-2 py-0.5 rounded-full border uppercase ${
                                 req.requestedStatus === 'REFUND'
                                   ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300'
-                                  : req.requestedStatus === 'ROUTER_COLLECTED' || req.requestedStatus === 'DISCONNECTED'
+                                  : req.requestedStatus === 'ROUTER_COLLECTED'
                                   ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300'
                                   : 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300'
                               }`}

@@ -16,11 +16,15 @@
  *   CDR status                    → serial_log status
  *   -------------------------------------------------------------
  *   ACTIVE / RENTAL / SUSPENDED / SOLD → CUSTOMER_ASSIGNED (with customer)
- *   ROUTER_COLLECTED / DISCONNECTED /
- *   RETURNED / REFUND / IN_STOCK      → IN_STOCK (customer cleared)
+ *   ROUTER_COLLECTED / REFUND /
+ *   IN_STOCK                          → IN_STOCK (customer cleared)
  *   EXCHANGED                         → handled by the exchange flow itself
  *                                       (old serial is restocked or damaged
  *                                       per oldDeviceAction, never mapped here)
+ *
+ * DISCONNECTED / RETURNED are legacy read-only values: existing rows remain
+ * readable, but no live transition writes them (LEGACY_CDR_STATUSES gates the
+ * write paths), so they have no mapping into serial_log.
  *
  * The serial flip is UPDATE-if-exists only: the register records units the
  * business actually received, so a CDR row naming a serial the register has
@@ -33,6 +37,22 @@
  * tracks that unit as out with a customer.
  */
 export const ACTIVE_CDR_STATUSES = ['ACTIVE', 'RENTAL', 'SUSPENDED', 'SOLD'] as const;
+
+/**
+ * Statuses the live lifecycle no longer produces. They stay readable for
+ * historical rows, but no new transition may write them; the live collected
+ * status is ROUTER_COLLECTED and a return is REFUND/IN_STOCK. A write-path
+ * request naming one is refused instead of silently normalised, so the dead
+ * vocabulary cannot re-enter the directory.
+ */
+export const LEGACY_CDR_STATUSES = ['DISCONNECTED', 'RETURNED'] as const;
+
+/** True when a status is legacy read-only vocabulary. */
+export function isLegacyCdrStatus(status: unknown): boolean {
+  return (LEGACY_CDR_STATUSES as readonly string[]).includes(
+    String(status || '').trim().toUpperCase()
+  );
+}
 
 /**
  * Result of a register write keyed on the device serial.
@@ -86,8 +106,6 @@ export function serialStatusForCdrStatus(cdrStatus: string): string | null {
     case 'SOLD':
       return 'CUSTOMER_ASSIGNED';
     case 'ROUTER_COLLECTED':
-    case 'DISCONNECTED':
-    case 'RETURNED':
     case 'REFUND':
     case 'IN_STOCK':
       return 'IN_STOCK';

@@ -284,10 +284,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   ) => {
     if (rec.status === newSt) return;
 
-    const isDisconnect = newSt === 'DISCONNECTED' || newSt === 'ROUTER_COLLECTED';
+    const isDisconnect = newSt === 'ROUTER_COLLECTED';
     const targetSt = isDisconnect ? 'ROUTER_COLLECTED' : newSt;
 
-    const requiresApproval = ['DISCONNECTED', 'ROUTER_COLLECTED', 'REFUND', 'RETURNED', 'IN_STOCK'].includes(
+    const requiresApproval = ['ROUTER_COLLECTED', 'REFUND', 'IN_STOCK'].includes(
       newSt
     );
     const isBranchStaff =
@@ -297,7 +297,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     if (isDisconnect || (requiresApproval && isBranchStaff)) {
       setApprovalTarget({ record: rec, targetStatus: targetSt });
       setApprovalReason('');
-      setApprovalRestock(isDisconnect || newSt === 'REFUND' || newSt === 'RETURNED' || newSt === 'IN_STOCK');
+      setApprovalRestock(isDisconnect || newSt === 'REFUND' || newSt === 'IN_STOCK');
     } else {
       await onUpdateStatus(rec.id, newSt);
       setToastMessage(`Device status updated to ${newSt}.`);
@@ -311,7 +311,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       (req) =>
         req.status === 'PENDING' &&
         (req.targetId === rec.id || req.deviceSerial === rec.deviceSerial) &&
-        (req.requestedStatus === 'DISCONNECTED' || req.requestedStatus === 'ROUTER_COLLECTED')
+        req.requestedStatus === 'ROUTER_COLLECTED'
     );
   };
 
@@ -449,7 +449,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   // Metrics from server rows
   const rentalCount = customerDevicesRows.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
   const soldCount = customerDevicesRows.filter((c) => c.status === 'SOLD').length;
-  const routerCollectedCount = customerDevicesRows.filter((c) => c.status === 'ROUTER_COLLECTED' || c.status === 'DISCONNECTED').length;
+  const routerCollectedCount = customerDevicesRows.filter((c) => c.status === 'ROUTER_COLLECTED').length;
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -810,7 +810,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                                 ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800'
                                 : rec.status === 'SOLD'
                                 ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800'
-                                : rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED'
+                                : rec.status === 'ROUTER_COLLECTED'
                                 ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                             }`}
@@ -819,7 +819,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                               ? '🔵 Rental (CPE Asset)' 
                               : rec.status === 'SOLD' 
                               ? '🛍️ Sold (Customer Owned)' 
-                              : rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED'
+                              : rec.status === 'ROUTER_COLLECTED'
                               ? '📦 Router Collected' 
                               : rec.status === 'EXCHANGED' 
                               ? '🔄 Exchanged' 
@@ -838,7 +838,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                             </div>
                           )}
 
-                          {(rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED') && (
+                          {rec.status === 'ROUTER_COLLECTED' && (
                             <div className="text-[10px] font-mono text-rose-700 dark:text-rose-400 font-semibold mt-0.5 whitespace-nowrap">
                               Disc: {rec.disconnectedDateAD || 'Collected'} {rec.disconnectedDateBS ? `(${rec.disconnectedDateBS})` : ''}
                             </div>
@@ -889,7 +889,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                             )
                           )}
 
-                          {(rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED') && (
+                          {rec.status === 'ROUTER_COLLECTED' && (
                             <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
                               ✓ Collected & Restocked
                             </span>
@@ -953,11 +953,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
                     : viewingRecord.status === 'SOLD'
                     ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
-                    : viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED'
+                    : viewingRecord.status === 'ROUTER_COLLECTED'
                     ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300'
                 }`}>
-                  {viewingRecord.status === 'ACTIVE' || viewingRecord.status === 'RENTAL' ? 'Rental (CPE Asset)' : viewingRecord.status === 'SOLD' ? 'Sold (Customer Owned)' : viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED' ? 'Router Collected (Disconnected)' : viewingRecord.status}
+                  {viewingRecord.status === 'ACTIVE' || viewingRecord.status === 'RENTAL' ? 'Rental (CPE Asset)' : viewingRecord.status === 'SOLD' ? 'Sold (Customer Owned)' : viewingRecord.status === 'ROUTER_COLLECTED' ? 'Router Collected' : viewingRecord.status}
                 </span>
               </div>
 
@@ -1040,7 +1040,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   <span>Issued Date:</span>
                   <span className="font-mono font-bold">{viewingRecord.issuedDateAD} ({viewingRecord.issuedDateBS})</span>
                 </div>
-                {(viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED' || viewingRecord.disconnectedDateAD) && (
+                {(viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.disconnectedDateAD) && (
                   <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold p-2 rounded-lg bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
                     <span>Disconnected Date:</span>
                     <span className="font-mono font-extrabold text-rose-700 dark:text-rose-300">
@@ -1400,17 +1400,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
             <form onSubmit={handleConfirmSubmitApproval} className="p-6 space-y-4">
               <div className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${
-                approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                approvalTarget.targetStatus === 'ROUTER_COLLECTED'
                   ? 'bg-rose-50/90 border-rose-200 text-rose-950 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-200'
                   : 'bg-amber-50/80 border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200'
               }`}>
                 <AlertTriangle className={`h-4 w-4 shrink-0 mt-0.5 ${
-                  approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                  approvalTarget.targetStatus === 'ROUTER_COLLECTED'
                     ? 'text-rose-600 dark:text-rose-400'
                     : 'text-amber-600 dark:text-amber-400'
                 }`} />
                 <div>
-                  {approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED' ? (
+                  {approvalTarget.targetStatus === 'ROUTER_COLLECTED' ? (
                     <span>
                       <strong>Disconnect & Collection Workflow:</strong> Disconnecting a customer router will not immediately disconnect the device. A formal request is sent to an authorized person (Inventory Manager / Admin). Once approved, <strong>+1 unit will be added to inventory of the related branch</strong> and status will be updated to <strong>Router Collected</strong>.
                     </span>
@@ -1443,7 +1443,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     </span>
                     <span>➔</span>
                     <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 uppercase">
-                      {approvalTarget.targetStatus === 'DISCONNECTED' || approvalTarget.targetStatus === 'ROUTER_COLLECTED' ? 'ROUTER COLLECTED' : approvalTarget.targetStatus}
+                      {approvalTarget.targetStatus === 'ROUTER_COLLECTED' ? 'ROUTER COLLECTED' : approvalTarget.targetStatus}
                     </span>
                   </div>
                 </div>
@@ -1460,7 +1460,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   value={approvalReason}
                   onChange={(e) => setApprovalReason(e.target.value)}
                   placeholder={
-                    approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                    approvalTarget.targetStatus === 'ROUTER_COLLECTED'
                       ? "e.g. Customer requested service disconnect; ONU router and adapter inspected and collected in working condition..."
                       : "e.g. Customer returned ONU router in good condition. Requested deposit refund NPR 3,500..."
                   }
@@ -1469,7 +1469,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
               </div>
 
               {/* Restock Toggle */}
-              {(approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED' || approvalTarget.targetStatus === 'REFUND' || approvalTarget.targetStatus === 'RETURNED' || approvalTarget.targetStatus === 'IN_STOCK') && (
+              {(approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'REFUND' || approvalTarget.targetStatus === 'IN_STOCK') && (
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900">
                   <input
                     type="checkbox"

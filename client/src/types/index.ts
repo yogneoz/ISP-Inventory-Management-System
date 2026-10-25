@@ -363,6 +363,9 @@ export interface CustomerDeviceRecord {
   deviceSerial: string;
   ponSerial: string;
   macAddress?: string;
+  // DISCONNECTED and RETURNED are legacy read-only values: they remain in the
+  // union so pre-cleanup rows still type-check when read, but no live
+  // transition may write them (see LEGACY_CDR_STATUSES on the server).
   status: 'ACTIVE' | 'RENTAL' | 'DISCONNECTED' | 'ROUTER_COLLECTED' | 'IN_STOCK' | 'REFUND' | 'RETURNED' | 'EXCHANGED' | 'SOLD';
   issuedDateAD: string;
   issuedDateBS: string;
