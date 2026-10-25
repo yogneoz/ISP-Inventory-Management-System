@@ -596,15 +596,10 @@ export function AppShell(props: AppShellProps) {
         onClose={() => setIsGlobalSearchOpen(false)}
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
-        products={products}
-        purchaseOrders={purchaseOrders}
-        invoices={purchaseInvoices}
-        shipments={shipments}
-        assets={assets}
-        customerDevices={customerDevices}
+        // TRIM-1: the growing registers are fetched by the modal from the
+        // bounded search endpoint; only the small reference tables stay local.
         suppliers={suppliers}
         branches={branches}
-        stock={stock}
         selectedBranchId={selectedBranchId}
         onSelectResult={(tab, filterText) => {
           onSelectTab(tab);

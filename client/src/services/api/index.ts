@@ -15,6 +15,7 @@
 //   finance.ts     — fiscal years, opening stock, BS calendar, summaries
 //   admin.ts       — company profile, permissions, categories, UoM,
 //                    locations, recalculation utilities
+//   search.ts      — bounded global quick search (TRIM-1)
 //   settings.ts    — server-side app settings & per-user preferences
 //                    (replaces the browser-localStorage copies)
 //   sync.ts        — SSE live-sync subscription
@@ -31,6 +32,7 @@ import * as procurement from './procurement';
 import * as sales from './sales';
 import * as finance from './finance';
 import * as admin from './admin';
+import * as search from './search';
 import * as settings from './settings';
 
 export { API_BASE, fetchJson, setAuthToken, setUserContext, setFiscalYearContext } from './http';
@@ -172,6 +174,7 @@ export const api = {
   // Customer Master Database (paged server-side reads)
   getCustomers: inventory.getCustomers,
   searchCustomers: inventory.searchCustomers,
+  searchGlobal: search.searchGlobal,
   getProducts: inventory.getProducts,
   createCustomer: inventory.createCustomer,
   bulkImportCustomers: inventory.bulkImportCustomers,

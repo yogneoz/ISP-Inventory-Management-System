@@ -1006,3 +1006,77 @@ export interface BsIntegrityApplyResult {
   message: string;
 }
 
+
+/**
+ * TRIM-1 — global quick search.
+ *
+ * The modal used to filter whole PO/PI/shipment/asset/device slices in the
+ * browser. At nationwide scale those slices are unbounded, so the server
+ * answers one bounded, branch- and fiscal-year-scoped query instead and these
+ * are the only fields it returns (enough to render a row and open the tab).
+ */
+export interface GlobalSearchProduct {
+  id: string;
+  name: string;
+  sku: string;
+  barcode?: string | null;
+  category: string;
+  unit?: string | null;
+  sellingPrice: number;
+  minReorderLevel?: number | null;
+  stockQty: number;
+}
+
+export interface GlobalSearchOrder {
+  id: string;
+  poNumber: string;
+  supplierName: string;
+  status: string;
+  totalAmount: number;
+  orderDateBS?: string | null;
+}
+
+export interface GlobalSearchInvoice {
+  id: string;
+  invoiceNumber: string;
+  vendorBillNumber?: string | null;
+  supplierName: string;
+  grandTotal: number;
+  paymentStatus: string;
+}
+
+export interface GlobalSearchShipment {
+  id: string;
+  trackingCode: string;
+  sourceBranchName?: string | null;
+  destinationBranchName: string;
+  status: string;
+  itemCount: number;
+}
+
+export interface GlobalSearchAsset {
+  id: string;
+  tagNumber: string;
+  name: string;
+  category: string;
+  acquisitionCost: number;
+  status: string;
+}
+
+export interface GlobalSearchDevice {
+  id: string;
+  customerCode: string;
+  customerName: string;
+  productName: string;
+  deviceSerial: string;
+  status: string;
+}
+
+export interface GlobalSearchResults {
+  products: GlobalSearchProduct[];
+  purchaseOrders: GlobalSearchOrder[];
+  invoices: GlobalSearchInvoice[];
+  shipments: GlobalSearchShipment[];
+  assets: GlobalSearchAsset[];
+  customerDevices: GlobalSearchDevice[];
+}

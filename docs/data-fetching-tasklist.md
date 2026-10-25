@@ -49,6 +49,37 @@ ships a task.
 
 Legend: `todo` · `wip` · `blocked` · `done`.
 
+## Post-audit follow-up — TRIM-1 (done 2026-10-25)
+
+The quick-search modal was the last screen filtering whole bootstrap slices in
+the browser (products, POs, PIs, shipments, assets, customer devices, stock).
+That is bounded only by how much data an install happens to hold; for a
+nationwide deployment (12k+ customers and growing, thousands of documents a
+year) it is both a startup-weight and a per-keystroke problem.
+
+`GET /api/global-search?q=&branchId=` now answers it: **5 rows per group**, a
+hard 2–80 character query window, six independent `LIMIT` reads, and a response
+containing only the fields the modal renders. Scope is a server decision — a
+branch role is pinned to its own branch (omitting `branchId` cannot widen it;
+another branch is `403`), a global role may pass `ALL`, and `x-fiscal-year-id`
+scopes the document/asset/device groups. `%` and `_` are escaped before the
+LIKE. POs/PIs reuse the B2 `search_text` projection; products, shipments,
+assets and customer devices got trigram GIN expression indexes whose
+expressions the queries repeat verbatim. The modal debounces 250 ms, discards
+superseded responses, and shows a distinct retryable error instead of “no
+results”. Suppliers and branches stay local — they are the two small reference
+lists the shell already carries.
+
+Evidence: [globalSearch.api.test.ts](../tests/globalSearch.api.test.ts) (real
+HTTP + PostgreSQL: 401/400, cap, branch widening + 403, FY scope, wildcard
+escaping, genuine miss) and [globalSearchContract.test.ts](../tests/globalSearchContract.test.ts)
+(no whole-slice props, no client cap, retryable error, six capped SQL groups,
+indexes present). `StockMovementLedger` keeps its no-fetch prop contract.
+
+C4 (one hydration entry point) was assessed in the same pass and parked: the
+URL is built in one place and App has a single hydrate path through it (see
+[architecture-backlog.md](architecture-backlog.md) §C4).
+
 ---
 
 ## DF-01 — Restore the Customer Master Directory (P0)

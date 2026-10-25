@@ -1481,6 +1481,31 @@ CREATE INDEX IF NOT EXISTS idx_shipments_search_trgm ON shipments USING gin (sea
 CREATE INDEX IF NOT EXISTS idx_stock_operations_search_trgm ON stock_operations USING gin (search_text gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_purchase_returns_search_trgm ON purchase_returns USING gin (search_text gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_sales_returns_search_trgm ON sales_returns USING gin (search_text gin_trgm_ops);
+
+-- TRIM-1: the global quick search is a bounded server read, so the four groups
+-- that have no `search_text` projection get one expression trigram index each.
+-- globalSearch.repo.ts repeats these exact expressions in its WHERE clauses;
+-- keep the two in lockstep or PostgreSQL falls back to a sequential scan.
+CREATE INDEX IF NOT EXISTS idx_products_global_trgm ON products USING gin (
+  (lower(COALESCE(name, '') || ' ' || COALESCE(sku, '') || ' ' ||
+         COALESCE(barcode, '') || ' ' || COALESCE(category, ''))) gin_trgm_ops
+);
+CREATE INDEX IF NOT EXISTS idx_assets_global_trgm ON fixed_assets USING gin (
+  (lower(COALESCE(tag_number, '') || ' ' || COALESCE(name, '') || ' ' ||
+         COALESCE(category, '') || ' ' || COALESCE(assigned_customer_name, '') || ' ' ||
+         COALESCE(invoice_no, '') || ' ' || COALESCE(supplier_name, ''))) gin_trgm_ops
+);
+CREATE INDEX IF NOT EXISTS idx_customer_devices_global_trgm ON customer_device_records USING gin (
+  (lower(COALESCE(customer_code, '') || ' ' || COALESCE(customer_name, '') || ' ' ||
+         COALESCE(product_name, '') || ' ' || COALESCE(device_serial, '') || ' ' ||
+         COALESCE(pon_serial, '') || ' ' || COALESCE(mac_address, '') || ' ' ||
+         COALESCE(contact_phone, ''))) gin_trgm_ops
+);
+CREATE INDEX IF NOT EXISTS idx_shipments_global_trgm ON shipments USING gin (
+  (lower(COALESCE(tracking_code, '') || ' ' || COALESCE(source_branch_name, '') || ' ' ||
+         COALESCE(destination_branch_name, '') || ' ' || COALESCE(status, ''))) gin_trgm_ops
+);
+
 CREATE INDEX IF NOT EXISTS idx_customers_id ON customer_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customers_branch ON customer_records(branch_id);
 CREATE INDEX IF NOT EXISTS idx_device_serials ON customer_device_records(device_serial, pon_serial, mac_address);

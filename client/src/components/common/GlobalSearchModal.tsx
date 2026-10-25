@@ -1,15 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Product,
-  PurchaseOrder,
-  PurchaseInvoice,
-  Shipment,
-  Asset,
-  CustomerDeviceRecord,
   Supplier,
   Branch,
-  InventoryStock,
+  GlobalSearchResults,
 } from '../../types';
+import { api } from '../../services/api';
 import { NavTab } from '../layout/Sidebar';
 import { formatNPR } from '../../utils/nprFormat';
 import {
@@ -31,15 +26,15 @@ interface GlobalSearchModalProps {
   onClose: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  products: Product[];
-  purchaseOrders: PurchaseOrder[];
-  invoices: PurchaseInvoice[];
-  shipments: Shipment[];
-  assets: Asset[];
-  customerDevices: CustomerDeviceRecord[];
+  /**
+   * TRIM-1: the growing registers are NOT props any more. The modal asks the
+   * server for a bounded, branch/FY-scoped page of matches, so a nationwide
+   * install never ships whole PO/PI/shipment/asset/device slices to the browser
+   * just to power a keystroke. Suppliers and branches stay local because they
+   * are small reference tables the shell already needs.
+   */
   suppliers: Supplier[];
   branches: Branch[];
-  stock: InventoryStock[];
   selectedBranchId: string;
   onSelectResult: (tab: NavTab, filterText?: string) => void;
 }
@@ -49,19 +44,19 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   onClose,
   searchQuery,
   onSearchChange,
-  products = [],
-  purchaseOrders = [],
-  invoices = [],
-  shipments = [],
-  assets = [],
-  customerDevices = [],
   suppliers = [],
   branches = [],
-  stock = [],
   selectedBranchId = 'ALL',
   onSelectResult,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestSeqRef = useRef(0);
+  const [results, setResults] = useState<GlobalSearchResults>({
+    products: [], purchaseOrders: [], invoices: [], shipments: [], assets: [], customerDevices: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -71,84 +66,54 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     }
   }, [isOpen]);
 
+  const trimmedQuery = (searchQuery || '').trim();
+  const query = trimmedQuery.toLowerCase();
+
+  // The server owns the searchable registers. Two characters is the floor (the
+  // endpoint enforces the same rule), and each response is ignored if a newer
+  // keystroke or a closed modal has superseded it.
+  useEffect(() => {
+    if (!isOpen || trimmedQuery.length < 2) {
+      requestSeqRef.current += 1;
+      setLoading(false);
+      setError('');
+      setResults({ products: [], purchaseOrders: [], invoices: [], shipments: [], assets: [], customerDevices: [] });
+      return;
+    }
+    const seq = ++requestSeqRef.current;
+    setLoading(true);
+    setError('');
+    const timer = setTimeout(() => {
+      api
+        .searchGlobal(trimmedQuery, selectedBranchId)
+        .then((response) => {
+          if (seq !== requestSeqRef.current) return;
+          setResults(response.results);
+        })
+        .catch((err: any) => {
+          if (seq !== requestSeqRef.current) return;
+          setResults({ products: [], purchaseOrders: [], invoices: [], shipments: [], assets: [], customerDevices: [] });
+          setError(err?.message || 'The search could not be completed.');
+        })
+        .finally(() => {
+          if (seq === requestSeqRef.current) setLoading(false);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [isOpen, trimmedQuery, selectedBranchId, retryKey]);
+
   if (!isOpen) return null;
 
-  const query = (searchQuery || '').trim().toLowerCase();
+  // The server already applied the branch/FY scope and the per-group cap.
+  const matchedProducts = results.products;
+  const matchedOrders = results.purchaseOrders;
+  const matchedInvoices = results.invoices;
+  const matchedShipments = results.shipments;
+  const matchedAssets = results.assets;
+  const matchedDevices = results.customerDevices;
 
-  // Helper to calculate total stock for a product
-  const getProductStockQty = (prodId: string) => {
-    if (!stock || stock.length === 0) return 0;
-    const items = stock.filter(
-      (s) => s.productId === prodId && (selectedBranchId === 'ALL' || s.branchId === selectedBranchId)
-    );
-    return items.reduce((sum, item) => sum + item.quantityOnHand, 0);
-  };
-
-  // Filter products safely
-  const matchedProducts = query
-    ? products.filter(
-        (p) =>
-          (p.name && (p?.name || '').toLowerCase().includes(query)) ||
-          (p.sku && (p?.sku || '').toLowerCase().includes(query)) ||
-          (p.barcode && (p?.barcode || '').toLowerCase().includes(query)) ||
-          (p.category && (p?.category || '').toLowerCase().includes(query))
-      ).slice(0, 5)
-    : [];
-
-  // Filter Purchase Orders safely
-  const matchedOrders = query
-    ? purchaseOrders.filter(
-        (po) =>
-          (po.poNumber && (po?.poNumber || '').toLowerCase().includes(query)) ||
-          (po.supplierName && (po?.supplierName || '').toLowerCase().includes(query)) ||
-          (po.status && (po?.status || '').toLowerCase().includes(query))
-      ).slice(0, 4)
-    : [];
-
-  // Filter Invoices safely
-  const matchedInvoices = query
-    ? invoices.filter(
-        (inv) =>
-          (inv.invoiceNumber && (inv?.invoiceNumber || '').toLowerCase().includes(query)) ||
-          (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes(query)) ||
-          (inv.supplierName && (inv?.supplierName || '').toLowerCase().includes(query))
-      ).slice(0, 4)
-    : [];
-
-  // Filter Shipments safely
-  const matchedShipments = query
-    ? shipments.filter(
-        (sh) =>
-          (sh.trackingCode && (sh?.trackingCode || '').toLowerCase().includes(query)) ||
-          (sh.sourceBranchName && (sh?.sourceBranchName || '').toLowerCase().includes(query)) ||
-          (sh.destinationBranchName && (sh?.destinationBranchName || '').toLowerCase().includes(query)) ||
-          (sh.status && (sh?.status || '').toLowerCase().includes(query))
-      ).slice(0, 4)
-    : [];
-
-  // Filter Assets safely
-  const matchedAssets = query
-    ? assets.filter(
-        (a) =>
-          (a.tagNumber && (a?.tagNumber || '').toLowerCase().includes(query)) ||
-          (a.name && (a?.name || '').toLowerCase().includes(query)) ||
-          (a.category && (a?.category || '').toLowerCase().includes(query))
-      ).slice(0, 4)
-    : [];
-
-  // Filter Customer Devices safely
-  const matchedDevices = query
-    ? customerDevices.filter(
-        (d) =>
-          (d.customerCode && (d?.customerCode || '').toLowerCase().includes(query)) ||
-          (d.customerName && (d?.customerName || '').toLowerCase().includes(query)) ||
-          (d.productName && (d?.productName || '').toLowerCase().includes(query)) ||
-          (d.deviceSerial && (d?.deviceSerial || '').toLowerCase().includes(query)) ||
-          (d.contactPhone && (d?.contactPhone || '').toLowerCase().includes(query))
-      ).slice(0, 4)
-    : [];
-
-  // Filter Suppliers safely
+  // Suppliers and branches are small reference tables the shell already holds;
+  // filtering them locally avoids two more requests per keystroke.
   const matchedSuppliers = query
     ? suppliers.filter(
         (s) =>
@@ -159,7 +124,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
       ).slice(0, 3)
     : [];
 
-  // Filter Branches safely
   const matchedBranches = query
     ? branches.filter(
         (b) =>
@@ -224,7 +188,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
         {/* Search Results Area */}
         <div className="overflow-y-auto p-4 space-y-6 flex-1 custom-scrollbar">
-          {!query ? (
+          {trimmedQuery.length < 2 ? (
             <div className="py-12 text-center">
               <Search className={`h-12 w-12 mx-auto mb-3 opacity-30 text-indigo-600 dark:text-indigo-400`} />
               <p className={`text-sm font-semibold text-slate-700 dark:text-slate-300`}>
@@ -247,6 +211,23 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   e.g. "Branch 2"
                 </span>
               </div>
+            </div>
+          ) : error ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-semibold text-rose-500">Search could not be completed</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-400 dark:text-slate-500">{error}</p>
+              <button
+                type="button"
+                onClick={() => setRetryKey((prev) => prev + 1)}
+                className="mt-3 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-500"
+              >
+                Retry search
+              </button>
+            </div>
+          ) : loading && totalResultsCount === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Searching the registers…</p>
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">Bounded to your branch and fiscal year.</p>
             </div>
           ) : totalResultsCount === 0 ? (
             <div className="py-12 text-center">
@@ -276,7 +257,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {matchedProducts.map((p) => {
-                      const totalQty = getProductStockQty(p.id);
+                      const totalQty = p.stockQty || 0;
                       return (
                         <div
                           key={p.id}
@@ -461,7 +442,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                               <span>Code: {sh.trackingCode}</span>
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              {sh.sourceBranchName || 'HQ'} ➔ {sh.destinationBranchName} ({sh.items?.length || 0} items)
+                              {sh.sourceBranchName || 'HQ'} ➔ {sh.destinationBranchName} ({sh.itemCount || 0} items)
                             </div>
                           </div>
                         </div>
