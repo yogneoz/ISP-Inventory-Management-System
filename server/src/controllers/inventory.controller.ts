@@ -2329,6 +2329,20 @@ try {
     }
     if (!record) return res.status(404).json({ message: 'Customer device record not found' });
 
+    // Object-level branch check. The app-level enforceBranchAccess middleware
+    // runs before Express has populated req.params.id, so a PATCH whose body
+    // carries no branchId (this one) would otherwise let a branch user patch a
+    // record in another branch. Match that middleware's branch rule here, before
+    // any mirror or database mutation.
+    const actor = getUserFromReq(req);
+    const isHq = actor.role === 'SUPER_ADMIN' || actor.role === 'HEAD_OFFICE_ADMIN';
+    if (!isHq) {
+      const allowedBranches = new Set<string>([actor.branchId || '', ...(actor.allowedBranchIds || [])].filter(Boolean));
+      if (!record.branchId || !allowedBranches.has(String(record.branchId))) {
+        return res.status(403).json({ message: 'Forbidden: this record belongs to another branch.' });
+      }
+    }
+
     const oldStatus = record.status;
     const isDisconn = status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED';
     const newStatusStr = isDisconn ? 'ROUTER_COLLECTED' : status;

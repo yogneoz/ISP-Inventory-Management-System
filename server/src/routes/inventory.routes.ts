@@ -16,6 +16,18 @@ import { buildDamageRecordInsert, buildReversalLedgerWithStock, deriveDamageItem
 import { applyDualEdit, generateParkTag, validateDualEditPayload } from '../services/serialEditCapture.service';
 import type { CustomerDeviceRecord, DamageRecord, SerialLog, TransactionLog } from '../../../client/src/types';
 
+/**
+ * CPE lifecycle audience. A direct status flip can close a rental and free its
+ * serial without going through the approval/restock workflow, so it is limited
+ * to the manager roles that already execute CPE approvals plus the inventory
+ * manager who owns stock and the register. Exchange keeps its own
+ * field-technician lane; sharing the manager base keeps the two audiences from
+ * drifting apart.
+ */
+const CPE_MANAGER_ROLES = ['SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'BRANCH_MANAGER'] as const;
+export const CPE_STATUS_ROLES = [...CPE_MANAGER_ROLES, 'INVENTORY_MANAGER'] as const;
+export const CPE_EXCHANGE_ROLES = [...CPE_MANAGER_ROLES, 'FIELD_TECHNICIAN'] as const;
+
 export function registerInventoryRoutes(app: Express) {
 app.get('/api/stock', async (req, res, next) => { get_stock(req as any, res as any).catch(next); });
 
@@ -49,7 +61,7 @@ app.get('/api/customer-devices', async (req, res, next) => { get_customerDevices
 
 app.post('/api/customer-devices', requirePermission('customers-manage'), async (req, res, next) => { post_customerDevices(req as any, res as any).catch(next); });
 
-app.patch('/api/customer-devices/:id/status', async (req, res, next) => { patch_status2(req as any, res as any).catch(next); });
+app.patch('/api/customer-devices/:id/status', requireRole(...CPE_STATUS_ROLES), async (req, res, next) => { patch_status2(req as any, res as any).catch(next); });
 
 app.patch('/api/inventory/serials', requirePermission('edit-device-serials'), handleUpdateSerials);
 
@@ -68,17 +80,17 @@ app.get('/api/inventory/serials/lookup', requirePermission('edit-device-serials'
 // 'edit-device-serials' permission, and a 403 would send them back to the
 // misleading "not in the register" wording. Same read-only handler, same
 // audience as the exchange endpoint itself — this route never writes.
-app.get('/api/customer-devices/exchange/lookup', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { get_exchangeLookup(req as any, res as any).catch(next); });
+app.get('/api/customer-devices/exchange/lookup', requireRole(...CPE_EXCHANGE_ROLES), async (req, res, next) => { get_exchangeLookup(req as any, res as any).catch(next); });
 
 app.post('/api/inventory/serials/dual', requirePermission('edit-device-serials'), async (req, res, next) => { post_dual(req as any, res as any).catch(next); });
 
-app.post('/api/customer-devices/exchange', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { post_exchange(req as any, res as any).catch(next); });
+app.post('/api/customer-devices/exchange', requireRole(...CPE_EXCHANGE_ROLES), async (req, res, next) => { post_exchange(req as any, res as any).catch(next); });
 
 // The dialogs refuse a known-bad replacement before submitting (fast, specific
 // wording), so those attempts never reach post_exchange. They report them here
 // so repeated claims on one unit still land in the audit trail. Audit only: the
 // handler re-resolves the unit from the register and writes nothing else.
-app.post('/api/customer-devices/exchange/refusal', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER'), async (req, res, next) => { post_exchangeRefusal(req as any, res as any).catch(next); });
+app.post('/api/customer-devices/exchange/refusal', requireRole(...CPE_EXCHANGE_ROLES), async (req, res, next) => { post_exchangeRefusal(req as any, res as any).catch(next); });
 
 app.get('/api/serial-log', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'AUDITOR', 'PROCUREMENT_OFFICER', 'FIELD_TECHNICIAN'), async (req, res, next) => { get_serialLog(req as any, res as any).catch(next); });
 

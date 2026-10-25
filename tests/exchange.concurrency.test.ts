@@ -194,10 +194,13 @@ describe('device exchange concurrency: one replacement serial, one winner', () =
     // register", which is the wording this whole path exists to remove.
     const routes = fs.readFileSync(path.resolve('server/src/routes/inventory.routes.ts'), 'utf8');
     assert.ok(
-      routes.includes(
-        "app.get('/api/customer-devices/exchange/lookup', requireRole('SUPER_ADMIN', 'HEAD_OFFICE_ADMIN', 'FIELD_TECHNICIAN', 'BRANCH_MANAGER')"
-      ),
-      'the exchange lookup must carry the exchange role list'
+      routes.includes("requireRole(...CPE_EXCHANGE_ROLES)"),
+      'the exchange lookup must carry the shared exchange role list'
+    );
+    assert.match(
+      routes,
+      /CPE_EXCHANGE_ROLES = \[\.\.\.CPE_MANAGER_ROLES, 'FIELD_TECHNICIAN'\]/,
+      'the exchange audience must keep its field-technician lane'
     );
     assert.ok(
       routes.includes('get_exchangeLookup(req as any, res as any)'),
