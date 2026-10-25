@@ -1186,8 +1186,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
       );
       for (const tabKey of tabKeys) {
         assert.ok(
-          appSource.includes(`visible['${tabKey}'] === true`),
-          `App.tsx no longer renders a tab '${tabKey}' — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
+          appSource.includes(`screenRoute('${tabKey}'`),
+          `App.tsx no longer declares a route '${tabKey}' in screenRoutes — client/src/features/${screen}'s useActivationKey argument must match the tab key it renders under, or the activation counter never ticks`
         );
       }
     }

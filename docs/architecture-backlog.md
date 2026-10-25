@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6 and A3 are implemented (2026-10-22 … 2026-10-25)**; C4, A4–A5 and B are not started._
+_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2, A6, A3 and A4a are implemented (2026-10-22 … 2026-10-25)**; C4, the rest of A4, A5 and B are not started._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -26,7 +26,7 @@ data-model bet that should be measured before it is made.
 |---|---|---|---|
 | **D** | Defect + deployment constraint | Silent session invalidation on every restart; a second process could never verify tokens | **Now** |
 | **C** | Accrued debt, half-fixed already | Slice failures are swallowed and slices are not scope-guarded | After D |
-| **A** | Structural refactor | Root is 3,194 lines / 49 `useState`; every visited tab re-rendered on any root state change (closed by A1); A6 renders the real route tree and A3 moved session/scope state into contexts | Incremental, A4 next |
+| **A** | Structural refactor | Root is 3,044 lines / 39 `useState` (was 3,194 / 49); every visited tab re-rendered on any root state change (closed by A1); A6 renders the real route tree, A3 moved session/scope state into contexts and A4a turned the tab tree into one typed table | Incremental, A4b after A5 |
 | **B** | Data-model change | Seven `items JSONB` columns; today only two queries reach inside, but eight `items::text LIKE` scans will degrade linearly | Measure first; normalize only on demand |
 
 ## Status
@@ -43,6 +43,7 @@ data-model bet that should be measured before it is made.
 [x] A2  move shell-only UI state out of the data tree    (2026-10-23)
 [x] A6  client test harness                          (2026-10-25)
 [x] A3  session + scope contexts                     (2026-10-25)
+[~] A4  AppRoutes + route registry   (A4a landed 2026-10-25; element factory still in App)
 [ ] A3  session + scope contexts
 [ ] A4  AppRoutes + route registry
 [ ] A5  data store for operational arrays            (last)
@@ -214,6 +215,7 @@ fetch paths, multi-screen wiring) is still pinned at source where a pure functio
 | **Change** | A typed registry (`key`, lazy element, permission) rendered by `AppRoutes` inside `KeepMountedRoot`; the root stops containing the tab markup. |
 | **Done when** | Permission-gated tabs, `visible` flags, lazy loading and keep-mounted semantics are identical; the route table is the only place a tab is declared. |
 | **Rough effort / risk** | 3 days · medium |
+| **A4a 2026-10-25** | [appRoutes.tsx](../client/src/routes/appRoutes.tsx) defines `AppRoute`, `screenRoute` and the `AppRoutes` renderer; [tabPermissions.ts](../client/src/routes/tabPermissions.ts) is now the one RBAC/admin table and `isTabAccessible`. App declares a 67-entry `screenRoutes` table and renders `<AppRoutes>`; its inline `KeepMounted` blocks and local permission tables are gone. Pinned by [appRouteRegistry.test.ts](../tests/appRouteRegistry.test.ts) (5 tests) and still covered by the A6 route-tree test. **Remaining for A4:** the element construction is still in App (a table entry needs its props/handlers), because a typed deps contract for ~100 values is A5's store work; extract it when that contract exists, then tick this slice. |
 
 ### A5 — Data store for operational arrays (last)
 

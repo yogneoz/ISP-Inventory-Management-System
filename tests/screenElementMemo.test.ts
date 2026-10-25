@@ -205,30 +205,42 @@ describe('A1 wiring — the container actually memoises, and every tab is a memo
     );
   });
 
-  test('all 67 tabs wrap a screen element (directly or in one Suspense)', () => {
-    const app = read('client/src/App.tsx').split('\n');
+  test('all 67 route entries declare a screen element (directly or in one Suspense)', () => {
+    // A4a moved the tab tree from inline <KeepMounted> blocks into the
+    // screenRoutes table; the memo contract is unchanged, so the guard now
+    // walks that table. AppRoutes passes each entry as KeepMounted's child.
+    const app = read('client/src/App.tsx')
+      .split('\n')
+      .map((l) => l.replace(/\r$/, ''));
     const starts = app
-      .map((line, index) => (line.includes('<KeepMounted ') ? index : -1))
+      .map((line, index) => (line.includes('screenRoute(') ? index : -1))
       .filter((index) => index >= 0);
     assert.equal(starts.length, 67, 'tab count changed — re-check the memo covers every slot');
 
     const offenders: string[] = [];
     for (const start of starts) {
+      const line = app[start];
+      // Inline form: screenRoute('key', <Screen />),
+      const inline = line.match(/screenRoute[(]'[^']+',[ ]*(<.+)$/);
+      if (inline) {
+        if (!inline[1].trim().startsWith('<')) offenders.push(line.trim());
+        continue;
+      }
       const firstChild = app
         .slice(start + 1)
-        .find((line) => line.trim().length > 0)
+        .find((l) => l.trim().length > 0)
         ?.trim();
       if (!firstChild || !firstChild.startsWith('<') || firstChild.startsWith('</')) {
-        offenders.push(app[start].trim());
+        offenders.push(line.trim());
         continue;
       }
       if (firstChild.startsWith('<React.Suspense')) {
         const wrapperChild = app
           .slice(start + 2)
-          .find((line) => line.trim().length > 0)
+          .find((l) => l.trim().length > 0)
           ?.trim();
         if (!wrapperChild || !wrapperChild.startsWith('<')) {
-          offenders.push(app[start].trim());
+          offenders.push(line.trim());
         }
       }
     }

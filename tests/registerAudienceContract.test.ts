@@ -126,10 +126,10 @@ describe('register audience contract', () => {
       sidebar.includes("isOperationAllowed('pullout-report-view', currentUser?.role)"),
       'sidebar entry must follow the matrix toggle (enable=show, disable=hide)'
     );
-    const app = read('client/src/App.tsx');
+    const permissions = read('client/src/routes/tabPermissions.ts');
     assert.ok(
-      app.includes("'pullout-report': 'pullout-report-view',"),
-      'App tab gate must map the report to its operation'
+      permissions.includes("'pullout-report': 'pullout-report-view',"),
+      'the route permission table must map the report to its operation'
     );
   });
 
