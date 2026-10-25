@@ -33,6 +33,8 @@ const globals: Record<string, unknown> = {
   MouseEvent: win.MouseEvent,
   KeyboardEvent: win.KeyboardEvent,
   getComputedStyle: win.getComputedStyle,
+  localStorage: dom.window.localStorage,
+  sessionStorage: dom.window.sessionStorage,
   requestAnimationFrame: win.requestAnimationFrame,
   cancelAnimationFrame: win.cancelAnimationFrame,
   IS_REACT_ACT_ENVIRONMENT: true,

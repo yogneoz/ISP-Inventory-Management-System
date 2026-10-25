@@ -99,7 +99,9 @@ const AssetDeployments = React.lazy(() =>
 // DEV-ONLY: StatCard design-review gallery (hidden dev-statcard tab).
 // Gated behind import.meta.env.DEV so the chunk is tree-shaken out of
 // production builds entirely; the sidebar entry is gated the same way.
-const StatCardShowcase = import.meta.env.DEV
+// `?.` because `import.meta.env` only exists under Vite: the A6 route-tree
+// test loads this module under node:test (same guard as Sidebar).
+const StatCardShowcase = import.meta.env?.DEV
   ? React.lazy(() => import('./features/dev/StatCardShowcase').then((m) => ({ default: m.StatCardShowcase })))
   : () => null;
 const WarrantyProducts = React.lazy(() =>
@@ -356,7 +358,7 @@ export default function App() {
     // DEV-ONLY guard: the design-review gallery does not exist in production
     // builds. Without this, a stale localStorage tab could land a user on a
     // blank page; with it, the enforcement effect below redirects to dashboard.
-    if (tab === 'dev-statcard' && !import.meta.env.DEV) return false;
+    if (tab === 'dev-statcard' && !import.meta.env?.DEV) return false;
     if (SUPER_ADMIN_ONLY_TABS.includes(tab)) return currentUser?.role === 'SUPER_ADMIN';
     const perm = TAB_PERMISSIONS[tab];
     if (!perm) return true;
@@ -2110,7 +2112,7 @@ export default function App() {
               />
             </KeepMounted>
 
-            <KeepMounted visible={visible['dev-statcard'] === true && import.meta.env.DEV}>
+            <KeepMounted visible={visible['dev-statcard'] === true && Boolean(import.meta.env?.DEV)}>
               <React.Suspense fallback={<TabLoadingFallback />}>
                 <StatCardShowcase />
               </React.Suspense>

@@ -1,6 +1,6 @@
 # Architecture backlog — D (secrets), C (hydration), A (root component), B (JSONB items)
 
-_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1 and A2 are implemented (2026-10-22 … 2026-10-23)**; C4, A3–A6 and B are not started._
+_2026-10-21 · baseline commit `0c44704` · **D1–D3, C1–C3, A1, A2 and A6 are implemented (2026-10-22 … 2026-10-25)**; C4, A3–A5 and B are not started._
 
 This file is the single place for the four architecture notes, split into numbered slices so work can
 be taken one item at a time without losing the rest. The two most recent commits
@@ -26,7 +26,7 @@ data-model bet that should be measured before it is made.
 |---|---|---|---|
 | **D** | Defect + deployment constraint | Silent session invalidation on every restart; a second process could never verify tokens | **Now** |
 | **C** | Accrued debt, half-fixed already | Slice failures are swallowed and slices are not scope-guarded | After D |
-| **A** | Structural refactor | Root is 3,294 lines / 49 `useState`; every visited tab re-rendered on any root state change (closed by A1); UI behaviour is still source-guard-only | Incremental, gated on A6 |
+| **A** | Structural refactor | Root is 3,194 lines / 49 `useState`; every visited tab re-rendered on any root state change (closed by A1); A6 now renders the real route tree, so refactors have a behavioural gate | Incremental, A3/A4 unblocked |
 | **B** | Data-model change | Seven `items JSONB` columns; today only two queries reach inside, but eight `items::text LIKE` scans will degrade linearly | Measure first; normalize only on demand |
 
 ## Status
@@ -41,7 +41,7 @@ data-model bet that should be measured before it is made.
 [ ] C4  one hydration entry point                    (optional)
 [x] A1  memoize kept-mounted screens                     (2026-10-23)
 [x] A2  move shell-only UI state out of the data tree    (2026-10-23)
-[ ] A6  client test harness                          (gate for A3/A4)
+[x] A6  client test harness                          (2026-10-25)
 [ ] A3  session + scope contexts
 [ ] A4  AppRoutes + route registry
 [ ] A5  data store for operational arrays            (last)
@@ -162,9 +162,10 @@ Verified at baseline: [App.tsx](../client/src/App.tsx) is **3,194 lines** (3,294
 **49 `useState`** and **18 `useEffect`**; the context in use is DarkMode (plus the keep-mounted
 tab contexts). At baseline [KeepMounted.tsx](../client/src/components/common/KeepMounted.tsx) kept
 every visited tab mounted without memoizing its children, so **any root state change re-rendered
-every screen already opened** — closed by A1 below. There is still no jsdom/testing-library/vitest
-suite; A1 added only the jsdom + `react-dom` render measurement it needed, and the remaining
-"UI tests" are source-text assertions until A6.
+every screen already opened** — closed by A1 below. A1 added the jsdom + `react-dom` render measurement it needed; A6 (2026-10-25)
+turned that into a route-tree smoke test that mounts the real `App` with the `api` object stubbed, so
+the KeepMounted contract is now behavioural. Screen-level behaviour with no rendered harness (API
+fetch paths, multi-screen wiring) is still pinned at source where a pure function cannot express it.
 
 ### A1 — Memoize kept-mounted screens
 
@@ -194,6 +195,7 @@ suite; A1 added only the jsdom + `react-dom` render measurement it needed, and t
 | **Change** | Add vitest + jsdom + @testing-library/react, a mocked `api` module, and one smoke test that renders the route tree and proves tab state survives a switch (the KeepMounted contract). A1 already added the jsdom + `react-dom` render harness ([tests/harness](../tests/harness/mount.tsx)) and a KeepMounted probe; A6 turns that into a route-tree smoke test with a mocked `api` and adds the remaining tooling. |
 | **Done when** | `npm test` (or a documented `npm run test:ui`) runs the smoke test in CI; it fails if a screen remounts on tab switch. |
 | **Rough effort / risk** | 1 day · low · **must land before A3/A4** |
+| **Done 2026-10-25** | [appRouteTreeProbe.tsx](../tests/harness/appRouteTreeProbe.tsx) mounts the real `App` in the `main.tsx` providers under jsdom, seeds a SUPER_ADMIN session and replaces the `api` singleton's mount-time methods with fixtures (no network, no module mocking; a fake `EventSource` covers SSE). [appRouteTree.test.ts](../tests/appRouteTree.test.ts) navigates through `NAVIGATE_TAB_EVENT`, types a draft into Assign Fixed Asset, switches to the Dashboard and back, and asserts the same DOM node with the same value — a remount replaces the node and fails. It runs inside `npm test`'s existing glob, so CI exercises it with no new script. Two node-test-safety fixes came with it: `App.tsx` reads `import.meta.env?.DEV` (the guard Sidebar already used) and [dom.ts](../tests/harness/dom.ts) exposes jsdom's `localStorage`/`sessionStorage` globals. |
 
 ### A3 — Session and scope contexts
 
