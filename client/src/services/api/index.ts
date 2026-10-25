@@ -167,6 +167,7 @@ export const api = {
 
   // Customer Master Database (paged server-side reads)
   getCustomers: inventory.getCustomers,
+  searchCustomers: inventory.searchCustomers,
   getProducts: inventory.getProducts,
   createCustomer: inventory.createCustomer,
   bulkImportCustomers: inventory.bulkImportCustomers,

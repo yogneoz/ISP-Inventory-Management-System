@@ -1,6 +1,38 @@
 # SESSION NOTES — for next session
 
-_Date: 2026-10-24 · Branch: main · Tests: 1147/1147 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+_Date: 2026-10-24 · Branch: main · Tests: 1152/1152 green with a DB (all run in CI too; the two unconditional skips are Windows-only real-signal checks that Linux CI runs — no DB-dependent skips since the PG service container landed)_
+
+## ✅ U-1 shipped — one searchable customer picker (2026-10-24)
+
+**Problem.** The customer field already searched, but each copy filtered the
+full `customers` bootstrap array: `SalesInvoices` and `ProductSalePanel` held
+two near-identical inline pickers (each capped its own list), while
+`AssignAssetPanel` still rendered every customer as a native `<option>`. At
+~12k customers that is thousands of DOM nodes per form and an unusable
+scroll list.
+
+**Fix.** `components/common/CustomerPicker.tsx` is now the one control: 2+
+characters, debounced, server-searched through the existing paged
+`/api/customers` endpoint, capped at 20 rows, with keyboard navigation, an
+explicit failure state + Retry (never “no matches” on a failed read), and a
+stale-response guard. The screen supplies the API method
+(`search={api.searchCustomers}`), so the per-screen surface pins still see the
+read. `AssignAssetPanel`, `SalesInvoices` and `ProductSalePanel` all use it;
+the old inline copies and their full-array filters are gone. The deployment
+line also keeps the picked directory row, so submit no longer depends on the
+customer still being in a stale bootstrap snapshot. No new screen, so the
+screen-count tables did not change; the three surface pins gained
+`searchCustomers`.
+
+**Verified.** `tests/customerPicker.test.ts` (5 jsdom cases: minimum length +
+debounce, click/clear, failed search + Retry, keyboard selection, slow-response
+discard). Live on the dev app: typing `Example` in Assign Fixed Asset issued
+`GET /api/customers?query=Example&page=1&pageSize=20`, listed the four
+directory rows with phone/address, and selected
+`Example Customer 1 (CUS-10291)`; the same control rendered and searched in
+Product Sale and Create Sales Invoice. Form reset afterwards; no records were
+written. Suite **1152 tests, 1150 pass, 2 Windows-only skips, 0 fail**;
+`npx tsc --noEmit` clean.
 
 ## ✅ DF-13…DF-17 close-out review (2026-10-24)
 
@@ -40,7 +72,7 @@ and guards were corrected, and one residual was closed:
 
 `npx tsc --noEmit` clean; the `df13`, `df14`, `df15`, `df17`,
 `exchangeDevices` and `registerRefreshDomains` tests pass; full suite
-**1147 tests, 1145 pass, 2 Windows-only skips, 0 fail** (docs-count gate
+**1152 tests, 1150 pass, 2 Windows-only skips, 0 fail** (docs-count gate
 included).
 
 ## ✅ DF-17 shipped — the last three silent reads are visible and retryable (2026-10-24)
@@ -68,7 +100,7 @@ applies the server matrix through the existing update event.
 **Verified.** `tests/df17SilentReads.test.ts` (6 source pins: the backfill
 loader and notice, the toggle's unknown state, branch-scope clearing and the
 form's gate/notice, and the permission resync/disabled-Save wiring). Full suite
-**1147 tests, 1145 pass, 2 Windows-only skips, 0 fail**; `npx tsc --noEmit`
+**1152 tests, 1150 pass, 2 Windows-only skips, 0 fail**; `npx tsc --noEmit`
 clean. The manual forced-failure limitation was closed by the close-out
 review's run above (bootstrap + serial-log 503s, then a Retry that repopulated
 WH001); all three remain UI wiring around existing fetch paths, pinned at
@@ -241,7 +273,7 @@ the mirror only for PG-down demo mode (`!getPgConnected()`):
 
 **Tests.** `tests/bootstrapTrimStep5.test.ts` (5 tests) pins every converted
 site, the receive double-apply gate, and the new single-row SQL shapes. Suite
-now 1147 tests, 0 fail; `npx tsc --noEmit` clean.
+now 1152 tests, 0 fail; `npx tsc --noEmit` clean.
 
 ## ✅ Branch-scoped stock availability fixed (2026-10-24)
 
@@ -292,7 +324,7 @@ three pairs at a time in input order, bounded so nine aggregate queries per
 pair cannot monopolise the 20-connection pool. The live batch tests still pass.
 
 Evidence: `tests/closeoutResiduals.test.ts` and `tests/mapWithConcurrency.test.ts`
-(5 tests: order, bound, empty list, rejection, invalid limit). Suite now 1147
+(5 tests: order, bound, empty list, rejection, invalid limit). Suite now 1152
 tests, 0 fail; `npx tsc --noEmit` clean.
 
 A follow-up pass over the three screens found two missed loading/retry states,
@@ -317,7 +349,7 @@ list lands and after a profile switch; choosing a branch in the select stops
 the sync, and a successful save returns to following the default.
 
 Evidence: `tests/locationDefaults.test.ts` (4 pure rule cases + 2 wiring pins).
-Suite now 1147 tests, 0 fail; `npx tsc --noEmit` clean.
+Suite now 1152 tests, 0 fail; `npx tsc --noEmit` clean.
 
 ## ✅ Data-fetching list closed — DF-01…DF-12 all shipped (2026-10-24)
 
@@ -376,7 +408,7 @@ and the live batch coverage in `tests/financialSummary.test.ts` (3 tests).
    write-only total/error setters from Customers Management and the Customer
    Master Directory.
 
-Suite now 1147 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual
+Suite now 1152 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual
 browser pass over the three reload sites — they are covered by the wiring pins
 and the panels' existing tests.
 
@@ -408,7 +440,7 @@ Evidence: new `tests/loadStateNotice.test.ts` (11 tests: six React render
 assertions for spinner/alert/cached copy/retry-in-flight/clear, four screen
 wiring pins including the real loading flag and the error-aware empty copy, and
 Product Management's rendered catalog error + removed dead flag). Suite now
-1147 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual
+1152 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual
 server-stop/forced-500 browser pass; the states are exercised through the
 component render and the screens' wiring. Next: **DF-12** (cleanup: reload-free
 exchange refresh, batch financial summaries, dead device pagination state).
@@ -448,7 +480,7 @@ real React render proving a mount check plus a re-check on the calendar
 event). `tests/registerRefreshDomains.test.ts` gained a wiring guard (+1 test)
 pinning the App broadcast, both screens' `calendarVersion` dependency and their
 failure notice, and its two stock-screen surface pins were retightened to the
-shared hook. Suite now 1147 tests, 0 fail; `npx tsc --noEmit` clean.
+shared hook. Suite now 1152 tests, 0 fail; `npx tsc --noEmit` clean.
 Limitation: no live browser run with the server stopped or a clock forced to
 00:15 NPT; both are covered at the helper/hook level, with the screens' wiring
 pinned by source. Next: **DF-11** (distinguish "failed to load" from "empty" on
@@ -473,7 +505,7 @@ to page 1, and a zero total stays on page 1 rather than page 0.
 Evidence: new `tests/serverPageClamp.test.ts` (5 tests: pure clamping including
 an empty set, plus a real React render where a 61→60 total snaps page 5 to 4, a
 31→0 total lands on page 1, and a still-covered page does not move). Suite now
-1147 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual delete on a
+1152 tests, 0 fail; `npx tsc --noEmit` clean. Limitation: no manual delete on a
 multi-page register was run; the clamp is exercised through the hook the six
 registers share. Next: **DF-10** (BS calendar fallbacks and the BS-date gate).
 
@@ -496,7 +528,7 @@ saves and manual loads.
 Evidence: `tests/latestOnly.test.ts` (6 tests: ticket ordering, guard
 independence, a slow older response losing to the newer selection, a stale
 failure staying silent and keeping the rows, and loading settling only for the
-current request). Suite now 1147 tests, 0 fail; `npx tsc --noEmit` clean.
+current request). Suite now 1152 tests, 0 fail; `npx tsc --noEmit` clean.
 Limitation: no browser pass with artificially delayed responses was run; the
 guard behaviour is covered by the async tests. Next: **DF-09** (clamp a
 register page when the row set shrinks).
@@ -515,7 +547,7 @@ Evidence: new `tests/apiDedup.test.ts` (4 tests with a mocked fetch: same-year
 coalescing, cross-year separation with out-of-order responses, branch/user
 identity retained, in-flight-only dedup). The suite was run against the old key
 to confirm it fails there (2 failures) and passes on the new one. Suite now
-1147 tests, 0 fail; `npx tsc --noEmit` clean. Next: **DF-08** (sequence guards
+1152 tests, 0 fail; `npx tsc --noEmit` clean. Next: **DF-08** (sequence guards
 for the ledgers and opening registers).
 
 ## ✅ DF-06 shipped — shipment receipts and recalculation jobs refresh every surface they rewrite (2026-10-24)
@@ -545,7 +577,7 @@ Evidence: `tests/registerRefreshDomains.test.ts` pins
 `SHIPMENTS → ['purchaseOrders', 'serialLog']`, both `transactionLogs` slice
 additions in `App.tsx`'s `DOMAIN_STATE_KEYS`, and the RECALC branch that
 re-reads the calendar mirror; the existing multi-domain burst expectation was
-corrected for the second `serial_log` writer. Suite now 1147 tests, 0 fail;
+corrected for the second `serial_log` writer. Suite now 1152 tests, 0 fail;
 `npx tsc --noEmit` clean. Limitation: no literal two-browser SSE session was
 run; the server side is unchanged (the same broadcast/domain plumbing already
 proven by the sync tests), and the new client mappings are pinned by the
@@ -581,7 +613,7 @@ Evidence: new `tests/financialSummary.test.ts` (9 tests: the pure rule, AP
 returns/draft exclusions, trading isolation, source wiring for both producers
 and all seven App domains, plus live-DB HTTP cases — 401, slice≡bootstrap for
 the same scope, a just-committed invoice visible on the next read, and a
-second branch seeing zeros). Suite now 1147 tests, 0 fail. Next: **DF-06**
+second branch seeing zeros). Suite now 1152 tests, 0 fail. Next: **DF-06**
 (complete the SSE domain coverage for shipments and recalculation).
 
 ## ✅ DF-04 shipped — paged-register failures are visible, exports refuse partial files (2026-10-24)
@@ -608,7 +640,7 @@ failures: Purchase Orders, Sales Invoices and Consumables each showed the rose
 notice with the error and cached rows, Export CSV disabled, and Retry restored
 the register and re-enabled export once the network recovered. On Consumables,
 a failing full-register (`all=1`) fetch on export showed "Export failed … No
-file was written." and downloaded nothing. Suite now 1147 tests, 0 fail. Next:
+file was written." and downloaded nothing. Suite now 1152 tests, 0 fail. Next:
 **DF-05** (give `financialSummary` a refresh path).
 
 ## ✅ DF-01 shipped — Customer Master Directory restored (2026-10-24)
@@ -627,7 +659,7 @@ envelope only; the directory is its sole caller.
 Evidence: `tests/masterdata.repo.test.ts` (query-builder cases rewritten for the new WHERE/limit/offset
 and the aggregate sibling) and the new `tests/customerPaging.api.test.ts` (9 live-DB HTTP cases:
 envelope shape, page 2, status/branch/search filters, page-size clamp, `all=1`, and a fixture-created
-row set — no seeded data). Suite now 1147 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
+row set — no seeded data). Suite now 1152 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
 `npx tsc --noEmit` clean. Next: **DF-02** (refresh the product catalog after save).
 
 ## ✅ DF-02 shipped — product catalog refreshes after save (2026-10-24)
@@ -651,7 +683,7 @@ switches produced exactly one `GET /api/products` each (no loop, counted through
 fetch wrapper), and a rejected product fetch kept all rows plus the banner until Retry.
 All test rows were removed afterwards (DB back to its 14 products).
 
-Suite now 1147 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
+Suite now 1152 tests, 1012 pass, 2 unconditional Windows-only skips, 0 fail;
 `npx tsc --noEmit` clean. Next: **DF-03** (one shared serial-register cache).
 
 ## ✅ DF-03 shipped — one shared serial-register cache (2026-10-24)
@@ -681,7 +713,7 @@ mounted without an extra GET. Unit tests cover dedup across 11 consumers,
 envelope parsing, invalidation with late-response discard, failure keeping the
 last snapshot, and no fetch without subscribers.
 
-Suite now 1147 tests, 1019 pass, 2 unconditional Windows-only skips, 0 fail;
+Suite now 1152 tests, 1019 pass, 2 unconditional Windows-only skips, 0 fail;
 `npx tsc --noEmit` clean. Next: **DF-04** (surface paged-register fetch failures).
 
 ## ⭐ Data-fetching audit → tracked task list (2026-10-24)
@@ -2627,7 +2659,7 @@ emitted because Rollup tree-shook it. LESSON: grep before assuming a dependency 
 **Backlog #7 closed — CI build + audit gates (in `5318809`):**
 CI's gate list is now complete:
 1. `npx tsc --noEmit` — type errors
-2. `npm test` — 1147 tests against a real PostgreSQL 16 service container (drift guard,
+2. `npm test` — 1152 tests against a real PostgreSQL 16 service container (drift guard,
    concurrency proofs, HTTP positive paths — zero skips)
 3. `check:no-inline-sql` — repo-layer convention
 4. **NEW** `npm run build` — vite + esbuild production bundles (catches bundling-only
@@ -3194,7 +3226,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   fallback's only refresh path IS refreshAllData). Pinned by 4 new
   tests in `tests/registerRefreshDomains.test.ts` (all four keys
   incremented, arbitrary counter values, purity/immutability, exact
-  key coverage; suite now 1147 tests, 0 fail). Live-verified:
+  key coverage; suite now 1152 tests, 0 fail). Live-verified:
   direct PG insert of a CONSUMABLE_ISSUE row (no SSE broadcast)
   left the consumable register stale at "9 records"; clicking the
   header Refresh button re-ran the register's paged fetch and
@@ -3252,7 +3284,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   (`new SseDomainBurst()`, `burst.observe(event?.domain)`, `burst.flush(`, 
   the `refreshAllDataRef.current()` fallback, and
   `setRegisterRefresh(bumpAllRegisterRefresh)` inside refreshAllData) so
-  the extraction can't silently be reverted. Suite now 1147 tests, 0 fail
+  the extraction can't silently be reverted. Suite now 1152 tests, 0 fail
   (tsc --noEmit clean).
 - **Paged-tab staleness audit — CLOSED (2026-10-02, nothing to wire):**
   audited the remaining paged/fetching tabs for the four-register
@@ -3317,7 +3349,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   sole useEffect pinned to the mount-only BS check. Any future
   refactor of these tabs to server-paged self-fetch (the
   loadConsumableRegisterPage pattern) fails the suite and forces an
-  explicit SSE-wiring decision. Suite now 1147 tests, 0 fail.
+  explicit SSE-wiring decision. Suite now 1152 tests, 0 fail.
 - **Feature-screen coverage guard + register surface pins — DONE (2026-10-03,
   pushed `68d9234`):** the paged-tab source-guard now covers the whole client.
   (1) The remaining self-fetching registers are pinned in
@@ -3355,7 +3387,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   pinned as SSE-wired registers (surface + effect deps + every render site),
   no longer pinned `[]`. Proven by probe in both directions (injected named
   import / `pageSize:` / unpinned new screen / raw fetch → 4 precise
-  failures, then reverted). Suite now 1147 tests, 0 fail.
+  failures, then reverted). Suite now 1152 tests, 0 fail.
 - **Docs-count guard — DONE (2026-10-03):** `npm test` now ends with a gate
   (scripts/run_tests.mjs → scripts/docsTestCounts.ts) that parses THIS run's
   real suite size from the runner's own summary line and fails if any
@@ -3370,7 +3402,7 @@ unseeded calendar days use BS_DATE_FALLBACK.
   tests/docsCounts.guard.test.ts. Screen tallies quoted in these docs
   (total / table / pinned-elsewhere counts) are pinned the same way by a
   live check in tests/registerRefreshDomains.test.ts, so a screen added or
-  reclassified without updating the prose fails too. Suite now 1147 tests, 0 fail.
+  reclassified without updating the prose fails too. Suite now 1152 tests, 0 fail.
 
 ## Key files touched this arc (for context)
 

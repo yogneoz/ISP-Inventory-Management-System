@@ -381,6 +381,23 @@ export async function getCustomers(params?: {
   return fetchJson<CustomerListEnvelope>(`/api/customers${queryString}`);
 }
 
+/**
+ * Customer-directory search for the shared picker. Deliberately a small,
+ * fixed page: the picker shows a handful of matches, never the whole 12k-row
+ * directory. Screens pass this straight to <CustomerPicker search={...}> so
+ * the screen-surface guards still see the read.
+ */
+export async function searchCustomers(query: string, limit = 20): Promise<CustomerRecord[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const envelope = await getCustomers({
+    query: q,
+    page: 1,
+    pageSize: Math.max(1, Math.min(50, limit)),
+  });
+  return envelope.data;
+}
+
 // Customer Master Database
 export async function createCustomer(record: Omit<CustomerRecord, 'id'> | CustomerRecord): Promise<CustomerRecord> {
   return fetchJson('/api/customers', {

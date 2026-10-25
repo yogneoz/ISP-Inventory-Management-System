@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import {
   CustomerRecord,
@@ -7,14 +7,12 @@ import {
 import { FormCard } from '../../../components/common/FormCard';
 import { ProductSearchBar } from '../ProductSearchBar';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
+import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import { formatNPR } from '../../../utils/nprFormat';
+import { api } from '../../../services/api';
 import {
   Plus,
   Trash2,
-  X,
-  Search,
-  CheckCircle2,
-  ChevronDown,
   PackageMinus,
   RotateCcw,
 } from 'lucide-react';
@@ -230,48 +228,24 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
   const [sellNotes, setSellNotes] = useState<string>('Direct retail product item sale to customer');
   const [sellItems, setSellItems] = useState<SaleItem[]>([]);
 
-  // Customer SEARCH field state (searchable input + dropdown, not a native select).
-  // `sellCustomerQuery` is the visible text; `sellCustomerId` stays the canonical FK.
-  const sellCustomerDropdownRef = useRef<HTMLDivElement | null>(null);
+  // Customer SEARCH field state: `sellCustomerQuery` is the visible label,
+  // `sellCustomerId` stays the canonical FK.
   const [sellCustomerQuery, setSellCustomerQuery] = useState<string>(() => {
     const c = customers[0];
     return c ? `${c.customerName} (${c.customerId})` : '';
   });
-  const [isSellCustomerDropdownOpen, setIsSellCustomerDropdownOpen] = useState<boolean>(false);
-
   const sellCustomerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
-
-
-  // Filter the customer search dropdown by query text.
-  const filteredSellCustomers = useMemo(() => {
-    const q = sellCustomerQuery.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.customerName.toLowerCase().includes(q) ||
-        c.customerId.toLowerCase().includes(q) ||
-        (c.contactNumber || '').toLowerCase().includes(q) ||
-        (c.address || '').toLowerCase().includes(q)
-    );
-  }, [customers, sellCustomerQuery]);
-
-  // Close the customer dropdown on outside click.
-  useEffect(() => {
-    if (!isSellCustomerDropdownOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (sellCustomerDropdownRef.current && !sellCustomerDropdownRef.current.contains(e.target as Node)) {
-        setIsSellCustomerDropdownOpen(false);
+  const selectedSellCustomer = sellCustomerId
+    ? customers.find((c) => c.id === sellCustomerId)
+    : undefined;
+  const sellCustomerPickerValue = sellCustomerId
+    ? {
+        id: sellCustomerId,
+        label:
+          sellCustomerQuery ||
+          (selectedSellCustomer ? sellCustomerDisplay(selectedSellCustomer) : ''),
       }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [isSellCustomerDropdownOpen]);
-  // (form reset, customers list loads, default selection).
-  useEffect(() => {
-    const c = customers.find((x) => x.id === sellCustomerId);
-    if (c) setSellCustomerQuery(sellCustomerDisplay(c));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sellCustomerId, customers]);
+    : null;
 
   return (
     <>
@@ -302,89 +276,21 @@ Sold device(s) tagged as SOLD in Customer Device Directory.`);
                 Row 1 = Customer search (full width), Row 2 = Branch + Payment Method. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
               {/* Row 1: Customer SEARCH field (searches the customer directory; not a native dropdown) */}
-              <div className="relative sm:col-span-2 lg:col-span-12" ref={sellCustomerDropdownRef}>
+              <div className="sm:col-span-2 lg:col-span-12">
                 <label className="block font-bold mb-1">Select Customer *</label>
-                <div className="relative w-full flex items-center">
-                  <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    id="sale-customer-search-input"
-                    value={sellCustomerQuery}
-                    onFocus={() => setIsSellCustomerDropdownOpen(true)}
-                    onChange={(e) => {
-                      setSellCustomerQuery(e.target.value);
-                      // Only clear the FK when the text no longer matches the selected customer.
-                      const exact = customers.find((c) => sellCustomerDisplay(c).toLowerCase() === e.target.value.trim().toLowerCase());
-                      setSellCustomerId(exact?.id || '');
-                      setIsSellCustomerDropdownOpen(true);
-                    }}
-                    placeholder="Search customer name, code, phone, or address..."
-                    className={`w-full rounded-xl border pl-9 pr-8 h-9 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 border-slate-300 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
-                  />
-                  {sellCustomerQuery ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSellCustomerQuery('');
-                        setSellCustomerId('');
-                        setIsSellCustomerDropdownOpen(true);
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full cursor-pointer text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
-                      title="Clear customer selection"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsSellCustomerDropdownOpen((prev) => !prev)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 cursor-pointer text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Floating Search Dropdown Overlay */}
-                {isSellCustomerDropdownOpen && (
-                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border shadow-xl divide-y border-slate-200 bg-white divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
-                    {filteredSellCustomers.length === 0 ? (
-                      <div className="p-3 text-xs text-slate-500 dark:text-slate-400 text-center">
-                        <div>No matching customer in the directory.</div>
-                      </div>
-                    ) : (
-                      filteredSellCustomers.slice(0, 50).map((c) => {
-                        const isSelected = c.id === sellCustomerId;
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => {
-                              setSellCustomerId(c.id);
-                              setSellCustomerQuery(sellCustomerDisplay(c));
-                              setIsSellCustomerDropdownOpen(false);
-                            }}
-                            className={`w-full text-left p-2.5 hover:bg-purple-50 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-between ${
-                              isSelected ? 'bg-purple-50/70 dark:bg-purple-950/40' : ''
-                            }`}
-                          >
-                            <div className="min-w-0 pr-2">
-                              <div className="font-semibold text-xs truncate text-slate-900 dark:text-white">
-                                {c.customerName} <span className="font-mono text-[10px] text-slate-500">({c.customerId})</span>
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] font-mono mt-0.5 text-slate-500 dark:text-slate-400">
-                                {c.contactNumber && <span>{c.contactNumber}</span>}
-                                {c.address && <span>• {c.address}</span>}
-                              </div>
-                            </div>
-                            {isSelected && <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-purple-600 dark:text-purple-400" />}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
+                <CustomerPicker
+                  inputId="sale-customer-search-input"
+                  value={sellCustomerPickerValue}
+                  onSelect={(customer) => {
+                    setSellCustomerId(customer?.id || '');
+                    setSellCustomerQuery(customer ? sellCustomerDisplay(customer) : '');
+                  }}
+                  search={api.searchCustomers}
+                  placeholder="Search customer name, code, phone, or address..."
+                  inputClassName="h-9 text-xs font-semibold"
+                  ariaLabel="Select customer"
+                  required
+                />
               </div>
 
               {/* Row 2: Branch + Payment Method */}

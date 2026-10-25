@@ -15,10 +15,6 @@ import {
   Eye,
   Banknote,
   Ban,
-  Search,
-  ChevronDown,
-  X,
-  CheckCircle2,
   Plus,
   Trash2,
   PackageMinus,
@@ -26,6 +22,7 @@ import {
 import { PageHeader } from '../../components/common/PageHeader';
 import { formCardClass } from '../../components/common/FormCard';
 import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { CustomerPicker } from '../../components/common/CustomerPicker';
 import { FilterCard } from '../../components/common/FilterCard';
 import { TablePagination, useServerPageClamp } from '../../components/common/TablePagination';
 import { RegisterLoadError } from '../../components/common/RegisterLoadError';
@@ -134,11 +131,9 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   const [branchId, setBranchId] = useState(pickInitialBranch);
   const [customerId, setCustomerId] = useState('');
   const [customerName, setCustomerName] = useState('');
-  // Searchable customer picker: `customerQuery` is the visible text,
+  // Searchable customer picker: `customerQuery` is the visible label,
   // `customerId`/`customerName` stay the canonical FK + display name.
   const [customerQuery, setCustomerQuery] = useState('');
-  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
-  const customerDropdownRef = useRef<HTMLDivElement | null>(null);
   const [invDateAD, setInvDateAD] = useState(localTodayAD);
   /** Recomputed every render so the picker and the guard share one "today". */
   const todayAD = localTodayAD();
@@ -356,45 +351,22 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
   };
 
   const customerDisplay = (c: CustomerRecord) => `${c.customerName} (${c.customerId})`;
-
-  // Directory search across name, code, phone and address.
-  const filteredCustomers = useMemo(() => {
-    const q = customerQuery.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.customerName.toLowerCase().includes(q) ||
-        c.customerId.toLowerCase().includes(q) ||
-        (c.contactNumber || '').toLowerCase().includes(q) ||
-        (c.address || '').toLowerCase().includes(q)
-    );
-  }, [customers, customerQuery]);
-
-  // Close the customer dropdown on outside click.
-  useEffect(() => {
-    if (!isCustomerDropdownOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
-        setIsCustomerDropdownOpen(false);
+  const selectedCustomer = customerId ? customers.find((c) => c.id === customerId) : undefined;
+  const customerPickerValue = customerId
+    ? {
+        id: customerId,
+        label: customerQuery || (selectedCustomer ? customerDisplay(selectedCustomer) : ''),
       }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [isCustomerDropdownOpen]);
-
-  // Re-sync the visible query only when a real customer is selected — free-typed
-  // text must survive, so an empty FK never overwrites what the user is typing.
-  useEffect(() => {
-    if (!customerId) return;
-    const c = customers.find((x) => x.id === customerId);
-    if (c) setCustomerQuery(customerDisplay(c));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, customers]);
+    : null;
 
   const submit = async () => {
     setFormError('');
     if (!branchId || branchId === 'ALL' || !branches.some((b) => b.id === branchId)) {
       setFormError('Pick the fulfilling branch before posting — a sale must come from one branch.');
+      return;
+    }
+    if (!customerId) {
+      setFormError('Select a customer from the search results before posting.');
       return;
     }
     if (!invDateAD) {
@@ -707,84 +679,21 @@ export const SalesInvoices: React.FC<SalesInvoicesProps> = ({
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
-            <div className="relative md:col-span-2" ref={customerDropdownRef}>
+            <div className="md:col-span-2">
               <label className={labelClass}>Sell to Customer *</label>
-              <div className="relative w-full flex items-center">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  className={`${inputClass} pl-9 pr-8`}
-                  value={customerQuery}
-                  onFocus={() => setIsCustomerDropdownOpen(true)}
-                  onChange={(e) => {
-                    setCustomerQuery(e.target.value);
-                    // Drop the FK only when the text no longer matches a directory row.
-                    const exact = customers.find((c) => customerDisplay(c).toLowerCase() === e.target.value.trim().toLowerCase());
-                    setCustomerId(exact?.id || '');
-                    setCustomerName(exact?.customerName || e.target.value.trim());
-                    setIsCustomerDropdownOpen(true);
-                  }}
-                  placeholder="Search customer name, code, phone, or address…"
-                />
-                {customerQuery ? (
-                  <button
-                    type="button"
-                    title="Clear customer selection"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    onClick={() => { setCustomerQuery(''); setCustomerId(''); setCustomerName(''); setIsCustomerDropdownOpen(true); }}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    title="Show customer directory"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
-                  >
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {isCustomerDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900">
-                  {filteredCustomers.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-slate-500 dark:text-slate-400">
-                      No matching customer in the directory.
-                    </div>
-                  ) : (
-                    filteredCustomers.slice(0, 50).map((c) => {
-                      const isSelected = c.id === customerId;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            setCustomerId(c.id);
-                            setCustomerName(c.customerName);
-                            setCustomerQuery(customerDisplay(c));
-                            setIsCustomerDropdownOpen(false);
-                          }}
-                          className={`flex w-full cursor-pointer items-center justify-between p-2.5 text-left transition-colors hover:bg-indigo-50 dark:hover:bg-slate-800 ${
-                            isSelected ? 'bg-indigo-50/70 dark:bg-indigo-950/40' : ''
-                          }`}
-                        >
-                          <div className="min-w-0 pr-2">
-                            <div className="truncate text-xs font-semibold text-slate-900 dark:text-white">
-                              {c.customerName} <span className="font-mono text-[10px] text-slate-500">({c.customerId})</span>
-                            </div>
-                            <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-slate-500 dark:text-slate-400">
-                              {c.contactNumber && <span>{c.contactNumber}</span>}
-                              {c.address && <span>• {c.address}</span>}
-                            </div>
-                          </div>
-                          {isSelected && <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
+              <CustomerPicker
+                value={customerPickerValue}
+                onSelect={(customer) => {
+                  setCustomerId(customer?.id || '');
+                  setCustomerName(customer?.customerName || '');
+                  setCustomerQuery(customer ? customerDisplay(customer) : '');
+                }}
+                search={api.searchCustomers}
+                placeholder="Search customer name, code, phone, or address…"
+                inputClassName="h-9 text-xs font-semibold"
+                ariaLabel="Sell to customer"
+                required
+              />
             </div>
             <div>
               <label className={labelClass}>Invoice Date (AD) *</label>

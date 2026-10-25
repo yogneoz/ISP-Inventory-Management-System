@@ -63,6 +63,9 @@ export interface AssignBinLine {
   usedAtLocationName?: string;
   usedAtCustomerId?: string;
   usedAtCustomerName?: string;
+  /** The directory row picked for this line. Kept so submit never depends on
+   *  the customer still being present in a stale bootstrap snapshot. */
+  usedAtCustomer?: CustomerRecord;
   remarks: string;
 }
 

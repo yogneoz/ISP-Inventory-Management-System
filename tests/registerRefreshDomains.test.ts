@@ -650,11 +650,12 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assertEveryRenderSiteWired('ReturnsRegister', /sseRefreshKey=\{registerRefresh\.returnsRegister\}/);
   });
 
-  test('SalesInvoices: api surface pinned to the SI paged fetch; wired at every render site', () => {
+  test('SalesInvoices: api surface pinned to the SI paged fetch + customer search; wired at every render site', () => {
     const source = readFeatureSource('sales/SalesInvoices.tsx');
     // The LIST tab's only data load is /api/sales-invoices (loadSiPage).
-    // Create and record-payment mutations flow through App callbacks.
-    assert.deepEqual(serverCallsIn(source), ['getSalesInvoices']);
+    // The create form's customer picker searches the directory server-side;
+    // create and record-payment mutations flow through App callbacks.
+    assert.deepEqual(serverCallsIn(source), ['getSalesInvoices', 'searchCustomers']);
     assert.match(source, /sseRefreshKey\?: number;/);
     assert.match(
       source,
@@ -965,7 +966,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   the sub-tab strip, zero server calls of its own.
     // No getSerialLogs: the panel validates against the HOST's register cache
     // (serial-register audit, Slice 1) instead of fetching its own copy.
-    'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice'],
+    'inventory/stockops/AssignAssetPanel.tsx': ['createAsset', 'createCustomerDevice', 'searchCustomers'],
     'inventory/stockops/ConsumableIssuePanel.tsx': [],
     'inventory/stockops/ConsumablesRegisterPanel.tsx': ['getStockOperations', 'reverseConsumableIssue'],
     'inventory/stockops/CreatePulloutPanel.tsx': [],
@@ -977,7 +978,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'inventory/stockops/DeviceExchangePanel.tsx': ['exchangeCustomerDevice', 'lookupExchangeSerial', 'reportExchangeRefusal'],
     'inventory/stockops/LabelDamagePanel.tsx': [],
     'inventory/stockops/LogsPanel.tsx': [],
-    'inventory/stockops/ProductSalePanel.tsx': [],
+    'inventory/stockops/ProductSalePanel.tsx': ['searchCustomers'],
     'inventory/stockops/PulloutBinsPanel.tsx': [],
     'inventory/stockops/ReceiveTransferPanel.tsx': ['cancelApprovalRequest', 'cancelShipment', 'createApprovalRequest'],
     'inventory/stockops/StockOperationsTabBar.tsx': [],

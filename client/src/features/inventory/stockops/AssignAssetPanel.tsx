@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStockOperationsCtx } from './StockOperationsContext';
 import { DeviceSerialInput } from '../../../components/common/DeviceSerialInput';
+import { CustomerPicker } from '../../../components/common/CustomerPicker';
 import {
   Asset,
   Product,
@@ -284,7 +285,7 @@ export const AssignAssetPanel: React.FC = () => {
       } else if (item.kind === 'ASSET' && item.assetId && onUpdateAssetStatus) {
         const ledgerAsset = assets.find((x) => x.id === item.assetId);
         if (item.usedAtType === 'CUSTOMER') {
-          const custObj = customers.find((c) => c.id === item.usedAtCustomerId);
+          const custObj = item.usedAtCustomer || customers.find((c) => c.id === item.usedAtCustomerId);
           await onUpdateAssetStatus(item.assetId, {
             status: 'ASSIGNED_TO_CUSTOMER',
             assignedType: 'CUSTOMER',
@@ -555,6 +556,7 @@ export const AssignAssetPanel: React.FC = () => {
                                   usedAtLocationName: t === 'POP' ? item.usedAtLocationName : undefined,
                                   usedAtCustomerId: t === 'CUSTOMER' ? item.usedAtCustomerId : undefined,
                                   usedAtCustomerName: t === 'CUSTOMER' ? item.usedAtCustomerName : undefined,
+                                  usedAtCustomer: t === 'CUSTOMER' ? item.usedAtCustomer : undefined,
                                 });
                               }}
                               className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] font-bold bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -589,19 +591,26 @@ export const AssignAssetPanel: React.FC = () => {
                           {item.usedAtType === 'CUSTOMER' && (
                             <div className="lg:col-span-4">
                               <label className="block font-bold text-[10px] text-slate-500 mb-1">Customer *</label>
-                              <select
-                                value={item.usedAtCustomerId || ''}
-                                onChange={(e) => {
-                                  const cust = customers.find((c) => c.id === e.target.value);
-                                  handleUpdateAssignItem(item.id, { usedAtCustomerId: cust?.id, usedAtCustomerName: cust ? `${cust.customerName} (${cust.customerId})` : undefined });
-                                }}
-                                className="w-full rounded-xl border px-2.5 py-1.5 h-9 text-[11px] bg-white border-slate-300 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                              >
-                                <option value="">Select customer...</option>
-                                {customers.map((c) => (
-                                  <option key={c.id} value={c.id}>{c.customerName} ({c.customerId})</option>
-                                ))}
-                              </select>
+                              <CustomerPicker
+                                value={
+                                  item.usedAtCustomerId
+                                    ? { id: item.usedAtCustomerId, label: item.usedAtCustomerName || '' }
+                                    : null
+                                }
+                                onSelect={(customer) =>
+                                  handleUpdateAssignItem(item.id, {
+                                    usedAtCustomerId: customer?.id,
+                                    usedAtCustomerName: customer
+                                      ? `${customer.customerName} (${customer.customerId})`
+                                      : undefined,
+                                    usedAtCustomer: customer || undefined,
+                                  })
+                                }
+                                search={api.searchCustomers}
+                                placeholder="Search name, code, phone…"
+                                inputClassName="h-9 text-[11px]"
+                                ariaLabel={`Customer for ${item.productName}`}
+                              />
                             </div>
                           )}
 
