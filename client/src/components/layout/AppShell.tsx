@@ -81,8 +81,14 @@ export interface AppShellProps {
   // Data the chrome reads (badges, search modal, notifications, barcode labels)
   products: Product[];
   stock: InventoryStock[];
+  /** Full PO slice — the global search modal searches every document. */
   purchaseOrders: PurchaseOrder[];
+  /** Full invoice slice — the global search modal searches every document. */
   purchaseInvoices: PurchaseInvoice[];
+  /** Scoped open POs for badges + the notification panel (KPI read). */
+  pendingPurchaseOrders: PurchaseOrder[];
+  /** Unpaid vendor-bill count for the sidebar badge (server-filtered). */
+  unpaidBillCount: number;
   shipments: Shipment[];
   stockOperations: StockOperation[];
   approvalRequests: ApprovalRequest[];
@@ -261,6 +267,8 @@ export function AppShell(props: AppShellProps) {
     stock,
     purchaseOrders,
     purchaseInvoices,
+    pendingPurchaseOrders,
+    unpaidBillCount,
     shipments,
     stockOperations,
     approvalRequests,
@@ -312,13 +320,14 @@ export function AppShell(props: AppShellProps) {
   // panel also clears the matching badges/menus elsewhere in the app.
   const dismissedSet = new Set(dismissedNotificationIds);
 
-  const pendingPoCount = purchaseOrders.filter(
+  // KPI counts come from the scoped pending-procurement read, not the whole
+  // purchase slices: dismissed PO notifications still subtract by id, while
+  // the unpaid bill count is the server-aggregated total for this branch/FY.
+  const pendingPoCount = pendingPurchaseOrders.filter(
     (po) => (po.status === 'SENT' || po.status === 'APPROVED') && !dismissedSet.has(`po-${po.id}`)
   ).length;
 
-  const pendingBillCount = purchaseInvoices.filter(
-    (inv) => inv.paymentStatus !== 'PAID'
-  ).length;
+  const pendingBillCount = unpaidBillCount;
 
   const activeBranchContext =
     selectedBranchId && selectedBranchId !== 'ALL'
@@ -474,7 +483,7 @@ export function AppShell(props: AppShellProps) {
       ...shipments
         .filter((sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED')
         .map((sh) => `ship-${sh.id}`),
-      ...purchaseOrders
+      ...pendingPurchaseOrders
         .filter((po) => po.status === 'SENT' || po.status === 'APPROVED')
         .map((po) => `po-${po.id}`),
       // The BS calendar coverage warning is a notification too, so "Clear All"
@@ -613,7 +622,7 @@ export function AppShell(props: AppShellProps) {
         products={products}
         stock={stock}
         approvalRequests={approvalRequests}
-        purchaseOrders={purchaseOrders}
+        pendingPurchaseOrders={pendingPurchaseOrders}
         shipments={shipments}
         branches={branches}
         selectedBranchId={selectedBranchId}

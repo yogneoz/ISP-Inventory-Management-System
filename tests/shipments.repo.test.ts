@@ -13,6 +13,7 @@ import {
   SHIPMENT_UNDO_RECEIVE_STOCK_SQL,
   SHIPMENT_UNDO_RECEIVE_UPDATE_SQL,
   SHIPMENT_LIST_SQL,
+  buildShipmentListSql,
   SHIPMENT_UPSERT_SQL,
   SHIPMENT_FIND_FOR_CANCEL_SQL,
 } from '../server/src/models/shipments.repo';
@@ -77,6 +78,25 @@ describe('query constants', () => {
       assert.ok(SHIPMENT_LIST_SQL.includes(alias), `missing ${alias}`);
     }
     assert.match(SHIPMENT_LIST_SQL, / FROM shipments ORDER BY created_at DESC$/);
+  });
+
+  test('list scope filters either branch end and the dispatch-date range', () => {
+    assert.deepEqual(buildShipmentListSql(), { sql: SHIPMENT_LIST_SQL, params: [] });
+    const scoped = buildShipmentListSql({
+      branchId: 'WH001',
+      dateFromAD: '2026-07-17',
+      dateToAD: '2027-07-16',
+    });
+    assert.match(
+      scoped.sql,
+      / WHERE \(source_branch_id = \$1 OR destination_branch_id = \$1\) AND dispatch_date_ad >= \$2::date AND dispatch_date_ad <= \$3::date ORDER BY created_at DESC$/
+    );
+    assert.deepEqual(scoped.params, ['WH001', '2026-07-17', '2027-07-16']);
+    // Malformed dates are ignored instead of reaching the SQL as parameters.
+    assert.deepEqual(buildShipmentListSql({ dateFromAD: '17/07/2026' }), {
+      sql: SHIPMENT_LIST_SQL,
+      params: [],
+    });
   });
 
   test('cancel lookup locks the row with FOR UPDATE and matches by id or tracking code', () => {

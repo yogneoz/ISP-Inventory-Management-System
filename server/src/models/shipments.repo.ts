@@ -15,8 +15,40 @@
 export const SHIPMENT_SELECT_COLUMNS =
   'id, tracking_code AS "trackingCode", type, source_branch_id AS "sourceBranchId", source_branch_name AS "sourceBranchName", destination_branch_id AS "destinationBranchId", destination_branch_name AS "destinationBranchName", dispatch_date_ad AS "dispatchDateAD", dispatch_date_bs AS "dispatchDateBS", estimated_arrival_ad AS "estimatedArrivalAD", status, notes, items, received_by_notes AS "receivedByNotes", received_date_ad AS "receivedDateAD", received_date_bs AS "receivedDateBS", has_discrepancy AS "hasDiscrepancy"';
 
-export const SHIPMENT_LIST_SQL =
-  `SELECT ${SHIPMENT_SELECT_COLUMNS} FROM shipments ORDER BY created_at DESC`;
+/**
+ * Optional list scope for the FY closing wizard: the header branch (either
+ * end of the transfer) and the selected fiscal year's dispatch-date range.
+ * No options keeps the register's original all-rows query.
+ */
+export interface ShipmentListOptions {
+  branchId?: unknown;
+  dateFromAD?: unknown;
+  dateToAD?: unknown;
+}
+
+export function buildShipmentListSql(opts: ShipmentListOptions = {}): { sql: string; params: unknown[] } {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (typeof opts.branchId === 'string' && opts.branchId && opts.branchId !== 'ALL') {
+    params.push(opts.branchId);
+    conds.push(`(source_branch_id = $${params.length} OR destination_branch_id = $${params.length})`);
+  }
+  if (typeof opts.dateFromAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateFromAD)) {
+    params.push(opts.dateFromAD);
+    conds.push(`dispatch_date_ad >= $${params.length}::date`);
+  }
+  if (typeof opts.dateToAD === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.dateToAD)) {
+    params.push(opts.dateToAD);
+    conds.push(`dispatch_date_ad <= $${params.length}::date`);
+  }
+  const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+  return {
+    sql: `SELECT ${SHIPMENT_SELECT_COLUMNS} FROM shipments${where} ORDER BY created_at DESC`,
+    params,
+  };
+}
+
+export const SHIPMENT_LIST_SQL = buildShipmentListSql().sql;
 
 // Create-time id/tracking-code collision scope check: returns the branches the
 // existing shipment touches so the caller's branch scope can be compared

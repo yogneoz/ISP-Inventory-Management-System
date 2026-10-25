@@ -37,6 +37,8 @@ import { ensureBSDayForAD, BS_SEEDING_MENU_PATH } from '../../utils/nepaliCalend
 import { formatNPR, formatNPRPrecise } from '../../utils/nprFormat';
 import { getAllowedBranches } from '../../utils/permissions';
 import { getDefaultTaxRate } from '../../utils/taxConfig';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { useOpenPurchaseOrders } from '../../services/procurementPendingCache';
 import { normalizeMacAddress } from '../../../../shared/macAddress';
 import type {
   PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, Supplier, DeviceSerialPair, User,
@@ -58,9 +60,10 @@ interface PurchaseInvoiceFormProps {
   products: Product[];
   branches: Branch[];
   suppliers: Supplier[];
-  /** Open (not yet received) purchase orders, for the Link-from-PO flow. */
-  purchaseOrders: PurchaseOrder[];
   selectedBranchId: string;
+  /** Header fiscal-year scope for the open-PO read (AD dates). */
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
   dateMode: 'BS' | 'AD';
   onCreateInvoice: (
     inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
@@ -75,8 +78,9 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   products,
   branches,
   suppliers,
-  purchaseOrders,
   selectedBranchId,
+  fiscalYearStartAD,
+  fiscalYearEndAD,
   dateMode,
   onCreateInvoice,
   onSaved,
@@ -175,11 +179,20 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
   // Multi-Item Bill Lines (empty by default until scanned/searched)
   const [lines, setLines] = useState<InvoiceFormLine[]>([]);
 
-  // Pending POs list for selection
-  const pendingPOs = purchaseOrders.filter(
+  // Pending POs come from a scoped read for the bill's destination branch +
+  // selected fiscal year, not the whole purchase-orders bootstrap slice. This
+  // uses its own store instance, so changing the destination branch here does
+  // not re-scope the shell's header-branch KPI badges. The store keeps the
+  // last good rows on a failed refresh and exposes a Retry.
+  const openPurchaseOrders = useOpenPurchaseOrders({
+    branchId,
+    fiscalYearStartAD,
+    fiscalYearEndAD,
+  });
+  const pendingPOs = openPurchaseOrders.pendingPurchaseOrders.filter(
     (po) => po.status !== 'RECEIVED' && po.status !== 'CANCELLED'
   );
-  const activePO = purchaseOrders.find((po) => po.id === selectedPoId || po.poNumber === selectedPoId);
+  const activePO = pendingPOs.find((po) => po.id === selectedPoId || po.poNumber === selectedPoId);
 
   const poValidation = (() => {
     if (!selectedPoId) return { valid: true, message: '' };
@@ -1221,7 +1234,14 @@ export const PurchaseInvoiceForm: React.FC<PurchaseInvoiceFormProps> = ({
             </div>
 
             <div className="p-4 space-y-3">
- <div className="relative w-full md:w-80 lg:w-96 shrink-0">
+              <LoadStateNotice
+                subject="open purchase orders"
+                loading={openPurchaseOrders.loading}
+                error={openPurchaseOrders.error}
+                hasCachedRows={openPurchaseOrders.pendingPurchaseOrders.length > 0}
+                onRetry={openPurchaseOrders.retry}
+              />
+              <div className="relative w-full md:w-80 lg:w-96 shrink-0">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"

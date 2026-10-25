@@ -523,8 +523,8 @@ and pagination, so the client loads exactly one page of rows at a time.
 | :--- | :--- | :--- |
 | Serial Log Register | `GET /api/serial-log` | **Trimmed from bootstrap** — the register is the endpoint's only consumer, so the table no longer ships in the bootstrap payload at all |
 | Consumables Issue Register | `GET /api/stock-operations?type=CONSUMABLE_ISSUE` | **Trimmed from bootstrap** — register self-fetches its page; the remaining wholesale consumers (StockOperations' panels, movement ledger) are fed by the deferred `GET /api/bootstrap/local?key=stockOperations` hydration that runs right after bootstrap |
-| Purchase Orders Register | `GET /api/purchase-orders` | **Trimmed from bootstrap** — register self-fetches; wholesale consumers (dashboard/notification KPIs, FY closing wizard, PI PO dropdown, movement ledger, global search) are fed by deferred `GET /api/bootstrap/local?key=purchaseOrders` hydration |
-| Purchase Invoices Register | `GET /api/purchase-invoices` | **Trimmed from bootstrap** — register self-fetches; wholesale consumers (FY closing wizard, registers' links, financial statements, VAT/audit reports) are fed by deferred `GET /api/bootstrap/local?key=purchaseInvoices` hydration |
+| Purchase Orders Register | `GET /api/purchase-orders` | **Trimmed from bootstrap** — register self-fetches its page; the KPI surfaces (shell badges, dashboard, notifications), the FY closing wizard and the vendor-bill PO picker read scoped open-PO pages from this endpoint. The movement ledger and global search still take the deferred `GET /api/bootstrap/local?key=purchaseOrders` slice |
+| Purchase Invoices Register | `GET /api/purchase-invoices` | **Trimmed from bootstrap** — register self-fetches its page; the KPI unpaid-bill count is a one-row page's aggregate and the FY closing wizard reads its year's rows from this endpoint. Registers' links, financial statements and VAT/audit reports still take the deferred `GET /api/bootstrap/local?key=purchaseInvoices` slice |
 | Purchase Returns Register | `GET /api/purchase-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Returns Register | `GET /api/sales-returns` | Paged endpoint available; the table still ships in bootstrap for other consumers |
 | Sales Invoices Register | `GET /api/sales-invoices` | Paged endpoint available; the table still ships in bootstrap for other consumers |
@@ -704,7 +704,7 @@ real sources, so an unwired new fetch fails the suite instead of shipping:
   with the BS calendar utility so the ~270 kB gz library downloads only on first
   use). Rarely-used screens use `React.lazy` + `Suspense`.
 - **CI gates** (`.github/workflows/ci.yml`, on every push/PR): typecheck →
-  full 1173-test suite against a PostgreSQL 16 service container (zero DB skips;
+  full 1184-test suite against a PostgreSQL 16 service container (zero DB skips;
   the two unconditional skips are Windows-only real-signal checks, which CI runs,
   and the live-drain check runs under `LIVE_DRAIN_REQUIRE_REAL_SIGNAL=1` so its
   preconditions cannot silently skip it) →

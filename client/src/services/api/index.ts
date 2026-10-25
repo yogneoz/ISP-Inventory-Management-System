@@ -119,6 +119,7 @@ export const api = {
   getCustomerLedger: sales.getCustomerLedger,
 
   // Shipments
+  getShipments: procurement.getShipments,
   createShipment: procurement.createShipment,
   receiveShipment: procurement.receiveShipment,
   cancelShipment: procurement.cancelShipment,

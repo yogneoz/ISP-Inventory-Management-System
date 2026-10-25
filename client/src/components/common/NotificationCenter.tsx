@@ -20,7 +20,8 @@ interface NotificationCenterProps {
   products: Product[];
   stock: InventoryStock[];
   approvalRequests: ApprovalRequest[];
-  purchaseOrders: PurchaseOrder[];
+  /** Scoped open POs loaded for the KPI surfaces — not the whole bootstrap slice. */
+  pendingPurchaseOrders: PurchaseOrder[];
   shipments: Shipment[];
   branches: Branch[];
   selectedBranchId: string;
@@ -42,7 +43,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   products = [],
   stock = [],
   approvalRequests = [],
-  purchaseOrders = [],
+  pendingPurchaseOrders = [],
   shipments = [],
   branches = [],
   selectedBranchId,
@@ -176,7 +177,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     }));
 
   // 4. Generate Pending Purchase Orders
-  const poAlerts = purchaseOrders
+  const poAlerts = pendingPurchaseOrders
     .filter(
       (po) =>
         (po.status === 'SENT' || po.status === 'APPROVED' || po.status === 'DRAFT') &&

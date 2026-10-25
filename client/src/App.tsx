@@ -570,6 +570,64 @@ export default function App() {
     user: 'inventory_user',
   });
 
+  const selectedFiscalYear = fiscalYears.find((fiscalYear) => fiscalYear.id === selectedFiscalYearId);
+
+  // Scoped read for the procurement KPI surfaces (shell badges, dashboard
+  // tile, notification alerts and the vendor-bill PO picker): open POs and
+  // the unpaid bill count for the header branch + selected fiscal year, not
+  // the whole deferred purchase slices. The store is imported dynamically so
+  // its cache/retry code stays out of the startup chunk — the badges load
+  // right after first paint instead of growing the main bundle.
+  const [procurementPending, setProcurementPending] = useState<{
+    pendingPurchaseOrders: PurchaseOrder[];
+    unpaidInvoiceCount: number;
+    loading: boolean;
+    error: string;
+  }>({ pendingPurchaseOrders: [], unpaidInvoiceCount: 0, loading: false, error: '' });
+  const invalidateProcurementPending = () => {
+    void import('./services/procurementPendingCache').then((mod) => mod.invalidateProcurementPending());
+  };
+  const resetProcurementPending = () => {
+    void import('./services/procurementPendingCache').then((mod) => mod.resetProcurementPending());
+  };
+
+  useEffect(() => {
+    if (!selectedFiscalYear?.startDateAD || !selectedFiscalYear?.endDateAD) return;
+    // The store is loaded asynchronously; clear the old branch/FY's counts
+    // immediately so a switch never shows the previous view's KPIs.
+    setProcurementPending({ pendingPurchaseOrders: [], unpaidInvoiceCount: 0, loading: false, error: '' });
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    void import('./services/procurementPendingCache').then((mod) => {
+      if (cancelled) return;
+      const publish = () => {
+        const snapshot = mod.procurementPendingStore.getSnapshot();
+        setProcurementPending({
+          pendingPurchaseOrders: snapshot.pendingPurchaseOrders,
+          unpaidInvoiceCount: snapshot.unpaidInvoiceCount,
+          loading: snapshot.loading,
+          error: snapshot.error,
+        });
+      };
+      unsubscribe = mod.procurementPendingStore.subscribe(publish);
+      mod.procurementPendingStore.ensureLoaded({
+        branchId: selectedBranchId,
+        fiscalYearStartAD: selectedFiscalYear.startDateAD,
+        fiscalYearEndAD: selectedFiscalYear.endDateAD,
+      });
+      publish();
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [
+    selectedBranchId,
+    selectedFiscalYear?.id,
+    selectedFiscalYear?.startDateAD,
+    selectedFiscalYear?.endDateAD,
+  ]);
+
   // Set when the server REFUSED the bootstrap payload (see the catch in
   // refreshAllData): the API's own reason and status, shown verbatim so a
   // configuration problem is not retold as "PostgreSQL Offline" by
@@ -796,6 +854,9 @@ export default function App() {
     // The exchange tab's deployed-device list is another self-fetching cache;
     // a manual refresh must re-read it too (DF-16).
     invalidateExchangeDevices();
+    // The KPI surfaces read the scoped pending-procurement cache rather than
+    // the purchase slices, so a manual refresh re-reads it too.
+    invalidateProcurementPending();
     try {
       const data = await api.getBootstrapState(requestBranchId, requestFiscalYearId || undefined);
       // Discard stale results if the user switched branch/fiscal year in the meantime
@@ -1088,6 +1149,11 @@ export default function App() {
           if (domains.includes('CUSTOMER_DEVICES') || domains.includes('ASSETS')) {
             invalidateExchangeDevices();
           }
+          // Procurement and shipment events change the open-PO set and the
+          // unpaid-bill total the shell/dashboard/vendor-bill picker read.
+          if (domains.includes('PROCUREMENT') || domains.includes('SHIPMENTS')) {
+            invalidateProcurementPending();
+          }
           // Bump any paged registers these domains mutate so they re-fetch
           // their own current page (bootstrap slices alone don't cover them).
           setRegisterRefresh((prev) => {
@@ -1214,6 +1280,9 @@ export default function App() {
     resetBranchStock();
     // Same for the exchange list: it is cached per branch and shared by hosts.
     resetExchangeDevices();
+    // Pending-PO/unpaid-bill counts are per branch + fiscal year: the next
+    // sign-in may see different figures.
+    resetProcurementPending();
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
   };
   handleLogoutRef.current = handleLogout;
@@ -1689,7 +1758,6 @@ export default function App() {
     );
   }
 
-  const selectedFiscalYear = fiscalYears.find((fiscalYear) => fiscalYear.id === selectedFiscalYearId);
   const todayAD = new Date().toISOString().slice(0, 10);
   const assetReportAsOfDateAD = selectedFiscalYear?.isCurrent
     ? (todayAD < selectedFiscalYear.startDateAD ? selectedFiscalYear.startDateAD : todayAD)
@@ -1716,7 +1784,7 @@ export default function App() {
         stock={stock}
         branches={branches}
         assets={assets}
-        purchaseOrders={purchaseOrders}
+        pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
         shipments={shipments}
         transactionLogs={transactionLogs}
         financialSummary={financialSummary}
@@ -2063,6 +2131,8 @@ export default function App() {
           stock={stock}
           purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
           dateMode={dateMode}
           activeTab="create-purchase"
           onCreateInvoice={handleCreateInvoice}
@@ -2086,6 +2156,8 @@ export default function App() {
           stock={stock}
           purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
+          fiscalYearStartAD={selectedFiscalYear?.startDateAD}
+          fiscalYearEndAD={selectedFiscalYear?.endDateAD}
           dateMode={dateMode}
           activeTab="purchase-list"
           onCreateInvoice={handleCreateInvoice}
@@ -2884,9 +2956,8 @@ export default function App() {
           products={products}
           stock={stock}
           assets={assets}
-          purchaseInvoices={purchaseInvoices}
-          purchaseOrders={purchaseOrders}
-          shipments={shipments}
+          branchId={selectedBranchId}
+          sseRefreshKey={registerRefresh.purchaseOrders + registerRefresh.purchaseInvoices}
           approvalRequests={approvalRequests}
           currentUser={currentUser}
           onRefreshData={refreshAllData}
@@ -2959,6 +3030,8 @@ export default function App() {
       stock={stock}
       purchaseOrders={purchaseOrders}
       purchaseInvoices={purchaseInvoices}
+      pendingPurchaseOrders={procurementPending.pendingPurchaseOrders}
+      unpaidBillCount={procurementPending.unpaidInvoiceCount}
       shipments={shipments}
       stockOperations={stockOperations}
       approvalRequests={approvalRequests}
@@ -3019,6 +3092,23 @@ export default function App() {
             onRetry={() => void loadSettingsFromServer()}
             emptyNote=" The app is using default settings until this succeeds."
             cachedNote=" The app is using default settings until this succeeds."
+          />
+
+          {/* The shell badge, dashboard tile and notification panel read the
+              scoped pending-procurement count. A failed read keeps the last
+              numbers on screen and is retryable here rather than silently
+              showing zero. */}
+          <LoadStateNotice
+            subject="open purchase orders and unpaid bills"
+            loading={procurementPending.loading}
+            error={procurementPending.error}
+            onRetry={() => {
+              void import('./services/procurementPendingCache').then((mod) =>
+                mod.procurementPendingStore.refresh()
+              );
+            }}
+            emptyNote=" Badges and alerts may be out of date until this succeeds."
+            cachedNote=" Showing the last loaded counts until this succeeds."
           />
         </>
       }

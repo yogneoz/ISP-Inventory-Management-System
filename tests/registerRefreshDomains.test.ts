@@ -622,12 +622,43 @@ describe('Wired self-fetching registers — pinned api surface + refresh wiring'
     assert.deepEqual(
       serverCallsIn(form),
       [],
-      'PurchaseInvoiceForm must stay fetch-free — submit/payment flows are App callbacks'
+      'PurchaseInvoiceForm must not call services/api directly — its open-PO list comes from the scoped pending-procurement cache'
+    );
+    assert.match(
+      form,
+      /useOpenPurchaseOrders\(\{\s*branchId,/,
+      'the vendor-bill PO picker must scope to the bill\'s destination branch, not the header branch'
+    );
+    assert.doesNotMatch(
+      form,
+      /useProcurementPending\(/,
+      'the picker must not reuse the header-scoped KPI store: its destination branch may differ'
     );
     assertNoRawFetch(form, 'PurchaseInvoiceForm.tsx');
 
     // Both render sites (create-purchase + purchase-list today) pass the counter.
     assertEveryRenderSiteWired('PurchaseInvoices', /sseRefreshKey=\{registerRefresh\.purchaseInvoices\}/);
+  });
+
+  test('FiscalYearClosingWizard: scoped close-document reads wired to the PO/PI counters', () => {
+    const source = readFeatureSource('finance/FiscalYearClosingWizard.tsx');
+    assert.deepEqual(serverCallsIn(source), [
+      'getPurchaseInvoices',
+      'getPurchaseOrders',
+      'getShipments',
+    ]);
+    assert.match(source, /useActivationKey\('fiscal-year-closing'\)/);
+    assert.match(source, /useTabActive\('fiscal-year-closing'\)/);
+    assert.match(
+      source,
+      /\[isTabActive,[^\]]*activationKey[^\]]*sseRefreshKey[^\]]*documentsRetryKey\]/,
+      'the close-document fetch must re-run on activation, an SSE bump and Retry'
+    );
+    assertNoRawFetch(source, 'FiscalYearClosingWizard.tsx');
+    assertEveryRenderSiteWired(
+      'FiscalYearClosingWizard',
+      /sseRefreshKey=\{registerRefresh\.purchaseOrders \+ registerRefresh\.purchaseInvoices\}/
+    );
   });
 
   test('ReturnsRegister: api surface pinned to the two return paged fetches; wired at every render site', () => {
@@ -867,6 +898,9 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CustomerLedger.tsx': ['getCustomerLedger', 'searchCustomers'],
     'finance/DocumentNumbering.tsx': ['getDocumentNumberConfigs', 'updateDocumentNumberConfigs'],
     'finance/FinancialStatements.tsx': ['getFinancialSummaries'],
+    // FY closing wizard: scoped reads for the selected closing year, not the
+    // header-scoped purchase/shipment bootstrap slices.
+    'finance/FiscalYearClosingWizard.tsx': ['getPurchaseInvoices', 'getPurchaseOrders', 'getShipments'],
     'finance/NepaliFiscalManagement.tsx': [
       'getBsCalendarYears',
       'getBsDayRecords',
@@ -903,7 +937,8 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     //   through App callbacks, and reads the SHARED serial-register cache to
     //   refuse a dispatch of a serial that is not an IN_STOCK unit of the
     //   source branch — serial-register audit, Slice 1 + DF-03; no GET of its
-    //   own. PurchaseInvoiceForm / PurchaseOrderForm must stay fetch-free).
+    //   own. PurchaseInvoiceForm reads its open-PO list from the shared
+    //   scoped pending-procurement cache; PurchaseOrderForm stays fetch-free).
     'procurement/CreateShipmentForm.tsx': [],
     'procurement/Shipments.tsx': [],
     'procurement/ShipmentRegister.tsx': ['cancelApprovalRequest', 'cancelReceiveShipment', 'createApprovalRequest'],
@@ -935,7 +970,6 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     // box drops straight back to the bootstrap prop.
     'finance/AuditTrailReports.tsx': ['getAuditTrail'],
     'finance/DepreciationRegister.tsx': [],
-    'finance/FiscalYearClosingWizard.tsx': [],
     'finance/FixedAssetRegister.tsx': [],
     'finance/VatRegister.tsx': [],
     'inventory/BranchStockTracking.tsx': [],
@@ -999,26 +1033,27 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'sales/SalesInvoices.tsx',
   ]);
 
-  // The 13 screens that fetch their own rendered list/report data. They are
+  // The 14 screens that fetch their own rendered list/report data. They are
   // still whole-list (no server paging — see the guards below), but since
   // the keep-mounted tab container they no longer remount on a tab switch;
   // instead each one opts in to refetch-on-reactivation via
   // useActivationKey('<tabKey>') as a dependency of its fetch effect. The
   // keys are pinned below so neither half can be dropped silently. The
-  // two party ledgers also take register counters (DF-14) — see
-  // MOUNT_REFETCH_WITH_REFRESH_KEY and tests/df14LedgerRefresh.test.ts. The
-  // Calendar Health panel is the one non-tab entry: it is nested in
-  // BsCalendarUtility and keys off the same 'bs-calendar' tab, so a seed or
-  // repair applied from the year table also re-audits the findings.
-  // ProductManagement is the one two-tab screen ('all-stock' and
-  // 'product-master'): it keys off its own mode prop and refetches after its
-  // own saves as well as on re-activation.
+  // two party ledgers take register counters (DF-14) and the FY closing
+  // wizard takes the PO/PI counters — see MOUNT_REFETCH_WITH_REFRESH_KEY and
+  // tests/df14LedgerRefresh.test.ts. The Calendar Health panel is the one
+  // non-tab entry: it is nested in BsCalendarUtility and keys off the same
+  // 'bs-calendar' tab, so a seed or repair applied from the year table also
+  // re-audits the findings. ProductManagement is the one two-tab screen
+  // ('all-stock' and 'product-master'): it keys off its own mode prop and
+  // refetches after its own saves as well as on re-activation.
   const MOUNT_REFETCH_SCREENS = [
     'finance/BsCalendarHealthPanel.tsx',
     'finance/BsCalendarUtility.tsx',
     'finance/CustomerLedger.tsx',
     'finance/DocumentNumbering.tsx',
     'finance/FinancialStatements.tsx',
+    'finance/FiscalYearClosingWizard.tsx',
     'finance/NepaliFiscalManagement.tsx',
     'finance/OpeningStockManager.tsx',
     'finance/VendorLedger.tsx',
@@ -1115,11 +1150,14 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
 
   // DF-14: the party ledgers are mount-refetch screens that now ALSO take the
   // register counters (a procurement/sales/return event re-reads the open
-  // ledger in place). They are the only entries allowed to carry that wiring;
-  // the positive pins live in tests/df14LedgerRefresh.test.ts.
+  // ledger in place). The FY closing wizard joined them with the scoped
+  // close-document read: a PO/PI event refreshes an open wizard in place.
+  // The positive pins live in tests/df14LedgerRefresh.test.ts and the wizard
+  // wiring pin below.
   const MOUNT_REFETCH_WITH_REFRESH_KEY = new Set([
     'finance/CustomerLedger.tsx',
     'finance/VendorLedger.tsx',
+    'finance/FiscalYearClosingWizard.tsx',
   ]);
 
   test('mount-refetch screens stay whole-list and refetch on tab re-activation', () => {
@@ -1155,6 +1193,7 @@ describe('Feature-screen coverage — every screen\'s server-call surface is pin
     'finance/CustomerLedger.tsx': 'customer-ledger',
     'finance/DocumentNumbering.tsx': 'fiscal-year-management',
     'finance/FinancialStatements.tsx': 'financial-statements',
+    'finance/FiscalYearClosingWizard.tsx': 'fiscal-year-closing',
     'finance/NepaliFiscalManagement.tsx': 'nepali-fiscal',
     'finance/OpeningStockManager.tsx': 'opening-stock',
     'finance/VendorLedger.tsx': 'vendor-ledger',

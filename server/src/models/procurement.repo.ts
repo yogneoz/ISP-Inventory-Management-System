@@ -52,8 +52,21 @@ export function buildPurchaseOrderWhere(opts: PurchaseOrderQueryOptions): { wher
     whereSql += ` AND branch_id = $${params.length}`;
   }
   if (opts.status && opts.status !== 'ALL') {
-    params.push(opts.status as string);
-    whereSql += ` AND status = $${params.length}`;
+    // One status keeps the equality shape the register has always used; a
+    // comma-separated list (the pending-alerts read) becomes a single
+    // ANY(...) predicate so the caller fetches only open POs instead of the
+    // whole fiscal-year ledger.
+    const statuses = String(opts.status)
+      .split(',')
+      .map((status) => status.trim())
+      .filter(Boolean);
+    if (statuses.length === 1) {
+      params.push(statuses[0]);
+      whereSql += ` AND status = $${params.length}`;
+    } else if (statuses.length > 1) {
+      params.push(statuses);
+      whereSql += ` AND status = ANY($${params.length}::text[])`;
+    }
   }
   if (opts.supplier && typeof opts.supplier === 'string' && opts.supplier.trim() && opts.supplier !== 'ALL') {
     params.push(opts.supplier.trim().toLowerCase());

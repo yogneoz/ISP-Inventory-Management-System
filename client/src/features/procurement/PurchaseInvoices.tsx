@@ -55,6 +55,9 @@ interface PurchaseInvoicesProps {
   stock: InventoryStock[];
   purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
+  /** Header fiscal-year scope for the vendor-bill form's open-PO read. */
+  fiscalYearStartAD?: string;
+  fiscalYearEndAD?: string;
   dateMode: 'BS' | 'AD';
   /** Sidebar menu that opened this page: 'create-purchase' opens the inline bill form, 'purchase-list' opens the register. */
   activeTab?: 'create-purchase' | 'purchase-list';
@@ -93,6 +96,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   suppliers = [],
   purchaseOrders = [],
   selectedBranchId,
+  fiscalYearStartAD,
+  fiscalYearEndAD,
   dateMode,
   activeTab = 'purchase-list',
   autoOpenModal = false,
@@ -891,8 +896,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
           products={products}
           branches={branches}
           suppliers={availableSuppliers}
-          purchaseOrders={purchaseOrders}
           selectedBranchId={selectedBranchId}
+          fiscalYearStartAD={fiscalYearStartAD}
+          fiscalYearEndAD={fiscalYearEndAD}
           dateMode={dateMode}
           onCreateInvoice={onCreateInvoice}
           onSaved={() => setPiRefreshKey((k) => k + 1)}

@@ -47,7 +47,8 @@ interface DashboardProps {
   stock: InventoryStock[];
   branches: Branch[];
   assets: Asset[];
-  purchaseOrders: PurchaseOrder[];
+  /** Scoped open POs from the shared KPI read (statuses DRAFT→PURCHASED). */
+  pendingPurchaseOrders: PurchaseOrder[];
   shipments: Shipment[];
   transactionLogs: TransactionLog[];
   financialSummary: FinancialSummary;
@@ -78,7 +79,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   stock,
   branches,
   assets,
-  purchaseOrders,
+  pendingPurchaseOrders,
   shipments,
   transactionLogs,
   financialSummary,
@@ -219,8 +220,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Pending POs filtered by branch context
   const filteredPOs =
     selectedBranchId === 'ALL'
-      ? purchaseOrders.filter((po) => canSeeAll || allowedBranchIds.includes(po.branchId))
-      : purchaseOrders.filter((po) => po.branchId === selectedBranchId);
+      ? pendingPurchaseOrders.filter((po) => canSeeAll || allowedBranchIds.includes(po.branchId))
+      : pendingPurchaseOrders.filter((po) => po.branchId === selectedBranchId);
 
   const pendingPOs = filteredPOs.filter(
     (po) =>

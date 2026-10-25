@@ -69,6 +69,8 @@ function shellProps(handles: ShellHandles): Omit<AppShellProps, 'banners' | 'chi
     stock: [],
     purchaseOrders: [],
     purchaseInvoices: [],
+    pendingPurchaseOrders: [],
+    unpaidBillCount: 0,
     shipments: [],
     stockOperations: [],
     approvalRequests: [],

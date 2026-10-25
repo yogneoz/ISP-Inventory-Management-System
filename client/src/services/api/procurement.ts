@@ -289,6 +289,24 @@ export async function getVendorLedger(
 }
 
 // Shipments
+/**
+ * Shipment rows, optionally scoped to one branch (either end of the
+ * transfer) and an AD dispatch-date range. The FY closing wizard uses the
+ * scope; the shipment register keeps reading the bootstrap slice.
+ */
+export async function getShipments(params?: {
+  branchId?: string;
+  dateFromAD?: string;
+  dateToAD?: string;
+}): Promise<Shipment[]> {
+  const search = new URLSearchParams();
+  if (params?.branchId && params.branchId !== 'ALL') search.append('branchId', params.branchId);
+  if (params?.dateFromAD) search.append('dateFromAD', params.dateFromAD);
+  if (params?.dateToAD) search.append('dateToAD', params.dateToAD);
+  const query = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson(`/api/shipments${query}`);
+}
+
 export async function createShipment(shipment: Partial<Shipment>): Promise<Shipment> {
   // The server issues the tracking code via issueNextDocNumber (ST).
   return fetchJson('/api/shipments', {

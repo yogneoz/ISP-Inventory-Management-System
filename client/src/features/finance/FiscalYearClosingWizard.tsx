@@ -15,6 +15,9 @@ import {
 import { filterFiscalYears } from '../../utils/permissions';
 import { FiscalYearSelect } from '../../components/common/FiscalYearSelect';
 import { useDialog } from '../../components/common/DialogProvider';
+import { LoadStateNotice } from '../../components/common/LoadStateNotice';
+import { useActivationKey, useTabActive } from '../../components/common/KeepMounted';
+import { api } from '../../services/api';
 import type { NavTab } from '../../components/layout/Sidebar';
 import {
   Lock,
@@ -68,9 +71,10 @@ interface FiscalYearClosingWizardProps {
   products: Product[];
   stock: InventoryStock[];
   assets: Asset[];
-  purchaseInvoices: PurchaseInvoice[];
-  purchaseOrders?: PurchaseOrder[];
-  shipments?: Shipment[];
+  /** Header branch whose purchase documents the diagnostics read. */
+  branchId?: string;
+  /** Bumped by App on procurement/shipment events and manual refreshes. */
+  sseRefreshKey?: number;
   approvalRequests?: ApprovalRequest[];
   currentUser: User | null;
   onRefreshData?: () => Promise<void>;
@@ -97,9 +101,8 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   products,
   stock,
   assets,
-  purchaseInvoices,
-  purchaseOrders = [],
-  shipments = [],
+  branchId,
+  sseRefreshKey,
   approvalRequests = [],
   currentUser,
   onRefreshData,
@@ -172,6 +175,91 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const todayAD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const isClosingEligible = Boolean(currentFy?.endDateAD && currentFy.endDateAD < todayAD);
 
+  // The diagnostics and the closing VAT total read the purchase documents of
+  // the fiscal year being closed — not the header FY's bootstrap slice. This
+  // scoped read is loaded only while the wizard is the visible tab, re-reads
+  // on every re-activation and on procurement/shipment events, and keeps the
+  // last loaded documents for THIS FY on a failure (with a retry) instead of
+  // reporting a fresh year as empty.
+  const [closeDocuments, setCloseDocuments] = useState<{
+    fiscalYearId: string;
+    purchaseOrders: PurchaseOrder[];
+    purchaseInvoices: PurchaseInvoice[];
+    shipments: Shipment[];
+    loading: boolean;
+    error: string;
+  }>({
+    fiscalYearId: '',
+    purchaseOrders: [],
+    purchaseInvoices: [],
+    shipments: [],
+    loading: false,
+    error: '',
+  });
+  const [documentsRetryKey, setDocumentsRetryKey] = useState(0);
+  const isTabActive = useTabActive('fiscal-year-closing');
+  const activationKey = useActivationKey('fiscal-year-closing');
+  const documentsMatch = Boolean(currentFy && closeDocuments.fiscalYearId === currentFy.id);
+  const purchaseOrders = documentsMatch ? closeDocuments.purchaseOrders : [];
+  const purchaseInvoices = documentsMatch ? closeDocuments.purchaseInvoices : [];
+  const shipments = documentsMatch ? closeDocuments.shipments : [];
+  const documentsReady = documentsMatch && !closeDocuments.loading && !closeDocuments.error;
+
+  useEffect(() => {
+    if (!isTabActive || !currentFy?.startDateAD || !currentFy?.endDateAD) return;
+    const fiscalYearId = currentFy.id;
+    let cancelled = false;
+    setCloseDocuments((prev) =>
+      prev.fiscalYearId === fiscalYearId
+        ? { ...prev, loading: true, error: '' }
+        : {
+            fiscalYearId,
+            purchaseOrders: [],
+            purchaseInvoices: [],
+            shipments: [],
+            loading: true,
+            error: '',
+          }
+    );
+    const scope = {
+      branchId,
+      dateFromAD: currentFy.startDateAD,
+      dateToAD: currentFy.endDateAD,
+    };
+    (async () => {
+      try {
+        const [poResponse, piResponse, shipmentRows] = await Promise.all([
+          api.getPurchaseOrders({ ...scope, all: true }),
+          api.getPurchaseInvoices({ ...scope, all: true }),
+          api.getShipments(scope),
+        ]);
+        if (cancelled) return;
+        setCloseDocuments({
+          fiscalYearId,
+          purchaseOrders: Array.isArray(poResponse) ? poResponse : poResponse.data,
+          purchaseInvoices: Array.isArray(piResponse) ? piResponse : piResponse.data,
+          shipments: Array.isArray(shipmentRows) ? shipmentRows : [],
+          loading: false,
+          error: '',
+        });
+      } catch (err: any) {
+        if (cancelled) return;
+        setCloseDocuments((prev) => ({
+          ...prev,
+          fiscalYearId,
+          loading: false,
+          error:
+            err?.message ||
+            'Could not load this fiscal year\'s purchase documents from the database.',
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // The selected FY can differ from the header's, so its AD range is the scope.
+  }, [isTabActive, currentFy?.id, currentFy?.startDateAD, currentFy?.endDateAD, branchId, activationKey, sseRefreshKey, documentsRetryKey]);
+
   useEffect(() => {
     if (!currentFy && defaultFiscalYear) setSelectedFyId(defaultFiscalYear.id);
   }, [currentFy, defaultFiscalYear]);
@@ -220,7 +308,9 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     purchaseInvoices.forEach((inv) => {
       const day = String(inv.invoiceDateAD || '').slice(0, 10);
       if (fStart && fEnd && day >= fStart && day <= fEnd) {
-        vatInputTax += inv.vatAmount || 0;
+        // PostgreSQL NUMERIC arrives as a string; coerce or two VAT rows
+        // concatenate ("02925.0016250.00") instead of adding.
+        vatInputTax += Number(inv.vatAmount) || 0;
       }
     });
 
@@ -246,6 +336,21 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   const preCloseDiagnostics = useMemo(() => {
     if (!currentFy) return [];
     const fyCode = `FY ${currentFy.code}`;
+    // Never report a year as "Ready" from an empty array: until the scoped
+    // document read for this FY lands, every purchase-based check is unknown.
+    if (!documentsReady) {
+      return [
+        {
+          id: 'fy-documents',
+          title: 'Fiscal-Year Purchase Documents',
+          status: (closeDocuments.error ? 'critical' : 'warning') as 'warning' | 'critical',
+          badge: closeDocuments.error ? 'Unavailable' : 'Loading',
+          detail: closeDocuments.error
+            ? `Could not verify purchase orders, vendor bills and shipments for ${fyCode}. ${closeDocuments.error}`
+            : `Loading purchase orders, vendor bills and shipments for ${fyCode}…`,
+        },
+      ];
+    }
     const fyStart = currentFy.startDateAD;
     const fyEnd = currentFy.endDateAD;
     const inFy = (d?: string | null) => {
@@ -342,7 +447,7 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
 
     // 4) VAT sales & purchase register.
     const fyInvoices = (purchaseInvoices || []).filter((inv) => inFy(inv.invoiceDateAD));
-    const vatInputTax = fyInvoices.reduce((sum, inv) => sum + (inv.vatAmount || 0), 0);
+    const vatInputTax = fyInvoices.reduce((sum, inv) => sum + (Number(inv.vatAmount) || 0), 0);
     const salesRevenue = financialSummary?.totalSalesRevenue || 0;
     const vatDiagnostic = {
       id: 'vat-register',
@@ -358,6 +463,8 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
     return [poDiagnostic, stockReconDiagnostic, assetDiagnostic, vatDiagnostic];
   }, [
     currentFy,
+    documentsReady,
+    closeDocuments.error,
     purchaseOrders,
     shipments,
     approvalRequests,
@@ -385,8 +492,10 @@ export const FiscalYearClosingWizard: React.FC<FiscalYearClosingWizardProps> = (
   ];
 
   const handleNextStep = () => {
-    // Block navigation from Step 1 if critical issues exist
-    if (currentStep === 1 && diagnosticCounts.critical > 0) {
+    // Block navigation from Step 1 if critical issues exist, or while this
+    // fiscal year's purchase documents are still loading/failed (closing on
+    // an unverified ledger is exactly the risk the diagnostics exist for).
+    if (currentStep === 1 && (!documentsReady || diagnosticCounts.critical > 0)) {
       // The blocking message in Step 1 already tells the user what's wrong
       return;
     }
@@ -761,6 +870,20 @@ filing. Consult a professional accountant for IRD submission.
       <div
         className={`p-4 rounded-2xl border min-h-[380px] flex flex-col justify-between space-y-6 bg-white border-slate-200 text-slate-800 shadow-xs dark:bg-slate-900/60 dark:border-slate-800 dark:text-slate-200`}
       >
+        {/* The diagnostics, VAT total and closing snapshot read this FY's own
+            purchase documents; a failed/loading read must not read as empty. */}
+        <LoadStateNotice
+          subject="this fiscal year's purchase documents"
+          loading={closeDocuments.loading}
+          error={closeDocuments.error}
+          hasCachedRows={
+            purchaseOrders.length > 0 || purchaseInvoices.length > 0 || shipments.length > 0
+          }
+          onRetry={() => setDocumentsRetryKey((key) => key + 1)}
+          cachedNote=" Showing the last loaded documents for this fiscal year — close only after a successful reload."
+          emptyNote=" The purchase diagnostics cannot be verified until this succeeds."
+        />
+
         {/* STEP 1: PRE-CLOSING DIAGNOSTICS */}
         {currentStep === 1 && (
           <div className="space-y-5">
@@ -1120,10 +1243,10 @@ filing. Consult a professional accountant for IRD submission.
 
           <button
             onClick={handleNextStep}
-            disabled={currentStep === 6 || (currentStep === 1 && diagnosticCounts.critical > 0)}
+            disabled={currentStep === 6 || (currentStep === 1 && (!documentsReady || diagnosticCounts.critical > 0))}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${currentStep === 6
                 ? 'opacity-40 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
-                : currentStep === 1 && diagnosticCounts.critical > 0
+                : currentStep === 1 && (!documentsReady || diagnosticCounts.critical > 0)
                 ? 'opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-800 text-slate-500'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
             }`}

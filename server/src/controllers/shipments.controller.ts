@@ -10,7 +10,7 @@ import { getPgConnected, pgPool, shipments, branches, detectDateTypeMismatch, fi
 import { planSerialGateEntries, resolveSerialGateInDb, SerialGateError, serialGateKey } from '../services/serialGate.service';
 import { OperationError, errorResponse } from '../utils/operationError';
 import {
-  SHIPMENT_LIST_SQL, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
+  buildShipmentListSql, SHIPMENT_UPSERT_SQL, SHIPMENT_FIND_FOR_OVERWRITE_SQL, shipmentUpsertParams,
   SHIPMENT_FIND_ONE_SQL,
   shipmentQtySent, SHIPMENT_DEDUCT_SOURCE_SQL, SHIPMENT_INCOMING_DEST_SQL, shipmentIncomingDestParams,
   SHIPMENT_RECEIVE_UPDATE_SQL, SHIPMENT_RECEIVE_STOCK_SQL, shipmentReceiveStockParams,
@@ -153,7 +153,14 @@ export async function get_shipments(req: any, res: Response): Promise<any> {
   };
   if (getPgConnected()) {
     try {
-      const r = await pgPool.query(SHIPMENT_LIST_SQL);
+      // Optional scope (FY closing wizard): branch either end + dispatch-date
+      // range. Without params this is the original all-rows list query.
+      const list = buildShipmentListSql({
+        branchId: req.query?.branchId,
+        dateFromAD: req.query?.dateFromAD,
+        dateToAD: req.query?.dateToAD,
+      });
+      const r = await pgPool.query(list.sql, list.params as any[]);
       res.json(scoped(r.rows));
       return;
     } catch (err) {

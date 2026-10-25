@@ -237,6 +237,16 @@ describe('paged purchase-order queries', () => {
     assert.match(clamped.sql, /LIMIT 1 OFFSET 0$/);
   });
 
+  test('comma-separated statuses become one ANY predicate (pending-alerts scope)', () => {
+    const { sql, params } = buildPurchaseOrderPagedQuery({ status: 'SENT, APPROVED' });
+    assert.match(sql, /WHERE 1=1 AND status = ANY\(\$1::text\[\]\)/);
+    assert.deepEqual(params, [['SENT', 'APPROVED']]);
+    // One status keeps the equality shape every existing caller relies on.
+    const single = buildPurchaseOrderPagedQuery({ status: 'SENT' });
+    assert.match(single.sql, /AND status = \$1/);
+    assert.deepEqual(single.params, ['SENT']);
+  });
+
   test('aggregate sums pending/received values; status counts group by status', () => {
     const opts = { branchId: 'WH001', status: 'SENT' };
     const agg = buildPurchaseOrderAggregateQuery(opts);
