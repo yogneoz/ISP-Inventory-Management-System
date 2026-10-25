@@ -36,7 +36,12 @@ before/after are the committed truth. Legacy CPE rows with no linked asset are
 keyed by the CPE row id (request number as fallback), so approval execution and
 a direct status PATCH also agree. Failure paths now restore the in-memory row and map
 `OperationError` (for example the empty-replacement-stock `409`) instead of
-answering a generic 500.
+answering a generic 500. `scripts/schema.sql` now accepts the assignment
+statuses the deploy/lifecycle paths write: the original `fixed_assets` status
+check only listed `ACTIVE`/`DISPOSED`/`WRITTEN_OFF`/`MAINTENANCE`, so a fresh or
+upgraded database rejected every `ASSIGNED_TO_CUSTOMER` asset. The migration
+drops and re-creates `fixed_assets_status_check` on boot, and a scratch database
+built from the new schema accepted the assignment row.
 
 **Tests.** `tests/cpeAssetLifecycle.test.ts` on real PostgreSQL: collect once,
 collect twice (no second credit), unlinked collection keyed by its CPE row, exchange

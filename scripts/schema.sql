@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
     depreciation_rate_percent NUMERIC(5, 2) DEFAULT 15.00,
     accumulated_depreciation NUMERIC(12, 2) DEFAULT 0.00,
     net_book_value NUMERIC(12, 2) NOT NULL,
-    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISPOSED', 'WRITTEN_OFF', 'MAINTENANCE')),
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISPOSED', 'WRITTEN_OFF', 'MAINTENANCE', 'IN_USE', 'ASSIGNED_TO_CUSTOMER', 'ASSIGNED_TO_LOCATION')),
     supplier_name VARCHAR(200),
     invoice_no VARCHAR(100),
     purchase_invoice_id VARCHAR(50),
@@ -1684,6 +1684,13 @@ BEGIN
     ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_assignment_bs_required;
     ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_assignment_bs_required CHECK (assignment_date_ad IS NULL OR (assignment_date_bs IS NOT NULL AND assignment_date_bs <> ''));
   END IF;
+  -- Assignment statuses are written by Assign Fixed Asset and the CPE
+  -- lifecycle, but the original column CHECK only listed the register's own
+  -- values, so a fresh or upgraded database rejected every deployment.
+  ALTER TABLE fixed_assets DROP CONSTRAINT IF EXISTS fixed_assets_status_check;
+  ALTER TABLE fixed_assets ADD CONSTRAINT fixed_assets_status_check CHECK (
+    status IN ('ACTIVE', 'DISPOSED', 'WRITTEN_OFF', 'MAINTENANCE', 'IN_USE', 'ASSIGNED_TO_CUSTOMER', 'ASSIGNED_TO_LOCATION')
+  );
   IF NOT EXISTS (SELECT 1 FROM customer_device_records WHERE issued_date_ad IS NOT NULL AND (issued_date_bs IS NULL OR issued_date_bs = '')) THEN
     ALTER TABLE customer_device_records DROP CONSTRAINT IF EXISTS cdr_issued_bs_required;
     ALTER TABLE customer_device_records ADD CONSTRAINT cdr_issued_bs_required CHECK (issued_date_ad IS NULL OR (issued_date_bs IS NOT NULL AND issued_date_bs <> ''));

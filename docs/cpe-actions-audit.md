@@ -143,7 +143,10 @@ Both registers also have to agree: every CPE lifecycle mutation flips the unit's
   Pinned on real PostgreSQL by `tests/cpeAssetLifecycle.test.ts` (collect once,
   collect twice, unlinked replay, exchange, empty-stock rollback, forced-failure
   rollback, exchange-then-collect); the exchange concurrency and MAC suites now
-  assert the replacement consumption.
+  assert the replacement consumption. `scripts/schema.sql` also accepts
+  `IN_USE`/`ASSIGNED_TO_CUSTOMER`/`ASSIGNED_TO_LOCATION` in
+  `fixed_assets_status_check` (fresh install and the boot migration), since the
+  deploy and lifecycle paths write those statuses.
 - **Dead status vocabulary (fixed 2026-10-25, CPE-2).** A live count found zero
   `customer_device_records` rows in `DISCONNECTED` or `RETURNED`, so both
   values were removed from the write paths: create and status PATCH refuse them
